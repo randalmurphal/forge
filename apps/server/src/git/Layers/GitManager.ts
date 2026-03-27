@@ -1275,7 +1275,7 @@ export const makeGitManager = Effect.gen(function* () {
               phase: currentPhase,
               message: error.message,
             });
-            return yield* Effect.fail(error);
+            return yield* error;
           }),
         ),
       );
