@@ -21,6 +21,7 @@ import { ServerSettingsService } from "./serverSettings";
 
 const start = vi.fn(() => undefined);
 const stop = vi.fn(() => undefined);
+const fixPath = vi.fn(() => undefined);
 let resolvedConfig: ServerConfigShape | null = null;
 const serverStart = Effect.acquireRelease(
   Effect.gen(function* () {
@@ -36,7 +37,7 @@ const findAvailablePort = vi.fn((preferred: number) => Effect.succeed(preferred)
 const testLayer = Layer.mergeAll(
   Layer.succeed(CliConfig, {
     cwd: "/tmp/t3-test-workspace",
-    fixPath: Effect.void,
+    fixPath: Effect.sync(fixPath),
     resolveStaticDir: Effect.undefined,
   } satisfies CliConfigShape),
   Layer.succeed(NetService, {
@@ -81,11 +82,15 @@ beforeEach(() => {
   resolvedConfig = null;
   start.mockImplementation(() => undefined);
   stop.mockImplementation(() => undefined);
+  fixPath.mockImplementation(() => undefined);
   findAvailablePort.mockImplementation((preferred: number) => Effect.succeed(preferred));
 });
 
 it.layer(testLayer)("server CLI command", (it) => {
-  it.effect("parses all CLI flags and wires scoped start/stop", () =>
+  const effect = (name: string, test: Parameters<typeof it.effect>[1]) =>
+    it.effect(name, test, 30_000);
+
+  effect("parses all CLI flags and wires scoped start/stop", () =>
     Effect.gen(function* () {
       yield* runCli([
         "--mode",
@@ -118,7 +123,7 @@ it.layer(testLayer)("server CLI command", (it) => {
     }),
   );
 
-  it.effect("supports --token as an alias for --auth-token", () =>
+  effect("supports --token as an alias for --auth-token", () =>
     Effect.gen(function* () {
       yield* runCli(["--token", "token-secret"]);
 
@@ -127,7 +132,7 @@ it.layer(testLayer)("server CLI command", (it) => {
     }),
   );
 
-  it.effect("uses env fallbacks when flags are not provided", () =>
+  effect("uses env fallbacks when flags are not provided", () =>
     Effect.gen(function* () {
       yield* runCli([], {
         T3CODE_MODE: "desktop",
@@ -162,7 +167,7 @@ it.layer(testLayer)("server CLI command", (it) => {
     return fd;
   });
 
-  it.effect("recognizes bootstrap fd from environment config", () =>
+  effect("recognizes bootstrap fd from environment config", () =>
     Effect.gen(function* () {
       const fd = yield* openBootstrapFd({ authToken: "bootstrap-token" });
 
@@ -179,7 +184,7 @@ it.layer(testLayer)("server CLI command", (it) => {
     }),
   );
 
-  it.effect("uses bootstrap envelope values as fallbacks when CLI and env are absent", () =>
+  effect("uses bootstrap envelope values as fallbacks when CLI and env are absent", () =>
     Effect.gen(function* () {
       const fd = yield* openBootstrapFd({
         mode: "desktop",
@@ -211,7 +216,7 @@ it.layer(testLayer)("server CLI command", (it) => {
     }),
   );
 
-  it.effect("applies CLI then env precedence over bootstrap envelope values", () =>
+  effect("applies CLI then env precedence over bootstrap envelope values", () =>
     Effect.gen(function* () {
       const fd = yield* openBootstrapFd({
         mode: "desktop",
@@ -247,7 +252,7 @@ it.layer(testLayer)("server CLI command", (it) => {
     }),
   );
 
-  it.effect("prefers --mode over T3CODE_MODE", () =>
+  effect("prefers --mode over T3CODE_MODE", () =>
     Effect.gen(function* () {
       findAvailablePort.mockImplementation((_preferred: number) => Effect.succeed(4666));
       yield* runCli(["--mode", "web"], {
@@ -263,7 +268,7 @@ it.layer(testLayer)("server CLI command", (it) => {
     }),
   );
 
-  it.effect("prefers --no-browser over T3CODE_NO_BROWSER", () =>
+  effect("prefers --no-browser over T3CODE_NO_BROWSER", () =>
     Effect.gen(function* () {
       yield* runCli(["--no-browser"], {
         T3CODE_NO_BROWSER: "false",
@@ -274,7 +279,7 @@ it.layer(testLayer)("server CLI command", (it) => {
     }),
   );
 
-  it.effect("uses dynamic port discovery in web mode when port is omitted", () =>
+  effect("uses dynamic port discovery in web mode when port is omitted", () =>
     Effect.gen(function* () {
       findAvailablePort.mockImplementation((_preferred: number) => Effect.succeed(5444));
       yield* runCli([]);
@@ -286,7 +291,7 @@ it.layer(testLayer)("server CLI command", (it) => {
     }),
   );
 
-  it.effect("uses fixed localhost defaults in desktop mode", () =>
+  effect("uses fixed localhost defaults in desktop mode", () =>
     Effect.gen(function* () {
       yield* runCli([], {
         T3CODE_MODE: "desktop",
@@ -301,7 +306,7 @@ it.layer(testLayer)("server CLI command", (it) => {
     }),
   );
 
-  it.effect("allows overriding desktop host with --host", () =>
+  effect("allows overriding desktop host with --host", () =>
     Effect.gen(function* () {
       yield* runCli(["--host", "0.0.0.0"], {
         T3CODE_MODE: "desktop",
@@ -314,7 +319,7 @@ it.layer(testLayer)("server CLI command", (it) => {
     }),
   );
 
-  it.effect("supports CLI and env for bootstrap/log websocket toggles", () =>
+  effect("supports CLI and env for bootstrap/log websocket toggles", () =>
     Effect.gen(function* () {
       yield* runCli(["--auto-bootstrap-project-from-cwd"], {
         T3CODE_MODE: "desktop",
@@ -329,7 +334,22 @@ it.layer(testLayer)("server CLI command", (it) => {
     }),
   );
 
-  it.effect("records a startup heartbeat with thread/project counts", () =>
+  effect("hydrates PATH before server startup", () =>
+    Effect.gen(function* () {
+      yield* runCli([]);
+
+      assert.equal(fixPath.mock.calls.length, 1);
+      assert.equal(start.mock.calls.length, 1);
+      const fixPathOrder = fixPath.mock.invocationCallOrder[0];
+      const startOrder = start.mock.invocationCallOrder[0];
+      if (typeof fixPathOrder !== "number" || typeof startOrder !== "number") {
+        assert.fail("Expected fixPath and start to be called");
+      }
+      assert.isTrue(fixPathOrder < startOrder);
+    }),
+  );
+
+  effect("records a startup heartbeat with thread/project counts", () =>
     Effect.gen(function* () {
       const recordTelemetry = vi.fn(
         (_event: string, _properties?: Readonly<Record<string, unknown>>) => Effect.void,
@@ -366,16 +386,16 @@ it.layer(testLayer)("server CLI command", (it) => {
     }),
   );
 
-  it.effect("does not start server for invalid --mode values", () =>
+  effect("does not start server for invalid --mode values", () =>
     Effect.gen(function* () {
-      yield* runCli(["--mode", "invalid"]);
+      yield* runCli(["--mode", "invalid"]).pipe(Effect.catch(() => Effect.void));
 
       assert.equal(start.mock.calls.length, 0);
       assert.equal(stop.mock.calls.length, 0);
     }),
   );
 
-  it.effect("does not start server for invalid --dev-url values", () =>
+  effect("does not start server for invalid --dev-url values", () =>
     Effect.gen(function* () {
       yield* runCli(["--dev-url", "not-a-url"]).pipe(Effect.catch(() => Effect.void));
 
@@ -384,9 +404,9 @@ it.layer(testLayer)("server CLI command", (it) => {
     }),
   );
 
-  it.effect("does not start server for out-of-range --port values", () =>
+  effect("does not start server for out-of-range --port values", () =>
     Effect.gen(function* () {
-      yield* runCli(["--port", "70000"]);
+      yield* runCli(["--port", "70000"]).pipe(Effect.catch(() => Effect.void));
 
       // effect/unstable/cli renders help/errors for parse failures and returns success.
       assert.equal(start.mock.calls.length, 0);

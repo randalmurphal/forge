@@ -43,6 +43,7 @@ import { DiffStatLabel, hasNonZeroStat } from "./DiffStatLabel";
 import { MessageCopyButton } from "./MessageCopyButton";
 import { computeMessageDurationStart, normalizeCompactToolLabel } from "./MessagesTimeline.logic";
 import { TerminalContextInlineChip } from "./TerminalContextInlineChip";
+import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
 import {
   deriveDisplayedUserMessageState,
   type ParsedTerminalContextEntry,
@@ -264,9 +265,14 @@ export const MessagesTimeline = memo(function MessagesTimeline({
     rowVirtualizer.measure();
   }, [rowVirtualizer, timelineWidthPx]);
   useEffect(() => {
-    rowVirtualizer.shouldAdjustScrollPositionOnItemSizeChange = (_item, _delta, instance) => {
+    rowVirtualizer.shouldAdjustScrollPositionOnItemSizeChange = (item, _delta, instance) => {
       const viewportHeight = instance.scrollRect?.height ?? 0;
       const scrollOffset = instance.scrollOffset ?? 0;
+      const itemIntersectsViewport =
+        item.end > scrollOffset && item.start < scrollOffset + viewportHeight;
+      if (itemIntersectsViewport) {
+        return false;
+      }
       const remainingDistance = instance.getTotalSize() - (scrollOffset + viewportHeight);
       return remainingDistance > AUTO_SCROLL_BOTTOM_THRESHOLD_PX;
     };
@@ -483,6 +489,7 @@ export const MessagesTimeline = memo(function MessagesTimeline({
                             type="button"
                             size="xs"
                             variant="outline"
+                            data-scroll-anchor-ignore
                             onClick={() => onToggleAllDirectories(turnSummary.turnId)}
                           >
                             {allDirectoriesExpanded ? "Collapse all" : "Expand all"}
@@ -880,19 +887,29 @@ const SimpleWorkEntryRow = memo(function SimpleWorkEntryRow(props: {
           <EntryIcon className="size-3" />
         </span>
         <div className="min-w-0 flex-1 overflow-hidden">
-          <p
-            className={cn(
-              "truncate text-[11px] leading-5",
-              workToneClass(workEntry.tone),
-              preview ? "text-muted-foreground/70" : "",
-            )}
-            title={displayText}
-          >
-            <span className={cn("text-foreground/80", workToneClass(workEntry.tone))}>
-              {heading}
-            </span>
-            {preview && <span className="text-muted-foreground/55"> - {preview}</span>}
-          </p>
+          <Tooltip>
+            <TooltipTrigger
+              className="block min-w-0 w-full text-left"
+              title={displayText}
+              aria-label={displayText}
+            >
+              <p
+                className={cn(
+                  "truncate text-[11px] leading-5",
+                  workToneClass(workEntry.tone),
+                  preview ? "text-muted-foreground/70" : "",
+                )}
+              >
+                <span className={cn("text-foreground/80", workToneClass(workEntry.tone))}>
+                  {heading}
+                </span>
+                {preview && <span className="text-muted-foreground/55"> - {preview}</span>}
+              </p>
+            </TooltipTrigger>
+            <TooltipPopup className="max-w-[min(720px,calc(100vw-2rem))]">
+              <p className="whitespace-pre-wrap wrap-break-word text-xs leading-5">{displayText}</p>
+            </TooltipPopup>
+          </Tooltip>
         </div>
       </div>
       {hasChangedFiles && !previewIsChangedFiles && (

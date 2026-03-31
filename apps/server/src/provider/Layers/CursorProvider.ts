@@ -3,8 +3,8 @@ import type {
   CursorSettings,
   ModelCapabilities,
   ServerProvider,
+  ServerProviderAuth,
   ServerProviderModel,
-  ServerProviderAuthStatus,
   ServerProviderState,
 } from "@t3tools/contracts";
 import { normalizeModelSlug, resolveContextWindow, resolveEffort } from "@t3tools/shared/model";
@@ -196,37 +196,48 @@ export function resolveCursorAcpModelId(
   model: string | null | undefined,
   modelOptions: CursorModelOptions | null | undefined,
 ): string {
-  const slug = normalizeModelSlug(model, "cursor") ?? "default";
+  const slug = normalizeModelSlug(model, "cursor") ?? "auto";
   if (slug.includes("[") && slug.endsWith("]")) {
     return slug;
   }
   const caps = getCursorModelCapabilities(slug);
   const isBuiltIn = BUILT_IN_MODELS.some((candidate) => candidate.slug === slug);
   if (!isBuiltIn) {
-    return `${slug}[]`;
+    return slug;
   }
 
   const traits: string[] = [];
-  const reasoning = resolveEffort(caps, modelOptions?.reasoning);
-  if (reasoning) {
-    traits.push(`${slug.startsWith("claude-") ? "effort" : "reasoning"}=${reasoning}`);
-  }
 
-  const thinking = caps.supportsThinkingToggle ? (modelOptions?.thinking ?? true) : undefined;
-  if (thinking !== undefined) {
-    traits.push(`thinking=${thinking}`);
-  }
-
-  const contextWindow = resolveContextWindow(caps, modelOptions?.contextWindow);
-  if (contextWindow) {
-    traits.push(`context=${contextWindow}`);
-  }
-
-  if (caps.supportsFastMode) {
+  if (slug === "gpt-5.3-codex") {
+    const reasoning = resolveEffort(caps, modelOptions?.reasoning) ?? "medium";
+    traits.push(`reasoning=${reasoning}`);
     traits.push(`fast=${modelOptions?.fastMode === true}`);
+    return `${slug}[${traits.join(",")}]`;
   }
 
-  return `${slug}[${traits.join(",")}]`;
+  if (caps.supportsFastMode && modelOptions?.fastMode === true) {
+    traits.push("fast=true");
+  }
+
+  if (modelOptions?.reasoning !== undefined) {
+    const reasoning = resolveEffort(caps, modelOptions.reasoning);
+    if (reasoning) {
+      traits.push(`${slug.startsWith("claude-") ? "effort" : "reasoning"}=${reasoning}`);
+    }
+  }
+
+  if (caps.supportsThinkingToggle && modelOptions?.thinking !== undefined) {
+    traits.push(`thinking=${modelOptions.thinking}`);
+  }
+
+  if (modelOptions?.contextWindow !== undefined) {
+    const contextWindow = resolveContextWindow(caps, modelOptions.contextWindow);
+    if (contextWindow) {
+      traits.push(`context=${contextWindow}`);
+    }
+  }
+
+  return traits.length > 0 ? `${slug}[${traits.join(",")}]` : slug;
 }
 
 /**
@@ -297,7 +308,7 @@ function extractAboutField(plain: string, key: string): string | undefined {
 export interface CursorAboutResult {
   readonly version: string | null;
   readonly status: Exclude<ServerProviderState, "disabled">;
-  readonly authStatus: ServerProviderAuthStatus;
+  readonly auth: Pick<ServerProviderAuth, "status">;
   readonly message?: string;
 }
 
@@ -334,7 +345,7 @@ export function parseCursorAboutOutput(result: CommandResult): CursorAboutResult
     return {
       version: null,
       status: "warning",
-      authStatus: "unknown",
+      auth: { status: "unknown" },
       message: "The `agent about` command is unavailable in this version of the Cursor Agent CLI.",
     };
   }
@@ -347,12 +358,12 @@ export function parseCursorAboutOutput(result: CommandResult): CursorAboutResult
   if (userEmail === undefined) {
     // Field missing entirely — can't determine auth.
     if (result.code === 0) {
-      return { version, status: "ready", authStatus: "unknown" };
+      return { version, status: "ready", auth: { status: "unknown" } };
     }
     return {
       version,
       status: "warning",
-      authStatus: "unknown",
+      auth: { status: "unknown" },
       message: "Could not verify Cursor Agent authentication status.",
     };
   }
@@ -366,13 +377,13 @@ export function parseCursorAboutOutput(result: CommandResult): CursorAboutResult
     return {
       version,
       status: "error",
-      authStatus: "unauthenticated",
+      auth: { status: "unauthenticated" },
       message: "Cursor Agent is not authenticated. Run `agent login` and try again.",
     };
   }
 
   // Any non-empty email value means authenticated.
-  return { version, status: "ready", authStatus: "authenticated" };
+  return { version, status: "ready", auth: { status: "authenticated" } };
 }
 
 const runCursorCommand = (args: ReadonlyArray<string>) =>
@@ -426,7 +437,7 @@ export const checkCursorProviderStatus = Effect.fn("checkCursorProviderStatus")(
           installed: false,
           version: null,
           status: "warning",
-          authStatus: "unknown",
+          auth: { status: "unknown" },
           message: "Cursor is disabled in T3 Code settings.",
         },
       });
@@ -449,7 +460,7 @@ export const checkCursorProviderStatus = Effect.fn("checkCursorProviderStatus")(
           installed: !isCommandMissingCause(error),
           version: null,
           status: "error",
-          authStatus: "unknown",
+          auth: { status: "unknown" },
           message: isCommandMissingCause(error)
             ? "Cursor Agent CLI (`agent`) is not installed or not on PATH."
             : `Failed to execute Cursor Agent CLI health check: ${error instanceof Error ? error.message : String(error)}.`,
@@ -467,7 +478,7 @@ export const checkCursorProviderStatus = Effect.fn("checkCursorProviderStatus")(
           installed: true,
           version: null,
           status: "error",
-          authStatus: "unknown",
+          auth: { status: "unknown" },
           message: "Cursor Agent CLI is installed but timed out while running `agent about`.",
         },
       });
@@ -483,7 +494,7 @@ export const checkCursorProviderStatus = Effect.fn("checkCursorProviderStatus")(
         installed: true,
         version: parsed.version,
         status: parsed.status,
-        authStatus: parsed.authStatus,
+        auth: parsed.auth,
         ...(parsed.message ? { message: parsed.message } : {}),
       },
     });
