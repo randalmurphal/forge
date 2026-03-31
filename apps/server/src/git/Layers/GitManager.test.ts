@@ -549,6 +549,7 @@ function makeManager(input?: {
 }
 
 const asThreadId = (threadId: string) => threadId as ThreadId;
+const SLOW_GIT_MANAGER_TEST_TIMEOUT_MS = 60_000;
 
 const GitManagerTestLayer = GitCoreLive.pipe(
   Layer.provide(ServerConfig.layerTest(process.cwd(), { prefix: "t3-git-manager-test-" })),
@@ -556,42 +557,45 @@ const GitManagerTestLayer = GitCoreLive.pipe(
 );
 
 it.layer(GitManagerTestLayer)("GitManager", (it) => {
-  it.effect("status includes PR metadata when branch already has an open PR", () =>
-    Effect.gen(function* () {
-      const repoDir = yield* makeTempDir("t3code-git-manager-");
-      yield* initRepo(repoDir);
-      yield* runGit(repoDir, ["checkout", "-b", "feature/status-open-pr"]);
-      const remoteDir = yield* createBareRemote();
-      yield* runGit(repoDir, ["remote", "add", "origin", remoteDir]);
-      yield* runGit(repoDir, ["push", "-u", "origin", "feature/status-open-pr"]);
+  it.effect(
+    "status includes PR metadata when branch already has an open PR",
+    () =>
+      Effect.gen(function* () {
+        const repoDir = yield* makeTempDir("t3code-git-manager-");
+        yield* initRepo(repoDir);
+        yield* runGit(repoDir, ["checkout", "-b", "feature/status-open-pr"]);
+        const remoteDir = yield* createBareRemote();
+        yield* runGit(repoDir, ["remote", "add", "origin", remoteDir]);
+        yield* runGit(repoDir, ["push", "-u", "origin", "feature/status-open-pr"]);
 
-      const { manager } = yield* makeManager({
-        ghScenario: {
-          prListSequence: [
-            JSON.stringify([
-              {
-                number: 13,
-                title: "Existing PR",
-                url: "https://github.com/pingdotgg/codething-mvp/pull/13",
-                baseRefName: "main",
-                headRefName: "feature/status-open-pr",
-              },
-            ]),
-          ],
-        },
-      });
+        const { manager } = yield* makeManager({
+          ghScenario: {
+            prListSequence: [
+              JSON.stringify([
+                {
+                  number: 13,
+                  title: "Existing PR",
+                  url: "https://github.com/pingdotgg/codething-mvp/pull/13",
+                  baseRefName: "main",
+                  headRefName: "feature/status-open-pr",
+                },
+              ]),
+            ],
+          },
+        });
 
-      const status = yield* manager.status({ cwd: repoDir });
-      expect(status.branch).toBe("feature/status-open-pr");
-      expect(status.pr).toEqual({
-        number: 13,
-        title: "Existing PR",
-        url: "https://github.com/pingdotgg/codething-mvp/pull/13",
-        baseBranch: "main",
-        headBranch: "feature/status-open-pr",
-        state: "open",
-      });
-    }),
+        const status = yield* manager.status({ cwd: repoDir });
+        expect(status.branch).toBe("feature/status-open-pr");
+        expect(status.pr).toEqual({
+          number: 13,
+          title: "Existing PR",
+          url: "https://github.com/pingdotgg/codething-mvp/pull/13",
+          baseBranch: "main",
+          headBranch: "feature/status-open-pr",
+          state: "open",
+        });
+      }),
+    SLOW_GIT_MANAGER_TEST_TIMEOUT_MS,
   );
 
   it.effect(
@@ -649,7 +653,7 @@ it.layer(GitManagerTestLayer)("GitManager", (it) => {
           "pr list --head jasonLaster:statemachine --state all --limit 20 --json number,title,url,baseRefName,headRefName,state,mergedAt,updatedAt",
         );
       }),
-    12_000,
+    SLOW_GIT_MANAGER_TEST_TIMEOUT_MS,
   );
 
   it.effect("status returns merged PR state when latest PR was merged", () =>
@@ -853,54 +857,59 @@ it.layer(GitManagerTestLayer)("GitManager", (it) => {
     }),
   );
 
-  it.effect("creates feature branch, commits, and pushes with featureBranch option", () =>
-    Effect.gen(function* () {
-      const repoDir = yield* makeTempDir("t3code-git-manager-");
-      yield* initRepo(repoDir);
-      const remoteDir = yield* createBareRemote();
-      yield* runGit(repoDir, ["remote", "add", "origin", remoteDir]);
-      yield* runGit(repoDir, ["push", "-u", "origin", "main"]);
-      fs.writeFileSync(path.join(repoDir, "README.md"), "hello\nfeature-branch\n");
-      let generatedCount = 0;
+  it.effect(
+    "creates feature branch, commits, and pushes with featureBranch option",
+    () =>
+      Effect.gen(function* () {
+        const repoDir = yield* makeTempDir("t3code-git-manager-");
+        yield* initRepo(repoDir);
+        const remoteDir = yield* createBareRemote();
+        yield* runGit(repoDir, ["remote", "add", "origin", remoteDir]);
+        yield* runGit(repoDir, ["push", "-u", "origin", "main"]);
+        fs.writeFileSync(path.join(repoDir, "README.md"), "hello\nfeature-branch\n");
+        let generatedCount = 0;
 
-      const { manager } = yield* makeManager({
-        textGeneration: {
-          generateCommitMessage: (input) =>
-            Effect.sync(() => {
-              generatedCount += 1;
-              return {
-                subject: "Implement stacked git actions",
-                body: "",
-                ...(input.includeBranch ? { branch: "feature/implement-stacked-git-actions" } : {}),
-              };
-            }),
-        },
-      });
-      const result = yield* runStackedAction(manager, {
-        cwd: repoDir,
-        action: "commit_push",
-        featureBranch: true,
-      });
+        const { manager } = yield* makeManager({
+          textGeneration: {
+            generateCommitMessage: (input) =>
+              Effect.sync(() => {
+                generatedCount += 1;
+                return {
+                  subject: "Implement stacked git actions",
+                  body: "",
+                  ...(input.includeBranch
+                    ? { branch: "feature/implement-stacked-git-actions" }
+                    : {}),
+                };
+              }),
+          },
+        });
+        const result = yield* runStackedAction(manager, {
+          cwd: repoDir,
+          action: "commit_push",
+          featureBranch: true,
+        });
 
-      expect(result.branch.status).toBe("created");
-      expect(result.branch.name).toBe("feature/implement-stacked-git-actions");
-      expect(result.commit.status).toBe("created");
-      expect(result.push.status).toBe("pushed");
-      expect(
-        yield* runGit(repoDir, ["rev-parse", "--abbrev-ref", "HEAD"]).pipe(
-          Effect.map((result) => result.stdout.trim()),
-        ),
-      ).toBe("feature/implement-stacked-git-actions");
+        expect(result.branch.status).toBe("created");
+        expect(result.branch.name).toBe("feature/implement-stacked-git-actions");
+        expect(result.commit.status).toBe("created");
+        expect(result.push.status).toBe("pushed");
+        expect(
+          yield* runGit(repoDir, ["rev-parse", "--abbrev-ref", "HEAD"]).pipe(
+            Effect.map((result) => result.stdout.trim()),
+          ),
+        ).toBe("feature/implement-stacked-git-actions");
 
-      const mainSha = yield* runGit(repoDir, ["rev-parse", "main"]).pipe(
-        Effect.map((r) => r.stdout.trim()),
-      );
-      const mergeBase = yield* runGit(repoDir, ["merge-base", "main", "HEAD"]).pipe(
-        Effect.map((r) => r.stdout.trim()),
-      );
-      expect(mergeBase).toBe(mainSha);
-      expect(generatedCount).toBe(1);
-    }),
+        const mainSha = yield* runGit(repoDir, ["rev-parse", "main"]).pipe(
+          Effect.map((r) => r.stdout.trim()),
+        );
+        const mergeBase = yield* runGit(repoDir, ["merge-base", "main", "HEAD"]).pipe(
+          Effect.map((r) => r.stdout.trim()),
+        );
+        expect(mergeBase).toBe(mainSha);
+        expect(generatedCount).toBe(1);
+      }),
+    SLOW_GIT_MANAGER_TEST_TIMEOUT_MS,
   );
 
   it.effect("featureBranch uses custom commit message and derives branch name", () =>

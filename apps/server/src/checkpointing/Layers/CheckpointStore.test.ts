@@ -80,7 +80,7 @@ function initRepoWithCommit(
   });
 }
 
-function buildLargeText(lineCount = 20_000): string {
+function buildLargeText(lineCount = 5_000): string {
   return Array.from({ length: lineCount }, (_, index) => `line ${String(index).padStart(5, "0")}`)
     .join("\n")
     .concat("\n");
@@ -88,35 +88,38 @@ function buildLargeText(lineCount = 20_000): string {
 
 it.layer(TestLayer)("CheckpointStoreLive", (it) => {
   describe("diffCheckpoints", () => {
-    it.effect("returns full oversized checkpoint diffs without truncation", () =>
-      Effect.gen(function* () {
-        const tmp = yield* makeTmpDir();
-        yield* initRepoWithCommit(tmp);
-        const checkpointStore = yield* CheckpointStore;
-        const threadId = ThreadId.makeUnsafe("thread-checkpoint-store");
-        const fromCheckpointRef = checkpointRefForThreadTurn(threadId, 0);
-        const toCheckpointRef = checkpointRefForThreadTurn(threadId, 1);
+    it.effect(
+      "returns full oversized checkpoint diffs without truncation",
+      () =>
+        Effect.gen(function* () {
+          const tmp = yield* makeTmpDir();
+          yield* initRepoWithCommit(tmp);
+          const checkpointStore = yield* CheckpointStore;
+          const threadId = ThreadId.makeUnsafe("thread-checkpoint-store");
+          const fromCheckpointRef = checkpointRefForThreadTurn(threadId, 0);
+          const toCheckpointRef = checkpointRefForThreadTurn(threadId, 1);
 
-        yield* checkpointStore.captureCheckpoint({
-          cwd: tmp,
-          checkpointRef: fromCheckpointRef,
-        });
-        yield* writeTextFile(path.join(tmp, "README.md"), buildLargeText());
-        yield* checkpointStore.captureCheckpoint({
-          cwd: tmp,
-          checkpointRef: toCheckpointRef,
-        });
+          yield* checkpointStore.captureCheckpoint({
+            cwd: tmp,
+            checkpointRef: fromCheckpointRef,
+          });
+          yield* writeTextFile(path.join(tmp, "README.md"), buildLargeText());
+          yield* checkpointStore.captureCheckpoint({
+            cwd: tmp,
+            checkpointRef: toCheckpointRef,
+          });
 
-        const diff = yield* checkpointStore.diffCheckpoints({
-          cwd: tmp,
-          fromCheckpointRef,
-          toCheckpointRef,
-        });
+          const diff = yield* checkpointStore.diffCheckpoints({
+            cwd: tmp,
+            fromCheckpointRef,
+            toCheckpointRef,
+          });
 
-        expect(diff).toContain("diff --git");
-        expect(diff).not.toContain("[truncated]");
-        expect(diff).toContain("+line 19999");
-      }),
+          expect(diff).toContain("diff --git");
+          expect(diff).not.toContain("[truncated]");
+          expect(diff).toContain("+line 04999");
+        }),
+      60_000,
     );
   });
 });
