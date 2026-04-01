@@ -1,0 +1,550 @@
+import { Cause, Effect, Layer, Option, Queue, Ref, Schema, Stream } from "effect";
+import {
+  CommandId,
+  EventId,
+  type OrchestrationCommand,
+  type GitActionProgressEvent,
+  type GitManagerServiceError,
+  OrchestrationDispatchCommandError,
+  type OrchestrationEvent,
+  OrchestrationGetFullThreadDiffError,
+  OrchestrationGetSnapshotError,
+  OrchestrationGetTurnDiffError,
+  ORCHESTRATION_WS_METHODS,
+  ProjectSearchEntriesError,
+  ProjectWriteFileError,
+  OrchestrationReplayEventsError,
+  ThreadId,
+  type TerminalEvent,
+  WS_METHODS,
+  WsRpcGroup,
+} from "@t3tools/contracts";
+import { clamp } from "effect/Number";
+import { HttpRouter, HttpServerRequest, HttpServerResponse } from "effect/unstable/http";
+import { RpcSerialization, RpcServer } from "effect/unstable/rpc";
+
+import { CheckpointDiffQuery } from "./checkpointing/Services/CheckpointDiffQuery";
+import { ServerConfig } from "./config";
+import { GitCore } from "./git/Services/GitCore";
+import { GitManager } from "./git/Services/GitManager";
+import { Keybindings } from "./keybindings";
+import { Open, resolveAvailableEditors } from "./open";
+import { normalizeDispatchCommand } from "./orchestration/Normalizer";
+import { OrchestrationEngineService } from "./orchestration/Services/OrchestrationEngine";
+import { ProjectionSnapshotQuery } from "./orchestration/Services/ProjectionSnapshotQuery";
+import { ProviderRegistry } from "./provider/Services/ProviderRegistry";
+import { ServerLifecycleEvents } from "./serverLifecycleEvents";
+import { ServerRuntimeStartup } from "./serverRuntimeStartup";
+import { ServerSettingsService } from "./serverSettings";
+import { TerminalManager } from "./terminal/Services/Manager";
+import { WorkspaceEntries } from "./workspace/Services/WorkspaceEntries";
+import { WorkspaceFileSystem } from "./workspace/Services/WorkspaceFileSystem";
+import { WorkspacePathOutsideRootError } from "./workspace/Services/WorkspacePaths";
+import { ProjectSetupScriptRunner } from "./projectScripts/Services/ProjectSetupScriptRunner";
+
+const WsRpcLayer = WsRpcGroup.toLayer(
+  Effect.gen(function* () {
+    const projectionSnapshotQuery = yield* ProjectionSnapshotQuery;
+    const orchestrationEngine = yield* OrchestrationEngineService;
+    const checkpointDiffQuery = yield* CheckpointDiffQuery;
+    const keybindings = yield* Keybindings;
+    const open = yield* Open;
+    const gitManager = yield* GitManager;
+    const git = yield* GitCore;
+    const terminalManager = yield* TerminalManager;
+    const providerRegistry = yield* ProviderRegistry;
+    const config = yield* ServerConfig;
+    const lifecycleEvents = yield* ServerLifecycleEvents;
+    const serverSettings = yield* ServerSettingsService;
+    const startup = yield* ServerRuntimeStartup;
+    const workspaceEntries = yield* WorkspaceEntries;
+    const workspaceFileSystem = yield* WorkspaceFileSystem;
+    const projectSetupScriptRunner = yield* ProjectSetupScriptRunner;
+
+    const serverCommandId = (tag: string) =>
+      CommandId.makeUnsafe(`server:${tag}:${crypto.randomUUID()}`);
+
+    const appendSetupScriptActivity = (input: {
+      readonly threadId: ThreadId;
+      readonly kind: "setup-script.requested" | "setup-script.started" | "setup-script.failed";
+      readonly summary: string;
+      readonly createdAt: string;
+      readonly payload: Record<string, unknown>;
+      readonly tone: "info" | "error";
+    }) =>
+      orchestrationEngine.dispatch({
+        type: "thread.activity.append",
+        commandId: serverCommandId("setup-script-activity"),
+        threadId: input.threadId,
+        activity: {
+          id: EventId.makeUnsafe(crypto.randomUUID()),
+          tone: input.tone,
+          kind: input.kind,
+          summary: input.summary,
+          payload: input.payload,
+          turnId: null,
+          createdAt: input.createdAt,
+        },
+        createdAt: input.createdAt,
+      });
+
+    const toDispatchCommandError = (cause: unknown, fallbackMessage: string) =>
+      Schema.is(OrchestrationDispatchCommandError)(cause)
+        ? cause
+        : new OrchestrationDispatchCommandError({
+            message: cause instanceof Error ? cause.message : fallbackMessage,
+            cause,
+          });
+
+    const toBootstrapDispatchCommandCauseError = (cause: Cause.Cause<unknown>) => {
+      const error = Cause.squash(cause);
+      return Schema.is(OrchestrationDispatchCommandError)(error)
+        ? error
+        : new OrchestrationDispatchCommandError({
+            message:
+              error instanceof Error ? error.message : "Failed to bootstrap thread turn start.",
+            cause,
+          });
+    };
+
+    const dispatchBootstrapTurnStart = (
+      command: Extract<OrchestrationCommand, { type: "thread.turn.start" }>,
+    ): Effect.Effect<{ readonly sequence: number }, OrchestrationDispatchCommandError> =>
+      Effect.gen(function* () {
+        const bootstrap = command.bootstrap;
+        const { bootstrap: _bootstrap, ...finalTurnStartCommand } = command;
+        let createdThread = false;
+        let targetProjectId = bootstrap?.createThread?.projectId;
+        let targetProjectCwd = bootstrap?.prepareWorktree?.projectCwd;
+        let targetWorktreePath = bootstrap?.createThread?.worktreePath ?? null;
+
+        const cleanupCreatedThread = () =>
+          createdThread
+            ? orchestrationEngine
+                .dispatch({
+                  type: "thread.delete",
+                  commandId: serverCommandId("bootstrap-thread-delete"),
+                  threadId: command.threadId,
+                })
+                .pipe(Effect.ignoreCause({ log: true }))
+            : Effect.void;
+
+        const runSetupProgram = () =>
+          bootstrap?.runSetupScript && targetWorktreePath
+            ? (() => {
+                const worktreePath = targetWorktreePath;
+                const requestedAt = new Date().toISOString();
+                return projectSetupScriptRunner
+                  .runForThread({
+                    threadId: command.threadId,
+                    ...(targetProjectId ? { projectId: targetProjectId } : {}),
+                    ...(targetProjectCwd ? { projectCwd: targetProjectCwd } : {}),
+                    worktreePath,
+                  })
+                  .pipe(
+                    Effect.tap((setupResult) => {
+                      if (setupResult.status !== "started") {
+                        return Effect.void;
+                      }
+                      const payload = {
+                        scriptId: setupResult.scriptId,
+                        scriptName: setupResult.scriptName,
+                        terminalId: setupResult.terminalId,
+                        worktreePath,
+                      };
+                      return Effect.all([
+                        appendSetupScriptActivity({
+                          threadId: command.threadId,
+                          kind: "setup-script.requested",
+                          summary: "Starting setup script",
+                          createdAt: requestedAt,
+                          payload,
+                          tone: "info",
+                        }),
+                        appendSetupScriptActivity({
+                          threadId: command.threadId,
+                          kind: "setup-script.started",
+                          summary: "Setup script started",
+                          createdAt: new Date().toISOString(),
+                          payload,
+                          tone: "info",
+                        }),
+                      ]).pipe(Effect.asVoid);
+                    }),
+                    Effect.catch((error) => {
+                      const detail =
+                        error instanceof Error ? error.message : "Unknown setup failure.";
+                      return appendSetupScriptActivity({
+                        threadId: command.threadId,
+                        kind: "setup-script.failed",
+                        summary: "Setup script failed to start",
+                        createdAt: requestedAt,
+                        payload: {
+                          detail,
+                          worktreePath,
+                        },
+                        tone: "error",
+                      }).pipe(
+                        Effect.ignoreCause({ log: false }),
+                        Effect.flatMap(() =>
+                          Effect.logWarning("bootstrap turn start failed to launch setup script", {
+                            threadId: command.threadId,
+                            worktreePath,
+                            detail,
+                          }),
+                        ),
+                      );
+                    }),
+                  );
+              })()
+            : Effect.void;
+
+        const bootstrapProgram = Effect.gen(function* () {
+          if (bootstrap?.createThread) {
+            yield* orchestrationEngine.dispatch({
+              type: "thread.create",
+              commandId: serverCommandId("bootstrap-thread-create"),
+              threadId: command.threadId,
+              projectId: bootstrap.createThread.projectId,
+              title: bootstrap.createThread.title,
+              modelSelection: bootstrap.createThread.modelSelection,
+              runtimeMode: bootstrap.createThread.runtimeMode,
+              interactionMode: bootstrap.createThread.interactionMode,
+              branch: bootstrap.createThread.branch,
+              worktreePath: bootstrap.createThread.worktreePath,
+              createdAt: bootstrap.createThread.createdAt,
+            });
+            createdThread = true;
+          }
+
+          if (bootstrap?.prepareWorktree) {
+            const worktree = yield* git.createWorktree({
+              cwd: bootstrap.prepareWorktree.projectCwd,
+              branch: bootstrap.prepareWorktree.baseBranch,
+              newBranch: bootstrap.prepareWorktree.branch,
+              path: null,
+            });
+            targetProjectCwd = bootstrap.prepareWorktree.projectCwd;
+            targetWorktreePath = worktree.worktree.path;
+            yield* orchestrationEngine.dispatch({
+              type: "thread.meta.update",
+              commandId: serverCommandId("bootstrap-thread-meta-update"),
+              threadId: command.threadId,
+              branch: worktree.worktree.branch,
+              worktreePath: targetWorktreePath,
+            });
+          }
+
+          yield* runSetupProgram();
+
+          return yield* orchestrationEngine.dispatch(finalTurnStartCommand);
+        });
+
+        return yield* bootstrapProgram.pipe(
+          Effect.catchCause((cause) => {
+            const dispatchError = toBootstrapDispatchCommandCauseError(cause);
+            if (Cause.hasInterruptsOnly(cause)) {
+              return Effect.fail(dispatchError);
+            }
+            return cleanupCreatedThread().pipe(Effect.flatMap(() => Effect.fail(dispatchError)));
+          }),
+        );
+      });
+
+    const dispatchNormalizedCommand = (
+      normalizedCommand: OrchestrationCommand,
+    ): Effect.Effect<{ readonly sequence: number }, OrchestrationDispatchCommandError> => {
+      const dispatchEffect =
+        normalizedCommand.type === "thread.turn.start" && normalizedCommand.bootstrap
+          ? dispatchBootstrapTurnStart(normalizedCommand)
+          : orchestrationEngine
+              .dispatch(normalizedCommand)
+              .pipe(
+                Effect.mapError((cause) =>
+                  toDispatchCommandError(cause, "Failed to dispatch orchestration command"),
+                ),
+              );
+
+      return startup
+        .enqueueCommand(dispatchEffect)
+        .pipe(
+          Effect.mapError((cause) =>
+            toDispatchCommandError(cause, "Failed to dispatch orchestration command"),
+          ),
+        );
+    };
+
+    const loadServerConfig = Effect.gen(function* () {
+      const keybindingsConfig = yield* keybindings.loadConfigState;
+      const providers = yield* providerRegistry.getProviders;
+      const settings = yield* serverSettings.getSettings;
+
+      return {
+        cwd: config.cwd,
+        keybindingsConfigPath: config.keybindingsConfigPath,
+        keybindings: keybindingsConfig.keybindings,
+        issues: keybindingsConfig.issues,
+        providers,
+        availableEditors: resolveAvailableEditors(),
+        settings,
+      };
+    });
+
+    return WsRpcGroup.of({
+      [ORCHESTRATION_WS_METHODS.getSnapshot]: (_input) =>
+        projectionSnapshotQuery.getSnapshot().pipe(
+          Effect.mapError(
+            (cause) =>
+              new OrchestrationGetSnapshotError({
+                message: "Failed to load orchestration snapshot",
+                cause,
+              }),
+          ),
+        ),
+      [ORCHESTRATION_WS_METHODS.dispatchCommand]: (command) =>
+        normalizeDispatchCommand(command).pipe(Effect.flatMap(dispatchNormalizedCommand)),
+      [ORCHESTRATION_WS_METHODS.getTurnDiff]: (input) =>
+        checkpointDiffQuery.getTurnDiff(input).pipe(
+          Effect.mapError(
+            (cause) =>
+              new OrchestrationGetTurnDiffError({
+                message: "Failed to load turn diff",
+                cause,
+              }),
+          ),
+        ),
+      [ORCHESTRATION_WS_METHODS.getFullThreadDiff]: (input) =>
+        checkpointDiffQuery.getFullThreadDiff(input).pipe(
+          Effect.mapError(
+            (cause) =>
+              new OrchestrationGetFullThreadDiffError({
+                message: "Failed to load full thread diff",
+                cause,
+              }),
+          ),
+        ),
+      [ORCHESTRATION_WS_METHODS.replayEvents]: (input) =>
+        Stream.runCollect(
+          orchestrationEngine.readEvents(
+            clamp(input.fromSequenceExclusive, { maximum: Number.MAX_SAFE_INTEGER, minimum: 0 }),
+          ),
+        ).pipe(
+          Effect.map((events) => Array.from(events)),
+          Effect.mapError(
+            (cause) =>
+              new OrchestrationReplayEventsError({
+                message: "Failed to replay orchestration events",
+                cause,
+              }),
+          ),
+        ),
+      [WS_METHODS.subscribeOrchestrationDomainEvents]: (_input) =>
+        Stream.unwrap(
+          Effect.gen(function* () {
+            const snapshot = yield* orchestrationEngine.getReadModel();
+            const fromSequenceExclusive = snapshot.snapshotSequence;
+            const replayEvents: Array<OrchestrationEvent> = yield* Stream.runCollect(
+              orchestrationEngine.readEvents(fromSequenceExclusive),
+            ).pipe(
+              Effect.map((events) => Array.from(events)),
+              Effect.catch(() => Effect.succeed([] as Array<OrchestrationEvent>)),
+            );
+            const replayStream = Stream.fromIterable(replayEvents);
+            const source = Stream.merge(replayStream, orchestrationEngine.streamDomainEvents);
+            type SequenceState = {
+              readonly nextSequence: number;
+              readonly pendingBySequence: Map<number, OrchestrationEvent>;
+            };
+            const state = yield* Ref.make<SequenceState>({
+              nextSequence: fromSequenceExclusive + 1,
+              pendingBySequence: new Map<number, OrchestrationEvent>(),
+            });
+
+            return source.pipe(
+              Stream.mapEffect((event) =>
+                Ref.modify(
+                  state,
+                  ({
+                    nextSequence,
+                    pendingBySequence,
+                  }): [Array<OrchestrationEvent>, SequenceState] => {
+                    if (event.sequence < nextSequence || pendingBySequence.has(event.sequence)) {
+                      return [[], { nextSequence, pendingBySequence }];
+                    }
+
+                    const updatedPending = new Map(pendingBySequence);
+                    updatedPending.set(event.sequence, event);
+
+                    const emit: Array<OrchestrationEvent> = [];
+                    let expected = nextSequence;
+                    for (;;) {
+                      const expectedEvent = updatedPending.get(expected);
+                      if (!expectedEvent) {
+                        break;
+                      }
+                      emit.push(expectedEvent);
+                      updatedPending.delete(expected);
+                      expected += 1;
+                    }
+
+                    return [emit, { nextSequence: expected, pendingBySequence: updatedPending }];
+                  },
+                ),
+              ),
+              Stream.flatMap((events) => Stream.fromIterable(events)),
+            );
+          }),
+        ),
+      [WS_METHODS.serverGetConfig]: (_input) => loadServerConfig,
+      [WS_METHODS.serverRefreshProviders]: (_input) =>
+        providerRegistry.refresh().pipe(Effect.map((providers) => ({ providers }))),
+      [WS_METHODS.serverUpsertKeybinding]: (rule) =>
+        Effect.gen(function* () {
+          const keybindingsConfig = yield* keybindings.upsertKeybindingRule(rule);
+          return { keybindings: keybindingsConfig, issues: [] };
+        }),
+      [WS_METHODS.serverGetSettings]: (_input) => serverSettings.getSettings,
+      [WS_METHODS.serverUpdateSettings]: ({ patch }) => serverSettings.updateSettings(patch),
+      [WS_METHODS.projectsSearchEntries]: (input) =>
+        workspaceEntries.search(input).pipe(
+          Effect.mapError(
+            (cause) =>
+              new ProjectSearchEntriesError({
+                message: `Failed to search workspace entries: ${cause.detail}`,
+                cause,
+              }),
+          ),
+        ),
+      [WS_METHODS.projectsWriteFile]: (input) =>
+        workspaceFileSystem.writeFile(input).pipe(
+          Effect.mapError((cause) => {
+            const message = Schema.is(WorkspacePathOutsideRootError)(cause)
+              ? "Workspace file path must stay within the project root."
+              : "Failed to write workspace file";
+            return new ProjectWriteFileError({
+              message,
+              cause,
+            });
+          }),
+        ),
+      [WS_METHODS.shellOpenInEditor]: (input) => open.openInEditor(input),
+      [WS_METHODS.gitStatus]: (input) => gitManager.status(input),
+      [WS_METHODS.gitPull]: (input) => git.pullCurrentBranch(input.cwd),
+      [WS_METHODS.gitRunStackedAction]: (input) =>
+        Stream.callback<GitActionProgressEvent, GitManagerServiceError>((queue) =>
+          gitManager
+            .runStackedAction(input, {
+              actionId: input.actionId,
+              progressReporter: {
+                publish: (event) => Queue.offer(queue, event).pipe(Effect.asVoid),
+              },
+            })
+            .pipe(
+              Effect.matchCauseEffect({
+                onFailure: (cause) => Queue.failCause(queue, cause),
+                onSuccess: () => Queue.end(queue).pipe(Effect.asVoid),
+              }),
+            ),
+        ),
+      [WS_METHODS.gitResolvePullRequest]: (input) => gitManager.resolvePullRequest(input),
+      [WS_METHODS.gitPreparePullRequestThread]: (input) =>
+        gitManager.preparePullRequestThread(input),
+      [WS_METHODS.gitListBranches]: (input) => git.listBranches(input),
+      [WS_METHODS.gitCreateWorktree]: (input) => git.createWorktree(input),
+      [WS_METHODS.gitRemoveWorktree]: (input) => git.removeWorktree(input),
+      [WS_METHODS.gitCreateBranch]: (input) => git.createBranch(input),
+      [WS_METHODS.gitCheckout]: (input) => Effect.scoped(git.checkoutBranch(input)),
+      [WS_METHODS.gitInit]: (input) => git.initRepo(input),
+      [WS_METHODS.terminalOpen]: (input) => terminalManager.open(input),
+      [WS_METHODS.terminalWrite]: (input) => terminalManager.write(input),
+      [WS_METHODS.terminalResize]: (input) => terminalManager.resize(input),
+      [WS_METHODS.terminalClear]: (input) => terminalManager.clear(input),
+      [WS_METHODS.terminalRestart]: (input) => terminalManager.restart(input),
+      [WS_METHODS.terminalClose]: (input) => terminalManager.close(input),
+      [WS_METHODS.subscribeTerminalEvents]: (_input) =>
+        Stream.callback<TerminalEvent>((queue) =>
+          Effect.acquireRelease(
+            terminalManager.subscribe((event) => Queue.offer(queue, event)),
+            (unsubscribe) => Effect.sync(unsubscribe),
+          ),
+        ),
+      [WS_METHODS.subscribeServerConfig]: (_input) =>
+        Stream.unwrap(
+          Effect.gen(function* () {
+            const keybindingsUpdates = keybindings.streamChanges.pipe(
+              Stream.map((event) => ({
+                version: 1 as const,
+                type: "keybindingsUpdated" as const,
+                payload: {
+                  issues: event.issues,
+                },
+              })),
+            );
+            const providerStatuses = providerRegistry.streamChanges.pipe(
+              Stream.map((providers) => ({
+                version: 1 as const,
+                type: "providerStatuses" as const,
+                payload: { providers },
+              })),
+            );
+            const settingsUpdates = serverSettings.streamChanges.pipe(
+              Stream.map((settings) => ({
+                version: 1 as const,
+                type: "settingsUpdated" as const,
+                payload: { settings },
+              })),
+            );
+
+            return Stream.concat(
+              Stream.make({
+                version: 1 as const,
+                type: "snapshot" as const,
+                config: yield* loadServerConfig,
+              }),
+              Stream.merge(keybindingsUpdates, Stream.merge(providerStatuses, settingsUpdates)),
+            );
+          }),
+        ),
+      [WS_METHODS.subscribeServerLifecycle]: (_input) =>
+        Stream.unwrap(
+          Effect.gen(function* () {
+            const snapshot = yield* lifecycleEvents.snapshot;
+            const snapshotEvents = Array.from(snapshot.events).toSorted(
+              (left, right) => left.sequence - right.sequence,
+            );
+            const liveEvents = lifecycleEvents.stream.pipe(
+              Stream.filter((event) => event.sequence > snapshot.sequence),
+            );
+            return Stream.concat(Stream.fromIterable(snapshotEvents), liveEvents);
+          }),
+        ),
+    });
+  }),
+);
+
+export const websocketRpcRouteLayer = Layer.unwrap(
+  Effect.gen(function* () {
+    const rpcWebSocketHttpEffect = yield* RpcServer.toHttpEffectWebsocket(WsRpcGroup).pipe(
+      Effect.provide(WsRpcLayer.pipe(Layer.provideMerge(RpcSerialization.layerJson))),
+    );
+    return HttpRouter.add(
+      "GET",
+      "/ws",
+      Effect.gen(function* () {
+        const request = yield* HttpServerRequest.HttpServerRequest;
+        const config = yield* ServerConfig;
+        if (config.authToken) {
+          const url = HttpServerRequest.toURL(request);
+          if (Option.isNone(url)) {
+            return HttpServerResponse.text("Invalid WebSocket URL", { status: 400 });
+          }
+          const token = url.value.searchParams.get("token");
+          if (token !== config.authToken) {
+            return HttpServerResponse.text("Unauthorized WebSocket connection", { status: 401 });
+          }
+        }
+        return yield* rpcWebSocketHttpEffect;
+      }),
+    );
+  }),
+);

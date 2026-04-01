@@ -13,7 +13,7 @@ import type {
   ThreadId,
 } from "@t3tools/contracts";
 
-import { GitCommandError, GitHubCliError, TextGenerationError } from "../Errors.ts";
+import { GitCommandError, GitHubCliError, TextGenerationError } from "@t3tools/contracts";
 import { type GitManagerShape } from "../Services/GitManager.ts";
 import {
   type GitHubCliShape,

@@ -1,6 +1,11 @@
-import { type GitStackedAction, type ThreadId } from "@t3tools/contracts";
+import {
+  type GitActionProgressEvent,
+  type GitStackedAction,
+  type ThreadId,
+} from "@t3tools/contracts";
 import { mutationOptions, queryOptions, type QueryClient } from "@tanstack/react-query";
 import { ensureNativeApi } from "../nativeApi";
+import { getWsRpcClient } from "../wsRpcClient";
 
 const GIT_STATUS_STALE_TIME_MS = 5_000;
 const GIT_STATUS_REFETCH_INTERVAL_MS = 15_000;
@@ -121,23 +126,27 @@ export function gitRunStackedActionMutationOptions(input: {
       commitMessage,
       featureBranch,
       filePaths,
+      onProgress,
     }: {
       actionId: string;
       action: GitStackedAction;
       commitMessage?: string;
       featureBranch?: boolean;
       filePaths?: string[];
+      onProgress?: (event: GitActionProgressEvent) => void;
     }) => {
-      const api = ensureNativeApi();
       if (!input.cwd) throw new Error("Git action is unavailable.");
-      return api.git.runStackedAction({
-        actionId,
-        cwd: input.cwd,
-        action,
-        ...(commitMessage ? { commitMessage } : {}),
-        ...(featureBranch ? { featureBranch } : {}),
-        ...(filePaths ? { filePaths } : {}),
-      });
+      return getWsRpcClient().git.runStackedAction(
+        {
+          actionId,
+          cwd: input.cwd,
+          action,
+          ...(commitMessage ? { commitMessage } : {}),
+          ...(featureBranch ? { featureBranch } : {}),
+          ...(filePaths ? { filePaths } : {}),
+        },
+        ...(onProgress ? [{ onProgress }] : []),
+      );
     },
     onSettled: async () => {
       await invalidateGitQueries(input.queryClient);
