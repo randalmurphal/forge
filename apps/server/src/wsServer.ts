@@ -677,8 +677,7 @@ export const createServer = Effect.fn(function* (): Effect.fn.Return<
                   ]).pipe(Effect.asVoid);
                 }),
                 Effect.catch((error) => {
-                  const detail =
-                    error instanceof Error ? error.message : "Unknown setup failure.";
+                  const detail = error instanceof Error ? error.message : "Unknown setup failure.";
                   return appendSetupScriptActivity({
                     threadId: command.threadId,
                     kind: "setup-script.failed",
@@ -691,15 +690,12 @@ export const createServer = Effect.fn(function* (): Effect.fn.Return<
                     tone: "error",
                   }).pipe(
                     Effect.ignoreCause({ log: false }),
-                    Effect.zipRight(
-                      Effect.logWarning(
-                        "bootstrap turn start failed to launch setup script",
-                        {
-                          threadId: command.threadId,
-                          worktreePath,
-                          detail,
-                        },
-                      ),
+                    Effect.flatMap(() =>
+                      Effect.logWarning("bootstrap turn start failed to launch setup script", {
+                        threadId: command.threadId,
+                        worktreePath,
+                        detail,
+                      }),
                     ),
                   );
                 }),
@@ -754,7 +750,7 @@ export const createServer = Effect.fn(function* (): Effect.fn.Return<
         if (Cause.hasInterruptsOnly(cause)) {
           return Effect.failCause(cause);
         }
-        return cleanupCreatedThread().pipe(Effect.zipRight(Effect.failCause(cause)));
+        return cleanupCreatedThread().pipe(Effect.flatMap(() => Effect.failCause(cause)));
       }),
     );
   });
