@@ -1893,17 +1893,16 @@ describe("ChatView timeline estimator parity (full app)", () => {
           ) as
             | {
                 _tag: string;
-                command?: {
-                  type?: string;
-                  bootstrap?: {
-                    createThread?: { projectId?: string };
-                    prepareWorktree?: { projectCwd?: string; baseBranch?: string; branch?: string };
-                    runSetupScript?: boolean;
-                  };
+                type?: string;
+                bootstrap?: {
+                  createThread?: { projectId?: string };
+                  prepareWorktree?: { projectCwd?: string; baseBranch?: string; branch?: string };
+                  runSetupScript?: boolean;
                 };
               }
             | undefined;
-          expect(dispatchRequest?.command).toMatchObject({
+          expect(dispatchRequest).toMatchObject({
+            _tag: ORCHESTRATION_WS_METHODS.dispatchCommand,
             type: "thread.turn.start",
             bootstrap: {
               createThread: {
