@@ -446,11 +446,8 @@ function PersistentThreadTerminalDrawer({
     if (launchContext?.worktreePath) {
       return launchContext.worktreePath;
     }
-    if (launchContext && terminalState.activeTerminalId.startsWith("setup-")) {
-      return launchContext.cwd;
-    }
     return worktreePath;
-  }, [launchContext, terminalState.activeTerminalId, worktreePath]);
+  }, [launchContext, worktreePath]);
   const cwd = useMemo(
     () =>
       launchContext?.cwd ??
@@ -553,6 +550,7 @@ function PersistentThreadTerminalDrawer({
       <ThreadTerminalDrawer
         threadId={threadId}
         cwd={cwd}
+        worktreePath={effectiveWorktreePath}
         runtimeEnv={runtimeEnv}
         visible={visible}
         height={terminalState.terminalHeight}
@@ -1778,6 +1776,7 @@ export default function ChatView({ threadId }: ChatViewProps) {
             threadId: activeThreadId,
             terminalId: targetTerminalId,
             cwd: targetCwd,
+            ...(targetWorktreePath !== null ? { worktreePath: targetWorktreePath } : {}),
             env: runtimeEnv,
             cols: SCRIPT_TERMINAL_COLS,
             rows: SCRIPT_TERMINAL_ROWS,
@@ -1786,6 +1785,7 @@ export default function ChatView({ threadId }: ChatViewProps) {
             threadId: activeThreadId,
             terminalId: targetTerminalId,
             cwd: targetCwd,
+            ...(targetWorktreePath !== null ? { worktreePath: targetWorktreePath } : {}),
             env: runtimeEnv,
           };
 

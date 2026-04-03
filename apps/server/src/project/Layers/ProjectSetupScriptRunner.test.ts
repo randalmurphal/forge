@@ -83,6 +83,7 @@ describe("ProjectSetupScriptRunner", () => {
         threadId: "thread-1",
         terminalId: "setup-setup",
         cwd: "/repo/worktrees/a",
+        worktreePath: "/repo/worktrees/a",
         status: "running" as const,
         pid: 123,
         history: "",
@@ -150,6 +151,7 @@ describe("ProjectSetupScriptRunner", () => {
       threadId: "thread-1",
       terminalId: "setup-setup",
       cwd: "/repo/worktrees/a",
+      worktreePath: "/repo/worktrees/a",
       env: {
         T3CODE_PROJECT_ROOT: "/repo/project",
         T3CODE_WORKTREE_PATH: "/repo/worktrees/a",

@@ -281,7 +281,7 @@ function launchContextFromStartEvent(
 ): ThreadTerminalLaunchContext {
   return {
     cwd: event.snapshot.cwd,
-    worktreePath: event.terminalId.startsWith("setup-") ? event.snapshot.cwd : null,
+    worktreePath: event.snapshot.worktreePath,
   };
 }
 
