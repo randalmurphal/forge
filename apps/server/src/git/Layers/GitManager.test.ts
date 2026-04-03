@@ -792,66 +792,69 @@ it.layer(GitManagerTestLayer)("GitManager", (it) => {
       }),
   );
 
-  it.effect("status detects cross-repo PRs from the upstream remote URL owner", () =>
-    Effect.gen(function* () {
-      const repoDir = yield* makeTempDir("t3code-git-manager-");
-      yield* initRepo(repoDir);
-      const forkDir = yield* createBareRemote();
-      yield* runGit(repoDir, ["remote", "add", "fork-seed", forkDir]);
-      yield* runGit(repoDir, ["checkout", "-b", "statemachine"]);
-      fs.writeFileSync(path.join(repoDir, "fork-pr.txt"), "fork pr\n");
-      yield* runGit(repoDir, ["add", "fork-pr.txt"]);
-      yield* runGit(repoDir, ["commit", "-m", "Fork PR branch"]);
-      yield* runGit(repoDir, ["push", "-u", "fork-seed", "statemachine"]);
-      yield* runGit(repoDir, ["checkout", "-b", "t3code/pr-488/statemachine"]);
-      yield* runGit(repoDir, ["branch", "--set-upstream-to", "fork-seed/statemachine"]);
-      yield* runGit(repoDir, [
-        "config",
-        "remote.fork-seed.url",
-        "git@github.com:jasonLaster/codething-mvp.git",
-      ]);
+  it.effect(
+    "status detects cross-repo PRs from the upstream remote URL owner",
+    () =>
+      Effect.gen(function* () {
+        const repoDir = yield* makeTempDir("t3code-git-manager-");
+        yield* initRepo(repoDir);
+        const forkDir = yield* createBareRemote();
+        yield* runGit(repoDir, ["remote", "add", "fork-seed", forkDir]);
+        yield* runGit(repoDir, ["checkout", "-b", "statemachine"]);
+        fs.writeFileSync(path.join(repoDir, "fork-pr.txt"), "fork pr\n");
+        yield* runGit(repoDir, ["add", "fork-pr.txt"]);
+        yield* runGit(repoDir, ["commit", "-m", "Fork PR branch"]);
+        yield* runGit(repoDir, ["push", "-u", "fork-seed", "statemachine"]);
+        yield* runGit(repoDir, ["checkout", "-b", "t3code/pr-488/statemachine"]);
+        yield* runGit(repoDir, ["branch", "--set-upstream-to", "fork-seed/statemachine"]);
+        yield* runGit(repoDir, [
+          "config",
+          "remote.fork-seed.url",
+          "git@github.com:jasonLaster/codething-mvp.git",
+        ]);
 
-      const { manager, ghCalls } = yield* makeManager({
-        ghScenario: {
-          prListSequence: [
-            JSON.stringify([]),
-            JSON.stringify([]),
-            JSON.stringify([
-              {
-                number: 488,
-                title: "Rebase this PR on latest main",
-                url: "https://github.com/pingdotgg/codething-mvp/pull/488",
-                baseRefName: "main",
-                headRefName: "statemachine",
-                state: "OPEN",
-                updatedAt: "2026-03-10T07:00:00Z",
-                isCrossRepository: true,
-                headRepository: {
-                  nameWithOwner: "jasonLaster/codething-mvp",
+        const { manager, ghCalls } = yield* makeManager({
+          ghScenario: {
+            prListSequence: [
+              JSON.stringify([]),
+              JSON.stringify([]),
+              JSON.stringify([
+                {
+                  number: 488,
+                  title: "Rebase this PR on latest main",
+                  url: "https://github.com/pingdotgg/codething-mvp/pull/488",
+                  baseRefName: "main",
+                  headRefName: "statemachine",
+                  state: "OPEN",
+                  updatedAt: "2026-03-10T07:00:00Z",
+                  isCrossRepository: true,
+                  headRepository: {
+                    nameWithOwner: "jasonLaster/codething-mvp",
+                  },
+                  headRepositoryOwner: {
+                    login: "jasonLaster",
+                  },
                 },
-                headRepositoryOwner: {
-                  login: "jasonLaster",
-                },
-              },
-            ]),
-          ],
-        },
-      });
+              ]),
+            ],
+          },
+        });
 
-      const status = yield* manager.status({ cwd: repoDir });
-      expect(status.branch).toBe("t3code/pr-488/statemachine");
-      expect(status.pr).toEqual({
-        number: 488,
-        title: "Rebase this PR on latest main",
-        url: "https://github.com/pingdotgg/codething-mvp/pull/488",
-        baseBranch: "main",
-        headBranch: "statemachine",
-        state: "open",
-      });
-      expect(ghCalls).toContain(
-        "pr list --head jasonLaster:statemachine --state all --limit 20 --json number,title,url,baseRefName,headRefName,state,mergedAt,updatedAt,isCrossRepository,headRepository,headRepositoryOwner",
-      );
-    }),
+        const status = yield* manager.status({ cwd: repoDir });
+        expect(status.branch).toBe("t3code/pr-488/statemachine");
+        expect(status.pr).toEqual({
+          number: 488,
+          title: "Rebase this PR on latest main",
+          url: "https://github.com/pingdotgg/codething-mvp/pull/488",
+          baseBranch: "main",
+          headBranch: "statemachine",
+          state: "open",
+        });
+        expect(ghCalls).toContain(
+          "pr list --head jasonLaster:statemachine --state all --limit 20 --json number,title,url,baseRefName,headRefName,state,mergedAt,updatedAt,isCrossRepository,headRepository,headRepositoryOwner",
+        );
+      }),
+    12_000,
   );
 
   it.effect(

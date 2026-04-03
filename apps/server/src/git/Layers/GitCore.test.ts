@@ -20,8 +20,6 @@ const GitCoreTestLayer = GitCoreLive.pipe(
   Layer.provide(NodeServices.layer),
 );
 const TestLayer = Layer.mergeAll(NodeServices.layer, GitCoreTestLayer);
-const SLOW_GIT_CORE_TEST_TIMEOUT_MS = 60_000;
-const SLOW_GIT_CORE_WAIT_TIMEOUT_MS = 30_000;
 
 function makeTmpDir(
   prefix = "git-test-",
@@ -330,51 +328,48 @@ it.layer(TestLayer)("git integration", (it) => {
       }),
     );
 
-    it.effect(
-      "keeps default branch right after current branch",
-      () =>
-        Effect.gen(function* () {
-          const tmp = yield* makeTmpDir();
-          const remote = yield* makeTmpDir();
-          yield* initRepoWithCommit(tmp);
-          const defaultBranch = (yield* (yield* GitCore).listBranches({ cwd: tmp })).branches.find(
-            (branch) => branch.current,
-          )!.name;
+    it.effect("keeps default branch right after current branch", () =>
+      Effect.gen(function* () {
+        const tmp = yield* makeTmpDir();
+        const remote = yield* makeTmpDir();
+        yield* initRepoWithCommit(tmp);
+        const defaultBranch = (yield* (yield* GitCore).listBranches({ cwd: tmp })).branches.find(
+          (branch) => branch.current,
+        )!.name;
 
-          yield* git(remote, ["init", "--bare"]);
-          yield* git(tmp, ["remote", "add", "origin", remote]);
-          yield* git(tmp, ["push", "-u", "origin", defaultBranch]);
-          yield* git(tmp, ["remote", "set-head", "origin", defaultBranch]);
+        yield* git(remote, ["init", "--bare"]);
+        yield* git(tmp, ["remote", "add", "origin", remote]);
+        yield* git(tmp, ["push", "-u", "origin", defaultBranch]);
+        yield* git(tmp, ["remote", "set-head", "origin", defaultBranch]);
 
-          yield* (yield* GitCore).createBranch({ cwd: tmp, branch: "current-branch" });
-          yield* (yield* GitCore).checkoutBranch({ cwd: tmp, branch: "current-branch" });
-          yield* commitWithDate(
-            tmp,
-            "current.txt",
-            "current change\n",
-            "Thu, 1 Jan 2037 00:00:00 +0000",
-            "current change",
-          );
+        yield* (yield* GitCore).createBranch({ cwd: tmp, branch: "current-branch" });
+        yield* (yield* GitCore).checkoutBranch({ cwd: tmp, branch: "current-branch" });
+        yield* commitWithDate(
+          tmp,
+          "current.txt",
+          "current change\n",
+          "Thu, 1 Jan 2037 00:00:00 +0000",
+          "current change",
+        );
 
-          yield* (yield* GitCore).checkoutBranch({ cwd: tmp, branch: defaultBranch });
-          yield* (yield* GitCore).createBranch({ cwd: tmp, branch: "newer-branch" });
-          yield* (yield* GitCore).checkoutBranch({ cwd: tmp, branch: "newer-branch" });
-          yield* commitWithDate(
-            tmp,
-            "newer.txt",
-            "newer change\n",
-            "Fri, 1 Jan 2038 00:00:00 +0000",
-            "newer change",
-          );
+        yield* (yield* GitCore).checkoutBranch({ cwd: tmp, branch: defaultBranch });
+        yield* (yield* GitCore).createBranch({ cwd: tmp, branch: "newer-branch" });
+        yield* (yield* GitCore).checkoutBranch({ cwd: tmp, branch: "newer-branch" });
+        yield* commitWithDate(
+          tmp,
+          "newer.txt",
+          "newer change\n",
+          "Fri, 1 Jan 2038 00:00:00 +0000",
+          "newer change",
+        );
 
-          yield* (yield* GitCore).checkoutBranch({ cwd: tmp, branch: "current-branch" });
+        yield* (yield* GitCore).checkoutBranch({ cwd: tmp, branch: "current-branch" });
 
-          const result = yield* (yield* GitCore).listBranches({ cwd: tmp });
-          expect(result.branches[0]!.name).toBe("current-branch");
-          expect(result.branches[1]!.name).toBe(defaultBranch);
-          expect(result.branches[2]!.name).toBe("newer-branch");
-        }),
-      SLOW_GIT_CORE_TEST_TIMEOUT_MS,
+        const result = yield* (yield* GitCore).listBranches({ cwd: tmp });
+        expect(result.branches[0]!.name).toBe("current-branch");
+        expect(result.branches[1]!.name).toBe(defaultBranch);
+        expect(result.branches[2]!.name).toBe("newer-branch");
+      }),
     );
 
     it.effect("lists multiple branches after creating them", () =>
@@ -620,67 +615,58 @@ it.layer(TestLayer)("git integration", (it) => {
       }),
     );
 
-    it.effect(
-      "refreshes upstream behind count after checkout when remote branch advanced",
-      () =>
-        Effect.gen(function* () {
-          const services = yield* Effect.services();
-          const runPromise = Effect.runPromiseWith(services);
+    it.effect("refreshes upstream behind count after checkout when remote branch advanced", () =>
+      Effect.gen(function* () {
+        const services = yield* Effect.services();
+        const runPromise = Effect.runPromiseWith(services);
 
-          const remote = yield* makeTmpDir();
-          const source = yield* makeTmpDir();
-          const clone = yield* makeTmpDir();
-          yield* git(remote, ["init", "--bare"]);
+        const remote = yield* makeTmpDir();
+        const source = yield* makeTmpDir();
+        const clone = yield* makeTmpDir();
+        yield* git(remote, ["init", "--bare"]);
 
-          yield* initRepoWithCommit(source);
-          const defaultBranch = (yield* (yield* GitCore).listBranches({
-            cwd: source,
-          })).branches.find((branch) => branch.current)!.name;
-          yield* git(source, ["remote", "add", "origin", remote]);
-          yield* git(source, ["push", "-u", "origin", defaultBranch]);
+        yield* initRepoWithCommit(source);
+        const defaultBranch = (yield* (yield* GitCore).listBranches({ cwd: source })).branches.find(
+          (branch) => branch.current,
+        )!.name;
+        yield* git(source, ["remote", "add", "origin", remote]);
+        yield* git(source, ["push", "-u", "origin", defaultBranch]);
 
-          const featureBranch = "feature-behind";
-          yield* (yield* GitCore).createBranch({ cwd: source, branch: featureBranch });
-          yield* (yield* GitCore).checkoutBranch({ cwd: source, branch: featureBranch });
-          yield* writeTextFile(path.join(source, "feature.txt"), "feature base\n");
-          yield* git(source, ["add", "feature.txt"]);
-          yield* git(source, ["commit", "-m", "feature base"]);
-          yield* git(source, ["push", "-u", "origin", featureBranch]);
-          yield* (yield* GitCore).checkoutBranch({ cwd: source, branch: defaultBranch });
+        const featureBranch = "feature-behind";
+        yield* (yield* GitCore).createBranch({ cwd: source, branch: featureBranch });
+        yield* (yield* GitCore).checkoutBranch({ cwd: source, branch: featureBranch });
+        yield* writeTextFile(path.join(source, "feature.txt"), "feature base\n");
+        yield* git(source, ["add", "feature.txt"]);
+        yield* git(source, ["commit", "-m", "feature base"]);
+        yield* git(source, ["push", "-u", "origin", featureBranch]);
+        yield* (yield* GitCore).checkoutBranch({ cwd: source, branch: defaultBranch });
 
-          yield* git(clone, ["clone", remote, "."]);
-          yield* git(clone, ["config", "user.email", "test@test.com"]);
-          yield* git(clone, ["config", "user.name", "Test"]);
-          yield* git(clone, [
-            "checkout",
-            "-b",
-            featureBranch,
-            "--track",
-            `origin/${featureBranch}`,
-          ]);
-          yield* writeTextFile(path.join(clone, "feature.txt"), "feature from remote\n");
-          yield* git(clone, ["add", "feature.txt"]);
-          yield* git(clone, ["commit", "-m", "remote feature update"]);
-          yield* git(clone, ["push", "origin", featureBranch]);
+        yield* git(clone, ["clone", remote, "."]);
+        yield* git(clone, ["config", "user.email", "test@test.com"]);
+        yield* git(clone, ["config", "user.name", "Test"]);
+        yield* git(clone, ["checkout", "-b", featureBranch, "--track", `origin/${featureBranch}`]);
+        yield* writeTextFile(path.join(clone, "feature.txt"), "feature from remote\n");
+        yield* git(clone, ["add", "feature.txt"]);
+        yield* git(clone, ["commit", "-m", "remote feature update"]);
+        yield* git(clone, ["push", "origin", featureBranch]);
 
-          yield* (yield* GitCore).checkoutBranch({ cwd: source, branch: featureBranch });
-          const core = yield* GitCore;
-          yield* Effect.promise(() =>
-            vi.waitFor(
-              async () => {
-                const details = await runPromise(core.statusDetails(source));
-                expect(details.branch).toBe(featureBranch);
-                expect(details.aheadCount).toBe(0);
-                expect(details.behindCount).toBe(1);
-              },
-              {
-                timeout: SLOW_GIT_CORE_WAIT_TIMEOUT_MS,
-                interval: 100,
-              },
-            ),
-          );
-        }),
-      SLOW_GIT_CORE_TEST_TIMEOUT_MS,
+        yield* (yield* GitCore).checkoutBranch({ cwd: source, branch: featureBranch });
+        const core = yield* GitCore;
+        yield* Effect.promise(() =>
+          vi.waitFor(
+            async () => {
+              const details = await runPromise(core.statusDetails(source));
+              expect(details.branch).toBe(featureBranch);
+              expect(details.aheadCount).toBe(0);
+              expect(details.behindCount).toBe(1);
+            },
+            {
+              timeout: 10_000,
+              interval: 100,
+            },
+          ),
+        );
+      }),
     );
 
     it.effect("statusDetails remains successful when upstream refresh fails after checkout", () =>
