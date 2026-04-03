@@ -1,6 +1,7 @@
 import {
   OrchestrationEvent,
   type ServerLifecycleWelcomePayload,
+  type ThreadId,
 } from "@t3tools/contracts";
 import {
   Outlet,

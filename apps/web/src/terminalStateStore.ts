@@ -5,7 +5,7 @@
  * API constrained to store actions/selectors.
  */
 
-import type { TerminalEvent, ThreadId } from "@t3tools/contracts";
+import { ThreadId, type TerminalEvent } from "@t3tools/contracts";
 import { create } from "zustand";
 import { createJSONStorage, persist } from "zustand/middleware";
 import { resolveStorage } from "./lib/storage";
@@ -249,6 +249,40 @@ function copyTerminalGroups(groups: ThreadTerminalGroup[]): ThreadTerminalGroup[
     id: group.id,
     terminalIds: [...group.terminalIds],
   }));
+}
+
+function appendTerminalEventEntry(
+  terminalEventEntriesByKey: Record<string, ReadonlyArray<TerminalEventEntry>>,
+  nextTerminalEventId: number,
+  event: TerminalEvent,
+) {
+  const key = terminalEventBufferKey(ThreadId.makeUnsafe(event.threadId), event.terminalId);
+  const currentEntries = terminalEventEntriesByKey[key] ?? EMPTY_TERMINAL_EVENT_ENTRIES;
+  const nextEntry: TerminalEventEntry = {
+    id: nextTerminalEventId,
+    event,
+  };
+  const nextEntries =
+    currentEntries.length >= MAX_TERMINAL_EVENT_BUFFER
+      ? [...currentEntries.slice(1), nextEntry]
+      : [...currentEntries, nextEntry];
+
+  return {
+    terminalEventEntriesByKey: {
+      ...terminalEventEntriesByKey,
+      [key]: nextEntries,
+    },
+    nextTerminalEventId: nextTerminalEventId + 1,
+  };
+}
+
+function launchContextFromStartEvent(
+  event: Extract<TerminalEvent, { type: "started" | "restarted" }>,
+): ThreadTerminalLaunchContext {
+  return {
+    cwd: event.snapshot.cwd,
+    worktreePath: event.terminalId.startsWith("setup-") ? event.snapshot.cwd : null,
+  };
 }
 
 function upsertTerminalIntoGroups(
@@ -612,26 +646,13 @@ export const useTerminalStateStore = create<TerminalStateStoreState>()(
             setThreadTerminalActivity(state, terminalId, hasRunningSubprocess),
           ),
         recordTerminalEvent: (event) =>
-          set((state) => {
-            const key = terminalEventBufferKey(event.threadId as ThreadId, event.terminalId);
-            const currentEntries =
-              state.terminalEventEntriesByKey[key] ?? EMPTY_TERMINAL_EVENT_ENTRIES;
-            const nextEntry: TerminalEventEntry = {
-              id: state.nextTerminalEventId,
+          set((state) =>
+            appendTerminalEventEntry(
+              state.terminalEventEntriesByKey,
+              state.nextTerminalEventId,
               event,
-            };
-            const nextEntries =
-              currentEntries.length >= MAX_TERMINAL_EVENT_BUFFER
-                ? [...currentEntries.slice(1), nextEntry]
-                : [...currentEntries, nextEntry];
-            return {
-              terminalEventEntriesByKey: {
-                ...state.terminalEventEntriesByKey,
-                [key]: nextEntries,
-              },
-              nextTerminalEventId: state.nextTerminalEventId + 1,
-            };
-          }),
+            ),
+          ),
         applyTerminalEvent: (event) =>
           set((state) => {
             const threadId = ThreadId.makeUnsafe(event.threadId);
@@ -654,51 +675,30 @@ export const useTerminalStateStore = create<TerminalStateStoreState>()(
               );
               nextTerminalLaunchContextByThreadId = {
                 ...nextTerminalLaunchContextByThreadId,
-                [threadId]: {
-                  cwd: event.snapshot.cwd,
-                  worktreePath: event.terminalId.startsWith("setup-") ? event.snapshot.cwd : null,
-                },
+                [threadId]: launchContextFromStartEvent(event),
               };
             }
-
-            const key = terminalEventBufferKey(threadId, event.terminalId);
-            const currentEntries =
-              state.terminalEventEntriesByKey[key] ?? EMPTY_TERMINAL_EVENT_ENTRIES;
-            const nextEntry: TerminalEventEntry = {
-              id: state.nextTerminalEventId,
-              event,
-            };
-            const nextEntries =
-              currentEntries.length >= MAX_TERMINAL_EVENT_BUFFER
-                ? [...currentEntries.slice(1), nextEntry]
-                : [...currentEntries, nextEntry];
-            const nextTerminalEventEntriesByKey = {
-              ...state.terminalEventEntriesByKey,
-              [key]: nextEntries,
-            };
 
             const hasRunningSubprocess = terminalRunningSubprocessFromEvent(event);
             if (hasRunningSubprocess !== null) {
               nextTerminalStateByThreadId = updateTerminalStateByThreadId(
                 nextTerminalStateByThreadId,
                 threadId,
-                (current) => setThreadTerminalActivity(current, event.terminalId, hasRunningSubprocess),
+                (current) =>
+                  setThreadTerminalActivity(current, event.terminalId, hasRunningSubprocess),
               );
             }
 
-            if (
-              nextTerminalStateByThreadId === state.terminalStateByThreadId &&
-              nextTerminalLaunchContextByThreadId === state.terminalLaunchContextByThreadId &&
-              nextTerminalEventEntriesByKey[key] === state.terminalEventEntriesByKey[key]
-            ) {
-              return state;
-            }
+            const nextEventState = appendTerminalEventEntry(
+              state.terminalEventEntriesByKey,
+              state.nextTerminalEventId,
+              event,
+            );
 
             return {
               terminalStateByThreadId: nextTerminalStateByThreadId,
               terminalLaunchContextByThreadId: nextTerminalLaunchContextByThreadId,
-              terminalEventEntriesByKey: nextTerminalEventEntriesByKey,
-              nextTerminalEventId: state.nextTerminalEventId + 1,
+              ...nextEventState,
             };
           }),
         clearTerminalState: (threadId) =>
