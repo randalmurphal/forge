@@ -1,6 +1,5 @@
 import {
   OrchestrationEvent,
-  ThreadId,
   type ServerLifecycleWelcomePayload,
 } from "@t3tools/contracts";
 import {
@@ -36,7 +35,6 @@ import {
 import { useStore } from "../store";
 import { useUiStateStore } from "../uiStateStore";
 import { useTerminalStateStore } from "../terminalStateStore";
-import { terminalRunningSubprocessFromEvent } from "../terminalActivity";
 import { migrateLocalSettingsToServer } from "../hooks/useSettings";
 import { providerQueryKeys } from "../lib/providerReactQuery";
 import { projectQueryKeys } from "../lib/projectReactQuery";
@@ -206,8 +204,7 @@ function EventRouter() {
   const removeOrphanedTerminalStates = useTerminalStateStore(
     (store) => store.removeOrphanedTerminalStates,
   );
-  const ensureTerminal = useTerminalStateStore((store) => store.ensureTerminal);
-  const setTerminalLaunchContext = useTerminalStateStore((store) => store.setTerminalLaunchContext);
+  const applyTerminalEvent = useTerminalStateStore((store) => store.applyTerminalEvent);
   const queryClient = useQueryClient();
   const navigate = useNavigate();
   const pathname = useLocation({ select: (loc) => loc.pathname });
@@ -507,26 +504,7 @@ function EventRouter() {
       if (thread && thread.archivedAt !== null) {
         return;
       }
-      if (event.type === "started" || event.type === "restarted") {
-        const threadId = ThreadId.makeUnsafe(event.threadId);
-        ensureTerminal(threadId, event.terminalId, { open: true, active: true });
-        setTerminalLaunchContext(threadId, {
-          cwd: event.snapshot.cwd,
-          worktreePath: event.terminalId.startsWith("setup-") ? event.snapshot.cwd : null,
-        });
-      }
-      useTerminalStateStore.getState().recordTerminalEvent(event);
-      const hasRunningSubprocess = terminalRunningSubprocessFromEvent(event);
-      if (hasRunningSubprocess === null) {
-        return;
-      }
-      useTerminalStateStore
-        .getState()
-        .setTerminalActivity(
-          ThreadId.makeUnsafe(event.threadId),
-          event.terminalId,
-          hasRunningSubprocess,
-        );
+      applyTerminalEvent(event);
     });
     return () => {
       disposed = true;
@@ -540,14 +518,13 @@ function EventRouter() {
     };
   }, [
     applyOrchestrationEvents,
-    ensureTerminal,
     navigate,
     queryClient,
     removeTerminalState,
     removeOrphanedTerminalStates,
+    applyTerminalEvent,
     clearThreadUi,
     setProjectExpanded,
-    setTerminalLaunchContext,
     syncProjects,
     syncServerReadModel,
     syncThreads,
