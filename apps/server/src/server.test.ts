@@ -42,6 +42,7 @@ import {
   OrchestrationEngineService,
   type OrchestrationEngineShape,
 } from "./orchestration/Services/OrchestrationEngine.ts";
+import { OrchestrationListenerCallbackError } from "./orchestration/Errors.ts";
 import {
   ProjectionSnapshotQuery,
   type ProjectionSnapshotQueryShape,
@@ -1473,6 +1474,124 @@ it.layer(NodeServices.layer)("server router seam", (it) => {
         detail: "pty unavailable",
         worktreePath: "/tmp/bootstrap-worktree",
       });
+      assertTrue(dispatchedCommands.every((command) => command.type !== "thread.delete"));
+    }).pipe(Effect.provide(NodeHttpServer.layerTest)),
+  );
+
+  it.effect("does not misattribute setup activity dispatch failures as setup launch failures", () =>
+    Effect.gen(function* () {
+      const dispatchedCommands: Array<OrchestrationCommand> = [];
+      const createWorktree = vi.fn((_: Parameters<GitCoreShape["createWorktree"]>[0]) =>
+        Effect.succeed({
+          worktree: {
+            branch: "t3code/bootstrap-branch",
+            path: "/tmp/bootstrap-worktree",
+          },
+        }),
+      );
+      const runForThread = vi.fn(
+        (_: Parameters<ProjectSetupScriptRunnerShape["runForThread"]>[0]) =>
+          Effect.succeed({
+            status: "started" as const,
+            scriptId: "setup",
+            scriptName: "Setup",
+            terminalId: "setup-setup",
+            cwd: "/tmp/bootstrap-worktree",
+          }),
+      );
+      let setupActivityAppendAttempt = 0;
+
+      yield* buildAppUnderTest({
+        layers: {
+          gitCore: {
+            createWorktree,
+          },
+          orchestrationEngine: {
+            dispatch: (command) => {
+              if (
+                command.type === "thread.activity.append" &&
+                command.activity.kind.startsWith("setup-script.")
+              ) {
+                setupActivityAppendAttempt += 1;
+                if (setupActivityAppendAttempt === 2) {
+                  return Effect.fail(
+                    new OrchestrationListenerCallbackError({
+                      listener: "domain-event",
+                      detail: "failed to append setup-script.started activity",
+                    }),
+                  );
+                }
+              }
+
+              return Effect.sync(() => {
+                dispatchedCommands.push(command);
+                return { sequence: dispatchedCommands.length };
+              });
+            },
+            readEvents: () => Stream.empty,
+          },
+          projectSetupScriptRunner: {
+            runForThread,
+          },
+        },
+      });
+
+      const createdAt = new Date().toISOString();
+      const wsUrl = yield* getWsServerUrl("/ws");
+      const response = yield* Effect.scoped(
+        withWsRpcClient(wsUrl, (client) =>
+          client[ORCHESTRATION_WS_METHODS.dispatchCommand]({
+            type: "thread.turn.start",
+            commandId: CommandId.makeUnsafe("cmd-bootstrap-turn-start-setup-activity-failure"),
+            threadId: ThreadId.makeUnsafe("thread-bootstrap-setup-activity-failure"),
+            message: {
+              messageId: MessageId.makeUnsafe("msg-bootstrap-setup-activity-failure"),
+              role: "user",
+              text: "hello",
+              attachments: [],
+            },
+            modelSelection: defaultModelSelection,
+            runtimeMode: "full-access",
+            interactionMode: "default",
+            bootstrap: {
+              createThread: {
+                projectId: defaultProjectId,
+                title: "Bootstrap Thread",
+                modelSelection: defaultModelSelection,
+                runtimeMode: "full-access",
+                interactionMode: "default",
+                branch: "main",
+                worktreePath: null,
+                createdAt,
+              },
+              prepareWorktree: {
+                projectCwd: "/tmp/project",
+                baseBranch: "main",
+                branch: "t3code/bootstrap-branch",
+              },
+              runSetupScript: true,
+            },
+            createdAt,
+          }),
+        ),
+      );
+
+      assert.equal(response.sequence, 4);
+      assert.deepEqual(
+        dispatchedCommands.map((command) => command.type),
+        ["thread.create", "thread.meta.update", "thread.activity.append", "thread.turn.start"],
+      );
+      const setupActivities = dispatchedCommands.filter(
+        (command): command is Extract<OrchestrationCommand, { type: "thread.activity.append" }> =>
+          command.type === "thread.activity.append",
+      );
+      assert.deepEqual(
+        setupActivities.map((command) => command.activity.kind),
+        ["setup-script.requested"],
+      );
+      assertTrue(
+        setupActivities.every((command) => command.activity.kind !== "setup-script.failed"),
+      );
       assertTrue(dispatchedCommands.every((command) => command.type !== "thread.delete"));
     }).pipe(Effect.provide(NodeHttpServer.layerTest)),
   );

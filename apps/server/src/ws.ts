@@ -134,6 +134,85 @@ const WsRpcLayer = WsRpcGroup.toLayer(
                 .pipe(Effect.ignoreCause({ log: true }))
             : Effect.void;
 
+        const recordSetupScriptLaunchFailure = (input: {
+          readonly error: unknown;
+          readonly requestedAt: string;
+          readonly worktreePath: string;
+        }) => {
+          const detail =
+            input.error instanceof Error ? input.error.message : "Unknown setup failure.";
+          return appendSetupScriptActivity({
+            threadId: command.threadId,
+            kind: "setup-script.failed",
+            summary: "Setup script failed to start",
+            createdAt: input.requestedAt,
+            payload: {
+              detail,
+              worktreePath: input.worktreePath,
+            },
+            tone: "error",
+          }).pipe(
+            Effect.ignoreCause({ log: false }),
+            Effect.flatMap(() =>
+              Effect.logWarning("bootstrap turn start failed to launch setup script", {
+                threadId: command.threadId,
+                worktreePath: input.worktreePath,
+                detail,
+              }),
+            ),
+          );
+        };
+
+        const recordSetupScriptStarted = (input: {
+          readonly requestedAt: string;
+          readonly worktreePath: string;
+          readonly scriptId: string;
+          readonly scriptName: string;
+          readonly terminalId: string;
+        }) => {
+          const payload = {
+            scriptId: input.scriptId,
+            scriptName: input.scriptName,
+            terminalId: input.terminalId,
+            worktreePath: input.worktreePath,
+          };
+          return Effect.all([
+            appendSetupScriptActivity({
+              threadId: command.threadId,
+              kind: "setup-script.requested",
+              summary: "Starting setup script",
+              createdAt: input.requestedAt,
+              payload,
+              tone: "info",
+            }),
+            appendSetupScriptActivity({
+              threadId: command.threadId,
+              kind: "setup-script.started",
+              summary: "Setup script started",
+              createdAt: new Date().toISOString(),
+              payload,
+              tone: "info",
+            }),
+          ]).pipe(
+            Effect.asVoid,
+            Effect.catch((error) =>
+              Effect.logWarning(
+                "bootstrap turn start launched setup script but failed to record setup activity",
+                {
+                  threadId: command.threadId,
+                  worktreePath: input.worktreePath,
+                  scriptId: input.scriptId,
+                  terminalId: input.terminalId,
+                  detail:
+                    error instanceof Error
+                      ? error.message
+                      : "Unknown setup activity dispatch failure.",
+                },
+              ),
+            ),
+          );
+        };
+
         const runSetupProgram = () =>
           bootstrap?.runSetupScript && targetWorktreePath
             ? (() => {
@@ -147,58 +226,25 @@ const WsRpcLayer = WsRpcGroup.toLayer(
                     worktreePath,
                   })
                   .pipe(
-                    Effect.tap((setupResult) => {
-                      if (setupResult.status !== "started") {
-                        return Effect.void;
-                      }
-                      const payload = {
-                        scriptId: setupResult.scriptId,
-                        scriptName: setupResult.scriptName,
-                        terminalId: setupResult.terminalId,
-                        worktreePath,
-                      };
-                      return Effect.all([
-                        appendSetupScriptActivity({
-                          threadId: command.threadId,
-                          kind: "setup-script.requested",
-                          summary: "Starting setup script",
-                          createdAt: requestedAt,
-                          payload,
-                          tone: "info",
-                        }),
-                        appendSetupScriptActivity({
-                          threadId: command.threadId,
-                          kind: "setup-script.started",
-                          summary: "Setup script started",
-                          createdAt: new Date().toISOString(),
-                          payload,
-                          tone: "info",
-                        }),
-                      ]).pipe(Effect.asVoid);
-                    }),
-                    Effect.catch((error) => {
-                      const detail =
-                        error instanceof Error ? error.message : "Unknown setup failure.";
-                      return appendSetupScriptActivity({
-                        threadId: command.threadId,
-                        kind: "setup-script.failed",
-                        summary: "Setup script failed to start",
-                        createdAt: requestedAt,
-                        payload: {
-                          detail,
+                    Effect.matchEffect({
+                      onFailure: (error) =>
+                        recordSetupScriptLaunchFailure({
+                          error,
+                          requestedAt,
                           worktreePath,
-                        },
-                        tone: "error",
-                      }).pipe(
-                        Effect.ignoreCause({ log: false }),
-                        Effect.flatMap(() =>
-                          Effect.logWarning("bootstrap turn start failed to launch setup script", {
-                            threadId: command.threadId,
-                            worktreePath,
-                            detail,
-                          }),
-                        ),
-                      );
+                        }),
+                      onSuccess: (setupResult) => {
+                        if (setupResult.status !== "started") {
+                          return Effect.void;
+                        }
+                        return recordSetupScriptStarted({
+                          requestedAt,
+                          worktreePath,
+                          scriptId: setupResult.scriptId,
+                          scriptName: setupResult.scriptName,
+                          terminalId: setupResult.terminalId,
+                        });
+                      },
                     }),
                   );
               })()
