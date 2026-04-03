@@ -59,7 +59,7 @@ import { ProjectFaviconResolverLive } from "./project/Layers/ProjectFaviconResol
 import {
   ProjectSetupScriptRunner,
   type ProjectSetupScriptRunnerShape,
-} from "./projectScripts/Services/ProjectSetupScriptRunner.ts";
+} from "./project/Services/ProjectSetupScriptRunner.ts";
 import { WorkspaceEntriesLive } from "./workspace/Layers/WorkspaceEntries.ts";
 import { WorkspaceFileSystemLive } from "./workspace/Layers/WorkspaceFileSystem.ts";
 import { WorkspacePathsLive } from "./workspace/Layers/WorkspacePaths.ts";

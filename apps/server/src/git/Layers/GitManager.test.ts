@@ -30,7 +30,7 @@ import {
   ProjectSetupScriptRunner,
   type ProjectSetupScriptRunnerInput,
   type ProjectSetupScriptRunnerShape,
-} from "../../projectScripts/Services/ProjectSetupScriptRunner.ts";
+} from "../../project/Services/ProjectSetupScriptRunner.ts";
 
 interface FakeGhScenario {
   prListSequence?: string[];

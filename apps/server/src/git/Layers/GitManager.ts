@@ -26,7 +26,7 @@ import {
 import { GitCore, GitStatusDetails } from "../Services/GitCore.ts";
 import { GitHubCli, type GitHubPullRequestSummary } from "../Services/GitHubCli.ts";
 import { TextGeneration } from "../Services/TextGeneration.ts";
-import { ProjectSetupScriptRunner } from "../../projectScripts/Services/ProjectSetupScriptRunner.ts";
+import { ProjectSetupScriptRunner } from "../../project/Services/ProjectSetupScriptRunner.ts";
 import { extractBranchNameFromRemoteRef } from "../remoteRefs.ts";
 import { ServerSettingsService } from "../../serverSettings.ts";
 import type { GitManagerServiceError } from "@t3tools/contracts";

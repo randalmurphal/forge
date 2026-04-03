@@ -45,7 +45,7 @@ import { TerminalManager } from "./terminal/Services/Manager";
 import { WorkspaceEntries } from "./workspace/Services/WorkspaceEntries";
 import { WorkspaceFileSystem } from "./workspace/Services/WorkspaceFileSystem";
 import { WorkspacePathOutsideRootError } from "./workspace/Services/WorkspacePaths";
-import { ProjectSetupScriptRunner } from "./projectScripts/Services/ProjectSetupScriptRunner";
+import { ProjectSetupScriptRunner } from "./project/Services/ProjectSetupScriptRunner";
 
 const WsRpcLayer = WsRpcGroup.toLayer(
   Effect.gen(function* () {
