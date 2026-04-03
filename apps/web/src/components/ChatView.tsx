@@ -21,6 +21,7 @@ import {
   TerminalOpenInput,
 } from "@t3tools/contracts";
 import { applyClaudePromptEffortPrefix, normalizeModelSlug } from "@t3tools/shared/model";
+import { projectScriptCwd, projectScriptRuntimeEnv } from "@t3tools/shared/projectScripts";
 import { truncate } from "@t3tools/shared/String";
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
@@ -111,8 +112,6 @@ import { type NewProjectScriptInput } from "./ProjectScriptsControl";
 import {
   commandForProjectScript,
   nextProjectScriptId,
-  projectScriptCwd,
-  projectScriptRuntimeEnv,
   projectScriptIdFromCommand,
 } from "~/projectScripts";
 import { SidebarTrigger } from "./ui/sidebar";

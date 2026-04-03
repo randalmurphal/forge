@@ -4,11 +4,6 @@ import {
   type KeybindingCommand,
   type ProjectScript,
 } from "@t3tools/contracts";
-import {
-  projectScriptCwd as sharedProjectScriptCwd,
-  projectScriptRuntimeEnv as sharedProjectScriptRuntimeEnv,
-  setupProjectScript as sharedSetupProjectScript,
-} from "@t3tools/shared/projectScripts";
 import { Schema } from "effect";
 
 function normalizeScriptId(value: string): string {
@@ -60,34 +55,7 @@ export function nextProjectScriptId(name: string, existingIds: Iterable<string>)
   return `${baseId}-${Date.now()}`.slice(0, MAX_SCRIPT_ID_LENGTH);
 }
 
-interface ProjectScriptRuntimeEnvInput {
-  project: {
-    cwd: string;
-  };
-  worktreePath?: string | null;
-  extraEnv?: Record<string, string>;
-}
-
-export function projectScriptCwd(input: {
-  project: {
-    cwd: string;
-  };
-  worktreePath?: string | null;
-}): string {
-  return sharedProjectScriptCwd(input);
-}
-
-export function projectScriptRuntimeEnv(
-  input: ProjectScriptRuntimeEnvInput,
-): Record<string, string> {
-  return sharedProjectScriptRuntimeEnv(input);
-}
-
 export function primaryProjectScript(scripts: ProjectScript[]): ProjectScript | null {
   const regular = scripts.find((script) => !script.runOnWorktreeCreate);
   return regular ?? scripts[0] ?? null;
-}
-
-export function setupProjectScript(scripts: ProjectScript[]): ProjectScript | null {
-  return sharedSetupProjectScript(scripts);
 }
