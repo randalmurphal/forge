@@ -174,7 +174,7 @@ const WsRpcLayer = WsRpcGroup.toLayer(
                           payload,
                           tone: "info",
                         }),
-                      ]).pipe(Effect.asVoid);
+                      ]).pipe(Effect.asVoid, Effect.ignoreCause({ log: true }));
                     }),
                     Effect.catch((error) => {
                       const detail =
