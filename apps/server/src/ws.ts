@@ -275,7 +275,6 @@ const WsRpcLayer = WsRpcGroup.toLayer(
               newBranch: bootstrap.prepareWorktree.branch,
               path: null,
             });
-            targetProjectCwd = bootstrap.prepareWorktree.projectCwd;
             targetWorktreePath = worktree.worktree.path;
             yield* orchestrationEngine.dispatch({
               type: "thread.meta.update",

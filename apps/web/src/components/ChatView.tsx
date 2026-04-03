@@ -446,11 +446,8 @@ function PersistentThreadTerminalDrawer({
     if (launchContext?.worktreePath) {
       return launchContext.worktreePath;
     }
-    if (launchContext && terminalState.activeTerminalId.startsWith("setup-")) {
-      return launchContext.cwd;
-    }
     return worktreePath;
-  }, [launchContext, terminalState.activeTerminalId, worktreePath]);
+  }, [launchContext, worktreePath]);
   const cwd = useMemo(
     () =>
       launchContext?.cwd ??

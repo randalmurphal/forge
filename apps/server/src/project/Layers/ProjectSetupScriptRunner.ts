@@ -1,3 +1,4 @@
+import { SETUP_TERMINAL_ID_PREFIX } from "@t3tools/contracts";
 import { projectScriptRuntimeEnv, setupProjectScript } from "@t3tools/shared/projectScripts";
 import { Effect, Layer } from "effect";
 
@@ -35,7 +36,7 @@ const makeProjectSetupScriptRunner = Effect.gen(function* () {
         } as const;
       }
 
-      const terminalId = input.preferredTerminalId ?? `setup-${script.id}`;
+      const terminalId = input.preferredTerminalId ?? `${SETUP_TERMINAL_ID_PREFIX}${script.id}`;
       const cwd = input.worktreePath;
       const env = projectScriptRuntimeEnv({
         project: { cwd: project.workspaceRoot },

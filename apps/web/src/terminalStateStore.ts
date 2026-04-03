@@ -5,7 +5,7 @@
  * API constrained to store actions/selectors.
  */
 
-import { ThreadId, type TerminalEvent } from "@t3tools/contracts";
+import { SETUP_TERMINAL_ID_PREFIX, ThreadId, type TerminalEvent } from "@t3tools/contracts";
 import { create } from "zustand";
 import { createJSONStorage, persist } from "zustand/middleware";
 import { resolveStorage } from "./lib/storage";
@@ -281,7 +281,7 @@ function launchContextFromStartEvent(
 ): ThreadTerminalLaunchContext {
   return {
     cwd: event.snapshot.cwd,
-    worktreePath: event.terminalId.startsWith("setup-") ? event.snapshot.cwd : null,
+    worktreePath: event.terminalId.startsWith(SETUP_TERMINAL_ID_PREFIX) ? event.snapshot.cwd : null,
   };
 }
 

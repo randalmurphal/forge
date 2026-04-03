@@ -2,6 +2,7 @@ import { Schema } from "effect";
 import { TrimmedNonEmptyString } from "./baseSchemas";
 
 export const DEFAULT_TERMINAL_ID = "default";
+export const SETUP_TERMINAL_ID_PREFIX = "setup-";
 
 const TrimmedNonEmptyStringSchema = TrimmedNonEmptyString;
 const TerminalColsSchema = Schema.Int.check(Schema.isGreaterThanOrEqualTo(20)).check(
