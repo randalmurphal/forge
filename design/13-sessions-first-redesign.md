@@ -1,5 +1,9 @@
 # Sessions-First Redesign
 
+> **Implementation Note:** This document describes the data model using "session" as the user-facing concept. In the codebase, sessions are implemented as **threads** — the existing t3-code thread infrastructure stays as-is. New features (workflows, channels, child threads, phase runs) are built by extending the thread model with new columns and new tables. There is no thread-to-session rename. Effect.js also stays — new services are written as Effect Layers following existing patterns.
+>
+> When this document says "sessions table," read it as "the existing threads/projection tables, extended." When it says "session_id," read it as "thread_id." The mapping is purely naming — the structure described here is accurate.
+
 ## Why This Change
 
 The previous design had Tasks as the primary entity with Sessions inside them. But "tasks" are unnecessary indirection. What you actually interact with are:

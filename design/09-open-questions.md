@@ -22,11 +22,11 @@ Cross-cutting questions that don't belong to a single document. These need answe
 
 ### A3: How much of t3-code's event sourcing to keep?
 **Context:** t3-code's event sourcing is well-designed (pure decider/projector). But the events are thread-centric and the runtime is Effect.js. Options:
-- Keep the pattern, rewrite events for session model, rewrite runtime in plain TS
+- Keep the pattern, extend events for session model, extend the runtime
 - Simplify to traditional CRUD + event log for audit
 - Keep full event sourcing with replay/snapshot support
 
-**Current lean:** Keep full event sourcing. The pattern is sound. The rewrite is in the runtime and event definitions, not the pattern itself. Replay capability is valuable for daemon recovery and debugging. **RESOLVED by doc 13:** The aggregate changes from "thread" to "session." Event types use `session.*` prefix.
+**Current lean:** Keep full event sourcing. The pattern is sound. Replay capability is valuable for daemon recovery and debugging. **RESOLVED by doc 13:** The existing thread aggregate stays. New event types for workflows, channels, and deliberation extend the aggregate. "Session" is the user-facing term; "thread" remains the internal/codebase term. Effect.js stays — the runtime remains Effect-native.
 
 ## Data Model Questions
 
@@ -112,12 +112,8 @@ Cross-cutting questions that don't belong to a single document. These need answe
 
 **Approach:** On session completion, check for uncommitted changes. If clean, delete worktree. If dirty, warn user and keep. Periodic cleanup of worktrees for sessions that completed > N days ago.
 
-### T5: Effect.js removal order
-**Question:** What's the right order to remove Effect.js? Contracts first (Schema -> Zod), then shared, then server? Or server first?
-
-**Why it matters:** Effect.js is used everywhere. Changing contracts first means everything downstream breaks until updated. Changing server first means contracts still use @effect/schema.
-
-**RESOLVED:** Shared utilities first (DrainableWorker, KeyedCoalescingWorker, TTLCache), then contracts (Schema -> Zod), then server bottom-up. See [03-effect-removal.md](./03-effect-removal.md).
+### T5: Effect.js decision
+**RESOLVED: Effect.js stays.** The existing server, contracts, and shared utilities are built on Effect and work correctly. New code (workflow engine, channels, deliberation) is written as Effect Layers following existing patterns. No removal, no Zod migration, no rewrite. See [03-effect-removal.md](./03-effect-removal.md).
 
 ## Ideas Not Yet Placed
 

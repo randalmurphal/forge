@@ -321,7 +321,7 @@ phases:
 
 These map to orc's weight-based executor configs. v2: automatic weight detection selects config presets (trivial: 50 turns, small: 100, medium: 150, large: 250).
 
-The `SessionCommands` union (see doc 13) includes the phase and child session lifecycle commands that the workflow engine dispatches.
+The `SessionCommands` union (see doc 13) includes the phase and child thread lifecycle commands that the workflow engine dispatches. The workflow engine is an Effect Layer that plugs into the existing composition root.
 
 ## Workflow Management
 

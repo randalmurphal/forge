@@ -150,24 +150,26 @@ User starts deliberation workflow on a session
 
 ## Key Differences from t3-code
 
-| Aspect | t3-code | Forge |
-|--------|---------|-------|
-| Primary unit | Thread (conversation) | Session (three types: agent, workflow, chat) |
-| Orchestration | Event-sourced thread lifecycle | Event-sourced session + workflow lifecycle |
-| Provider interactions | One per thread | One per session (agent sessions) or many child sessions per phase (workflow sessions) |
-| Multi-agent | Not supported | First-class (deliberation, review) |
-| Human interaction | Chat messages before/after turns | Corrections mid-session, gate approvals |
-| Background execution | None (requires app open) | Daemon mode with OS notifications |
-| DI framework | Effect.js | Plain constructor injection |
-| State management | Thread-centric Zustand | Session-centric Zustand |
+Forge extends t3-code's existing thread infrastructure. The thread model stays, Effect.js stays. New features are additive.
+
+| Aspect | t3-code | Forge (additive) |
+|--------|---------|-------------------|
+| Primary unit | Thread (conversation) | Thread stays as-is; "session" is the user-facing term. Workflows, channels, child threads are new capabilities built on top. |
+| Orchestration | Event-sourced thread lifecycle | Same event sourcing, extended with workflow lifecycle (phases, gates, loops) |
+| Provider interactions | One per thread | One per thread (agent sessions) or many child threads per phase (workflow sessions) |
+| Multi-agent | Not supported | First-class (deliberation, review) via child threads and channels |
+| Human interaction | Chat messages before/after turns | Corrections mid-session, gate approvals (new features) |
+| Background execution | None (requires app open) | Daemon mode with OS notifications (new feature) |
+| DI framework | Effect.js | Effect.js stays — new services are Effect Layers following existing patterns |
+| State management | Thread-centric Zustand | Extended with workflow/channel state alongside existing thread state |
 
 ## Challenges
 
-### Effect.js removal scope
-Effect.js is deeply integrated into t3-code's server. Every service, reactor, and layer uses it. Removal is not a find-and-replace - it's a rewrite of the server's service composition. See [03-effect-removal.md](./03-effect-removal.md).
+### Effect.js integration
+Effect.js stays. New workflow, channel, and deliberation services are written as Effect Layers following existing patterns (services as Layers, commands through OrchestrationEngine dispatch, event handling through projectors, background work through reactors). See [03-effect-removal.md](./03-effect-removal.md) for the decision and approach.
 
-### Event sourcing without Effect.js
-t3-code's event sourcing uses Effect's Queue, Stream, and Layer primitives. The decider/projector pattern is pure (good), but the runtime (OrchestrationEngine) is Effect-native. Need to reimplement the runtime with plain async patterns while keeping the decider/projector purity.
+### Event sourcing extensions
+t3-code's event sourcing uses Effect's Queue, Stream, and Layer primitives. The decider/projector pattern is pure and stays as-is. New event types (workflow phases, channels, deliberation) extend the existing aggregate. The runtime (OrchestrationEngine) remains Effect-native.
 
 ### Provider adapter statefulness
 Claude and Codex adapters maintain complex in-memory state (turn state, pending approvals, prompt queues). This state needs to survive provider crashes and app restarts. t3-code partially handles this via event replay, but gaps exist. Forge needs robust session recovery.
@@ -187,5 +189,5 @@ t3-code's push channels are thread-centric. Forge needs session-centric and chan
 
 - [00-vision.md](./00-vision.md) - What we're building and why
 - [13-sessions-first-redesign.md](./13-sessions-first-redesign.md) - Sessions-first data model
-- [03-effect-removal.md](./03-effect-removal.md) - Effect.js removal plan
+- [03-effect-removal.md](./03-effect-removal.md) - Effect.js decision and patterns
 - [07-daemon-mode.md](./07-daemon-mode.md) - Background execution
