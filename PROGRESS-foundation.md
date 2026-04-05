@@ -22,12 +22,14 @@
 - WI-1: Branded identifier types
 - WI-2: Workflow contract types
 - WI-3: Channel contract types
+- WI-4: Interactive request contract types
 
 ## Iteration Log
 
 - 2026-04-05: Implemented WI-1 in contracts by adding the seven new branded entity identifiers and coverage for decode success and empty-string rejection.
 - 2026-04-05: Implemented WI-2 by adding workflow, gate, quality check, bootstrap, and project config schemas in `packages/contracts/src/workflow.ts`, exporting them from the contracts index, and adding decode coverage for key workflow unions and defaults.
 - 2026-04-05: Implemented WI-3 by adding channel entities, deliberation state schemas, and channel contract tests covering channel message decoding and deliberation defaults.
+- 2026-04-05: Implemented WI-4 by adding `packages/contracts/src/interactiveRequest.ts`, exporting the new interactive request schemas from the contracts index with a root-level alias for the new `UserInputQuestion` helper to avoid colliding with the existing provider-runtime export, and adding discriminated-union decode coverage for all payload and resolution variants.
 
 ## Review Log
 

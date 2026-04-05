@@ -7,6 +7,24 @@ export * from "./model";
 export * from "./keybindings";
 export * from "./workflow";
 export * from "./channel";
+export {
+  ApprovalRequestPayload,
+  ApprovalRequestResolution,
+  BootstrapFailedRequestPayload,
+  BootstrapFailedRequestResolution,
+  CorrectionNeededRequestPayload,
+  CorrectionNeededRequestResolution,
+  GateRequestPayload,
+  GateRequestResolution,
+  InteractiveRequest,
+  InteractiveRequestPayload,
+  InteractiveRequestResolution,
+  InteractiveRequestStatus,
+  InteractiveRequestType,
+  UserInputQuestion as InteractiveRequestUserInputQuestion,
+  UserInputRequestPayload,
+  UserInputRequestResolution,
+} from "./interactiveRequest";
 export * from "./server";
 export * from "./settings";
 export * from "./git";
