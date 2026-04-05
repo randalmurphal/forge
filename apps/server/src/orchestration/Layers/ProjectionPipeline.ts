@@ -476,6 +476,17 @@ const makeOrchestrationProjectionPipeline = Effect.fn("makeOrchestrationProjecti
             updatedAt: event.payload.updatedAt,
             archivedAt: null,
             deletedAt: null,
+            parentThreadId: null,
+            phaseRunId: null,
+            workflowId: null,
+            workflowSnapshot: null,
+            currentPhaseId: null,
+            patternId: null,
+            role: null,
+            deliberationState: null,
+            bootstrapStatus: null,
+            completedAt: null,
+            transcriptArchived: false,
           });
           return;
 

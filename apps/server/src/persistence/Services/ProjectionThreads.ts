@@ -7,13 +7,19 @@
  * @module ProjectionThreadRepository
  */
 import {
+  DeliberationState,
   IsoDateTime,
   ModelSelection,
+  PhaseRunId,
   ProjectId,
   ProviderInteractionMode,
   RuntimeMode,
   ThreadId,
   TurnId,
+  TrimmedNonEmptyString,
+  WorkflowDefinition,
+  WorkflowId,
+  WorkflowPhaseId,
 } from "@t3tools/contracts";
 import { Option, Schema, ServiceMap } from "effect";
 import type { Effect } from "effect";
@@ -34,6 +40,17 @@ export const ProjectionThread = Schema.Struct({
   updatedAt: IsoDateTime,
   archivedAt: Schema.NullOr(IsoDateTime),
   deletedAt: Schema.NullOr(IsoDateTime),
+  parentThreadId: Schema.NullOr(ThreadId),
+  phaseRunId: Schema.NullOr(PhaseRunId),
+  workflowId: Schema.NullOr(WorkflowId),
+  workflowSnapshot: Schema.NullOr(WorkflowDefinition),
+  currentPhaseId: Schema.NullOr(WorkflowPhaseId),
+  patternId: Schema.NullOr(TrimmedNonEmptyString),
+  role: Schema.NullOr(TrimmedNonEmptyString),
+  deliberationState: Schema.NullOr(DeliberationState),
+  bootstrapStatus: Schema.NullOr(TrimmedNonEmptyString),
+  completedAt: Schema.NullOr(IsoDateTime),
+  transcriptArchived: Schema.Boolean,
 });
 export type ProjectionThread = typeof ProjectionThread.Type;
 

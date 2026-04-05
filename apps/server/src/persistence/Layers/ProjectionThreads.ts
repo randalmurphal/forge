@@ -1,8 +1,9 @@
+import { DeliberationState, ModelSelection, WorkflowDefinition } from "@t3tools/contracts";
+import { Effect, Layer, Option, Schema, Struct } from "effect";
 import * as SqlClient from "effect/unstable/sql/SqlClient";
 import * as SqlSchema from "effect/unstable/sql/SqlSchema";
-import { Effect, Layer, Schema, Struct } from "effect";
 
-import { toPersistenceSqlError } from "../Errors.ts";
+import { toPersistenceSqlError, toPersistenceSqlOrDecodeError } from "../Errors.ts";
 import {
   DeleteProjectionThreadInput,
   GetProjectionThreadInput,
@@ -11,14 +12,45 @@ import {
   ProjectionThreadRepository,
   type ProjectionThreadRepositoryShape,
 } from "../Services/ProjectionThreads.ts";
-import { ModelSelection } from "@t3tools/contracts";
 
 const ProjectionThreadDbRow = ProjectionThread.mapFields(
   Struct.assign({
     modelSelection: Schema.fromJsonString(ModelSelection),
+    workflowSnapshot: Schema.NullOr(Schema.fromJsonString(WorkflowDefinition)),
+    deliberationState: Schema.NullOr(Schema.fromJsonString(DeliberationState)),
+    transcriptArchived: Schema.Number,
   }),
 );
 type ProjectionThreadDbRow = typeof ProjectionThreadDbRow.Type;
+
+function toProjectionThread(row: ProjectionThreadDbRow): ProjectionThread {
+  return {
+    threadId: row.threadId,
+    projectId: row.projectId,
+    title: row.title,
+    modelSelection: row.modelSelection,
+    runtimeMode: row.runtimeMode,
+    interactionMode: row.interactionMode,
+    branch: row.branch,
+    worktreePath: row.worktreePath,
+    latestTurnId: row.latestTurnId,
+    createdAt: row.createdAt,
+    updatedAt: row.updatedAt,
+    archivedAt: row.archivedAt,
+    deletedAt: row.deletedAt,
+    parentThreadId: row.parentThreadId,
+    phaseRunId: row.phaseRunId,
+    workflowId: row.workflowId,
+    workflowSnapshot: row.workflowSnapshot,
+    currentPhaseId: row.currentPhaseId,
+    patternId: row.patternId,
+    role: row.role,
+    deliberationState: row.deliberationState,
+    bootstrapStatus: row.bootstrapStatus,
+    completedAt: row.completedAt,
+    transcriptArchived: row.transcriptArchived === 1,
+  };
+}
 
 const makeProjectionThreadRepository = Effect.gen(function* () {
   const sql = yield* SqlClient.SqlClient;
@@ -40,7 +72,18 @@ const makeProjectionThreadRepository = Effect.gen(function* () {
           created_at,
           updated_at,
           archived_at,
-          deleted_at
+          deleted_at,
+          parent_thread_id,
+          phase_run_id,
+          workflow_id,
+          workflow_snapshot_json,
+          current_phase_id,
+          pattern_id,
+          role,
+          deliberation_state_json,
+          bootstrap_status,
+          completed_at,
+          transcript_archived
         )
         VALUES (
           ${row.threadId},
@@ -55,7 +98,18 @@ const makeProjectionThreadRepository = Effect.gen(function* () {
           ${row.createdAt},
           ${row.updatedAt},
           ${row.archivedAt},
-          ${row.deletedAt}
+          ${row.deletedAt},
+          ${row.parentThreadId},
+          ${row.phaseRunId},
+          ${row.workflowId},
+          ${row.workflowSnapshot === null ? null : JSON.stringify(row.workflowSnapshot)},
+          ${row.currentPhaseId},
+          ${row.patternId},
+          ${row.role},
+          ${row.deliberationState === null ? null : JSON.stringify(row.deliberationState)},
+          ${row.bootstrapStatus},
+          ${row.completedAt},
+          ${row.transcriptArchived ? 1 : 0}
         )
         ON CONFLICT (thread_id)
         DO UPDATE SET
@@ -70,7 +124,18 @@ const makeProjectionThreadRepository = Effect.gen(function* () {
           created_at = excluded.created_at,
           updated_at = excluded.updated_at,
           archived_at = excluded.archived_at,
-          deleted_at = excluded.deleted_at
+          deleted_at = excluded.deleted_at,
+          parent_thread_id = excluded.parent_thread_id,
+          phase_run_id = excluded.phase_run_id,
+          workflow_id = excluded.workflow_id,
+          workflow_snapshot_json = excluded.workflow_snapshot_json,
+          current_phase_id = excluded.current_phase_id,
+          pattern_id = excluded.pattern_id,
+          role = excluded.role,
+          deliberation_state_json = excluded.deliberation_state_json,
+          bootstrap_status = excluded.bootstrap_status,
+          completed_at = excluded.completed_at,
+          transcript_archived = excluded.transcript_archived
       `,
   });
 
@@ -92,7 +157,18 @@ const makeProjectionThreadRepository = Effect.gen(function* () {
           created_at AS "createdAt",
           updated_at AS "updatedAt",
           archived_at AS "archivedAt",
-          deleted_at AS "deletedAt"
+          deleted_at AS "deletedAt",
+          parent_thread_id AS "parentThreadId",
+          phase_run_id AS "phaseRunId",
+          workflow_id AS "workflowId",
+          workflow_snapshot_json AS "workflowSnapshot",
+          current_phase_id AS "currentPhaseId",
+          pattern_id AS "patternId",
+          role,
+          deliberation_state_json AS "deliberationState",
+          bootstrap_status AS "bootstrapStatus",
+          completed_at AS "completedAt",
+          transcript_archived AS "transcriptArchived"
         FROM projection_threads
         WHERE thread_id = ${threadId}
       `,
@@ -116,7 +192,18 @@ const makeProjectionThreadRepository = Effect.gen(function* () {
           created_at AS "createdAt",
           updated_at AS "updatedAt",
           archived_at AS "archivedAt",
-          deleted_at AS "deletedAt"
+          deleted_at AS "deletedAt",
+          parent_thread_id AS "parentThreadId",
+          phase_run_id AS "phaseRunId",
+          workflow_id AS "workflowId",
+          workflow_snapshot_json AS "workflowSnapshot",
+          current_phase_id AS "currentPhaseId",
+          pattern_id AS "patternId",
+          role,
+          deliberation_state_json AS "deliberationState",
+          bootstrap_status AS "bootstrapStatus",
+          completed_at AS "completedAt",
+          transcript_archived AS "transcriptArchived"
         FROM projection_threads
         WHERE project_id = ${projectId}
         ORDER BY created_at ASC, thread_id ASC
@@ -139,12 +226,24 @@ const makeProjectionThreadRepository = Effect.gen(function* () {
 
   const getById: ProjectionThreadRepositoryShape["getById"] = (input) =>
     getProjectionThreadRow(input).pipe(
-      Effect.mapError(toPersistenceSqlError("ProjectionThreadRepository.getById:query")),
+      Effect.mapError(
+        toPersistenceSqlOrDecodeError(
+          "ProjectionThreadRepository.getById:query",
+          "ProjectionThreadRepository.getById:decodeRow",
+        ),
+      ),
+      Effect.map(Option.map(toProjectionThread)),
     );
 
   const listByProjectId: ProjectionThreadRepositoryShape["listByProjectId"] = (input) =>
     listProjectionThreadRows(input).pipe(
-      Effect.mapError(toPersistenceSqlError("ProjectionThreadRepository.listByProjectId:query")),
+      Effect.mapError(
+        toPersistenceSqlOrDecodeError(
+          "ProjectionThreadRepository.listByProjectId:query",
+          "ProjectionThreadRepository.listByProjectId:decodeRows",
+        ),
+      ),
+      Effect.map((rows) => rows.map(toProjectionThread)),
     );
 
   const deleteById: ProjectionThreadRepositoryShape["deleteById"] = (input) =>
