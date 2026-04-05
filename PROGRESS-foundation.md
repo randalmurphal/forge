@@ -35,6 +35,7 @@
 - WI-11: Projection repositories -- workflows
 - WI-12: Projection repositories -- phase runs
 - WI-13: Projection repositories -- channels and messages
+- WI-14: Projection repositories -- phase outputs
 
 ## Iteration Log
 
@@ -51,6 +52,7 @@
 - 2026-04-05: Implemented WI-11 by adding `ProjectionWorkflows` service and layer for CRUD access to the `workflows` table with typed `phases_json` decoding and user-workflow precedence in `queryByName`, adding in-memory CRUD coverage for `queryAll`, `queryById`, `queryByName`, `upsert`, and `delete`, and confirming `bun fmt`, `bun lint`, `bun typecheck`, and `bun run test` all pass.
 - 2026-04-05: Implemented WI-12 by adding `ProjectionPhaseRuns` service and layer for persisted phase-run CRUD/status updates with typed JSON decoding for gate results, quality-check results, and deliberation state, adding in-memory repository coverage for `queryById`, `queryByThreadId`, `upsert`, and `updateStatus`, and confirming `bun fmt`, `bun lint`, `bun typecheck`, and `bun run test` all pass.
 - 2026-04-05: Implemented WI-13 by adding `ProjectionChannels`, `ProjectionChannelMessages`, and `ProjectionChannelReads` services and layers for channel creation/status updates, forward-paginated channel message reads, unread counts backed by `channel_reads`, and cursor upserts; added in-memory repository coverage for channel CRUD, message pagination/unread counts, and read cursor persistence; and confirmed `bun fmt`, `bun lint`, `bun typecheck`, and `bun run test` all pass.
+- 2026-04-05: Implemented WI-14 by adding `ProjectionPhaseOutputs` service and layer for persisted phase-output upserts plus composite-key queries with typed `metadata_json` decoding, adding in-memory CRUD coverage for `queryByPhaseRunId`, `queryByKey`, and idempotent composite-key upserts, and confirming `bun fmt`, `bun lint`, `bun typecheck`, and `bun run test` all pass.
 
 ## Review Log
 
