@@ -40,6 +40,10 @@ layer("ProjectionWorkflowRepository", (it) => {
           },
         ],
         builtIn: true,
+        onCompletion: {
+          autoCommit: true,
+          autoPush: true,
+        },
         createdAt,
         updatedAt,
       });
@@ -65,6 +69,9 @@ layer("ProjectionWorkflowRepository", (it) => {
           },
         ],
         builtIn: false,
+        onCompletion: {
+          createPr: true,
+        },
         createdAt: "2026-04-05T11:00:00.000Z",
         updatedAt: "2026-04-05T11:05:00.000Z",
       });
@@ -93,6 +100,10 @@ layer("ProjectionWorkflowRepository", (it) => {
           },
         ],
         builtIn: true,
+        onCompletion: {
+          autoCommit: true,
+          autoPush: true,
+        },
         createdAt,
         updatedAt,
       });
@@ -104,6 +115,9 @@ layer("ProjectionWorkflowRepository", (it) => {
         WorkflowId.makeUnsafe("workflow-user-implement"),
       );
       assert.strictEqual(workflowByName?.builtIn, false);
+      assert.deepStrictEqual(workflowByName?.onCompletion, {
+        createPr: true,
+      });
     }),
   );
 
@@ -128,6 +142,9 @@ layer("ProjectionWorkflowRepository", (it) => {
           },
         ],
         builtIn: true,
+        onCompletion: {
+          autoPush: true,
+        },
         createdAt: "2026-04-05T09:00:00.000Z",
         updatedAt: "2026-04-05T09:00:00.000Z",
       });
@@ -152,6 +169,9 @@ layer("ProjectionWorkflowRepository", (it) => {
           },
         ],
         builtIn: false,
+        onCompletion: {
+          createPr: true,
+        },
         createdAt: "2026-04-05T09:30:00.000Z",
         updatedAt: "2026-04-05T09:30:00.000Z",
       });

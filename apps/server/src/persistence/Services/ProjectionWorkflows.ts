@@ -6,7 +6,13 @@
  *
  * @module ProjectionWorkflowRepository
  */
-import { IsoDateTime, TrimmedNonEmptyString, WorkflowId, WorkflowPhase } from "@t3tools/contracts";
+import {
+  IsoDateTime,
+  TrimmedNonEmptyString,
+  WorkflowCompletionConfig,
+  WorkflowId,
+  WorkflowPhase,
+} from "@t3tools/contracts";
 import { Schema, ServiceMap } from "effect";
 import type { Effect, Option } from "effect";
 
@@ -18,6 +24,7 @@ export const ProjectionWorkflow = Schema.Struct({
   description: Schema.String,
   phases: Schema.Array(WorkflowPhase),
   builtIn: Schema.Boolean,
+  onCompletion: Schema.optional(WorkflowCompletionConfig),
   createdAt: IsoDateTime,
   updatedAt: IsoDateTime,
 });

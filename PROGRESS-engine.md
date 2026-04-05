@@ -4,7 +4,10 @@
 
 ## Codebase Patterns
 
-(Populated as iterations discover important patterns.)
+- New server services follow `Services/` tags plus `Layers/` live implementations using `Layer.effect(...)`.
+- Projection repositories remain the runtime source of truth; higher-level services adapt repository rows into contract shapes rather than bypassing projections.
+- Startup materialization belongs in layer construction when the service must be ready-to-query immediately after provisioning.
+- Persistence schema changes for existing projections should ship as forward migrations instead of rewriting historical migrations.
 
 ## Known Issues
 
@@ -16,11 +19,11 @@
 
 ## Completed Work Items
 
-(None yet.)
+- `WI-1: WorkflowRegistry service`
 
 ## Iteration Log
 
-(Entries added after each commit.)
+- `2026-04-05`: Implemented `WorkflowRegistry` with startup built-in YAML loading, DB materialization through `ProjectionWorkflowRepository`, query APIs, typed workflow registry errors, and coverage for materialization/precedence/missing workflows. Also fixed workflow projection persistence to preserve `onCompletion` via a new forward migration `025_WorkflowOnCompletion`.
 
 ## Review Log
 

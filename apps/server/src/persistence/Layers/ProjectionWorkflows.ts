@@ -1,4 +1,4 @@
-import { WorkflowPhase } from "@t3tools/contracts";
+import { WorkflowCompletionConfig, WorkflowPhase } from "@t3tools/contracts";
 import { Effect, Layer, Option, Schema, Struct } from "effect";
 import * as SqlClient from "effect/unstable/sql/SqlClient";
 import * as SqlSchema from "effect/unstable/sql/SqlSchema";
@@ -17,6 +17,7 @@ const ProjectionWorkflowDbRow = ProjectionWorkflow.mapFields(
   Struct.assign({
     phases: Schema.fromJsonString(Schema.Array(WorkflowPhase)),
     builtIn: Schema.Number,
+    onCompletion: Schema.NullOr(Schema.fromJsonString(WorkflowCompletionConfig)),
   }),
 );
 type ProjectionWorkflowDbRow = typeof ProjectionWorkflowDbRow.Type;
@@ -28,6 +29,7 @@ function toProjectionWorkflow(row: ProjectionWorkflowDbRow): ProjectionWorkflow 
     description: row.description,
     phases: row.phases,
     builtIn: row.builtIn === 1,
+    ...(row.onCompletion !== null ? { onCompletion: row.onCompletion } : {}),
     createdAt: row.createdAt,
     updatedAt: row.updatedAt,
   };
@@ -46,6 +48,7 @@ const makeProjectionWorkflowRepository = Effect.gen(function* () {
           description,
           phases_json,
           built_in,
+          on_completion_json,
           created_at,
           updated_at
         )
@@ -55,6 +58,7 @@ const makeProjectionWorkflowRepository = Effect.gen(function* () {
           ${row.description},
           ${JSON.stringify(row.phases)},
           ${row.builtIn ? 1 : 0},
+          ${row.onCompletion ? JSON.stringify(row.onCompletion) : null},
           ${row.createdAt},
           ${row.updatedAt}
         )
@@ -64,6 +68,7 @@ const makeProjectionWorkflowRepository = Effect.gen(function* () {
           description = excluded.description,
           phases_json = excluded.phases_json,
           built_in = excluded.built_in,
+          on_completion_json = excluded.on_completion_json,
           created_at = excluded.created_at,
           updated_at = excluded.updated_at
       `,
@@ -80,6 +85,7 @@ const makeProjectionWorkflowRepository = Effect.gen(function* () {
           description,
           phases_json AS "phases",
           built_in AS "builtIn",
+          on_completion_json AS "onCompletion",
           created_at AS "createdAt",
           updated_at AS "updatedAt"
         FROM workflows
@@ -99,6 +105,7 @@ const makeProjectionWorkflowRepository = Effect.gen(function* () {
           description,
           phases_json AS "phases",
           built_in AS "builtIn",
+          on_completion_json AS "onCompletion",
           created_at AS "createdAt",
           updated_at AS "updatedAt"
         FROM workflows
@@ -119,6 +126,7 @@ const makeProjectionWorkflowRepository = Effect.gen(function* () {
           description,
           phases_json AS "phases",
           built_in AS "builtIn",
+          on_completion_json AS "onCompletion",
           created_at AS "createdAt",
           updated_at AS "updatedAt"
         FROM workflows
