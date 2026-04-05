@@ -55,6 +55,71 @@ export class WorkflowRegistryInvariantError extends Schema.TaggedErrorClass<Work
   }
 }
 
+export class PromptResolverFileError extends Schema.TaggedErrorClass<PromptResolverFileError>()(
+  "PromptResolverFileError",
+  {
+    path: Schema.String,
+    operation: Schema.String,
+    detail: Schema.String,
+    cause: Schema.optional(Schema.Defect),
+  },
+) {
+  override get message(): string {
+    return `Prompt resolver file error in ${this.operation} (${this.path}): ${this.detail}`;
+  }
+}
+
+export class PromptResolverParseError extends Schema.TaggedErrorClass<PromptResolverParseError>()(
+  "PromptResolverParseError",
+  {
+    path: Schema.String,
+    detail: Schema.String,
+    cause: Schema.optional(Schema.Defect),
+  },
+) {
+  override get message(): string {
+    return `Prompt resolver YAML parse error (${this.path}): ${this.detail}`;
+  }
+}
+
+export class PromptResolverDecodeError extends Schema.TaggedErrorClass<PromptResolverDecodeError>()(
+  "PromptResolverDecodeError",
+  {
+    path: Schema.String,
+    issue: Schema.String,
+    cause: Schema.optional(Schema.Defect),
+  },
+) {
+  override get message(): string {
+    return `Prompt resolver decode error (${this.path}): ${this.issue}`;
+  }
+}
+
+export class PromptResolverInvariantError extends Schema.TaggedErrorClass<PromptResolverInvariantError>()(
+  "PromptResolverInvariantError",
+  {
+    path: Schema.String,
+    detail: Schema.String,
+    cause: Schema.optional(Schema.Defect),
+  },
+) {
+  override get message(): string {
+    return `Prompt resolver invariant failed (${this.path}): ${this.detail}`;
+  }
+}
+
+export class PromptTemplateNotFoundError extends Schema.TaggedErrorClass<PromptTemplateNotFoundError>()(
+  "PromptTemplateNotFoundError",
+  {
+    name: Schema.String,
+    searchedPaths: Schema.Array(Schema.String),
+  },
+) {
+  override get message(): string {
+    return `Prompt template '${this.name}' was not found in any configured prompt directory.`;
+  }
+}
+
 export type WorkflowRegistryError =
   | ProjectionRepositoryError
   | WorkflowRegistryFileError
@@ -62,9 +127,25 @@ export type WorkflowRegistryError =
   | WorkflowRegistryDecodeError
   | WorkflowRegistryInvariantError;
 
+export type PromptResolverError =
+  | PromptResolverFileError
+  | PromptResolverParseError
+  | PromptResolverDecodeError
+  | PromptResolverInvariantError
+  | PromptTemplateNotFoundError;
+
 export function toWorkflowRegistryDecodeError(path: string) {
   return (error: Schema.SchemaError): WorkflowRegistryDecodeError =>
     new WorkflowRegistryDecodeError({
+      path,
+      issue: SchemaIssue.makeFormatterDefault()(error.issue),
+      cause: error,
+    });
+}
+
+export function toPromptResolverDecodeError(path: string) {
+  return (error: Schema.SchemaError): PromptResolverDecodeError =>
+    new PromptResolverDecodeError({
       path,
       issue: SchemaIssue.makeFormatterDefault()(error.issue),
       cause: error,
