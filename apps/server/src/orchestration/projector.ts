@@ -1149,23 +1149,49 @@ export function projectEvent(
         event.type,
         "payload",
       ).pipe(
-        Effect.map((payload) => ({
-          ...nextBase,
-          threads: updateThread(nextBase.threads, payload.threadId, {
-            updatedAt: payload.createdAt,
-          }),
-          corrections: [
-            ...nextBase.corrections.filter((entry) => entry.threadId !== payload.threadId),
-            {
-              threadId: payload.threadId,
-              content: payload.content,
-              channelId: payload.channelId,
-              messageId: payload.messageId,
-              createdAt: payload.createdAt,
-              deliveredAt: null,
-            },
-          ],
-        })),
+        Effect.map((payload) => {
+          const existingChannel = nextBase.channels.find(
+            (channel) => channel.id === payload.channelId,
+          );
+          return {
+            ...nextBase,
+            threads: updateThread(nextBase.threads, payload.threadId, {
+              updatedAt: payload.createdAt,
+            }),
+            channels:
+              existingChannel !== undefined
+                ? nextBase.channels.map((channel) =>
+                    channel.id === payload.channelId
+                      ? {
+                          ...channel,
+                          updatedAt: payload.createdAt,
+                        }
+                      : channel,
+                  )
+                : [
+                    ...nextBase.channels,
+                    {
+                      id: payload.channelId,
+                      threadId: payload.threadId,
+                      type: "guidance",
+                      status: "open",
+                      createdAt: payload.createdAt,
+                      updatedAt: payload.createdAt,
+                    },
+                  ],
+            corrections: [
+              ...nextBase.corrections.filter((entry) => entry.threadId !== payload.threadId),
+              {
+                threadId: payload.threadId,
+                content: payload.content,
+                channelId: payload.channelId,
+                messageId: payload.messageId,
+                createdAt: payload.createdAt,
+                deliveredAt: null,
+              },
+            ],
+          };
+        }),
       );
 
     case "thread.correction-delivered":

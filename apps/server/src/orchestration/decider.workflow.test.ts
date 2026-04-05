@@ -1,4 +1,5 @@
 import {
+  ChannelId,
   CommandId,
   DEFAULT_PROVIDER_INTERACTION_MODE,
   LinkId,
@@ -427,6 +428,36 @@ describe("decider workflow commands", () => {
 
   it.each(successCases)("$name", async ({ command, assertResult }) => {
     assertResult(await run(command));
+  });
+
+  it("reuses an existing guidance channel for repeated thread.correct commands", async () => {
+    const readModel: OrchestrationReadModel = {
+      ...makeReadModel(),
+      channels: [
+        {
+          id: ChannelId.makeUnsafe("channel-guidance-existing"),
+          threadId: ThreadId.makeUnsafe("thread-1"),
+          type: "guidance",
+          status: "open",
+          createdAt: now,
+          updatedAt: now,
+        },
+      ],
+    };
+
+    const result = await run(
+      {
+        type: "thread.correct",
+        commandId: CommandId.makeUnsafe("cmd-correct-existing-channel"),
+        threadId: ThreadId.makeUnsafe("thread-1"),
+        content: "Please apply the latest correction in the existing channel.",
+        createdAt: now,
+      },
+      readModel,
+    );
+
+    const event = expectSingleEvent(result, "thread.correction-queued");
+    expect(event.payload.channelId).toBe(ChannelId.makeUnsafe("channel-guidance-existing"));
   });
 
   it("rejects missing target threads for thread-scoped workflow commands", async () => {

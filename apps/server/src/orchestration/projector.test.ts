@@ -1146,6 +1146,7 @@ describe("orchestration projector", () => {
 
     const thread = finalState.threads[0];
     const phaseRun = finalState.phaseRuns[0];
+    const guidanceChannel = finalState.channels[0];
     const correction = finalState.corrections[0];
     const synthesis = finalState.synthesis[0];
 
@@ -1178,6 +1179,14 @@ describe("orchestration projector", () => {
         deliveredAt: correctionDeliveredAt,
       }),
     );
+    expect(guidanceChannel).toEqual({
+      id: ChannelId.makeUnsafe("channel-guidance-1"),
+      threadId: ThreadId.makeUnsafe("thread-workflow"),
+      type: "guidance",
+      status: "open",
+      createdAt: correctionQueuedAt,
+      updatedAt: correctionQueuedAt,
+    });
     expect(synthesis).toEqual(
       expect.objectContaining({
         threadId: ThreadId.makeUnsafe("thread-workflow"),
@@ -1238,6 +1247,101 @@ describe("orchestration projector", () => {
 
     expect(queued.threads[0]?.bootstrapStatus).toBe("queued");
     expect(queued.threads[0]?.updatedAt).toBe(queuedAt);
+  });
+
+  it("reuses an existing guidance channel when projecting queued corrections", async () => {
+    const createdAt = "2026-04-05T12:40:00.000Z";
+    const channelCreatedAt = "2026-04-05T12:41:00.000Z";
+    const correctionQueuedAt = "2026-04-05T12:42:00.000Z";
+
+    const events: ReadonlyArray<ForgeEvent> = [
+      makeEvent({
+        sequence: 1,
+        type: "project.created",
+        aggregateKind: "project",
+        aggregateId: "project-guidance",
+        occurredAt: createdAt,
+        commandId: "cmd-guidance-project",
+        payload: {
+          projectId: "project-guidance",
+          title: "Guidance project",
+          workspaceRoot: "/tmp/project-guidance",
+          defaultModelSelection: null,
+          scripts: [],
+          createdAt,
+          updatedAt: createdAt,
+        },
+      }),
+      makeEvent({
+        sequence: 2,
+        type: "thread.created",
+        aggregateKind: "thread",
+        aggregateId: "thread-guidance",
+        occurredAt: createdAt,
+        commandId: "cmd-guidance-thread",
+        payload: {
+          threadId: "thread-guidance",
+          projectId: "project-guidance",
+          title: "Guidance thread",
+          modelSelection: {
+            provider: "codex",
+            model: "gpt-5-codex",
+          },
+          runtimeMode: "full-access",
+          branch: null,
+          worktreePath: null,
+          createdAt,
+          updatedAt: createdAt,
+        },
+      }),
+      makeEvent({
+        sequence: 3,
+        type: "channel.created",
+        aggregateKind: "channel",
+        aggregateId: "channel-guidance-existing",
+        occurredAt: channelCreatedAt,
+        commandId: "cmd-guidance-channel",
+        payload: {
+          channelId: "channel-guidance-existing",
+          threadId: "thread-guidance",
+          phaseRunId: null,
+          channelType: "guidance",
+          createdAt: channelCreatedAt,
+        },
+      }),
+      makeEvent({
+        sequence: 4,
+        type: "thread.correction-queued",
+        aggregateKind: "thread",
+        aggregateId: "thread-guidance",
+        occurredAt: correctionQueuedAt,
+        commandId: "cmd-guidance-correction",
+        payload: {
+          threadId: "thread-guidance",
+          content: "Add the retry branch.",
+          channelId: "channel-guidance-existing",
+          messageId: "channel-message-guidance-1",
+          createdAt: correctionQueuedAt,
+        },
+      }),
+    ];
+
+    const finalState = await events.reduce<Promise<OrchestrationReadModel>>(
+      (statePromise, event) =>
+        statePromise.then((state) => Effect.runPromise(projectEvent(state, event))),
+      Promise.resolve(createEmptyReadModel(createdAt)),
+    );
+
+    expect(finalState.channels).toEqual([
+      {
+        id: ChannelId.makeUnsafe("channel-guidance-existing"),
+        threadId: ThreadId.makeUnsafe("thread-guidance"),
+        type: "guidance",
+        status: "open",
+        createdAt: channelCreatedAt,
+        updatedAt: correctionQueuedAt,
+      },
+    ]);
   });
 
   it("projects workflow link, promotion, and dependency state", async () => {

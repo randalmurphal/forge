@@ -993,6 +993,327 @@ it.layer(BaseTestLayer)("OrchestrationProjectionPipeline", (it) => {
       ]);
     }),
   );
+
+  it.effect("persists queued corrections into the guidance channel projection", () =>
+    Effect.gen(function* () {
+      const projectionPipeline = yield* OrchestrationProjectionPipeline;
+      const eventStore = yield* OrchestrationEventStore;
+      const sql = yield* SqlClient.SqlClient;
+      const createdAt = "2026-04-05T17:00:00.000Z";
+      const correctionQueuedAt = "2026-04-05T17:01:00.000Z";
+      const correctionQueuedAgainAt = "2026-04-05T17:02:00.000Z";
+
+      const savedProjectCreated = yield* eventStore.append({
+        type: "project.created",
+        eventId: EventId.makeUnsafe("evt-correction-project"),
+        aggregateKind: "project",
+        aggregateId: ProjectId.makeUnsafe("project-correction"),
+        occurredAt: createdAt,
+        commandId: CommandId.makeUnsafe("cmd-correction-project"),
+        causationEventId: null,
+        correlationId: CommandId.makeUnsafe("cmd-correction-project"),
+        metadata: {},
+        payload: {
+          projectId: ProjectId.makeUnsafe("project-correction"),
+          title: "Correction project",
+          workspaceRoot: "/tmp/correction-project",
+          defaultModelSelection: null,
+          scripts: [],
+          createdAt,
+          updatedAt: createdAt,
+        },
+      });
+      yield* projectionPipeline.projectEvent(savedProjectCreated);
+
+      const savedThreadCreated = yield* eventStore.append({
+        type: "thread.created",
+        eventId: EventId.makeUnsafe("evt-correction-thread"),
+        aggregateKind: "thread",
+        aggregateId: ThreadId.makeUnsafe("thread-correction"),
+        occurredAt: createdAt,
+        commandId: CommandId.makeUnsafe("cmd-correction-thread"),
+        causationEventId: null,
+        correlationId: CommandId.makeUnsafe("cmd-correction-thread"),
+        metadata: {},
+        payload: {
+          threadId: ThreadId.makeUnsafe("thread-correction"),
+          projectId: ProjectId.makeUnsafe("project-correction"),
+          title: "Correction thread",
+          modelSelection: {
+            provider: "codex",
+            model: "gpt-5-codex",
+          },
+          runtimeMode: "full-access",
+          branch: null,
+          worktreePath: null,
+          createdAt,
+          updatedAt: createdAt,
+        },
+      });
+      yield* projectionPipeline.projectEvent(savedThreadCreated);
+
+      yield* projectionPipeline.projectEvent(
+        makeForgeEvent({
+          sequence: 3,
+          type: "thread.correction-queued",
+          aggregateKind: "thread",
+          aggregateId: "thread-correction",
+          occurredAt: correctionQueuedAt,
+          commandId: "cmd-correction-queued-1",
+          payload: {
+            threadId: "thread-correction",
+            content: "Please tighten the review notes.",
+            channelId: "channel-guidance-correction",
+            messageId: "channel-message-correction-1",
+            createdAt: correctionQueuedAt,
+          },
+        }),
+      );
+
+      yield* projectionPipeline.projectEvent(
+        makeForgeEvent({
+          sequence: 4,
+          type: "thread.correction-queued",
+          aggregateKind: "thread",
+          aggregateId: "thread-correction",
+          occurredAt: correctionQueuedAgainAt,
+          commandId: "cmd-correction-queued-2",
+          payload: {
+            threadId: "thread-correction",
+            content: "Also add the missing failure mode.",
+            channelId: "channel-guidance-correction",
+            messageId: "channel-message-correction-2",
+            createdAt: correctionQueuedAgainAt,
+          },
+        }),
+      );
+
+      const channelRows = yield* sql<{
+        readonly channelId: string;
+        readonly threadId: string;
+        readonly type: string;
+        readonly status: string;
+      }>`
+        SELECT
+          channel_id AS "channelId",
+          thread_id AS "threadId",
+          type,
+          status
+        FROM channels
+        WHERE channel_id = 'channel-guidance-correction'
+      `;
+      assert.deepEqual(channelRows, [
+        {
+          channelId: "channel-guidance-correction",
+          threadId: "thread-correction",
+          type: "guidance",
+          status: "open",
+        },
+      ]);
+
+      const messageRows = yield* sql<{
+        readonly messageId: string;
+        readonly sequence: number;
+        readonly fromType: string;
+        readonly fromId: string;
+        readonly content: string;
+      }>`
+        SELECT
+          message_id AS "messageId",
+          sequence,
+          from_type AS "fromType",
+          from_id AS "fromId",
+          content
+        FROM channel_messages
+        WHERE channel_id = 'channel-guidance-correction'
+        ORDER BY sequence ASC, message_id ASC
+      `;
+      assert.deepEqual(messageRows, [
+        {
+          messageId: "channel-message-correction-1",
+          sequence: 0,
+          fromType: "human",
+          fromId: "human",
+          content: "Please tighten the review notes.",
+        },
+        {
+          messageId: "channel-message-correction-2",
+          sequence: 1,
+          fromType: "human",
+          fromId: "human",
+          content: "Also add the missing failure mode.",
+        },
+      ]);
+    }),
+  );
+
+  it.effect(
+    "appends queued corrections to an existing guidance channel without rewriting creation metadata",
+    () =>
+      Effect.gen(function* () {
+        const projectionPipeline = yield* OrchestrationProjectionPipeline;
+        const eventStore = yield* OrchestrationEventStore;
+        const sql = yield* SqlClient.SqlClient;
+        const createdAt = "2026-04-05T18:00:00.000Z";
+        const channelCreatedAt = "2026-04-05T18:01:00.000Z";
+        const correctionQueuedAt = "2026-04-05T18:02:00.000Z";
+
+        const savedProjectCreated = yield* eventStore.append({
+          type: "project.created",
+          eventId: EventId.makeUnsafe("evt-existing-guidance-project"),
+          aggregateKind: "project",
+          aggregateId: ProjectId.makeUnsafe("project-existing-guidance"),
+          occurredAt: createdAt,
+          commandId: CommandId.makeUnsafe("cmd-existing-guidance-project"),
+          causationEventId: null,
+          correlationId: CommandId.makeUnsafe("cmd-existing-guidance-project"),
+          metadata: {},
+          payload: {
+            projectId: ProjectId.makeUnsafe("project-existing-guidance"),
+            title: "Existing guidance project",
+            workspaceRoot: "/tmp/existing-guidance-project",
+            defaultModelSelection: null,
+            scripts: [],
+            createdAt,
+            updatedAt: createdAt,
+          },
+        });
+        yield* projectionPipeline.projectEvent(savedProjectCreated);
+
+        const savedThreadCreated = yield* eventStore.append({
+          type: "thread.created",
+          eventId: EventId.makeUnsafe("evt-existing-guidance-thread"),
+          aggregateKind: "thread",
+          aggregateId: ThreadId.makeUnsafe("thread-existing-guidance"),
+          occurredAt: createdAt,
+          commandId: CommandId.makeUnsafe("cmd-existing-guidance-thread"),
+          causationEventId: null,
+          correlationId: CommandId.makeUnsafe("cmd-existing-guidance-thread"),
+          metadata: {},
+          payload: {
+            threadId: ThreadId.makeUnsafe("thread-existing-guidance"),
+            projectId: ProjectId.makeUnsafe("project-existing-guidance"),
+            title: "Existing guidance thread",
+            modelSelection: {
+              provider: "codex",
+              model: "gpt-5-codex",
+            },
+            runtimeMode: "full-access",
+            branch: null,
+            worktreePath: null,
+            createdAt,
+            updatedAt: createdAt,
+          },
+        });
+        yield* projectionPipeline.projectEvent(savedThreadCreated);
+
+        yield* projectionPipeline.projectEvent(
+          makeForgeEvent({
+            sequence: 3,
+            type: "channel.created",
+            aggregateKind: "channel",
+            aggregateId: "channel-guidance-existing",
+            occurredAt: channelCreatedAt,
+            commandId: "cmd-existing-guidance-channel-created",
+            payload: {
+              channelId: "channel-guidance-existing",
+              threadId: "thread-existing-guidance",
+              phaseRunId: null,
+              channelType: "guidance",
+              createdAt: channelCreatedAt,
+            },
+          }),
+        );
+
+        yield* projectionPipeline.projectEvent(
+          makeForgeEvent({
+            sequence: 4,
+            type: "channel.message-posted",
+            aggregateKind: "channel",
+            aggregateId: "channel-guidance-existing",
+            occurredAt: channelCreatedAt,
+            commandId: "cmd-existing-guidance-message-0",
+            payload: {
+              channelId: "channel-guidance-existing",
+              messageId: "channel-message-existing-0",
+              sequence: 0,
+              fromType: "human",
+              fromId: "human",
+              fromRole: null,
+              content: "Initial guidance note.",
+              createdAt: channelCreatedAt,
+            },
+          }),
+        );
+
+        yield* projectionPipeline.projectEvent(
+          makeForgeEvent({
+            sequence: 5,
+            type: "thread.correction-queued",
+            aggregateKind: "thread",
+            aggregateId: "thread-existing-guidance",
+            occurredAt: correctionQueuedAt,
+            commandId: "cmd-existing-guidance-correction",
+            payload: {
+              threadId: "thread-existing-guidance",
+              content: "Follow up with the missing rollback detail.",
+              channelId: "channel-guidance-existing",
+              messageId: "channel-message-existing-1",
+              createdAt: correctionQueuedAt,
+            },
+          }),
+        );
+
+        const channelRows = yield* sql<{
+          readonly channelId: string;
+          readonly status: string;
+          readonly createdAt: string;
+          readonly updatedAt: string;
+        }>`
+        SELECT
+          channel_id AS "channelId",
+          status,
+          created_at AS "createdAt",
+          updated_at AS "updatedAt"
+        FROM channels
+        WHERE channel_id = 'channel-guidance-existing'
+      `;
+        assert.deepEqual(channelRows, [
+          {
+            channelId: "channel-guidance-existing",
+            status: "open",
+            createdAt: channelCreatedAt,
+            updatedAt: correctionQueuedAt,
+          },
+        ]);
+
+        const messageRows = yield* sql<{
+          readonly messageId: string;
+          readonly sequence: number;
+          readonly content: string;
+        }>`
+        SELECT
+          message_id AS "messageId",
+          sequence,
+          content
+        FROM channel_messages
+        WHERE channel_id = 'channel-guidance-existing'
+        ORDER BY sequence ASC, message_id ASC
+      `;
+        assert.deepEqual(messageRows, [
+          {
+            messageId: "channel-message-existing-0",
+            sequence: 0,
+            content: "Initial guidance note.",
+          },
+          {
+            messageId: "channel-message-existing-1",
+            sequence: 1,
+            content: "Follow up with the missing rollback detail.",
+          },
+        ]);
+      }),
+  );
 });
 
 it.layer(Layer.fresh(makeProjectionPipelinePrefixedTestLayer("t3-base-")))(

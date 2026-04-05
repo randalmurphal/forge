@@ -13,6 +13,7 @@ import { Effect } from "effect";
 
 import { OrchestrationCommandInvariantError } from "./Errors.ts";
 import {
+  findChannelByThreadIdAndType,
   requireChannel,
   requireChannelAbsent,
   requireChannelOpen,
@@ -749,6 +750,9 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
         command,
         threadId: command.threadId,
       });
+      const guidanceChannelId =
+        findChannelByThreadIdAndType(readModel, command.threadId, "guidance")?.id ??
+        ChannelId.makeUnsafe(crypto.randomUUID());
       return {
         ...withEventBase({
           aggregateKind: "thread",
@@ -760,7 +764,7 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
         payload: {
           threadId: command.threadId,
           content: command.content,
-          channelId: ChannelId.makeUnsafe(crypto.randomUUID()),
+          channelId: guidanceChannelId,
           messageId: ChannelMessageId.makeUnsafe(crypto.randomUUID()),
           createdAt: command.createdAt,
         },

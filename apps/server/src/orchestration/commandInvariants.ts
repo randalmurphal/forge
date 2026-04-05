@@ -47,6 +47,16 @@ export function findChannelById(
   return readModel.channels.find((channel) => channel.id === channelId);
 }
 
+export function findChannelByThreadIdAndType(
+  readModel: OrchestrationReadModel,
+  threadId: ThreadId,
+  type: OrchestrationChannel["type"],
+): OrchestrationChannel | undefined {
+  return readModel.channels.find(
+    (channel) => channel.threadId === threadId && channel.type === type,
+  );
+}
+
 export function findPendingRequestById(
   readModel: OrchestrationReadModel,
   requestId: InteractiveRequest["id"],

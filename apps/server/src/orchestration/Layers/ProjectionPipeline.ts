@@ -920,6 +920,22 @@ const makeOrchestrationProjectionPipeline = Effect.fn("makeOrchestrationProjecti
       return rows[0]?.threadId ?? null;
     });
 
+    const lookupNextChannelMessageSequence = Effect.fn("lookupNextChannelMessageSequence")(
+      function* (channelId: string) {
+        const rows = yield* sql<{ readonly nextSequence: number }>`
+          SELECT
+            COALESCE(MAX(sequence), -1) + 1 AS "nextSequence"
+          FROM channel_messages
+          WHERE channel_id = ${channelId}
+        `.pipe(
+          Effect.mapError(
+            toPersistenceSqlError("ProjectionPipeline.lookupNextChannelMessageSequence:query"),
+          ),
+        );
+        return rows[0]?.nextSequence ?? 0;
+      },
+    );
+
     const lookupThreadIdByRequestId = Effect.fn("lookupThreadIdByRequestId")(function* (
       requestId: string,
     ) {
@@ -1103,6 +1119,35 @@ const makeOrchestrationProjectionPipeline = Effect.fn("makeOrchestrationProjecti
           });
           return;
 
+        case "thread.correction-queued":
+          yield* projectionChannelRepository
+            .queryByThreadId({
+              threadId: event.payload.threadId,
+            })
+            .pipe(
+              Effect.flatMap((channels) => {
+                const existingChannel = channels.find(
+                  (channel) => channel.channelId === event.payload.channelId,
+                );
+                return existingChannel === undefined
+                  ? projectionChannelRepository.create({
+                      channelId: event.payload.channelId,
+                      threadId: event.payload.threadId,
+                      phaseRunId: null,
+                      type: "guidance",
+                      status: "open",
+                      createdAt: event.payload.createdAt,
+                      updatedAt: event.payload.createdAt,
+                    })
+                  : projectionChannelRepository.updateStatus({
+                      channelId: event.payload.channelId,
+                      status: existingChannel.status,
+                      updatedAt: event.payload.createdAt,
+                    });
+              }),
+            );
+          return;
+
         case "channel.concluded":
           yield* projectionChannelRepository.updateStatus({
             channelId: event.payload.channelId,
@@ -1127,22 +1172,42 @@ const makeOrchestrationProjectionPipeline = Effect.fn("makeOrchestrationProjecti
     const applyChannelMessagesProjection: ProjectorDefinition["apply"] = Effect.fn(
       "applyChannelMessagesProjection",
     )(function* (event, _attachmentSideEffects) {
-      if (event.type !== "channel.message-posted") {
-        return;
-      }
+      switch (event.type) {
+        case "channel.message-posted":
+          yield* projectionChannelMessageRepository.insert({
+            messageId: event.payload.messageId,
+            channelId: event.payload.channelId,
+            sequence: event.payload.sequence,
+            fromType: event.payload.fromType,
+            fromId: event.payload.fromId,
+            fromRole: event.payload.fromRole,
+            content: event.payload.content,
+            metadata: null,
+            createdAt: event.payload.createdAt,
+            deletedAt: null,
+          });
+          return;
 
-      yield* projectionChannelMessageRepository.insert({
-        messageId: event.payload.messageId,
-        channelId: event.payload.channelId,
-        sequence: event.payload.sequence,
-        fromType: event.payload.fromType,
-        fromId: event.payload.fromId,
-        fromRole: event.payload.fromRole,
-        content: event.payload.content,
-        metadata: null,
-        createdAt: event.payload.createdAt,
-        deletedAt: null,
-      });
+        case "thread.correction-queued": {
+          const nextSequence = yield* lookupNextChannelMessageSequence(event.payload.channelId);
+          yield* projectionChannelMessageRepository.insert({
+            messageId: event.payload.messageId,
+            channelId: event.payload.channelId,
+            sequence: nextSequence,
+            fromType: "human",
+            fromId: "human",
+            fromRole: null,
+            content: event.payload.content,
+            metadata: null,
+            createdAt: event.payload.createdAt,
+            deletedAt: null,
+          });
+          return;
+        }
+
+        default:
+          return;
+      }
     });
 
     const applyChannelReadsProjection: ProjectorDefinition["apply"] = Effect.fn(
