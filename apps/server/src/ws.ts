@@ -1,5 +1,6 @@
 import { Effect, Layer, Option, Queue, Ref, Schema, Stream } from "effect";
 import {
+  type Channel,
   type ChannelPushEvent,
   ForgeEvent,
   type ForgeEvent as ForgeEventEnvelope,
@@ -16,7 +17,9 @@ import {
   ProjectWriteFileError,
   OrchestrationReplayEventsError,
   type TerminalEvent,
+  ThreadId,
   type WorkflowPushEvent,
+  type WorkflowDefinition,
   WS_METHODS,
   WsRpcGroup,
 } from "@t3tools/contracts";
@@ -25,6 +28,7 @@ import { HttpRouter, HttpServerRequest, HttpServerResponse } from "effect/unstab
 import { RpcSerialization, RpcServer } from "effect/unstable/rpc";
 
 import { CheckpointDiffQuery } from "./checkpointing/Services/CheckpointDiffQuery";
+import { ChannelService } from "./channel/Services/ChannelService.ts";
 import { ServerConfig } from "./config";
 import { GitCore } from "./git/Services/GitCore";
 import { GitManager } from "./git/Services/GitManager";
@@ -38,11 +42,25 @@ import {
   observeRpcStream,
   observeRpcStreamEffect,
 } from "./observability/RpcInstrumentation";
+import { ProjectionInteractiveRequestRepository } from "./persistence/Services/ProjectionInteractiveRequests.ts";
+import { ProjectionPhaseOutputRepository } from "./persistence/Services/ProjectionPhaseOutputs.ts";
+import { ProjectionPhaseRunRepository } from "./persistence/Services/ProjectionPhaseRuns.ts";
+import {
+  ProjectionThreadMessageRepository,
+  type ProjectionThreadMessage,
+} from "./persistence/Services/ProjectionThreadMessages.ts";
+import {
+  ProjectionThreadRepository,
+  type ProjectionThread,
+} from "./persistence/Services/ProjectionThreads.ts";
+import { ProjectionThreadSessionRepository } from "./persistence/Services/ProjectionThreadSessions.ts";
+import { ProjectionWorkflowRepository } from "./persistence/Services/ProjectionWorkflows.ts";
 import { ProviderRegistry } from "./provider/Services/ProviderRegistry";
 import { ServerLifecycleEvents } from "./serverLifecycleEvents";
 import { ServerRuntimeStartup } from "./serverRuntimeStartup";
 import { ServerSettingsService } from "./serverSettings";
 import { TerminalManager } from "./terminal/Services/Manager";
+import { WorkflowRegistry } from "./workflow/Services/WorkflowRegistry.ts";
 import { WorkspaceEntries } from "./workspace/Services/WorkspaceEntries";
 import { WorkspaceFileSystem } from "./workspace/Services/WorkspaceFileSystem";
 import { WorkspacePathOutsideRootError } from "./workspace/Services/WorkspacePaths";
@@ -74,6 +92,65 @@ type ChannelPushStreamState = {
     Extract<ChannelPushEvent, { channel: "channel.message" }>["threadId"]
   >;
 };
+
+function paginateEntries<T>(
+  entries: ReadonlyArray<T>,
+  offset?: number,
+  limit?: number,
+): ReadonlyArray<T> {
+  const safeOffset = Math.max(0, offset ?? 0);
+  const sliced = entries.slice(safeOffset);
+  return limit === undefined ? sliced : sliced.slice(0, Math.max(0, limit));
+}
+
+function toTranscriptEntry(message: ProjectionThreadMessage) {
+  return {
+    id: message.messageId,
+    role: message.role,
+    text: message.text,
+    ...(message.attachments ? { attachments: message.attachments } : {}),
+    turnId: message.turnId,
+    streaming: message.isStreaming,
+    createdAt: message.createdAt,
+    updatedAt: message.updatedAt,
+  };
+}
+
+function deriveSessionType(thread: ProjectionThread) {
+  if (thread.workflowId !== null && thread.parentThreadId === null) {
+    return "workflow" as const;
+  }
+  if (thread.parentThreadId !== null || thread.phaseRunId !== null || thread.role !== null) {
+    return "agent" as const;
+  }
+  return "chat" as const;
+}
+
+function deriveSessionStatus(input: {
+  readonly thread: ProjectionThread;
+  readonly runtimeStatus: string | null;
+  readonly hasPendingRequest: boolean;
+}) {
+  if (input.hasPendingRequest) {
+    return "needs-attention" as const;
+  }
+  if (input.thread.completedAt !== null) {
+    return "completed" as const;
+  }
+  switch (input.runtimeStatus) {
+    case "starting":
+    case "running":
+      return "running" as const;
+    case "interrupted":
+      return "paused" as const;
+    case "error":
+      return "failed" as const;
+    case "stopped":
+      return "cancelled" as const;
+    default:
+      return "created" as const;
+  }
+}
 
 function flushSequencedEvents<TEvent extends { readonly sequence: number }>(
   state: OrderedSequenceState<TEvent>,
@@ -542,6 +619,7 @@ const WsRpcLayer = WsRpcGroup.toLayer(
     const projectionSnapshotQuery = yield* ProjectionSnapshotQuery;
     const orchestrationEngine = yield* OrchestrationEngineService;
     const checkpointDiffQuery = yield* CheckpointDiffQuery;
+    const channelService = yield* ChannelService;
     const keybindings = yield* Keybindings;
     const open = yield* Open;
     const gitManager = yield* GitManager;
@@ -554,6 +632,153 @@ const WsRpcLayer = WsRpcGroup.toLayer(
     const startup = yield* ServerRuntimeStartup;
     const workspaceEntries = yield* WorkspaceEntries;
     const workspaceFileSystem = yield* WorkspaceFileSystem;
+    const workflowRegistry = yield* WorkflowRegistry;
+    const workflowRepository = yield* ProjectionWorkflowRepository;
+    const phaseRuns = yield* ProjectionPhaseRunRepository;
+    const phaseOutputs = yield* ProjectionPhaseOutputRepository;
+    const threads = yield* ProjectionThreadRepository;
+    const threadMessages = yield* ProjectionThreadMessageRepository;
+    const threadSessions = yield* ProjectionThreadSessionRepository;
+    const interactiveRequests = yield* ProjectionInteractiveRequestRepository;
+
+    const toSessionSummary = Effect.fn("ws.toSessionSummary")(function* (
+      thread: ProjectionThread,
+      allThreads: ReadonlyArray<ProjectionThread>,
+      pendingThreadIds: ReadonlySet<string>,
+    ) {
+      const threadSession = yield* threadSessions
+        .getByThreadId({
+          threadId: thread.threadId,
+        })
+        .pipe(
+          Effect.mapError(
+            (cause) =>
+              new OrchestrationGetSnapshotError({
+                message: "Failed to load thread runtime state",
+                cause,
+              }),
+          ),
+        );
+
+      return {
+        threadId: thread.threadId,
+        projectId: thread.projectId,
+        parentThreadId: thread.parentThreadId,
+        sessionType: deriveSessionType(thread),
+        title: thread.title,
+        status: deriveSessionStatus({
+          thread,
+          runtimeStatus: Option.match(threadSession, {
+            onNone: () => null,
+            onSome: (value) => value.status,
+          }),
+          hasPendingRequest: pendingThreadIds.has(thread.threadId),
+        }),
+        role: thread.role,
+        provider: thread.modelSelection.provider,
+        model: thread.modelSelection,
+        runtimeMode: thread.runtimeMode,
+        workflowId: thread.workflowId,
+        currentPhaseId: thread.currentPhaseId,
+        patternId: thread.patternId,
+        branch: thread.branch,
+        bootstrapStatus: thread.bootstrapStatus,
+        childThreadIds: allThreads
+          .filter((candidate) => candidate.parentThreadId === thread.threadId)
+          .map((candidate) => candidate.threadId),
+        createdAt: thread.createdAt,
+        updatedAt: thread.updatedAt,
+        archivedAt: thread.archivedAt,
+      };
+    });
+
+    const makeWorkflowPushStream = Effect.fn("ws.makeWorkflowPushStream")(function* () {
+      const snapshot = yield* orchestrationEngine.getReadModel();
+      const fromSequenceExclusive = snapshot.snapshotSequence;
+      const replayEvents: Array<ForgeEventEnvelope> = yield* Stream.runCollect(
+        orchestrationEngine.readEvents(fromSequenceExclusive),
+      ).pipe(
+        Effect.map((events) =>
+          Array.from(events).flatMap((event) => {
+            const forgeEvent = toForgeEventEnvelope(event);
+            return forgeEvent === null ? [] : [forgeEvent];
+          }),
+        ),
+        Effect.catch(() => Effect.succeed([] as Array<ForgeEventEnvelope>)),
+      );
+      const orderedEvents = Stream.merge(
+        Stream.fromIterable(replayEvents),
+        orchestrationEngine.streamDomainEvents.pipe(
+          Stream.flatMap((event) => {
+            const forgeEvent = toForgeEventEnvelope(event);
+            return Stream.fromIterable(forgeEvent === null ? [] : [forgeEvent]);
+          }),
+        ),
+      );
+      const sequenceState = yield* Ref.make<OrderedSequenceState<ForgeEventEnvelope>>({
+        nextSequence: fromSequenceExclusive + 1,
+        pendingBySequence: new Map<number, ForgeEventEnvelope>(),
+      });
+      const workflowState = yield* Ref.make(createWorkflowPushStreamState(snapshot));
+
+      return orderedEvents.pipe(
+        Stream.mapEffect((event) =>
+          Ref.modify(sequenceState, (state) => flushSequencedEvents(state, event)),
+        ),
+        Stream.flatMap((events) => Stream.fromIterable(events)),
+        Stream.mapEffect((event) =>
+          Ref.modify(workflowState, (state) => {
+            const next = mapWorkflowPushEvents(state, event);
+            return [next.emit, next.state] as const;
+          }),
+        ),
+        Stream.flatMap((events) => Stream.fromIterable(events)),
+      );
+    });
+
+    const makeChannelPushStream = Effect.fn("ws.makeChannelPushStream")(function* () {
+      const snapshot = yield* orchestrationEngine.getReadModel();
+      const fromSequenceExclusive = snapshot.snapshotSequence;
+      const replayEvents: Array<ForgeEventEnvelope> = yield* Stream.runCollect(
+        orchestrationEngine.readEvents(fromSequenceExclusive),
+      ).pipe(
+        Effect.map((events) =>
+          Array.from(events).flatMap((event) => {
+            const forgeEvent = toForgeEventEnvelope(event);
+            return forgeEvent === null ? [] : [forgeEvent];
+          }),
+        ),
+        Effect.catch(() => Effect.succeed([] as Array<ForgeEventEnvelope>)),
+      );
+      const orderedEvents = Stream.merge(
+        Stream.fromIterable(replayEvents),
+        orchestrationEngine.streamDomainEvents.pipe(
+          Stream.flatMap((event) => {
+            const forgeEvent = toForgeEventEnvelope(event);
+            return Stream.fromIterable(forgeEvent === null ? [] : [forgeEvent]);
+          }),
+        ),
+      );
+      const sequenceState = yield* Ref.make<OrderedSequenceState<ForgeEventEnvelope>>({
+        nextSequence: fromSequenceExclusive + 1,
+        pendingBySequence: new Map<number, ForgeEventEnvelope>(),
+      });
+      const channelState = yield* Ref.make(createChannelPushStreamState(snapshot));
+
+      return orderedEvents.pipe(
+        Stream.mapEffect((event) =>
+          Ref.modify(sequenceState, (state) => flushSequencedEvents(state, event)),
+        ),
+        Stream.flatMap((events) => Stream.fromIterable(events)),
+        Stream.mapEffect((event) =>
+          Ref.modify(channelState, (state) => {
+            const next = mapChannelPushEvents(state, event);
+            return [next.emit, next.state] as const;
+          }),
+        ),
+        Stream.flatMap((events) => Stream.fromIterable(events)),
+      );
+    });
 
     const loadServerConfig = Effect.gen(function* () {
       const keybindingsConfig = yield* keybindings.loadConfigState;
@@ -576,6 +801,133 @@ const WsRpcLayer = WsRpcGroup.toLayer(
           otlpMetricsEnabled: config.otlpMetricsUrl !== undefined,
         },
         settings,
+      };
+    });
+
+    const loadTranscript = Effect.fn("ws.loadTranscript")(function* (
+      threadId: ThreadId,
+      offset?: number,
+      limit?: number,
+    ) {
+      const threadOption = yield* threads.getById({ threadId }).pipe(
+        Effect.mapError(
+          (cause) =>
+            new OrchestrationGetSnapshotError({
+              message: "Failed to load transcript thread context",
+              cause,
+            }),
+        ),
+      );
+      if (Option.isNone(threadOption)) {
+        return yield* new OrchestrationGetSnapshotError({
+          message: `Failed to load transcript: thread '${threadId}' was not found.`,
+        });
+      }
+      if (threadOption.value.transcriptArchived) {
+        return yield* new OrchestrationGetSnapshotError({
+          message: `Failed to load transcript: thread '${threadId}' transcript has been archived.`,
+        });
+      }
+
+      const entries = yield* threadMessages.listByThreadId({ threadId }).pipe(
+        Effect.mapError(
+          (cause) =>
+            new OrchestrationGetSnapshotError({
+              message: "Failed to load transcript entries",
+              cause,
+            }),
+        ),
+      );
+      return {
+        entries: paginateEntries(entries.map(toTranscriptEntry), offset, limit),
+        total: entries.length,
+      };
+    });
+
+    const loadChildren = Effect.fn("ws.loadChildren")(function* (threadId: ThreadId) {
+      const threadOption = yield* threads.getById({ threadId }).pipe(
+        Effect.mapError(
+          (cause) =>
+            new OrchestrationGetSnapshotError({
+              message: "Failed to load parent thread context",
+              cause,
+            }),
+        ),
+      );
+      if (Option.isNone(threadOption)) {
+        return yield* new OrchestrationGetSnapshotError({
+          message: `Failed to load child sessions: thread '${threadId}' was not found.`,
+        });
+      }
+
+      const siblingThreads = yield* threads
+        .listByProjectId({
+          projectId: threadOption.value.projectId,
+        })
+        .pipe(
+          Effect.mapError(
+            (cause) =>
+              new OrchestrationGetSnapshotError({
+                message: "Failed to load child thread rows",
+                cause,
+              }),
+          ),
+        );
+      const pendingRequests = yield* interactiveRequests.queryPending().pipe(
+        Effect.mapError(
+          (cause) =>
+            new OrchestrationGetSnapshotError({
+              message: "Failed to load pending interactive requests",
+              cause,
+            }),
+        ),
+      );
+      const pendingThreadIds = new Set<string>();
+      for (const request of pendingRequests) {
+        pendingThreadIds.add(request.threadId);
+        if (request.childThreadId !== null) {
+          pendingThreadIds.add(request.childThreadId);
+        }
+      }
+
+      const children = siblingThreads.filter((candidate) => candidate.parentThreadId === threadId);
+      return {
+        children: yield* Effect.forEach(children, (child) =>
+          toSessionSummary(child, siblingThreads, pendingThreadIds),
+        ),
+      };
+    });
+
+    const loadChannel = Effect.fn("ws.loadChannel")(function* (channelId: Channel["id"]) {
+      const readModel = yield* orchestrationEngine.getReadModel();
+      const channel = readModel.channels.find((entry) => entry.id === channelId);
+      if (!channel) {
+        return yield* new OrchestrationGetSnapshotError({
+          message: `Failed to load channel '${channelId}'.`,
+        });
+      }
+      return channel;
+    });
+
+    const upsertWorkflow = Effect.fn("ws.upsertWorkflow")(function* (workflow: WorkflowDefinition) {
+      const persistedWorkflow = {
+        ...workflow,
+        builtIn: false,
+        updatedAt: workflow.updatedAt,
+      };
+      yield* workflowRepository.upsert({
+        workflowId: persistedWorkflow.id,
+        name: persistedWorkflow.name,
+        description: persistedWorkflow.description,
+        phases: persistedWorkflow.phases,
+        builtIn: false,
+        ...(persistedWorkflow.onCompletion ? { onCompletion: persistedWorkflow.onCompletion } : {}),
+        createdAt: persistedWorkflow.createdAt,
+        updatedAt: persistedWorkflow.updatedAt,
+      });
+
+      return {
+        workflow: persistedWorkflow,
       };
     });
 
@@ -672,6 +1024,193 @@ const WsRpcLayer = WsRpcGroup.toLayer(
           ),
           { "rpc.aggregate": "orchestration" },
         ),
+      [WS_METHODS.threadGetTranscript]: ({ threadId, offset, limit }) =>
+        observeRpcEffect(WS_METHODS.threadGetTranscript, loadTranscript(threadId, offset, limit), {
+          "rpc.aggregate": "session",
+        }),
+      [WS_METHODS.threadGetChildren]: ({ threadId }) =>
+        observeRpcEffect(WS_METHODS.threadGetChildren, loadChildren(threadId), {
+          "rpc.aggregate": "session",
+        }),
+      [WS_METHODS.sessionGetTranscript]: ({ sessionId, offset, limit }) =>
+        observeRpcEffect(
+          WS_METHODS.sessionGetTranscript,
+          loadTranscript(sessionId, offset, limit),
+          {
+            "rpc.aggregate": "session",
+          },
+        ),
+      [WS_METHODS.sessionGetChildren]: ({ sessionId }) =>
+        observeRpcEffect(WS_METHODS.sessionGetChildren, loadChildren(sessionId), {
+          "rpc.aggregate": "session",
+        }),
+      [WS_METHODS.channelGetMessages]: ({ channelId, afterSequence, limit }) =>
+        observeRpcEffect(
+          WS_METHODS.channelGetMessages,
+          channelService
+            .getMessages({
+              channelId,
+              ...(afterSequence === undefined ? {} : { afterSequence }),
+              ...(limit === undefined || limit <= 0 ? {} : { limit }),
+            })
+            .pipe(
+              Effect.map((messages) => ({
+                messages,
+                total: messages.length,
+              })),
+              Effect.mapError(
+                (cause) =>
+                  new OrchestrationGetSnapshotError({
+                    message: "Failed to load channel messages",
+                    cause,
+                  }),
+              ),
+            ),
+          { "rpc.aggregate": "channel" },
+        ),
+      [WS_METHODS.channelGetChannel]: ({ channelId }) =>
+        observeRpcEffect(
+          WS_METHODS.channelGetChannel,
+          loadChannel(channelId).pipe(Effect.map((channel) => ({ channel }))),
+          { "rpc.aggregate": "channel" },
+        ),
+      [WS_METHODS.phaseRunList]: ({ threadId }) =>
+        observeRpcEffect(
+          WS_METHODS.phaseRunList,
+          phaseRuns.queryByThreadId({ threadId }).pipe(
+            Effect.map((loadedPhaseRuns) => ({ phaseRuns: loadedPhaseRuns })),
+            Effect.mapError(
+              (cause) =>
+                new OrchestrationGetSnapshotError({
+                  message: "Failed to load phase runs",
+                  cause,
+                }),
+            ),
+          ),
+          { "rpc.aggregate": "workflow" },
+        ),
+      [WS_METHODS.phaseRunGet]: ({ phaseRunId }) =>
+        observeRpcEffect(
+          WS_METHODS.phaseRunGet,
+          phaseRuns.queryById({ phaseRunId }).pipe(
+            Effect.flatMap((phaseRunOption) =>
+              Option.isNone(phaseRunOption)
+                ? Effect.fail(
+                    new OrchestrationGetSnapshotError({
+                      message: `Failed to load phase run '${phaseRunId}'.`,
+                    }),
+                  )
+                : Effect.succeed({ phaseRun: phaseRunOption.value }),
+            ),
+            Effect.mapError((cause) =>
+              Schema.is(OrchestrationGetSnapshotError)(cause)
+                ? cause
+                : new OrchestrationGetSnapshotError({
+                    message: "Failed to load phase run",
+                    cause,
+                  }),
+            ),
+          ),
+          { "rpc.aggregate": "workflow" },
+        ),
+      [WS_METHODS.phaseOutputGet]: ({ phaseRunId, outputKey }) =>
+        observeRpcEffect(
+          WS_METHODS.phaseOutputGet,
+          phaseOutputs.queryByKey({ phaseRunId, outputKey }).pipe(
+            Effect.flatMap((outputOption) =>
+              Option.isNone(outputOption)
+                ? Effect.fail(
+                    new OrchestrationGetSnapshotError({
+                      message: `Failed to load phase output '${outputKey}' for phase run '${phaseRunId}'.`,
+                    }),
+                  )
+                : Effect.succeed({ output: outputOption.value }),
+            ),
+            Effect.mapError((cause) =>
+              Schema.is(OrchestrationGetSnapshotError)(cause)
+                ? cause
+                : new OrchestrationGetSnapshotError({
+                    message: "Failed to load phase output",
+                    cause,
+                  }),
+            ),
+          ),
+          { "rpc.aggregate": "workflow" },
+        ),
+      [WS_METHODS.workflowList]: (_input) =>
+        observeRpcEffect(
+          WS_METHODS.workflowList,
+          workflowRegistry.queryAll().pipe(
+            Effect.map((workflows) => ({
+              workflows: workflows.map((workflow) => ({
+                workflowId: workflow.id,
+                name: workflow.name,
+                description: workflow.description,
+                builtIn: workflow.builtIn,
+              })),
+            })),
+            Effect.mapError(
+              (cause) =>
+                new OrchestrationGetSnapshotError({
+                  message: "Failed to load workflows",
+                  cause,
+                }),
+            ),
+          ),
+          { "rpc.aggregate": "workflow" },
+        ),
+      [WS_METHODS.workflowGet]: ({ workflowId }) =>
+        observeRpcEffect(
+          WS_METHODS.workflowGet,
+          workflowRegistry.queryById({ workflowId }).pipe(
+            Effect.flatMap((workflowOption) =>
+              Option.isNone(workflowOption)
+                ? Effect.fail(
+                    new OrchestrationGetSnapshotError({
+                      message: `Failed to load workflow '${workflowId}'.`,
+                    }),
+                  )
+                : Effect.succeed({ workflow: workflowOption.value }),
+            ),
+            Effect.mapError((cause) =>
+              Schema.is(OrchestrationGetSnapshotError)(cause)
+                ? cause
+                : new OrchestrationGetSnapshotError({
+                    message: "Failed to load workflow",
+                    cause,
+                  }),
+            ),
+          ),
+          { "rpc.aggregate": "workflow" },
+        ),
+      [WS_METHODS.workflowCreate]: ({ workflow }) =>
+        observeRpcEffect(
+          WS_METHODS.workflowCreate,
+          upsertWorkflow(workflow).pipe(
+            Effect.mapError(
+              (cause) =>
+                new OrchestrationGetSnapshotError({
+                  message: "Failed to create workflow",
+                  cause,
+                }),
+            ),
+          ),
+          { "rpc.aggregate": "workflow" },
+        ),
+      [WS_METHODS.workflowUpdate]: ({ workflow }) =>
+        observeRpcEffect(
+          WS_METHODS.workflowUpdate,
+          upsertWorkflow(workflow).pipe(
+            Effect.mapError(
+              (cause) =>
+                new OrchestrationGetSnapshotError({
+                  message: "Failed to update workflow",
+                  cause,
+                }),
+            ),
+          ),
+          { "rpc.aggregate": "workflow" },
+        ),
       [WS_METHODS.subscribeOrchestrationDomainEvents]: (_input) =>
         observeRpcStreamEffect(
           WS_METHODS.subscribeOrchestrationDomainEvents,
@@ -734,105 +1273,107 @@ const WsRpcLayer = WsRpcGroup.toLayer(
       [WS_METHODS.subscribeWorkflowEvents]: ({ threadId }) =>
         observeRpcStreamEffect(
           WS_METHODS.subscribeWorkflowEvents,
-          Effect.gen(function* () {
-            const snapshot = yield* orchestrationEngine.getReadModel();
-            const fromSequenceExclusive = snapshot.snapshotSequence;
-            const replayEvents: Array<ForgeEventEnvelope> = yield* Stream.runCollect(
-              orchestrationEngine.readEvents(fromSequenceExclusive),
-            ).pipe(
-              Effect.map((events) =>
-                Array.from(events).flatMap((event) => {
-                  const forgeEvent = toForgeEventEnvelope(event);
-                  return forgeEvent === null ? [] : [forgeEvent];
-                }),
-              ),
-              Effect.catch(() => Effect.succeed([] as Array<ForgeEventEnvelope>)),
-            );
-            const orderedEvents = Stream.merge(
-              Stream.fromIterable(replayEvents),
-              orchestrationEngine.streamDomainEvents.pipe(
-                Stream.flatMap((event) => {
-                  const forgeEvent = toForgeEventEnvelope(event);
-                  return Stream.fromIterable(forgeEvent === null ? [] : [forgeEvent]);
-                }),
-              ),
-            );
-            const sequenceState = yield* Ref.make<OrderedSequenceState<ForgeEventEnvelope>>({
-              nextSequence: fromSequenceExclusive + 1,
-              pendingBySequence: new Map<number, ForgeEventEnvelope>(),
-            });
-            const workflowState = yield* Ref.make(createWorkflowPushStreamState(snapshot));
-
-            const pushStream = orderedEvents.pipe(
-              Stream.mapEffect((event) =>
-                Ref.modify(sequenceState, (state) => flushSequencedEvents(state, event)),
-              ),
-              Stream.flatMap((events) => Stream.fromIterable(events)),
-              Stream.mapEffect((event) =>
-                Ref.modify(workflowState, (state) => {
-                  const next = mapWorkflowPushEvents(state, event);
-                  return [next.emit, next.state] as const;
-                }),
-              ),
-              Stream.flatMap((events) => Stream.fromIterable(events)),
-            );
-
-            return threadId === undefined
-              ? pushStream
-              : pushStream.pipe(Stream.filter((event) => event.threadId === threadId));
-          }),
+          makeWorkflowPushStream().pipe(
+            Effect.map((pushStream) =>
+              threadId === undefined
+                ? pushStream
+                : pushStream.pipe(Stream.filter((event) => event.threadId === threadId)),
+            ),
+          ),
           { "rpc.aggregate": "workflow" },
         ),
       [WS_METHODS.subscribeChannelMessages]: ({ channelId }) =>
         observeRpcStreamEffect(
           WS_METHODS.subscribeChannelMessages,
-          Effect.gen(function* () {
-            const snapshot = yield* orchestrationEngine.getReadModel();
-            const fromSequenceExclusive = snapshot.snapshotSequence;
-            const replayEvents: Array<ForgeEventEnvelope> = yield* Stream.runCollect(
-              orchestrationEngine.readEvents(fromSequenceExclusive),
-            ).pipe(
-              Effect.map((events) =>
-                Array.from(events).flatMap((event) => {
-                  const forgeEvent = toForgeEventEnvelope(event);
-                  return forgeEvent === null ? [] : [forgeEvent];
-                }),
+          makeChannelPushStream().pipe(
+            Effect.map((pushStream) =>
+              channelId === undefined
+                ? pushStream
+                : pushStream.pipe(Stream.filter((event) => event.channelId === channelId)),
+            ),
+          ),
+          { "rpc.aggregate": "channel" },
+        ),
+      [WS_METHODS.subscribeWorkflowPhase]: ({ threadId }) =>
+        observeRpcStreamEffect(
+          WS_METHODS.subscribeWorkflowPhase,
+          makeWorkflowPushStream().pipe(
+            Effect.map((pushStream) =>
+              pushStream.pipe(
+                Stream.filter(
+                  (event): event is Extract<WorkflowPushEvent, { channel: "workflow.phase" }> =>
+                    event.channel === "workflow.phase" &&
+                    (threadId === undefined || event.threadId === threadId),
+                ),
               ),
-              Effect.catch(() => Effect.succeed([] as Array<ForgeEventEnvelope>)),
-            );
-            const orderedEvents = Stream.merge(
-              Stream.fromIterable(replayEvents),
-              orchestrationEngine.streamDomainEvents.pipe(
-                Stream.flatMap((event) => {
-                  const forgeEvent = toForgeEventEnvelope(event);
-                  return Stream.fromIterable(forgeEvent === null ? [] : [forgeEvent]);
-                }),
+            ),
+          ),
+          { "rpc.aggregate": "workflow" },
+        ),
+      [WS_METHODS.subscribeWorkflowQualityChecks]: ({ threadId }) =>
+        observeRpcStreamEffect(
+          WS_METHODS.subscribeWorkflowQualityChecks,
+          makeWorkflowPushStream().pipe(
+            Effect.map((pushStream) =>
+              pushStream.pipe(
+                Stream.filter(
+                  (
+                    event,
+                  ): event is Extract<WorkflowPushEvent, { channel: "workflow.quality-check" }> =>
+                    event.channel === "workflow.quality-check" &&
+                    (threadId === undefined || event.threadId === threadId),
+                ),
               ),
-            );
-            const sequenceState = yield* Ref.make<OrderedSequenceState<ForgeEventEnvelope>>({
-              nextSequence: fromSequenceExclusive + 1,
-              pendingBySequence: new Map<number, ForgeEventEnvelope>(),
-            });
-            const channelState = yield* Ref.make(createChannelPushStreamState(snapshot));
-
-            const pushStream = orderedEvents.pipe(
-              Stream.mapEffect((event) =>
-                Ref.modify(sequenceState, (state) => flushSequencedEvents(state, event)),
+            ),
+          ),
+          { "rpc.aggregate": "workflow" },
+        ),
+      [WS_METHODS.subscribeWorkflowBootstrap]: ({ threadId }) =>
+        observeRpcStreamEffect(
+          WS_METHODS.subscribeWorkflowBootstrap,
+          makeWorkflowPushStream().pipe(
+            Effect.map((pushStream) =>
+              pushStream.pipe(
+                Stream.filter(
+                  (event): event is Extract<WorkflowPushEvent, { channel: "workflow.bootstrap" }> =>
+                    event.channel === "workflow.bootstrap" &&
+                    (threadId === undefined || event.threadId === threadId),
+                ),
               ),
-              Stream.flatMap((events) => Stream.fromIterable(events)),
-              Stream.mapEffect((event) =>
-                Ref.modify(channelState, (state) => {
-                  const next = mapChannelPushEvents(state, event);
-                  return [next.emit, next.state] as const;
-                }),
+            ),
+          ),
+          { "rpc.aggregate": "workflow" },
+        ),
+      [WS_METHODS.subscribeWorkflowGate]: ({ threadId }) =>
+        observeRpcStreamEffect(
+          WS_METHODS.subscribeWorkflowGate,
+          makeWorkflowPushStream().pipe(
+            Effect.map((pushStream) =>
+              pushStream.pipe(
+                Stream.filter(
+                  (event): event is Extract<WorkflowPushEvent, { channel: "workflow.gate" }> =>
+                    event.channel === "workflow.gate" &&
+                    (threadId === undefined || event.threadId === threadId),
+                ),
               ),
-              Stream.flatMap((events) => Stream.fromIterable(events)),
-            );
-
-            return channelId === undefined
-              ? pushStream
-              : pushStream.pipe(Stream.filter((event) => event.channelId === channelId));
-          }),
+            ),
+          ),
+          { "rpc.aggregate": "workflow" },
+        ),
+      [WS_METHODS.subscribeChannelMessage]: ({ channelId }) =>
+        observeRpcStreamEffect(
+          WS_METHODS.subscribeChannelMessage,
+          makeChannelPushStream().pipe(
+            Effect.map((pushStream) =>
+              pushStream.pipe(
+                Stream.filter(
+                  (event): event is Extract<ChannelPushEvent, { channel: "channel.message" }> =>
+                    event.channel === "channel.message" &&
+                    (channelId === undefined || event.channelId === channelId),
+                ),
+              ),
+            ),
+          ),
           { "rpc.aggregate": "channel" },
         ),
       [WS_METHODS.serverGetConfig]: (_input) =>

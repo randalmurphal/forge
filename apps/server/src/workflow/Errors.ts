@@ -229,6 +229,31 @@ export class WorkflowEnginePhaseRunNotFoundError extends Schema.TaggedErrorClass
   }
 }
 
+export class InputResolverInvalidReferenceError extends Schema.TaggedErrorClass<InputResolverInvalidReferenceError>()(
+  "InputResolverInvalidReferenceError",
+  {
+    reference: Schema.String,
+    detail: Schema.String,
+  },
+) {
+  override get message(): string {
+    return `Input resolver could not parse '${this.reference}': ${this.detail}`;
+  }
+}
+
+export class InputResolverMissingReferenceError extends Schema.TaggedErrorClass<InputResolverMissingReferenceError>()(
+  "InputResolverMissingReferenceError",
+  {
+    threadId: Schema.String,
+    reference: Schema.String,
+    detail: Schema.String,
+  },
+) {
+  override get message(): string {
+    return `Input resolver could not resolve '${this.reference}' for thread '${this.threadId}': ${this.detail}`;
+  }
+}
+
 export type WorkflowRegistryError =
   | ProjectionRepositoryError
   | WorkflowRegistryFileError
@@ -258,6 +283,11 @@ export type WorkflowEngineError =
   | WorkflowEngineWorkflowNotFoundError
   | WorkflowEnginePhaseNotFoundError
   | WorkflowEnginePhaseRunNotFoundError;
+
+export type InputResolverError =
+  | ProjectionRepositoryError
+  | InputResolverInvalidReferenceError
+  | InputResolverMissingReferenceError;
 
 export function toWorkflowRegistryDecodeError(path: string) {
   return (error: Schema.SchemaError): WorkflowRegistryDecodeError =>

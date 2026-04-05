@@ -98,6 +98,7 @@ export const makeChannelMcpToolHandlers = Effect.fn("makeChannelMcpToolHandlers"
   const services = yield* Effect.services();
 
   const run = Effect.runPromiseWith(services);
+  const postChannelMessage = channelService.postMessage;
 
   const getChannel = Effect.fn("McpChannelServer.getChannel")(function* () {
     const readModel = yield* orchestrationEngine.getReadModel();
@@ -253,7 +254,7 @@ export const makeChannelMcpToolHandlers = Effect.fn("makeChannelMcpToolHandlers"
         return await withIdempotentResult("post_to_channel", { message }, async (callId) => {
           const createdAt = nowIso();
           const persistedMessage = await run(
-            channelService.postMessage({
+            postChannelMessage({
               channelId: input.channelId,
               fromType: "agent",
               fromId: input.participantThreadId,

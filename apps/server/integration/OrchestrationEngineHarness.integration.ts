@@ -52,6 +52,8 @@ import { RuntimeReceiptBusLive } from "../src/orchestration/Layers/RuntimeReceip
 import { OrchestrationReactorLive } from "../src/orchestration/Layers/OrchestrationReactor.ts";
 import { ProviderCommandReactorLive } from "../src/orchestration/Layers/ProviderCommandReactor.ts";
 import { ProviderRuntimeIngestionLive } from "../src/orchestration/Layers/ProviderRuntimeIngestion.ts";
+import { BootstrapReactor } from "../src/orchestration/Services/BootstrapReactor.ts";
+import { ChannelReactor } from "../src/orchestration/Services/ChannelReactor.ts";
 import {
   OrchestrationEngineService,
   type OrchestrationEngineShape,
@@ -62,6 +64,7 @@ import {
   RuntimeReceiptBus,
   type OrchestrationRuntimeReceipt,
 } from "../src/orchestration/Services/RuntimeReceiptBus.ts";
+import { WorkflowReactor } from "../src/orchestration/Services/WorkflowReactor.ts";
 
 import {
   makeTestProviderAdapterHarness,
@@ -333,6 +336,24 @@ export const makeOrchestrationIntegrationHarness = (
       Layer.provideMerge(runtimeIngestionLayer),
       Layer.provideMerge(providerCommandReactorLayer),
       Layer.provideMerge(checkpointReactorLayer),
+      Layer.provideMerge(
+        Layer.succeed(BootstrapReactor, {
+          start: () => Effect.void,
+          drain: Effect.void,
+        }),
+      ),
+      Layer.provideMerge(
+        Layer.succeed(WorkflowReactor, {
+          start: () => Effect.void,
+          drain: Effect.void,
+        }),
+      ),
+      Layer.provideMerge(
+        Layer.succeed(ChannelReactor, {
+          start: () => Effect.void,
+          drain: Effect.void,
+        }),
+      ),
     );
     const layer = Layer.empty.pipe(
       Layer.provideMerge(runtimeServicesLayer),

@@ -5,14 +5,17 @@ import * as RpcGroup from "effect/unstable/rpc/RpcGroup";
 import {
   ChannelId,
   InteractiveRequestId,
+  IsoDateTime,
   NonNegativeInt,
   PhaseRunId,
+  PositiveInt,
   ProjectId,
   ThreadId,
   TrimmedNonEmptyString,
   WorkflowId,
+  WorkflowPhaseId,
 } from "./baseSchemas";
-import { ChannelMessage } from "./channel";
+import { Channel, ChannelMessage, DeliberationState } from "./channel";
 import { OpenError, OpenInEditorInput } from "./editor";
 import {
   GitActionProgressEvent,
@@ -39,6 +42,7 @@ import {
 import { KeybindingsConfigError } from "./keybindings";
 import {
   ChannelPushEvent,
+  ChannelMessageEvent,
   ClientOrchestrationCommand,
   DispatchResult,
   OrchestrationEvent,
@@ -56,11 +60,16 @@ import {
   RuntimeMode,
   SessionSummary,
   TranscriptEntry,
+  WorkflowBootstrapEvent,
+  WorkflowGateEvent,
+  WorkflowPhaseEvent,
+  WorkflowQualityCheckEvent,
   WorkflowSummary,
   WorkflowPushEvent,
 } from "./orchestration";
 import { InteractiveRequestResolution } from "./interactiveRequest";
 import { ModelSelection, ProviderKind } from "./providerSchemas";
+import { ProviderSandboxMode } from "./providerSchemas";
 import {
   ProjectSearchEntriesError,
   ProjectSearchEntriesInput,
@@ -81,6 +90,7 @@ import {
   TerminalWriteInput,
 } from "./terminal";
 import { WorkflowDefinition } from "./workflow";
+import { GateResult, PhaseRunStatus, PhaseType, QualityCheckResult } from "./workflow";
 import {
   ServerConfigStreamEvent,
   ServerConfig,
@@ -103,6 +113,8 @@ export const FORGE_WS_METHODS = {
   threadSendTurn: "thread.sendTurn",
   threadGetTranscript: "thread.getTranscript",
   threadGetChildren: "thread.getChildren",
+  sessionGetTranscript: "session.getTranscript",
+  sessionGetChildren: "session.getChildren",
 
   // Gate operations
   gateApprove: "gate.approve",
@@ -113,18 +125,31 @@ export const FORGE_WS_METHODS = {
 
   // Channel operations
   channelGetMessages: "channel.getMessages",
+  channelGetChannel: "channel.getChannel",
   channelIntervene: "channel.intervene",
 
+  // Phase run operations
+  phaseRunList: "phaseRun.list",
+  phaseRunGet: "phaseRun.get",
+
   // Phase output operations
+  phaseOutputGet: "phaseOutput.get",
   phaseOutputUpdate: "phaseOutput.update",
 
   // Workflow operations
   workflowList: "workflow.list",
   workflowGet: "workflow.get",
+  workflowCreate: "workflow.create",
+  workflowUpdate: "workflow.update",
 
   // Push subscriptions
   subscribeWorkflowEvents: "subscribeWorkflowEvents",
   subscribeChannelMessages: "subscribeChannelMessages",
+  subscribeWorkflowPhase: "workflow.phase",
+  subscribeWorkflowQualityChecks: "workflow.quality-check",
+  subscribeWorkflowBootstrap: "workflow.bootstrap",
+  subscribeWorkflowGate: "workflow.gate",
+  subscribeChannelMessage: "channel.message",
 } as const;
 
 export const WS_METHODS = {
@@ -404,6 +429,8 @@ const ForgeThreadSendTurnInput = Schema.Struct({
 
 const ForgeThreadGetTranscriptInput = Schema.Struct({
   threadId: ThreadId,
+  limit: Schema.optional(NonNegativeInt),
+  offset: Schema.optional(NonNegativeInt),
 });
 
 const ForgeThreadGetTranscriptResult = Schema.Struct({
@@ -417,6 +444,16 @@ const ForgeThreadGetChildrenInput = Schema.Struct({
 
 const ForgeThreadGetChildrenResult = Schema.Struct({
   children: Schema.Array(SessionSummary),
+});
+
+const ForgeSessionGetTranscriptInput = Schema.Struct({
+  sessionId: ThreadId,
+  limit: Schema.optional(NonNegativeInt),
+  offset: Schema.optional(NonNegativeInt),
+});
+
+const ForgeSessionGetChildrenInput = Schema.Struct({
+  sessionId: ThreadId,
 });
 
 const ForgeGateApproveInput = Schema.Struct({
@@ -437,6 +474,8 @@ const ForgeRequestResolveInput = Schema.Struct({
 
 const ForgeChannelGetMessagesInput = Schema.Struct({
   channelId: ChannelId,
+  afterSequence: Schema.optional(NonNegativeInt),
+  limit: Schema.optional(NonNegativeInt),
 });
 
 const ForgeChannelGetMessagesResult = Schema.Struct({
@@ -444,10 +483,71 @@ const ForgeChannelGetMessagesResult = Schema.Struct({
   total: NonNegativeInt,
 });
 
+const ForgeChannelGetChannelInput = Schema.Struct({
+  channelId: ChannelId,
+});
+
+const ForgeChannelGetChannelResult = Schema.Struct({
+  channel: Channel,
+});
+
 const ForgeChannelInterveneInput = Schema.Struct({
   channelId: ChannelId,
   content: Schema.String,
   fromRole: Schema.optional(TrimmedNonEmptyString),
+});
+
+const ForgePhaseRun = Schema.Struct({
+  phaseRunId: PhaseRunId,
+  threadId: ThreadId,
+  workflowId: WorkflowId,
+  phaseId: WorkflowPhaseId,
+  phaseName: TrimmedNonEmptyString,
+  phaseType: PhaseType,
+  sandboxMode: Schema.NullOr(ProviderSandboxMode),
+  iteration: PositiveInt,
+  status: PhaseRunStatus,
+  gateResult: Schema.NullOr(GateResult),
+  qualityChecks: Schema.NullOr(Schema.Array(QualityCheckResult)),
+  deliberationState: Schema.NullOr(DeliberationState),
+  startedAt: Schema.NullOr(IsoDateTime),
+  completedAt: Schema.NullOr(IsoDateTime),
+});
+
+const ForgePhaseRunListInput = Schema.Struct({
+  threadId: ThreadId,
+});
+
+const ForgePhaseRunListResult = Schema.Struct({
+  phaseRuns: Schema.Array(ForgePhaseRun),
+});
+
+const ForgePhaseRunGetInput = Schema.Struct({
+  phaseRunId: PhaseRunId,
+});
+
+const ForgePhaseRunGetResult = Schema.Struct({
+  phaseRun: ForgePhaseRun,
+});
+
+const ForgePhaseOutput = Schema.Struct({
+  phaseRunId: PhaseRunId,
+  outputKey: TrimmedNonEmptyString,
+  content: Schema.String,
+  sourceType: TrimmedNonEmptyString,
+  sourceId: Schema.NullOr(TrimmedNonEmptyString),
+  metadata: Schema.NullOr(Schema.Record(Schema.String, Schema.Unknown)),
+  createdAt: IsoDateTime,
+  updatedAt: IsoDateTime,
+});
+
+const ForgePhaseOutputGetInput = Schema.Struct({
+  phaseRunId: PhaseRunId,
+  outputKey: TrimmedNonEmptyString,
+});
+
+const ForgePhaseOutputGetResult = Schema.Struct({
+  output: ForgePhaseOutput,
 });
 
 const ForgePhaseOutputUpdateInput = Schema.Struct({
@@ -468,6 +568,14 @@ const ForgeWorkflowGetInput = Schema.Struct({
 });
 
 const ForgeWorkflowGetResult = Schema.Struct({
+  workflow: WorkflowDefinition,
+});
+
+const ForgeWorkflowMutationInput = Schema.Struct({
+  workflow: WorkflowDefinition,
+});
+
+const ForgeWorkflowMutationResult = Schema.Struct({
   workflow: WorkflowDefinition,
 });
 
@@ -531,6 +639,18 @@ export const WsForgeThreadGetChildrenRpc = Rpc.make(WS_METHODS.threadGetChildren
   error: OrchestrationGetSnapshotError,
 });
 
+export const WsForgeSessionGetTranscriptRpc = Rpc.make(WS_METHODS.sessionGetTranscript, {
+  payload: ForgeSessionGetTranscriptInput,
+  success: ForgeThreadGetTranscriptResult,
+  error: OrchestrationGetSnapshotError,
+});
+
+export const WsForgeSessionGetChildrenRpc = Rpc.make(WS_METHODS.sessionGetChildren, {
+  payload: ForgeSessionGetChildrenInput,
+  success: ForgeThreadGetChildrenResult,
+  error: OrchestrationGetSnapshotError,
+});
+
 export const WsForgeGateApproveRpc = Rpc.make(WS_METHODS.gateApprove, {
   payload: ForgeGateApproveInput,
   success: DispatchResult,
@@ -555,10 +675,34 @@ export const WsForgeChannelGetMessagesRpc = Rpc.make(WS_METHODS.channelGetMessag
   error: OrchestrationGetSnapshotError,
 });
 
+export const WsForgeChannelGetChannelRpc = Rpc.make(WS_METHODS.channelGetChannel, {
+  payload: ForgeChannelGetChannelInput,
+  success: ForgeChannelGetChannelResult,
+  error: OrchestrationGetSnapshotError,
+});
+
 export const WsForgeChannelInterveneRpc = Rpc.make(WS_METHODS.channelIntervene, {
   payload: ForgeChannelInterveneInput,
   success: DispatchResult,
   error: OrchestrationDispatchCommandError,
+});
+
+export const WsForgePhaseRunListRpc = Rpc.make(WS_METHODS.phaseRunList, {
+  payload: ForgePhaseRunListInput,
+  success: ForgePhaseRunListResult,
+  error: OrchestrationGetSnapshotError,
+});
+
+export const WsForgePhaseRunGetRpc = Rpc.make(WS_METHODS.phaseRunGet, {
+  payload: ForgePhaseRunGetInput,
+  success: ForgePhaseRunGetResult,
+  error: OrchestrationGetSnapshotError,
+});
+
+export const WsForgePhaseOutputGetRpc = Rpc.make(WS_METHODS.phaseOutputGet, {
+  payload: ForgePhaseOutputGetInput,
+  success: ForgePhaseOutputGetResult,
+  error: OrchestrationGetSnapshotError,
 });
 
 export const WsForgePhaseOutputUpdateRpc = Rpc.make(WS_METHODS.phaseOutputUpdate, {
@@ -576,6 +720,18 @@ export const WsForgeWorkflowListRpc = Rpc.make(WS_METHODS.workflowList, {
 export const WsForgeWorkflowGetRpc = Rpc.make(WS_METHODS.workflowGet, {
   payload: ForgeWorkflowGetInput,
   success: ForgeWorkflowGetResult,
+  error: OrchestrationGetSnapshotError,
+});
+
+export const WsForgeWorkflowCreateRpc = Rpc.make(WS_METHODS.workflowCreate, {
+  payload: ForgeWorkflowMutationInput,
+  success: ForgeWorkflowMutationResult,
+  error: OrchestrationGetSnapshotError,
+});
+
+export const WsForgeWorkflowUpdateRpc = Rpc.make(WS_METHODS.workflowUpdate, {
+  payload: ForgeWorkflowMutationInput,
+  success: ForgeWorkflowMutationResult,
   error: OrchestrationGetSnapshotError,
 });
 
@@ -603,6 +759,39 @@ export const WsSubscribeWorkflowEventsRpc = Rpc.make(WS_METHODS.subscribeWorkflo
 export const WsSubscribeChannelMessagesRpc = Rpc.make(WS_METHODS.subscribeChannelMessages, {
   payload: Schema.Struct({ channelId: Schema.optional(ChannelId) }),
   success: ChannelPushEvent,
+  stream: true,
+});
+
+export const WsSubscribeWorkflowPhaseRpc = Rpc.make(WS_METHODS.subscribeWorkflowPhase, {
+  payload: Schema.Struct({ threadId: Schema.optional(ThreadId) }),
+  success: WorkflowPhaseEvent,
+  stream: true,
+});
+
+export const WsSubscribeWorkflowQualityChecksRpc = Rpc.make(
+  WS_METHODS.subscribeWorkflowQualityChecks,
+  {
+    payload: Schema.Struct({ threadId: Schema.optional(ThreadId) }),
+    success: WorkflowQualityCheckEvent,
+    stream: true,
+  },
+);
+
+export const WsSubscribeWorkflowBootstrapRpc = Rpc.make(WS_METHODS.subscribeWorkflowBootstrap, {
+  payload: Schema.Struct({ threadId: Schema.optional(ThreadId) }),
+  success: WorkflowBootstrapEvent,
+  stream: true,
+});
+
+export const WsSubscribeWorkflowGateRpc = Rpc.make(WS_METHODS.subscribeWorkflowGate, {
+  payload: Schema.Struct({ threadId: Schema.optional(ThreadId) }),
+  success: WorkflowGateEvent,
+  stream: true,
+});
+
+export const WsSubscribeChannelMessageRpc = Rpc.make(WS_METHODS.subscribeChannelMessage, {
+  payload: Schema.Struct({ channelId: Schema.optional(ChannelId) }),
+  success: ChannelMessageEvent,
   stream: true,
 });
 
@@ -648,6 +837,11 @@ export const WsRpcGroup = RpcGroup.make(
   WsSubscribeOrchestrationDomainEventsRpc,
   WsSubscribeWorkflowEventsRpc,
   WsSubscribeChannelMessagesRpc,
+  WsSubscribeWorkflowPhaseRpc,
+  WsSubscribeWorkflowQualityChecksRpc,
+  WsSubscribeWorkflowBootstrapRpc,
+  WsSubscribeWorkflowGateRpc,
+  WsSubscribeChannelMessageRpc,
   WsSubscribeTerminalEventsRpc,
   WsSubscribeServerConfigRpc,
   WsSubscribeServerLifecycleRpc,
@@ -656,4 +850,17 @@ export const WsRpcGroup = RpcGroup.make(
   WsOrchestrationGetTurnDiffRpc,
   WsOrchestrationGetFullThreadDiffRpc,
   WsOrchestrationReplayEventsRpc,
+  WsForgeThreadGetTranscriptRpc,
+  WsForgeThreadGetChildrenRpc,
+  WsForgeSessionGetTranscriptRpc,
+  WsForgeSessionGetChildrenRpc,
+  WsForgeChannelGetMessagesRpc,
+  WsForgeChannelGetChannelRpc,
+  WsForgePhaseRunListRpc,
+  WsForgePhaseRunGetRpc,
+  WsForgePhaseOutputGetRpc,
+  WsForgeWorkflowListRpc,
+  WsForgeWorkflowGetRpc,
+  WsForgeWorkflowCreateRpc,
+  WsForgeWorkflowUpdateRpc,
 );

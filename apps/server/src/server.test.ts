@@ -17,6 +17,7 @@ import {
   ProjectId,
   ResolvedKeybindingRule,
   ThreadId,
+  WorkflowId,
   WorkflowPhaseId,
   WS_METHODS,
   WsRpcGroup,
@@ -24,7 +25,7 @@ import {
 } from "@t3tools/contracts";
 import { assert, it } from "@effect/vitest";
 import { assertFailure, assertInclude, assertTrue } from "@effect/vitest/utils";
-import { Effect, FileSystem, Layer, Path, Stream } from "effect";
+import { Effect, FileSystem, Layer, Option, Path, Stream } from "effect";
 import { HttpClient, HttpRouter, HttpServer } from "effect/unstable/http";
 import { RpcClient, RpcSerialization } from "effect/unstable/rpc";
 
@@ -40,6 +41,7 @@ import { GitCore, type GitCoreShape } from "./git/Services/GitCore.ts";
 import { GitManager, type GitManagerShape } from "./git/Services/GitManager.ts";
 import { Keybindings, type KeybindingsShape } from "./keybindings.ts";
 import { Open, type OpenShape } from "./open.ts";
+import { ChannelService, type ChannelServiceShape } from "./channel/Services/ChannelService.ts";
 import {
   OrchestrationEngineService,
   type OrchestrationEngineShape,
@@ -49,6 +51,34 @@ import {
   type ProjectionSnapshotQueryShape,
 } from "./orchestration/Services/ProjectionSnapshotQuery.ts";
 import { PersistenceSqlError } from "./persistence/Errors.ts";
+import {
+  ProjectionInteractiveRequestRepository,
+  type ProjectionInteractiveRequestRepositoryShape,
+} from "./persistence/Services/ProjectionInteractiveRequests.ts";
+import {
+  ProjectionPhaseOutputRepository,
+  type ProjectionPhaseOutputRepositoryShape,
+} from "./persistence/Services/ProjectionPhaseOutputs.ts";
+import {
+  ProjectionPhaseRunRepository,
+  type ProjectionPhaseRunRepositoryShape,
+} from "./persistence/Services/ProjectionPhaseRuns.ts";
+import {
+  ProjectionThreadMessageRepository,
+  type ProjectionThreadMessageRepositoryShape,
+} from "./persistence/Services/ProjectionThreadMessages.ts";
+import {
+  ProjectionThreadRepository,
+  type ProjectionThreadRepositoryShape,
+} from "./persistence/Services/ProjectionThreads.ts";
+import {
+  ProjectionThreadSessionRepository,
+  type ProjectionThreadSessionRepositoryShape,
+} from "./persistence/Services/ProjectionThreadSessions.ts";
+import {
+  ProjectionWorkflowRepository,
+  type ProjectionWorkflowRepositoryShape,
+} from "./persistence/Services/ProjectionWorkflows.ts";
 import {
   ProviderRegistry,
   type ProviderRegistryShape,
@@ -61,6 +91,10 @@ import { ProjectFaviconResolverLive } from "./project/Layers/ProjectFaviconResol
 import { WorkspaceEntriesLive } from "./workspace/Layers/WorkspaceEntries.ts";
 import { WorkspaceFileSystemLive } from "./workspace/Layers/WorkspaceFileSystem.ts";
 import { WorkspacePathsLive } from "./workspace/Layers/WorkspacePaths.ts";
+import {
+  WorkflowRegistry,
+  type WorkflowRegistryShape,
+} from "./workflow/Services/WorkflowRegistry.ts";
 
 const defaultProjectId = ProjectId.makeUnsafe("project-default");
 const defaultThreadId = ThreadId.makeUnsafe("thread-default");
@@ -145,6 +179,15 @@ const buildAppUnderTest = (options?: {
     terminalManager?: Partial<TerminalManagerShape>;
     orchestrationEngine?: Partial<OrchestrationEngineShape>;
     projectionSnapshotQuery?: Partial<ProjectionSnapshotQueryShape>;
+    workflowRegistry?: Partial<WorkflowRegistryShape>;
+    channelService?: Partial<ChannelServiceShape>;
+    projectionWorkflowRepository?: Partial<ProjectionWorkflowRepositoryShape>;
+    projectionPhaseRunRepository?: Partial<ProjectionPhaseRunRepositoryShape>;
+    projectionPhaseOutputRepository?: Partial<ProjectionPhaseOutputRepositoryShape>;
+    projectionThreadRepository?: Partial<ProjectionThreadRepositoryShape>;
+    projectionThreadMessageRepository?: Partial<ProjectionThreadMessageRepositoryShape>;
+    projectionThreadSessionRepository?: Partial<ProjectionThreadSessionRepositoryShape>;
+    projectionInteractiveRequestRepository?: Partial<ProjectionInteractiveRequestRepositoryShape>;
     checkpointDiffQuery?: Partial<CheckpointDiffQueryShape>;
     serverLifecycleEvents?: Partial<ServerLifecycleEventsShape>;
     serverRuntimeStartup?: Partial<ServerRuntimeStartupShape>;
@@ -183,104 +226,149 @@ const buildAppUnderTest = (options?: {
     };
     const layerConfig = Layer.succeed(ServerConfig, config);
 
+    const mockedServicesLayer = Layer.mergeAll(
+      Layer.mock(Keybindings)({
+        streamChanges: Stream.empty,
+        ...options?.layers?.keybindings,
+      }),
+      Layer.mock(ProviderRegistry)({
+        getProviders: Effect.succeed([]),
+        refresh: () => Effect.succeed([]),
+        streamChanges: Stream.empty,
+        ...options?.layers?.providerRegistry,
+      }),
+      Layer.mock(ServerSettingsService)({
+        start: Effect.void,
+        ready: Effect.void,
+        getSettings: Effect.succeed(DEFAULT_SERVER_SETTINGS),
+        updateSettings: () => Effect.succeed(DEFAULT_SERVER_SETTINGS),
+        streamChanges: Stream.empty,
+        ...options?.layers?.serverSettings,
+      }),
+      Layer.mock(Open)({
+        ...options?.layers?.open,
+      }),
+      Layer.mock(GitCore)({
+        ...options?.layers?.gitCore,
+      }),
+      Layer.mock(GitManager)({
+        ...options?.layers?.gitManager,
+      }),
+      Layer.mock(TerminalManager)({
+        ...options?.layers?.terminalManager,
+      }),
+      Layer.mock(OrchestrationEngineService)({
+        getReadModel: () => Effect.succeed(makeDefaultOrchestrationReadModel()),
+        readEvents: () => Stream.empty,
+        dispatch: () => Effect.succeed({ sequence: 0 }),
+        streamDomainEvents: Stream.empty,
+        ...options?.layers?.orchestrationEngine,
+      }),
+      Layer.mock(ProjectionSnapshotQuery)({
+        getSnapshot: () => Effect.succeed(makeDefaultOrchestrationReadModel()),
+        ...options?.layers?.projectionSnapshotQuery,
+      }),
+      Layer.mock(WorkflowRegistry)({
+        queryAll: () => Effect.succeed([]),
+        queryById: () => Effect.succeed(Option.none()),
+        queryByName: () => Effect.succeed(Option.none()),
+        ...options?.layers?.workflowRegistry,
+      }),
+      Layer.mock(ChannelService)({
+        createChannel: () => Effect.die("unused"),
+        postMessage: () => Effect.die("unused"),
+        getMessages: () => Effect.succeed([]),
+        getUnreadCount: () => Effect.succeed(0),
+        getCursor: () => Effect.succeed(-1 as never),
+        advanceCursor: () => Effect.void,
+        ...options?.layers?.channelService,
+      }),
+      Layer.mock(ProjectionWorkflowRepository)({
+        upsert: () => Effect.void,
+        queryById: () => Effect.succeed(Option.none()),
+        queryByName: () => Effect.succeed(Option.none()),
+        queryAll: () => Effect.succeed([]),
+        delete: () => Effect.void,
+        ...options?.layers?.projectionWorkflowRepository,
+      }),
+      Layer.mock(ProjectionPhaseRunRepository)({
+        upsert: () => Effect.void,
+        queryById: () => Effect.succeed(Option.none()),
+        queryByThreadId: () => Effect.succeed([]),
+        updateStatus: () => Effect.void,
+        ...options?.layers?.projectionPhaseRunRepository,
+      }),
+      Layer.mock(ProjectionPhaseOutputRepository)({
+        upsert: () => Effect.void,
+        queryByPhaseRunId: () => Effect.succeed([]),
+        queryByKey: () => Effect.succeed(Option.none()),
+        ...options?.layers?.projectionPhaseOutputRepository,
+      }),
+      Layer.mock(ProjectionThreadRepository)({
+        upsert: () => Effect.void,
+        getById: () => Effect.succeed(Option.none()),
+        listByProjectId: () => Effect.succeed([]),
+        deleteById: () => Effect.void,
+        ...options?.layers?.projectionThreadRepository,
+      }),
+      Layer.mock(ProjectionThreadMessageRepository)({
+        upsert: () => Effect.void,
+        getByMessageId: () => Effect.succeed(Option.none()),
+        listByThreadId: () => Effect.succeed([]),
+        deleteByThreadId: () => Effect.void,
+        ...options?.layers?.projectionThreadMessageRepository,
+      }),
+      Layer.mock(ProjectionThreadSessionRepository)({
+        upsert: () => Effect.void,
+        getByThreadId: () => Effect.succeed(Option.none()),
+        deleteByThreadId: () => Effect.void,
+        ...options?.layers?.projectionThreadSessionRepository,
+      }),
+      Layer.mock(ProjectionInteractiveRequestRepository)({
+        upsert: () => Effect.void,
+        queryByThreadId: () => Effect.succeed([]),
+        queryById: () => Effect.succeed(Option.none()),
+        queryPending: () => Effect.succeed([]),
+        updateStatus: () => Effect.void,
+        markStale: () => Effect.void,
+        ...options?.layers?.projectionInteractiveRequestRepository,
+      }),
+      Layer.mock(CheckpointDiffQuery)({
+        getTurnDiff: () =>
+          Effect.succeed({
+            threadId: defaultThreadId,
+            fromTurnCount: 0,
+            toTurnCount: 0,
+            diff: "",
+          }),
+        getFullThreadDiff: () =>
+          Effect.succeed({
+            threadId: defaultThreadId,
+            fromTurnCount: 0,
+            toTurnCount: 0,
+            diff: "",
+          }),
+        ...options?.layers?.checkpointDiffQuery,
+      }),
+      Layer.mock(ServerLifecycleEvents)({
+        publish: (event) => Effect.succeed({ ...(event as any), sequence: 1 }),
+        snapshot: Effect.succeed({ sequence: 0, events: [] }),
+        stream: Stream.empty,
+        ...options?.layers?.serverLifecycleEvents,
+      }),
+      Layer.mock(ServerRuntimeStartup)({
+        awaitCommandReady: Effect.void,
+        markHttpListening: Effect.void,
+        enqueueCommand: (effect) => effect,
+        ...options?.layers?.serverRuntimeStartup,
+      }),
+    );
+
     const appLayer = HttpRouter.serve(makeRoutesLayer, {
       disableListenLog: true,
       disableLogger: true,
     }).pipe(
-      Layer.provide(
-        Layer.mock(Keybindings)({
-          streamChanges: Stream.empty,
-          ...options?.layers?.keybindings,
-        }),
-      ),
-      Layer.provide(
-        Layer.mock(ProviderRegistry)({
-          getProviders: Effect.succeed([]),
-          refresh: () => Effect.succeed([]),
-          streamChanges: Stream.empty,
-          ...options?.layers?.providerRegistry,
-        }),
-      ),
-      Layer.provide(
-        Layer.mock(ServerSettingsService)({
-          start: Effect.void,
-          ready: Effect.void,
-          getSettings: Effect.succeed(DEFAULT_SERVER_SETTINGS),
-          updateSettings: () => Effect.succeed(DEFAULT_SERVER_SETTINGS),
-          streamChanges: Stream.empty,
-          ...options?.layers?.serverSettings,
-        }),
-      ),
-      Layer.provide(
-        Layer.mock(Open)({
-          ...options?.layers?.open,
-        }),
-      ),
-      Layer.provide(
-        Layer.mock(GitCore)({
-          ...options?.layers?.gitCore,
-        }),
-      ),
-      Layer.provide(
-        Layer.mock(GitManager)({
-          ...options?.layers?.gitManager,
-        }),
-      ),
-      Layer.provide(
-        Layer.mock(TerminalManager)({
-          ...options?.layers?.terminalManager,
-        }),
-      ),
-      Layer.provide(
-        Layer.mock(OrchestrationEngineService)({
-          getReadModel: () => Effect.succeed(makeDefaultOrchestrationReadModel()),
-          readEvents: () => Stream.empty,
-          dispatch: () => Effect.succeed({ sequence: 0 }),
-          streamDomainEvents: Stream.empty,
-          ...options?.layers?.orchestrationEngine,
-        }),
-      ),
-      Layer.provide(
-        Layer.mock(ProjectionSnapshotQuery)({
-          getSnapshot: () => Effect.succeed(makeDefaultOrchestrationReadModel()),
-          ...options?.layers?.projectionSnapshotQuery,
-        }),
-      ),
-      Layer.provide(
-        Layer.mock(CheckpointDiffQuery)({
-          getTurnDiff: () =>
-            Effect.succeed({
-              threadId: defaultThreadId,
-              fromTurnCount: 0,
-              toTurnCount: 0,
-              diff: "",
-            }),
-          getFullThreadDiff: () =>
-            Effect.succeed({
-              threadId: defaultThreadId,
-              fromTurnCount: 0,
-              toTurnCount: 0,
-              diff: "",
-            }),
-          ...options?.layers?.checkpointDiffQuery,
-        }),
-      ),
-      Layer.provide(
-        Layer.mock(ServerLifecycleEvents)({
-          publish: (event) => Effect.succeed({ ...(event as any), sequence: 1 }),
-          snapshot: Effect.succeed({ sequence: 0, events: [] }),
-          stream: Stream.empty,
-          ...options?.layers?.serverLifecycleEvents,
-        }),
-      ),
-      Layer.provide(
-        Layer.mock(ServerRuntimeStartup)({
-          awaitCommandReady: Effect.void,
-          markHttpListening: Effect.void,
-          enqueueCommand: (effect) => effect,
-          ...options?.layers?.serverRuntimeStartup,
-        }),
-      ),
+      Layer.provide(mockedServicesLayer),
       Layer.provide(workspaceAndProjectServicesLayer),
       Layer.provide(layerConfig),
     );
@@ -1620,6 +1708,552 @@ it.layer(NodeServices.layer)("server router seam", (it) => {
           timestamp: now,
         },
       ]);
+    }).pipe(Effect.provide(NodeHttpServer.layerTest)),
+  );
+
+  it.effect("routes websocket rpc workflow, session, channel, and phase query methods", () =>
+    Effect.gen(function* () {
+      const now = new Date().toISOString();
+      const workflowId = WorkflowId.makeUnsafe("workflow-query");
+      const phaseRunId = PhaseRunId.makeUnsafe("phase-run-query");
+      const phaseId = WorkflowPhaseId.makeUnsafe("phase-query");
+      const childThreadId = ThreadId.makeUnsafe("thread-child");
+      const channelId = ChannelId.makeUnsafe("channel-query");
+      const workflow = {
+        id: workflowId,
+        name: "Query Workflow",
+        description: "workflow used by ws query tests",
+        builtIn: false,
+        createdAt: now,
+        updatedAt: now,
+        phases: [
+          {
+            id: phaseId,
+            name: "implement",
+            type: "single-agent" as const,
+            agent: {
+              prompt: "implement",
+              output: { type: "conversation" as const },
+            },
+            gate: {
+              after: "done" as const,
+              onFail: "stop" as const,
+              maxRetries: 0,
+            },
+          },
+        ],
+      };
+      const upsertedWorkflows: Array<any> = [];
+
+      yield* buildAppUnderTest({
+        layers: {
+          orchestrationEngine: {
+            getReadModel: () =>
+              Effect.succeed({
+                ...makeDefaultOrchestrationReadModel(),
+                channels: [
+                  {
+                    id: channelId,
+                    threadId: defaultThreadId,
+                    type: "deliberation" as const,
+                    status: "open" as const,
+                    phaseRunId,
+                    createdAt: now,
+                    updatedAt: now,
+                  },
+                ],
+              }),
+          },
+          workflowRegistry: {
+            queryAll: () => Effect.succeed([workflow]),
+            queryById: ({ workflowId: requestedWorkflowId }) =>
+              Effect.succeed(
+                requestedWorkflowId === workflowId ? Option.some(workflow) : Option.none(),
+              ),
+          },
+          projectionWorkflowRepository: {
+            upsert: (row) =>
+              Effect.sync(() => {
+                upsertedWorkflows.push(row);
+              }),
+          },
+          channelService: {
+            getMessages: () =>
+              Effect.succeed([
+                {
+                  id: ChannelMessageId.makeUnsafe("channel-message-query"),
+                  channelId,
+                  sequence: 0,
+                  fromType: "agent",
+                  fromId: childThreadId,
+                  fromRole: "reviewer",
+                  content: "channel content",
+                  createdAt: now,
+                },
+              ]),
+          },
+          projectionPhaseRunRepository: {
+            queryByThreadId: ({ threadId }) =>
+              Effect.succeed(
+                threadId === defaultThreadId
+                  ? [
+                      {
+                        phaseRunId,
+                        threadId: defaultThreadId,
+                        workflowId,
+                        phaseId,
+                        phaseName: "implement",
+                        phaseType: "single-agent" as const,
+                        sandboxMode: "workspace-write" as const,
+                        iteration: 1,
+                        status: "completed" as const,
+                        gateResult: null,
+                        qualityChecks: null,
+                        deliberationState: null,
+                        startedAt: now,
+                        completedAt: now,
+                      },
+                    ]
+                  : [],
+              ),
+            queryById: ({ phaseRunId: requestedPhaseRunId }) =>
+              Effect.succeed(
+                requestedPhaseRunId === phaseRunId
+                  ? Option.some({
+                      phaseRunId,
+                      threadId: defaultThreadId,
+                      workflowId,
+                      phaseId,
+                      phaseName: "implement",
+                      phaseType: "single-agent" as const,
+                      sandboxMode: "workspace-write" as const,
+                      iteration: 1,
+                      status: "completed" as const,
+                      gateResult: null,
+                      qualityChecks: null,
+                      deliberationState: null,
+                      startedAt: now,
+                      completedAt: now,
+                    })
+                  : Option.none(),
+              ),
+          },
+          projectionPhaseOutputRepository: {
+            queryByKey: ({ phaseRunId: requestedPhaseRunId, outputKey }) =>
+              Effect.succeed(
+                requestedPhaseRunId === phaseRunId && outputKey === "output"
+                  ? Option.some({
+                      phaseRunId,
+                      outputKey: "output",
+                      content: "phase output",
+                      sourceType: "conversation",
+                      sourceId: null,
+                      metadata: null,
+                      createdAt: now,
+                      updatedAt: now,
+                    })
+                  : Option.none(),
+              ),
+          },
+          projectionThreadRepository: {
+            getById: ({ threadId }) =>
+              Effect.succeed(
+                threadId === defaultThreadId
+                  ? Option.some({
+                      threadId: defaultThreadId,
+                      projectId: defaultProjectId,
+                      title: "Default Thread",
+                      modelSelection: defaultModelSelection,
+                      runtimeMode: "full-access" as const,
+                      interactionMode: "default" as const,
+                      branch: "main",
+                      worktreePath: null,
+                      latestTurnId: null,
+                      createdAt: now,
+                      updatedAt: now,
+                      archivedAt: null,
+                      deletedAt: null,
+                      parentThreadId: null,
+                      phaseRunId: null,
+                      workflowId: null,
+                      workflowSnapshot: null,
+                      currentPhaseId: null,
+                      patternId: null,
+                      role: null,
+                      deliberationState: null,
+                      bootstrapStatus: null,
+                      completedAt: null,
+                      transcriptArchived: false,
+                    })
+                  : Option.none(),
+              ),
+            listByProjectId: () =>
+              Effect.succeed([
+                {
+                  threadId: defaultThreadId,
+                  projectId: defaultProjectId,
+                  title: "Default Thread",
+                  modelSelection: defaultModelSelection,
+                  runtimeMode: "full-access" as const,
+                  interactionMode: "default" as const,
+                  branch: "main",
+                  worktreePath: null,
+                  latestTurnId: null,
+                  createdAt: now,
+                  updatedAt: now,
+                  archivedAt: null,
+                  deletedAt: null,
+                  parentThreadId: null,
+                  phaseRunId: null,
+                  workflowId: null,
+                  workflowSnapshot: null,
+                  currentPhaseId: null,
+                  patternId: null,
+                  role: null,
+                  deliberationState: null,
+                  bootstrapStatus: null,
+                  completedAt: null,
+                  transcriptArchived: false,
+                },
+                {
+                  threadId: childThreadId,
+                  projectId: defaultProjectId,
+                  title: "Child Thread",
+                  modelSelection: defaultModelSelection,
+                  runtimeMode: "approval-required" as const,
+                  interactionMode: "default" as const,
+                  branch: null,
+                  worktreePath: null,
+                  latestTurnId: null,
+                  createdAt: now,
+                  updatedAt: now,
+                  archivedAt: null,
+                  deletedAt: null,
+                  parentThreadId: defaultThreadId,
+                  phaseRunId,
+                  workflowId: workflowId,
+                  workflowSnapshot: null,
+                  currentPhaseId: phaseId,
+                  patternId: null,
+                  role: "reviewer",
+                  deliberationState: null,
+                  bootstrapStatus: "completed",
+                  completedAt: null,
+                  transcriptArchived: false,
+                },
+              ]),
+          },
+          projectionThreadMessageRepository: {
+            listByThreadId: ({ threadId }) =>
+              Effect.succeed(
+                threadId === defaultThreadId
+                  ? [
+                      {
+                        messageId: "message-1" as any,
+                        threadId: defaultThreadId,
+                        turnId: null,
+                        role: "assistant" as const,
+                        text: "transcript entry",
+                        attachments: undefined,
+                        isStreaming: false,
+                        createdAt: now,
+                        updatedAt: now,
+                      },
+                    ]
+                  : [],
+              ),
+          },
+          projectionThreadSessionRepository: {
+            getByThreadId: ({ threadId }) =>
+              Effect.succeed(
+                threadId === childThreadId
+                  ? Option.some({
+                      threadId: childThreadId,
+                      status: "running" as const,
+                      providerName: "codex",
+                      runtimeMode: "approval-required" as const,
+                      activeTurnId: null,
+                      lastError: null,
+                      updatedAt: now,
+                    })
+                  : Option.none(),
+              ),
+          },
+        },
+      });
+
+      const wsUrl = yield* getWsServerUrl("/ws");
+
+      const workflowList = yield* Effect.scoped(
+        withWsRpcClient(wsUrl, (client) => client[WS_METHODS.workflowList]({})),
+      );
+      assert.equal(workflowList.workflows[0]?.workflowId, workflowId);
+
+      const workflowGet = yield* Effect.scoped(
+        withWsRpcClient(wsUrl, (client) => client[WS_METHODS.workflowGet]({ workflowId })),
+      );
+      assert.equal(workflowGet.workflow.name, "Query Workflow");
+
+      const created = yield* Effect.scoped(
+        withWsRpcClient(wsUrl, (client) => client[WS_METHODS.workflowCreate]({ workflow })),
+      );
+      assert.equal(created.workflow.builtIn, false);
+
+      const updated = yield* Effect.scoped(
+        withWsRpcClient(wsUrl, (client) => client[WS_METHODS.workflowUpdate]({ workflow })),
+      );
+      assert.equal(updated.workflow.id, workflowId);
+      assert.equal(upsertedWorkflows.length, 2);
+
+      const transcript = yield* Effect.scoped(
+        withWsRpcClient(wsUrl, (client) =>
+          client[WS_METHODS.sessionGetTranscript]({ sessionId: defaultThreadId }),
+        ),
+      );
+      assert.equal(transcript.entries[0]?.text, "transcript entry");
+
+      const children = yield* Effect.scoped(
+        withWsRpcClient(wsUrl, (client) =>
+          client[WS_METHODS.sessionGetChildren]({ sessionId: defaultThreadId }),
+        ),
+      );
+      assert.equal(children.children[0]?.threadId, childThreadId);
+
+      const channelMessages = yield* Effect.scoped(
+        withWsRpcClient(wsUrl, (client) => client[WS_METHODS.channelGetMessages]({ channelId })),
+      );
+      assert.equal(channelMessages.messages[0]?.content, "channel content");
+
+      const channel = yield* Effect.scoped(
+        withWsRpcClient(wsUrl, (client) => client[WS_METHODS.channelGetChannel]({ channelId })),
+      );
+      assert.equal(channel.channel.id, channelId);
+
+      const phaseRunList = yield* Effect.scoped(
+        withWsRpcClient(wsUrl, (client) =>
+          client[WS_METHODS.phaseRunList]({ threadId: defaultThreadId }),
+        ),
+      );
+      assert.equal(phaseRunList.phaseRuns[0]?.phaseRunId, phaseRunId);
+
+      const phaseRun = yield* Effect.scoped(
+        withWsRpcClient(wsUrl, (client) => client[WS_METHODS.phaseRunGet]({ phaseRunId })),
+      );
+      assert.equal(phaseRun.phaseRun.phaseName, "implement");
+
+      const phaseOutput = yield* Effect.scoped(
+        withWsRpcClient(wsUrl, (client) =>
+          client[WS_METHODS.phaseOutputGet]({ phaseRunId, outputKey: "output" }),
+        ),
+      );
+      assert.equal(phaseOutput.output.content, "phase output");
+    }).pipe(Effect.provide(NodeHttpServer.layerTest)),
+  );
+
+  it.effect("routes websocket rpc channel-specific workflow and channel push subscriptions", () =>
+    Effect.gen(function* () {
+      const now = new Date().toISOString();
+      const threadId = ThreadId.makeUnsafe("thread-push");
+      const channelId = ChannelId.makeUnsafe("channel-push");
+      const phaseRunId = PhaseRunId.makeUnsafe("phase-run-push");
+      const phaseId = WorkflowPhaseId.makeUnsafe("phase-push");
+      const messageId = ChannelMessageId.makeUnsafe("channel-message-push");
+
+      const workflowPhaseEvent = {
+        sequence: 2,
+        eventId: "event-2",
+        aggregateKind: "thread",
+        aggregateId: threadId,
+        occurredAt: now,
+        commandId: null,
+        causationEventId: null,
+        correlationId: null,
+        metadata: {},
+        type: "thread.phase-started",
+        payload: {
+          threadId,
+          phaseRunId,
+          phaseId,
+          phaseName: "Implement",
+          phaseType: "single-agent",
+          iteration: 1,
+          startedAt: now,
+        },
+      } as unknown as OrchestrationEvent;
+      const workflowQualityEvent = {
+        sequence: 3,
+        eventId: "event-3",
+        aggregateKind: "thread",
+        aggregateId: threadId,
+        occurredAt: now,
+        commandId: null,
+        causationEventId: null,
+        correlationId: null,
+        metadata: {},
+        type: "thread.quality-check-started",
+        payload: {
+          threadId,
+          phaseRunId,
+          checks: [{ check: "typecheck", required: true }],
+          startedAt: now,
+        },
+      } as unknown as OrchestrationEvent;
+      const workflowBootstrapEvent = {
+        sequence: 4,
+        eventId: "event-4",
+        aggregateKind: "thread",
+        aggregateId: threadId,
+        occurredAt: now,
+        commandId: null,
+        causationEventId: null,
+        correlationId: null,
+        metadata: {},
+        type: "thread.bootstrap-started",
+        payload: {
+          threadId,
+          startedAt: now,
+        },
+      } as unknown as OrchestrationEvent;
+      const workflowGateEvent = {
+        sequence: 5,
+        eventId: "event-5",
+        aggregateKind: "request",
+        aggregateId: "request-push",
+        occurredAt: now,
+        commandId: null,
+        causationEventId: null,
+        correlationId: null,
+        metadata: {},
+        type: "request.opened",
+        payload: {
+          requestId: "request-push",
+          threadId,
+          childThreadId: null,
+          phaseRunId,
+          requestType: "gate",
+          payload: {
+            type: "gate",
+            gateType: "human-approval",
+            phaseRunId,
+          },
+          createdAt: now,
+        },
+      } as unknown as OrchestrationEvent;
+      const channelCreatedEvent = {
+        sequence: 6,
+        eventId: "event-6",
+        aggregateKind: "channel",
+        aggregateId: channelId,
+        occurredAt: now,
+        commandId: null,
+        causationEventId: null,
+        correlationId: null,
+        metadata: {},
+        type: "channel.created",
+        payload: {
+          channelId,
+          threadId,
+          channelType: "deliberation",
+          phaseRunId: null,
+          createdAt: now,
+        },
+      } as unknown as OrchestrationEvent;
+      const channelMessageEvent = {
+        sequence: 7,
+        eventId: "event-7",
+        aggregateKind: "channel",
+        aggregateId: channelId,
+        occurredAt: now,
+        commandId: null,
+        causationEventId: null,
+        correlationId: null,
+        metadata: {},
+        type: "channel.message-posted",
+        payload: {
+          channelId,
+          messageId,
+          sequence: 1,
+          fromType: "agent",
+          fromId: ThreadId.makeUnsafe("thread-participant"),
+          fromRole: "reviewer",
+          content: "event payload",
+          createdAt: now,
+        },
+      } as unknown as OrchestrationEvent;
+
+      yield* buildAppUnderTest({
+        layers: {
+          orchestrationEngine: {
+            getReadModel: () =>
+              Effect.succeed({
+                ...makeDefaultOrchestrationReadModel(),
+                snapshotSequence: 1,
+              }),
+            readEvents: () =>
+              Stream.make(
+                workflowPhaseEvent,
+                workflowQualityEvent,
+                workflowBootstrapEvent,
+                workflowGateEvent,
+                channelCreatedEvent,
+                channelMessageEvent,
+              ),
+            streamDomainEvents: Stream.empty,
+          },
+        },
+      });
+
+      const wsUrl = yield* getWsServerUrl("/ws");
+
+      const phaseEvents = yield* Effect.scoped(
+        withWsRpcClient(wsUrl, (client) =>
+          client[WS_METHODS.subscribeWorkflowPhase]({ threadId }).pipe(
+            Stream.take(1),
+            Stream.runCollect,
+          ),
+        ),
+      );
+      assert.equal(Array.from(phaseEvents)[0]?.channel, "workflow.phase");
+
+      const qualityEvents = yield* Effect.scoped(
+        withWsRpcClient(wsUrl, (client) =>
+          client[WS_METHODS.subscribeWorkflowQualityChecks]({ threadId }).pipe(
+            Stream.take(1),
+            Stream.runCollect,
+          ),
+        ),
+      );
+      assert.equal(Array.from(qualityEvents)[0]?.channel, "workflow.quality-check");
+
+      const bootstrapEvents = yield* Effect.scoped(
+        withWsRpcClient(wsUrl, (client) =>
+          client[WS_METHODS.subscribeWorkflowBootstrap]({ threadId }).pipe(
+            Stream.take(1),
+            Stream.runCollect,
+          ),
+        ),
+      );
+      assert.equal(Array.from(bootstrapEvents)[0]?.channel, "workflow.bootstrap");
+
+      const gateEvents = yield* Effect.scoped(
+        withWsRpcClient(wsUrl, (client) =>
+          client[WS_METHODS.subscribeWorkflowGate]({ threadId }).pipe(
+            Stream.take(1),
+            Stream.runCollect,
+          ),
+        ),
+      );
+      assert.equal(Array.from(gateEvents)[0]?.channel, "workflow.gate");
+
+      const channelEvents = yield* Effect.scoped(
+        withWsRpcClient(wsUrl, (client) =>
+          client[WS_METHODS.subscribeChannelMessage]({ channelId }).pipe(
+            Stream.take(1),
+            Stream.runCollect,
+          ),
+        ),
+      );
+      assert.equal(Array.from(channelEvents)[0]?.channel, "channel.message");
     }).pipe(Effect.provide(NodeHttpServer.layerTest)),
   );
 

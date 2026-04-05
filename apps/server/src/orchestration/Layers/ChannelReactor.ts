@@ -14,6 +14,7 @@ import { Cause, Effect, Layer, Option, Stream } from "effect";
 
 import { DeliberationEngine } from "../../channel/Services/DeliberationEngine.ts";
 import { ChannelService } from "../../channel/Services/ChannelService.ts";
+import { formatChannelTranscript } from "../../channel/Utils.ts";
 import { QUERY_PROJECTION_CHANNEL_MESSAGES_MAX_LIMIT } from "../../persistence/Services/ProjectionChannelMessages.ts";
 import { OrchestrationEngineService } from "../Services/OrchestrationEngine.ts";
 import { ChannelReactor, type ChannelReactorShape } from "../Services/ChannelReactor.ts";
@@ -35,15 +36,6 @@ function channelConcludedCommandId(channelId: ChannelId) {
 
 function phaseCompletedCommandId(channelId: ChannelId, phaseRunId: PhaseRunId) {
   return CommandId.makeUnsafe(`channel:complete-phase:${channelId}:${phaseRunId}`);
-}
-
-function formatTranscript(messages: ReadonlyArray<ChannelMessage>): string {
-  return messages
-    .map((message) => {
-      const speaker = message.fromRole ?? message.fromId ?? message.fromType;
-      return [`[${speaker}]`, message.content].join("\n");
-    })
-    .join("\n\n");
 }
 
 export const makeChannelReactor = Effect.gen(function* () {
@@ -209,7 +201,7 @@ export const makeChannelReactor = Effect.gen(function* () {
       outputs: [
         {
           key: "channel",
-          content: formatTranscript(messages),
+          content: formatChannelTranscript(messages),
           sourceType: "channel",
         },
       ],

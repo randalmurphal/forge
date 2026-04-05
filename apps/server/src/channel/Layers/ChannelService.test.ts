@@ -63,6 +63,13 @@ async function createChannelServiceSystem() {
   };
 }
 
+function postChannelMessage(
+  system: Awaited<ReturnType<typeof createChannelServiceSystem>>,
+  ...args: Parameters<(typeof system.channelService)["postMessage"]>
+) {
+  return system.channelService.postMessage(...args);
+}
+
 async function seedProjectAndThreads(
   system: Awaited<ReturnType<typeof createChannelServiceSystem>>,
 ) {
@@ -150,7 +157,7 @@ it.effect("posts messages, paginates by sequence cursor, and keeps reads pure", 
       );
 
       const first = await system.run(
-        system.channelService.postMessage({
+        postChannelMessage(system, {
           channelId: channel.id,
           fromType: "agent",
           fromId: participantAId,
@@ -160,7 +167,7 @@ it.effect("posts messages, paginates by sequence cursor, and keeps reads pure", 
         }),
       );
       const second = await system.run(
-        system.channelService.postMessage({
+        postChannelMessage(system, {
           channelId: channel.id,
           fromType: "agent",
           fromId: participantBId,
@@ -237,7 +244,7 @@ it.effect(
         );
 
         const message = await system.run(
-          system.channelService.postMessage({
+          postChannelMessage(system, {
             channelId: channel.id,
             fromType: "agent",
             fromId: participantAId,
@@ -325,8 +332,8 @@ it.effect("deduplicates reposts when the same command id is replayed", () =>
         createdAt: "2026-04-05T18:05:00.000Z",
       };
 
-      const first = await system.run(system.channelService.postMessage(input));
-      const second = await system.run(system.channelService.postMessage(input));
+      const first = await system.run(postChannelMessage(system, input));
+      const second = await system.run(postChannelMessage(system, input));
       assert.deepStrictEqual(second, first);
 
       const messages = await system.run(

@@ -12,6 +12,17 @@ import { AnalyticsServiceLayerLive } from "./telemetry/Layers/AnalyticsService";
 import { makeEventNdjsonLogger } from "./provider/Layers/EventNdjsonLogger";
 import { ProviderSessionDirectoryLive } from "./provider/Layers/ProviderSessionDirectory";
 import { ProviderSessionRuntimeRepositoryLive } from "./persistence/Layers/ProviderSessionRuntime";
+import { ProjectionChannelMessageRepositoryLive } from "./persistence/Layers/ProjectionChannelMessages";
+import { ProjectionChannelReadRepositoryLive } from "./persistence/Layers/ProjectionChannelReads";
+import { ProjectionChannelRepositoryLive } from "./persistence/Layers/ProjectionChannels";
+import { ProjectionInteractiveRequestRepositoryLive } from "./persistence/Layers/ProjectionInteractiveRequests";
+import { ProjectionPhaseOutputRepositoryLive } from "./persistence/Layers/ProjectionPhaseOutputs";
+import { ProjectionPhaseRunRepositoryLive } from "./persistence/Layers/ProjectionPhaseRuns";
+import { ProjectionProjectRepositoryLive } from "./persistence/Layers/ProjectionProjects";
+import { ProjectionThreadMessageRepositoryLive } from "./persistence/Layers/ProjectionThreadMessages";
+import { ProjectionThreadRepositoryLive } from "./persistence/Layers/ProjectionThreads";
+import { ProjectionThreadSessionRepositoryLive } from "./persistence/Layers/ProjectionThreadSessions";
+import { ProjectionWorkflowRepositoryLive } from "./persistence/Layers/ProjectionWorkflows";
 import { makeCodexAdapterLive } from "./provider/Layers/CodexAdapter";
 import { makeClaudeAdapterLive } from "./provider/Layers/ClaudeAdapter";
 import { ProviderAdapterRegistryLive } from "./provider/Layers/ProviderAdapterRegistry";
@@ -35,6 +46,9 @@ import { RuntimeReceiptBusLive } from "./orchestration/Layers/RuntimeReceiptBus"
 import { ProviderRuntimeIngestionLive } from "./orchestration/Layers/ProviderRuntimeIngestion";
 import { ProviderCommandReactorLive } from "./orchestration/Layers/ProviderCommandReactor";
 import { CheckpointReactorLive } from "./orchestration/Layers/CheckpointReactor";
+import { BootstrapReactorLive } from "./orchestration/Layers/BootstrapReactor";
+import { ChannelReactorLive } from "./orchestration/Layers/ChannelReactor";
+import { WorkflowReactorLive } from "./orchestration/Layers/WorkflowReactor";
 import { ProviderRegistryLive } from "./provider/Layers/ProviderRegistry";
 import { ServerSettingsLive } from "./serverSettings";
 import { ProjectFaviconResolverLive } from "./project/Layers/ProjectFaviconResolver";
@@ -42,6 +56,12 @@ import { WorkspaceEntriesLive } from "./workspace/Layers/WorkspaceEntries";
 import { WorkspaceFileSystemLive } from "./workspace/Layers/WorkspaceFileSystem";
 import { WorkspacePathsLive } from "./workspace/Layers/WorkspacePaths";
 import { ObservabilityLive } from "./observability/Layers/Observability";
+import { ChannelServiceLive } from "./channel/Layers/ChannelService";
+import { DeliberationEngineLive } from "./channel/Layers/DeliberationEngine";
+import { PromptResolverLive } from "./workflow/Layers/PromptResolver";
+import { QualityCheckRunnerLive } from "./workflow/Layers/QualityCheckRunner";
+import { WorkflowEngineLive } from "./workflow/Layers/WorkflowEngine";
+import { WorkflowRegistryLive } from "./workflow/Layers/WorkflowRegistry";
 
 const PtyAdapterLive = Layer.unwrap(
   Effect.gen(function* () {
@@ -91,14 +111,6 @@ const PlatformServicesLive = Layer.unwrap(
   }),
 );
 
-const ReactorLayerLive = Layer.empty.pipe(
-  Layer.provideMerge(OrchestrationReactorLive),
-  Layer.provideMerge(ProviderRuntimeIngestionLive),
-  Layer.provideMerge(ProviderCommandReactorLive),
-  Layer.provideMerge(CheckpointReactorLive),
-  Layer.provideMerge(RuntimeReceiptBusLive),
-);
-
 const OrchestrationEventInfrastructureLayerLive = Layer.mergeAll(
   OrchestrationEventStoreLive,
   OrchestrationCommandReceiptRepositoryLive,
@@ -117,11 +129,6 @@ const OrchestrationInfrastructureLayerLive = Layer.mergeAll(
 const OrchestrationLayerLive = Layer.mergeAll(
   OrchestrationInfrastructureLayerLive,
   OrchestrationEngineLive.pipe(Layer.provide(OrchestrationInfrastructureLayerLive)),
-);
-
-const CheckpointingLayerLive = Layer.empty.pipe(
-  Layer.provideMerge(CheckpointDiffQueryLive),
-  Layer.provideMerge(CheckpointStoreLive),
 );
 
 const ProviderLayerLive = Layer.unwrap(
@@ -149,21 +156,49 @@ const ProviderLayerLive = Layer.unwrap(
     );
     return makeProviderServiceLive(
       canonicalEventLogger ? { canonicalEventLogger } : undefined,
-    ).pipe(Layer.provide(adapterRegistryLayer), Layer.provide(providerSessionDirectoryLayer));
+    ).pipe(
+      Layer.provide(adapterRegistryLayer),
+      Layer.provide(providerSessionDirectoryLayer),
+      Layer.provide(AnalyticsServiceLayerLive),
+      Layer.provide(ServerSettingsLive),
+    );
   }),
 );
 
-const PersistenceLayerLive = Layer.empty.pipe(Layer.provideMerge(SqlitePersistenceLayerLive));
+const PersistenceLayerLive = SqlitePersistenceLayerLive;
 
-const GitLayerLive = Layer.empty.pipe(
-  Layer.provideMerge(
-    GitManagerLive.pipe(
-      Layer.provideMerge(GitCoreLive),
-      Layer.provideMerge(GitHubCliLive),
-      Layer.provideMerge(RoutingTextGenerationLive),
-    ),
+const ProjectionRepositoriesLayerLive = Layer.mergeAll(
+  ProjectionProjectRepositoryLive,
+  ProjectionThreadRepositoryLive,
+  ProjectionThreadMessageRepositoryLive,
+  ProjectionThreadSessionRepositoryLive,
+  ProjectionWorkflowRepositoryLive,
+  ProjectionPhaseRunRepositoryLive,
+  ProjectionPhaseOutputRepositoryLive,
+  ProjectionChannelRepositoryLive,
+  ProjectionChannelMessageRepositoryLive,
+  ProjectionChannelReadRepositoryLive,
+  ProjectionInteractiveRequestRepositoryLive,
+  ProviderSessionRuntimeRepositoryLive,
+);
+
+const ProjectionRepositoriesRuntimeLive = ProjectionRepositoriesLayerLive.pipe(
+  Layer.provide(PersistenceLayerLive),
+);
+
+const RoutingTextGenerationRuntimeLive = RoutingTextGenerationLive.pipe(
+  Layer.provide(ServerSettingsLive),
+);
+
+const GitLayerLive = Layer.mergeAll(
+  GitManagerLive.pipe(
+    Layer.provide(GitCoreLive),
+    Layer.provide(GitHubCliLive),
+    Layer.provide(RoutingTextGenerationRuntimeLive),
+    Layer.provide(ServerSettingsLive),
   ),
-  Layer.provideMerge(GitCoreLive),
+  GitCoreLive,
+  RoutingTextGenerationRuntimeLive,
 );
 
 const TerminalLayerLive = TerminalManagerLive.pipe(Layer.provide(PtyAdapterLive));
@@ -177,27 +212,129 @@ const WorkspaceLayerLive = Layer.mergeAll(
   ),
 );
 
-const RuntimeServicesLive = Layer.empty.pipe(
-  Layer.provideMerge(ServerRuntimeStartupLive),
-  Layer.provideMerge(ReactorLayerLive),
+const OrchestrationRuntimeLive = OrchestrationLayerLive.pipe(Layer.provide(PersistenceLayerLive));
 
-  // Core Services
-  Layer.provideMerge(CheckpointingLayerLive),
-  Layer.provideMerge(OrchestrationLayerLive),
-  Layer.provideMerge(ProviderLayerLive),
-  Layer.provideMerge(GitLayerLive),
-  Layer.provideMerge(TerminalLayerLive),
-  Layer.provideMerge(PersistenceLayerLive),
-  Layer.provideMerge(KeybindingsLive),
-  Layer.provideMerge(ProviderRegistryLive),
-  Layer.provideMerge(ServerSettingsLive),
-  Layer.provideMerge(WorkspaceLayerLive),
-  Layer.provideMerge(ProjectFaviconResolverLive),
+const CheckpointStoreRuntimeLive = CheckpointStoreLive.pipe(Layer.provide(GitCoreLive));
 
-  // Misc.
-  Layer.provideMerge(AnalyticsServiceLayerLive),
-  Layer.provideMerge(OpenLive),
-  Layer.provideMerge(ServerLifecycleEventsLive),
+const CheckpointDiffQueryRuntimeLive = CheckpointDiffQueryLive.pipe(
+  Layer.provide(OrchestrationRuntimeLive),
+  Layer.provide(CheckpointStoreRuntimeLive),
+);
+
+const CheckpointingLayerLive = Layer.mergeAll(
+  CheckpointStoreRuntimeLive,
+  CheckpointDiffQueryRuntimeLive,
+);
+
+const ProviderRuntimeIngestionRuntimeLive = ProviderRuntimeIngestionLive.pipe(
+  Layer.provide(OrchestrationRuntimeLive),
+  Layer.provide(ProviderLayerLive),
+  Layer.provide(ServerSettingsLive),
+);
+
+const ProviderCommandReactorRuntimeLive = ProviderCommandReactorLive.pipe(
+  Layer.provide(OrchestrationRuntimeLive),
+  Layer.provide(ProviderLayerLive),
+  Layer.provide(GitCoreLive),
+  Layer.provide(RoutingTextGenerationRuntimeLive),
+  Layer.provide(ServerSettingsLive),
+);
+
+const CheckpointReactorRuntimeLive = CheckpointReactorLive.pipe(
+  Layer.provide(OrchestrationRuntimeLive),
+  Layer.provide(ProviderLayerLive),
+  Layer.provide(CheckpointStoreRuntimeLive),
+  Layer.provide(RuntimeReceiptBusLive),
+  Layer.provide(WorkspaceLayerLive),
+);
+
+const WorkflowRegistryRuntimeLive = WorkflowRegistryLive.pipe(
+  Layer.provide(ProjectionRepositoriesRuntimeLive),
+);
+
+const WorkflowEngineRuntimeLive = WorkflowEngineLive.pipe(
+  Layer.provide(OrchestrationRuntimeLive),
+  Layer.provide(ProjectionRepositoriesRuntimeLive),
+  Layer.provide(WorkflowRegistryRuntimeLive),
+  Layer.provide(QualityCheckRunnerLive),
+);
+
+const ChannelServiceRuntimeLive = ChannelServiceLive.pipe(
+  Layer.provide(OrchestrationRuntimeLive),
+  Layer.provide(ProjectionRepositoriesRuntimeLive),
+);
+
+const DeliberationEngineRuntimeLive = DeliberationEngineLive.pipe(
+  Layer.provide(OrchestrationRuntimeLive),
+  Layer.provide(ProjectionRepositoriesRuntimeLive),
+);
+
+const BootstrapReactorRuntimeLive = BootstrapReactorLive.pipe(
+  Layer.provide(OrchestrationRuntimeLive),
+  Layer.provide(ProjectionRepositoriesRuntimeLive),
+  Layer.provide(GitCoreLive),
+);
+
+const WorkflowReactorRuntimeLive = WorkflowReactorLive.pipe(
+  Layer.provide(OrchestrationRuntimeLive),
+  Layer.provide(WorkflowEngineRuntimeLive),
+  Layer.provide(ProjectionRepositoriesRuntimeLive),
+  Layer.provide(WorkflowRegistryRuntimeLive),
+);
+
+const ChannelReactorRuntimeLive = ChannelReactorLive.pipe(
+  Layer.provide(OrchestrationRuntimeLive),
+  Layer.provide(ChannelServiceRuntimeLive),
+  Layer.provide(DeliberationEngineRuntimeLive),
+);
+
+const OrchestrationReactorRuntimeLive = OrchestrationReactorLive.pipe(
+  Layer.provide(ProviderRuntimeIngestionRuntimeLive),
+  Layer.provide(ProviderCommandReactorRuntimeLive),
+  Layer.provide(CheckpointReactorRuntimeLive),
+  Layer.provide(BootstrapReactorRuntimeLive),
+  Layer.provide(WorkflowReactorRuntimeLive),
+  Layer.provide(ChannelReactorRuntimeLive),
+);
+
+const ServerRuntimeStartupRuntimeLive = ServerRuntimeStartupLive.pipe(
+  Layer.provide(OrchestrationRuntimeLive),
+  Layer.provide(KeybindingsLive),
+  Layer.provide(ServerSettingsLive),
+  Layer.provide(AnalyticsServiceLayerLive),
+  Layer.provide(OpenLive),
+  Layer.provide(ServerLifecycleEventsLive),
+  Layer.provide(OrchestrationReactorRuntimeLive),
+);
+
+const WorkflowLayerLive = Layer.mergeAll(
+  WorkflowRegistryRuntimeLive,
+  PromptResolverLive,
+  QualityCheckRunnerLive,
+  WorkflowEngineRuntimeLive,
+);
+
+const ChannelLayerLive = Layer.mergeAll(ChannelServiceRuntimeLive, DeliberationEngineRuntimeLive);
+
+const ReactorLayerLive = OrchestrationReactorRuntimeLive;
+
+const RuntimeServicesLive = Layer.mergeAll(
+  ProjectionRepositoriesRuntimeLive,
+  OrchestrationRuntimeLive,
+  CheckpointingLayerLive,
+  GitLayerLive,
+  ProviderLayerLive,
+  TerminalLayerLive,
+  KeybindingsLive,
+  ProviderRegistryLive,
+  WorkspaceLayerLive,
+  ProjectFaviconResolverLive,
+  WorkflowLayerLive,
+  ChannelLayerLive,
+  ReactorLayerLive,
+  ServerRuntimeStartupRuntimeLive,
+  OpenLive,
+  ServerLifecycleEventsLive,
 );
 
 export const makeRoutesLayer = Layer.mergeAll(
@@ -230,6 +367,8 @@ export const makeServerLayer = Layer.unwrap(
 
     return serverApplicationLayer.pipe(
       Layer.provideMerge(RuntimeServicesLive),
+      Layer.provideMerge(ServerSettingsLive),
+      Layer.provideMerge(PersistenceLayerLive),
       Layer.provideMerge(HttpServerLive),
       Layer.provide(ObservabilityLive),
       Layer.provideMerge(FetchHttpClient.layer),
