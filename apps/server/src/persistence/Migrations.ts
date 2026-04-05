@@ -34,6 +34,7 @@ import Migration0018 from "./Migrations/018_ProjectionThreadsArchivedAtIndex.ts"
 import Migration0019 from "./Migrations/019_ProjectionSnapshotLookupIndexes.ts";
 import Migration0020 from "./Migrations/020_WorkflowTables.ts";
 import Migration0021 from "./Migrations/021_ChannelTables.ts";
+import Migration0022 from "./Migrations/022_ThreadExtensions.ts";
 
 /**
  * Migration loader with all migrations defined inline.
@@ -67,6 +68,7 @@ export const migrationEntries = [
   [19, "ProjectionSnapshotLookupIndexes", Migration0019],
   [20, "WorkflowTables", Migration0020],
   [21, "ChannelTables", Migration0021],
+  [22, "ThreadExtensions", Migration0022],
 ] as const;
 
 export const makeMigrationLoader = (throughId?: number) =>
