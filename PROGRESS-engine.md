@@ -28,6 +28,7 @@
 - `WI-7: WorkflowEngine service`
 - `WI-8: WorkflowReactor`
 - `WI-9: ChannelService`
+- `WI-10: McpChannelServer`
 
 ## Iteration Log
 
@@ -40,6 +41,7 @@
 - `2026-04-05`: Added `WorkflowEngine` with deterministic phase-start, quality-check, and gate-request command dispatch, workflow resolution from thread snapshots or the registry, gate evaluation for auto/quality/human flows, retry/advance logic driven from projection state, and focused unit coverage for first-phase start, next-phase advance, quality-check retry, human approval waits, and terminal completion.
 - `2026-04-05`: Added `WorkflowReactor` with PubSub-driven workflow lifecycle handling for ready-at-create threads, bootstrap completion, phase completion, and resolved gate requests, plus deterministic/idempotent command dispatch through the orchestration engine. Also extended `WorkflowEngine.advancePhase` with an explicit gate-result override so resolved human gates advance or retry instead of reopening the approval request.
 - `2026-04-05`: Added `ChannelService` under `apps/server/src/channel/` with orchestration-backed channel creation and message posting, direct `channel_reads` cursor management that keeps reads pure while advancing the posting agent cursor, typed channel-service errors, and focused coverage for create/post/pagination/unread/cursor/idempotent replay. Also extended `ProjectionChannelMessageRepository` with single-message lookup so replayed posts resolve to the persisted row instead of reconstructing response payloads in memory.
+- `2026-04-05`: Added `McpChannelServer` with Claude Agent SDK tool hosting for `post_to_channel`, `read_channel`, and `propose_conclusion`, content-hash replay idempotency backed by `tool_call_results`, mutual-agreement conclusion detection from orchestration history, and focused coverage for tool execution, replay caching, unread reads, and conclusion agreement semantics. Also added a direct `zod` dependency in `apps/server` to satisfy the SDK's MCP tool peer requirement.
 
 ## Review Log
 
