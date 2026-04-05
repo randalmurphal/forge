@@ -30,6 +30,7 @@
 - `WI-9: ChannelService`
 - `WI-10: McpChannelServer`
 - `WI-11: Codex channel injection`
+- `WI-12: DeliberationEngine`
 
 ## Iteration Log
 
@@ -44,6 +45,7 @@
 - `2026-04-05`: Added `ChannelService` under `apps/server/src/channel/` with orchestration-backed channel creation and message posting, direct `channel_reads` cursor management that keeps reads pure while advancing the posting agent cursor, typed channel-service errors, and focused coverage for create/post/pagination/unread/cursor/idempotent replay. Also extended `ProjectionChannelMessageRepository` with single-message lookup so replayed posts resolve to the persisted row instead of reconstructing response payloads in memory.
 - `2026-04-05`: Added `McpChannelServer` with Claude Agent SDK tool hosting for `post_to_channel`, `read_channel`, and `propose_conclusion`, content-hash replay idempotency backed by `tool_call_results`, mutual-agreement conclusion detection from orchestration history, and focused coverage for tool execution, replay caching, unread reads, and conclusion agreement semantics. Also added a direct `zod` dependency in `apps/server` to satisfy the SDK's MCP tool peer requirement.
 - `2026-04-05`: Added `CodexChannelInjection` helpers with deterministic channel-update formatting, exact `PROPOSE_CONCLUSION` parsing, guarded `injectionState` transitions for recovery, and an Effect helper that advances the read cursor at injection time before returning the synthetic user turn payload. Added focused coverage for formatter output, response parsing, reinjection detection, and cursor advancement behavior.
+- `2026-04-05`: Added `DeliberationEngine` with persisted ping-pong turn tracking, participant resolution from channel context, provider-specific stall nudges (`queue` for Claude, `inject` for Codex), mutual-conclusion and max-turn termination signals, reinjection recovery hints for orphaned Codex injections, and direct-write state persistence to `phase_runs` or `projection_threads` as required by the hybrid ownership model. Added focused coverage for turn alternation, stall recovery, mutual conclusion, forced max-turn conclusion, and recovery from persisted chat-session state.
 
 ## Review Log
 
