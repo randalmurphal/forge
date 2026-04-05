@@ -1,10 +1,12 @@
 # Foundation Loop -- Progress Tracker
 
-## Status: NOT STARTED
+## Status: IN PROGRESS
 
 ## Codebase Patterns
 
-(Populated as iterations discover important patterns.)
+- Contract schema tests use `@effect/vitest` with `it.effect(...)`, `Effect.gen(...)`, and `Schema.decodeUnknownEffect(...)`.
+- Branded entity identifiers live in `packages/contracts/src/baseSchemas.ts` and are created with the local `makeEntityId` helper over `TrimmedNonEmptyString`.
+- The contracts package exports schema modules through `packages/contracts/src/index.ts`; `baseSchemas.ts` changes do not require additional index wiring.
 
 ## Known Issues
 
@@ -16,11 +18,11 @@
 
 ## Completed Work Items
 
-(None yet.)
+- WI-1: Branded identifier types
 
 ## Iteration Log
 
-(Entries added after each commit.)
+- 2026-04-05: Implemented WI-1 in contracts by adding the seven new branded entity identifiers and coverage for decode success and empty-string rejection.
 
 ## Review Log
 
