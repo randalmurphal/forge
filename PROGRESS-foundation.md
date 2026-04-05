@@ -27,6 +27,7 @@
 - WI-5: New command types
 - WI-6: New event types
 - WI-7: Database migrations -- workflow and phase tables
+- WI-8: Database migrations -- channel tables
 
 ## Iteration Log
 
@@ -37,6 +38,7 @@
 - 2026-04-05: Implemented WI-5 by extracting shared provider/model schemas into `packages/contracts/src/providerSchemas.ts`, adding the additive workflow/channel/request command schemas plus `ForgeCommand` to `packages/contracts/src/orchestration.ts`, preserving the legacy `OrchestrationCommand` runtime surface for existing engine exhaustiveness, and adding round-trip coverage for every new command schema.
 - 2026-04-05: Implemented WI-6 by adding additive workflow, channel, and interactive-request event payload schemas plus `ForgeEventType`/`ForgeEvent` in `packages/contracts/src/orchestration.ts`, keeping the legacy `OrchestrationEvent` surface intact, renaming the new request event payload exports to avoid a provider-runtime barrel collision, and adding round-trip coverage for every new Forge event variant.
 - 2026-04-05: Implemented WI-7 by adding migration `020_WorkflowTables` for `workflows` and `phase_runs`, registering it in the migration loader, adding an in-memory migration test that verifies the new tables and indexes, and confirming `bun fmt`, `bun lint`, `bun typecheck`, and `bun run test` all pass with the migration in place.
+- 2026-04-05: Implemented WI-8 by adding migration `021_ChannelTables` for `channels`, `channel_messages`, `channel_reads`, and `tool_call_results`, registering it in the migration loader, adding an in-memory migration test that verifies the new tables, indexes, and composite keys, and confirming `bun fmt`, `bun lint`, `bun typecheck`, and `bun run test` all pass with the migration in place.
 
 ## Review Log
 
