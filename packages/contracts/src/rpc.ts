@@ -2,6 +2,7 @@ import { Schema } from "effect";
 import * as Rpc from "effect/unstable/rpc/Rpc";
 import * as RpcGroup from "effect/unstable/rpc/RpcGroup";
 
+import { ChannelId, ThreadId } from "./baseSchemas";
 import { OpenError, OpenInEditorInput } from "./editor";
 import {
   GitActionProgressEvent,
@@ -27,6 +28,7 @@ import {
 } from "./git";
 import { KeybindingsConfigError } from "./keybindings";
 import {
+  ChannelPushEvent,
   ClientOrchestrationCommand,
   OrchestrationEvent,
   ORCHESTRATION_WS_METHODS,
@@ -40,6 +42,7 @@ import {
   OrchestrationReplayEventsError,
   OrchestrationReplayEventsInput,
   OrchestrationRpcSchemas,
+  WorkflowPushEvent,
 } from "./orchestration";
 import {
   ProjectSearchEntriesError,
@@ -69,6 +72,42 @@ import {
   ServerUpsertKeybindingResult,
 } from "./server";
 import { ServerSettings, ServerSettingsError, ServerSettingsPatch } from "./settings";
+
+export const FORGE_WS_METHODS = {
+  // Thread operations
+  threadCreate: "thread.create",
+  threadCorrect: "thread.correct",
+  threadPause: "thread.pause",
+  threadResume: "thread.resume",
+  threadCancel: "thread.cancel",
+  threadArchive: "thread.archive",
+  threadUnarchive: "thread.unarchive",
+  threadSendTurn: "thread.sendTurn",
+  threadGetTranscript: "thread.getTranscript",
+  threadGetChildren: "thread.getChildren",
+
+  // Gate operations
+  gateApprove: "gate.approve",
+  gateReject: "gate.reject",
+
+  // Request operations
+  requestResolve: "request.resolve",
+
+  // Channel operations
+  channelGetMessages: "channel.getMessages",
+  channelIntervene: "channel.intervene",
+
+  // Phase output operations
+  phaseOutputUpdate: "phaseOutput.update",
+
+  // Workflow operations
+  workflowList: "workflow.list",
+  workflowGet: "workflow.get",
+
+  // Push subscriptions
+  subscribeWorkflowEvents: "subscribeWorkflowEvents",
+  subscribeChannelMessages: "subscribeChannelMessages",
+} as const;
 
 export const WS_METHODS = {
   // Project registry methods
@@ -114,6 +153,9 @@ export const WS_METHODS = {
   subscribeTerminalEvents: "subscribeTerminalEvents",
   subscribeServerConfig: "subscribeServerConfig",
   subscribeServerLifecycle: "subscribeServerLifecycle",
+
+  // Forge methods
+  ...FORGE_WS_METHODS,
 } as const;
 
 export const WsServerUpsertKeybindingRpc = Rpc.make(WS_METHODS.serverUpsertKeybinding, {
@@ -305,6 +347,18 @@ export const WsSubscribeOrchestrationDomainEventsRpc = Rpc.make(
 export const WsSubscribeTerminalEventsRpc = Rpc.make(WS_METHODS.subscribeTerminalEvents, {
   payload: Schema.Struct({}),
   success: TerminalEvent,
+  stream: true,
+});
+
+export const WsSubscribeWorkflowEventsRpc = Rpc.make(WS_METHODS.subscribeWorkflowEvents, {
+  payload: Schema.Struct({ threadId: Schema.optional(ThreadId) }),
+  success: WorkflowPushEvent,
+  stream: true,
+});
+
+export const WsSubscribeChannelMessagesRpc = Rpc.make(WS_METHODS.subscribeChannelMessages, {
+  payload: Schema.Struct({ channelId: Schema.optional(ChannelId) }),
+  success: ChannelPushEvent,
   stream: true,
 });
 

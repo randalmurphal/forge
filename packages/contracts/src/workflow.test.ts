@@ -6,6 +6,7 @@ import {
   AgentOutputConfig,
   DEFAULT_AGENT_OUTPUT_CONFIG,
   ForgeProjectConfig,
+  PromptTemplate,
   WorkflowDefinition,
   WorkflowPhase,
   defaultSandboxMode,
@@ -15,6 +16,7 @@ const decodeAgentOutputConfig = Schema.decodeUnknownEffect(AgentOutputConfig);
 const decodeWorkflowPhase = Schema.decodeUnknownEffect(WorkflowPhase);
 const decodeWorkflowDefinition = Schema.decodeUnknownEffect(WorkflowDefinition);
 const decodeForgeProjectConfig = Schema.decodeUnknownEffect(ForgeProjectConfig);
+const decodePromptTemplate = Schema.decodeUnknownEffect(PromptTemplate);
 
 it.effect("decodes agent output config discriminated union members", () =>
   Effect.gen(function* () {
@@ -170,6 +172,24 @@ it.effect("decodes forge project config defaults for quality checks", () =>
     assert.deepStrictEqual(parsed.defaultModel, {
       provider: "codex",
       model: "gpt-5.4",
+    });
+  }),
+);
+
+it.effect("decodes prompt templates with optional initial messages", () =>
+  Effect.gen(function* () {
+    const parsed = yield* decodePromptTemplate({
+      name: " implement ",
+      description: "Implements the requested change",
+      system: "You are a software engineer.\n\n{{DESCRIPTION}}",
+      initial: "Start by reading the code.",
+    });
+
+    assert.deepStrictEqual(parsed, {
+      name: "implement",
+      description: "Implements the requested change",
+      system: "You are a software engineer.\n\n{{DESCRIPTION}}",
+      initial: "Start by reading the code.",
     });
   }),
 );

@@ -186,3 +186,11 @@ export const ForgeProjectConfig = Schema.Struct({
   defaultModel: Schema.optional(ModelSelection),
 });
 export type ForgeProjectConfig = typeof ForgeProjectConfig.Type;
+
+export const PromptTemplate = Schema.Struct({
+  name: TrimmedNonEmptyString,
+  description: Schema.String,
+  system: Schema.String,
+  initial: Schema.optional(Schema.String),
+});
+export type PromptTemplate = typeof PromptTemplate.Type;
