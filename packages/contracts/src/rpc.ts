@@ -2,7 +2,17 @@ import { Schema } from "effect";
 import * as Rpc from "effect/unstable/rpc/Rpc";
 import * as RpcGroup from "effect/unstable/rpc/RpcGroup";
 
-import { ChannelId, ThreadId } from "./baseSchemas";
+import {
+  ChannelId,
+  InteractiveRequestId,
+  NonNegativeInt,
+  PhaseRunId,
+  ProjectId,
+  ThreadId,
+  TrimmedNonEmptyString,
+  WorkflowId,
+} from "./baseSchemas";
+import { ChannelMessage } from "./channel";
 import { OpenError, OpenInEditorInput } from "./editor";
 import {
   GitActionProgressEvent,
@@ -29,21 +39,27 @@ import {
 import { KeybindingsConfigError } from "./keybindings";
 import {
   ChannelPushEvent,
+  DispatchResult,
+  ForgeClientSnapshot,
+  OrchestrationMessage,
   ClientOrchestrationCommand,
   OrchestrationEvent,
+  OrchestrationGetSnapshotError,
   ORCHESTRATION_WS_METHODS,
   OrchestrationDispatchCommandError,
   OrchestrationGetFullThreadDiffError,
   OrchestrationGetFullThreadDiffInput,
-  OrchestrationGetSnapshotError,
   OrchestrationGetSnapshotInput,
   OrchestrationGetTurnDiffError,
   OrchestrationGetTurnDiffInput,
   OrchestrationReplayEventsError,
   OrchestrationReplayEventsInput,
   OrchestrationRpcSchemas,
+  RuntimeMode,
   WorkflowPushEvent,
 } from "./orchestration";
+import { InteractiveRequestResolution } from "./interactiveRequest";
+import { ModelSelection, ProviderKind } from "./providerSchemas";
 import {
   ProjectSearchEntriesError,
   ProjectSearchEntriesInput,
@@ -63,6 +79,7 @@ import {
   TerminalSessionSnapshot,
   TerminalWriteInput,
 } from "./terminal";
+import { WorkflowDefinition } from "./workflow";
 import {
   ServerConfigStreamEvent,
   ServerConfig,
@@ -333,6 +350,232 @@ export const WsOrchestrationReplayEventsRpc = Rpc.make(ORCHESTRATION_WS_METHODS.
   payload: OrchestrationReplayEventsInput,
   success: OrchestrationRpcSchemas.replayEvents.output,
   error: OrchestrationReplayEventsError,
+});
+
+const ForgeThreadCreateInput = Schema.Struct({
+  projectId: Schema.optional(ProjectId),
+  workspaceRoot: Schema.optional(TrimmedNonEmptyString),
+  parentThreadId: Schema.optional(ThreadId),
+  phaseRunId: Schema.optional(PhaseRunId),
+  workflowId: Schema.optional(WorkflowId),
+  patternId: Schema.optional(TrimmedNonEmptyString),
+  title: TrimmedNonEmptyString,
+  description: Schema.optional(Schema.String),
+  runtimeMode: Schema.optional(RuntimeMode),
+  model: Schema.optional(ModelSelection),
+  provider: Schema.optional(ProviderKind),
+  role: Schema.optional(TrimmedNonEmptyString),
+  branchOverride: Schema.optional(TrimmedNonEmptyString),
+  requiresWorktree: Schema.optional(Schema.Boolean),
+});
+
+const ForgeThreadCorrectInput = Schema.Struct({
+  threadId: ThreadId,
+  content: Schema.String,
+});
+
+const ForgeThreadPauseInput = Schema.Struct({
+  threadId: ThreadId,
+});
+
+const ForgeThreadResumeInput = Schema.Struct({
+  threadId: ThreadId,
+});
+
+const ForgeThreadCancelInput = Schema.Struct({
+  threadId: ThreadId,
+  reason: Schema.optional(Schema.String),
+});
+
+const ForgeThreadArchiveInput = Schema.Struct({
+  threadId: ThreadId,
+});
+
+const ForgeThreadUnarchiveInput = Schema.Struct({
+  threadId: ThreadId,
+});
+
+const ForgeThreadSendTurnInput = Schema.Struct({
+  threadId: ThreadId,
+  content: Schema.String,
+  attachments: Schema.optional(Schema.Array(Schema.Unknown)),
+});
+
+const ForgeThreadGetTranscriptInput = Schema.Struct({
+  threadId: ThreadId,
+});
+
+const ForgeThreadGetTranscriptResult = Schema.Struct({
+  entries: Schema.Array(OrchestrationMessage),
+  total: NonNegativeInt,
+});
+
+const ForgeThreadGetChildrenInput = Schema.Struct({
+  threadId: ThreadId,
+});
+
+const ForgeThreadGetChildrenResult = Schema.Struct({
+  children: ForgeClientSnapshot.fields.sessions,
+});
+
+const ForgeGateApproveInput = Schema.Struct({
+  threadId: ThreadId,
+  phaseRunId: PhaseRunId,
+});
+
+const ForgeGateRejectInput = Schema.Struct({
+  threadId: ThreadId,
+  phaseRunId: PhaseRunId,
+  correction: Schema.optional(Schema.String),
+});
+
+const ForgeRequestResolveInput = Schema.Struct({
+  requestId: InteractiveRequestId,
+  resolvedWith: InteractiveRequestResolution,
+});
+
+const ForgeChannelGetMessagesInput = Schema.Struct({
+  channelId: ChannelId,
+});
+
+const ForgeChannelGetMessagesResult = Schema.Struct({
+  messages: Schema.Array(ChannelMessage),
+  total: NonNegativeInt,
+});
+
+const ForgeChannelInterveneInput = Schema.Struct({
+  channelId: ChannelId,
+  content: Schema.String,
+  fromRole: Schema.optional(TrimmedNonEmptyString),
+});
+
+const ForgePhaseOutputUpdateInput = Schema.Struct({
+  threadId: ThreadId,
+  phaseRunId: PhaseRunId,
+  outputKey: TrimmedNonEmptyString,
+  content: Schema.String,
+});
+
+const ForgeWorkflowListInput = Schema.Struct({});
+
+const ForgeWorkflowListResult = Schema.Struct({
+  workflows: ForgeClientSnapshot.fields.workflows,
+});
+
+const ForgeWorkflowGetInput = Schema.Struct({
+  workflowId: WorkflowId,
+});
+
+const ForgeWorkflowGetResult = Schema.Struct({
+  workflow: WorkflowDefinition,
+});
+
+export const WsForgeThreadCreateRpc = Rpc.make(WS_METHODS.threadCreate, {
+  payload: ForgeThreadCreateInput,
+  success: DispatchResult,
+  error: OrchestrationDispatchCommandError,
+});
+
+export const WsForgeThreadCorrectRpc = Rpc.make(WS_METHODS.threadCorrect, {
+  payload: ForgeThreadCorrectInput,
+  success: DispatchResult,
+  error: OrchestrationDispatchCommandError,
+});
+
+export const WsForgeThreadPauseRpc = Rpc.make(WS_METHODS.threadPause, {
+  payload: ForgeThreadPauseInput,
+  success: DispatchResult,
+  error: OrchestrationDispatchCommandError,
+});
+
+export const WsForgeThreadResumeRpc = Rpc.make(WS_METHODS.threadResume, {
+  payload: ForgeThreadResumeInput,
+  success: DispatchResult,
+  error: OrchestrationDispatchCommandError,
+});
+
+export const WsForgeThreadCancelRpc = Rpc.make(WS_METHODS.threadCancel, {
+  payload: ForgeThreadCancelInput,
+  success: DispatchResult,
+  error: OrchestrationDispatchCommandError,
+});
+
+export const WsForgeThreadArchiveRpc = Rpc.make(WS_METHODS.threadArchive, {
+  payload: ForgeThreadArchiveInput,
+  success: DispatchResult,
+  error: OrchestrationDispatchCommandError,
+});
+
+export const WsForgeThreadUnarchiveRpc = Rpc.make(WS_METHODS.threadUnarchive, {
+  payload: ForgeThreadUnarchiveInput,
+  success: DispatchResult,
+  error: OrchestrationDispatchCommandError,
+});
+
+export const WsForgeThreadSendTurnRpc = Rpc.make(WS_METHODS.threadSendTurn, {
+  payload: ForgeThreadSendTurnInput,
+  success: DispatchResult,
+  error: OrchestrationDispatchCommandError,
+});
+
+export const WsForgeThreadGetTranscriptRpc = Rpc.make(WS_METHODS.threadGetTranscript, {
+  payload: ForgeThreadGetTranscriptInput,
+  success: ForgeThreadGetTranscriptResult,
+  error: OrchestrationGetSnapshotError,
+});
+
+export const WsForgeThreadGetChildrenRpc = Rpc.make(WS_METHODS.threadGetChildren, {
+  payload: ForgeThreadGetChildrenInput,
+  success: ForgeThreadGetChildrenResult,
+  error: OrchestrationGetSnapshotError,
+});
+
+export const WsForgeGateApproveRpc = Rpc.make(WS_METHODS.gateApprove, {
+  payload: ForgeGateApproveInput,
+  success: DispatchResult,
+  error: OrchestrationDispatchCommandError,
+});
+
+export const WsForgeGateRejectRpc = Rpc.make(WS_METHODS.gateReject, {
+  payload: ForgeGateRejectInput,
+  success: DispatchResult,
+  error: OrchestrationDispatchCommandError,
+});
+
+export const WsForgeRequestResolveRpc = Rpc.make(WS_METHODS.requestResolve, {
+  payload: ForgeRequestResolveInput,
+  success: DispatchResult,
+  error: OrchestrationDispatchCommandError,
+});
+
+export const WsForgeChannelGetMessagesRpc = Rpc.make(WS_METHODS.channelGetMessages, {
+  payload: ForgeChannelGetMessagesInput,
+  success: ForgeChannelGetMessagesResult,
+  error: OrchestrationGetSnapshotError,
+});
+
+export const WsForgeChannelInterveneRpc = Rpc.make(WS_METHODS.channelIntervene, {
+  payload: ForgeChannelInterveneInput,
+  success: DispatchResult,
+  error: OrchestrationDispatchCommandError,
+});
+
+export const WsForgePhaseOutputUpdateRpc = Rpc.make(WS_METHODS.phaseOutputUpdate, {
+  payload: ForgePhaseOutputUpdateInput,
+  success: DispatchResult,
+  error: OrchestrationDispatchCommandError,
+});
+
+export const WsForgeWorkflowListRpc = Rpc.make(WS_METHODS.workflowList, {
+  payload: ForgeWorkflowListInput,
+  success: ForgeWorkflowListResult,
+  error: OrchestrationGetSnapshotError,
+});
+
+export const WsForgeWorkflowGetRpc = Rpc.make(WS_METHODS.workflowGet, {
+  payload: ForgeWorkflowGetInput,
+  success: ForgeWorkflowGetResult,
+  error: OrchestrationGetSnapshotError,
 });
 
 export const WsSubscribeOrchestrationDomainEventsRpc = Rpc.make(

@@ -5,6 +5,24 @@ import { it } from "@effect/vitest";
 import {
   FORGE_WS_METHODS,
   WS_METHODS,
+  WsForgeChannelGetMessagesRpc,
+  WsForgeChannelInterveneRpc,
+  WsForgeGateApproveRpc,
+  WsForgeGateRejectRpc,
+  WsForgePhaseOutputUpdateRpc,
+  WsForgeRequestResolveRpc,
+  WsForgeThreadArchiveRpc,
+  WsForgeThreadCancelRpc,
+  WsForgeThreadCorrectRpc,
+  WsForgeThreadCreateRpc,
+  WsForgeThreadGetChildrenRpc,
+  WsForgeThreadGetTranscriptRpc,
+  WsForgeThreadPauseRpc,
+  WsForgeThreadResumeRpc,
+  WsForgeThreadSendTurnRpc,
+  WsForgeThreadUnarchiveRpc,
+  WsForgeWorkflowGetRpc,
+  WsForgeWorkflowListRpc,
   WsRpcGroup,
   WsSubscribeChannelMessagesRpc,
   WsSubscribeWorkflowEventsRpc,
@@ -50,9 +68,34 @@ it("exposes the staged push subscription RPC definitions", () => {
   assert.ok(WsSubscribeChannelMessagesRpc);
 });
 
+it("exports the staged Forge websocket RPC definitions without widening the live rpc group", () => {
+  assert.ok(WsForgeThreadCreateRpc);
+  assert.ok(WsForgeThreadCorrectRpc);
+  assert.ok(WsForgeThreadPauseRpc);
+  assert.ok(WsForgeThreadResumeRpc);
+  assert.ok(WsForgeThreadCancelRpc);
+  assert.ok(WsForgeThreadArchiveRpc);
+  assert.ok(WsForgeThreadUnarchiveRpc);
+  assert.ok(WsForgeThreadSendTurnRpc);
+  assert.ok(WsForgeThreadGetTranscriptRpc);
+  assert.ok(WsForgeThreadGetChildrenRpc);
+  assert.ok(WsForgeGateApproveRpc);
+  assert.ok(WsForgeGateRejectRpc);
+  assert.ok(WsForgeRequestResolveRpc);
+  assert.ok(WsForgeChannelGetMessagesRpc);
+  assert.ok(WsForgeChannelInterveneRpc);
+  assert.ok(WsForgePhaseOutputUpdateRpc);
+  assert.ok(WsForgeWorkflowListRpc);
+  assert.ok(WsForgeWorkflowGetRpc);
+});
+
 it("registers staged push subscriptions in the shared websocket RPC group", () => {
   const methods = new Set(WsRpcGroup.requests.keys());
 
   assert.ok(methods.has(WS_METHODS.subscribeWorkflowEvents));
   assert.ok(methods.has(WS_METHODS.subscribeChannelMessages));
+  assert.ok(!methods.has(WS_METHODS.threadCreate));
+  assert.ok(!methods.has(WS_METHODS.threadGetTranscript));
+  assert.ok(!methods.has(WS_METHODS.channelGetMessages));
+  assert.ok(!methods.has(WS_METHODS.workflowGet));
 });
