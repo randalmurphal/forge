@@ -39,6 +39,14 @@ const makeThread = (threadId: string, projectId: string): OrchestrationThread =>
   updatedAt: now,
   archivedAt: null,
   deletedAt: null,
+  parentThreadId: null,
+  phaseRunId: null,
+  workflowId: null,
+  currentPhaseId: null,
+  patternId: null,
+  role: null,
+  childThreadIds: [],
+  bootstrapStatus: null,
   messages: [],
   proposedPlans: [],
   activities: [],
@@ -76,6 +84,7 @@ const makeReadModel = (): OrchestrationReadModel => ({
     makeThread("thread-child", "project-a"),
     makeThread("thread-other-project", "project-b"),
   ],
+  phaseRuns: [],
   channels: [
     {
       id: ChannelId.makeUnsafe("channel-open"),
@@ -112,6 +121,7 @@ const makeReadModel = (): OrchestrationReadModel => ({
       createdAt: now,
     },
   ],
+  workflows: [],
 });
 
 async function run(

@@ -129,6 +129,14 @@ describe("OrchestrationEngine", () => {
           updatedAt: "2026-03-03T00:00:03.000Z",
           archivedAt: null,
           deletedAt: null,
+          parentThreadId: null,
+          phaseRunId: null,
+          workflowId: null,
+          currentPhaseId: null,
+          patternId: null,
+          role: null,
+          childThreadIds: [],
+          bootstrapStatus: null,
           messages: [],
           proposedPlans: [],
           activities: [],
@@ -136,8 +144,10 @@ describe("OrchestrationEngine", () => {
           session: null,
         },
       ],
+      phaseRuns: [],
       channels: [],
       pendingRequests: [],
+      workflows: [],
     };
 
     const layer = OrchestrationEngineLive.pipe(

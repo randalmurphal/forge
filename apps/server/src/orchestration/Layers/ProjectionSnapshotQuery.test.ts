@@ -281,6 +281,14 @@ projectionSnapshotLayer("ProjectionSnapshotQuery", (it) => {
           updatedAt: "2026-02-24T00:00:03.000Z",
           archivedAt: null,
           deletedAt: null,
+          parentThreadId: null,
+          phaseRunId: null,
+          workflowId: null,
+          currentPhaseId: null,
+          patternId: null,
+          role: null,
+          childThreadIds: [],
+          bootstrapStatus: null,
           messages: [
             {
               id: asMessageId("message-1"),

@@ -1,7 +1,8 @@
 import {
   ApprovalRequestId,
   type ChatAttachment,
-  type OrchestrationEvent,
+  type ForgeEvent,
+  WorkflowId,
 } from "@t3tools/contracts";
 import { Effect, FileSystem, Layer, Option, Path, Stream } from "effect";
 import * as SqlClient from "effect/unstable/sql/SqlClient";
@@ -9,6 +10,11 @@ import * as SqlClient from "effect/unstable/sql/SqlClient";
 import { toPersistenceSqlError, type ProjectionRepositoryError } from "../../persistence/Errors.ts";
 import { OrchestrationEventStore } from "../../persistence/Services/OrchestrationEventStore.ts";
 import { ProjectionPendingApprovalRepository } from "../../persistence/Services/ProjectionPendingApprovals.ts";
+import { ProjectionChannelMessageRepository } from "../../persistence/Services/ProjectionChannelMessages.ts";
+import { ProjectionChannelRepository } from "../../persistence/Services/ProjectionChannels.ts";
+import { ProjectionInteractiveRequestRepository } from "../../persistence/Services/ProjectionInteractiveRequests.ts";
+import { ProjectionPhaseOutputRepository } from "../../persistence/Services/ProjectionPhaseOutputs.ts";
+import { ProjectionPhaseRunRepository } from "../../persistence/Services/ProjectionPhaseRuns.ts";
 import { ProjectionProjectRepository } from "../../persistence/Services/ProjectionProjects.ts";
 import { ProjectionStateRepository } from "../../persistence/Services/ProjectionState.ts";
 import { ProjectionThreadActivityRepository } from "../../persistence/Services/ProjectionThreadActivities.ts";
@@ -28,6 +34,11 @@ import {
 } from "../../persistence/Services/ProjectionTurns.ts";
 import { ProjectionThreadRepository } from "../../persistence/Services/ProjectionThreads.ts";
 import { ProjectionPendingApprovalRepositoryLive } from "../../persistence/Layers/ProjectionPendingApprovals.ts";
+import { ProjectionChannelMessageRepositoryLive } from "../../persistence/Layers/ProjectionChannelMessages.ts";
+import { ProjectionChannelRepositoryLive } from "../../persistence/Layers/ProjectionChannels.ts";
+import { ProjectionInteractiveRequestRepositoryLive } from "../../persistence/Layers/ProjectionInteractiveRequests.ts";
+import { ProjectionPhaseOutputRepositoryLive } from "../../persistence/Layers/ProjectionPhaseOutputs.ts";
+import { ProjectionPhaseRunRepositoryLive } from "../../persistence/Layers/ProjectionPhaseRuns.ts";
 import { ProjectionProjectRepositoryLive } from "../../persistence/Layers/ProjectionProjects.ts";
 import { ProjectionStateRepositoryLive } from "../../persistence/Layers/ProjectionState.ts";
 import { ProjectionThreadActivityRepositoryLive } from "../../persistence/Layers/ProjectionThreadActivities.ts";
@@ -51,6 +62,10 @@ import {
 export const ORCHESTRATION_PROJECTOR_NAMES = {
   projects: "projection.projects",
   threads: "projection.threads",
+  phaseRuns: "projection.phase-runs",
+  channels: "projection.channels",
+  channelMessages: "projection.channel-messages",
+  phaseOutputs: "projection.phase-outputs",
   threadMessages: "projection.thread-messages",
   threadProposedPlans: "projection.thread-proposed-plans",
   threadActivities: "projection.thread-activities",
@@ -58,6 +73,7 @@ export const ORCHESTRATION_PROJECTOR_NAMES = {
   threadTurns: "projection.thread-turns",
   checkpoints: "projection.checkpoints",
   pendingApprovals: "projection.pending-approvals",
+  interactiveRequests: "projection.interactive-requests",
 } as const;
 
 type ProjectorName =
@@ -66,7 +82,7 @@ type ProjectorName =
 interface ProjectorDefinition {
   readonly name: ProjectorName;
   readonly apply: (
-    event: OrchestrationEvent,
+    event: ForgeEvent,
     attachmentSideEffects: AttachmentSideEffects,
   ) => Effect.Effect<void, ProjectionRepositoryError>;
 }
@@ -362,12 +378,17 @@ const makeOrchestrationProjectionPipeline = Effect.fn("makeOrchestrationProjecti
     const projectionStateRepository = yield* ProjectionStateRepository;
     const projectionProjectRepository = yield* ProjectionProjectRepository;
     const projectionThreadRepository = yield* ProjectionThreadRepository;
+    const projectionPhaseRunRepository = yield* ProjectionPhaseRunRepository;
+    const projectionChannelRepository = yield* ProjectionChannelRepository;
+    const projectionChannelMessageRepository = yield* ProjectionChannelMessageRepository;
+    const projectionPhaseOutputRepository = yield* ProjectionPhaseOutputRepository;
     const projectionThreadMessageRepository = yield* ProjectionThreadMessageRepository;
     const projectionThreadProposedPlanRepository = yield* ProjectionThreadProposedPlanRepository;
     const projectionThreadActivityRepository = yield* ProjectionThreadActivityRepository;
     const projectionThreadSessionRepository = yield* ProjectionThreadSessionRepository;
     const projectionTurnRepository = yield* ProjectionTurnRepository;
     const projectionPendingApprovalRepository = yield* ProjectionPendingApprovalRepository;
+    const projectionInteractiveRequestRepository = yield* ProjectionInteractiveRequestRepository;
 
     const fileSystem = yield* FileSystem.FileSystem;
     const path = yield* Path.Path;
@@ -612,6 +633,271 @@ const makeOrchestrationProjectionPipeline = Effect.fn("makeOrchestrationProjecti
           });
           return;
         }
+
+        default:
+          return;
+      }
+    });
+
+    const lookupThreadWorkflowId = Effect.fn("lookupThreadWorkflowId")(function* (
+      threadId: string,
+    ) {
+      const rows = yield* sql<{ readonly workflowId: string | null }>`
+          SELECT workflow_id AS "workflowId"
+          FROM projection_threads
+          WHERE thread_id = ${threadId}
+          LIMIT 1
+        `.pipe(
+        Effect.mapError(toPersistenceSqlError("ProjectionPipeline.lookupThreadWorkflowId:query")),
+      );
+      const workflowId = rows[0]?.workflowId ?? null;
+      return workflowId === null ? null : WorkflowId.makeUnsafe(workflowId);
+    });
+
+    const applyPhaseRunsProjection: ProjectorDefinition["apply"] = Effect.fn(
+      "applyPhaseRunsProjection",
+    )(function* (event, _attachmentSideEffects) {
+      switch (event.type) {
+        case "thread.phase-started": {
+          const workflowId = yield* lookupThreadWorkflowId(event.payload.threadId);
+          if (workflowId === null) {
+            return;
+          }
+          yield* projectionPhaseRunRepository.upsert({
+            phaseRunId: event.payload.phaseRunId,
+            threadId: event.payload.threadId,
+            workflowId,
+            phaseId: event.payload.phaseId,
+            phaseName: event.payload.phaseName,
+            phaseType: event.payload.phaseType,
+            sandboxMode: null,
+            iteration: event.payload.iteration,
+            status: "running",
+            gateResult: null,
+            qualityChecks: null,
+            deliberationState: null,
+            startedAt: event.payload.startedAt,
+            completedAt: null,
+          });
+          return;
+        }
+
+        case "thread.phase-completed":
+          yield* projectionPhaseRunRepository.updateStatus({
+            phaseRunId: event.payload.phaseRunId,
+            status: "completed",
+            gateResult: event.payload.gateResult ?? null,
+            completedAt: event.payload.completedAt,
+          });
+          return;
+
+        case "thread.phase-failed":
+          yield* projectionPhaseRunRepository.updateStatus({
+            phaseRunId: event.payload.phaseRunId,
+            status: "failed",
+            completedAt: event.payload.failedAt,
+          });
+          return;
+
+        case "thread.phase-skipped":
+          yield* projectionPhaseRunRepository.updateStatus({
+            phaseRunId: event.payload.phaseRunId,
+            status: "skipped",
+            completedAt: event.payload.skippedAt,
+          });
+          return;
+
+        case "thread.quality-check-completed":
+          yield* projectionPhaseRunRepository
+            .queryById({
+              phaseRunId: event.payload.phaseRunId,
+            })
+            .pipe(
+              Effect.flatMap(
+                Option.match({
+                  onNone: () => Effect.void,
+                  onSome: (row) =>
+                    projectionPhaseRunRepository.updateStatus({
+                      phaseRunId: event.payload.phaseRunId,
+                      status: row.status,
+                      qualityChecks: event.payload.results,
+                    }),
+                }),
+              ),
+            );
+          return;
+
+        default:
+          return;
+      }
+    });
+
+    const applyChannelsProjection: ProjectorDefinition["apply"] = Effect.fn(
+      "applyChannelsProjection",
+    )(function* (event, _attachmentSideEffects) {
+      switch (event.type) {
+        case "channel.created":
+          yield* projectionChannelRepository.create({
+            channelId: event.payload.channelId,
+            threadId: event.payload.threadId,
+            phaseRunId: event.payload.phaseRunId,
+            type: event.payload.channelType,
+            status: "open",
+            createdAt: event.payload.createdAt,
+            updatedAt: event.payload.createdAt,
+          });
+          return;
+
+        case "channel.concluded":
+          yield* projectionChannelRepository.updateStatus({
+            channelId: event.payload.channelId,
+            status: "concluded",
+            updatedAt: event.payload.concludedAt,
+          });
+          return;
+
+        case "channel.closed":
+          yield* projectionChannelRepository.updateStatus({
+            channelId: event.payload.channelId,
+            status: "closed",
+            updatedAt: event.payload.closedAt,
+          });
+          return;
+
+        default:
+          return;
+      }
+    });
+
+    const applyChannelMessagesProjection: ProjectorDefinition["apply"] = Effect.fn(
+      "applyChannelMessagesProjection",
+    )(function* (event, _attachmentSideEffects) {
+      if (event.type !== "channel.message-posted") {
+        return;
+      }
+
+      yield* projectionChannelMessageRepository.insert({
+        messageId: event.payload.messageId,
+        channelId: event.payload.channelId,
+        sequence: event.payload.sequence,
+        fromType: event.payload.fromType,
+        fromId: event.payload.fromId,
+        fromRole: event.payload.fromRole,
+        content: event.payload.content,
+        metadata: null,
+        createdAt: event.payload.createdAt,
+        deletedAt: null,
+      });
+    });
+
+    const applyPhaseOutputsProjection: ProjectorDefinition["apply"] = Effect.fn(
+      "applyPhaseOutputsProjection",
+    )(function* (event, _attachmentSideEffects) {
+      switch (event.type) {
+        case "thread.phase-completed":
+          yield* Effect.forEach(
+            event.payload.outputs,
+            (output) =>
+              projectionPhaseOutputRepository
+                .queryByKey({
+                  phaseRunId: event.payload.phaseRunId,
+                  outputKey: output.key,
+                })
+                .pipe(
+                  Effect.flatMap((existingRow) =>
+                    projectionPhaseOutputRepository.upsert({
+                      phaseRunId: event.payload.phaseRunId,
+                      outputKey: output.key,
+                      content: output.content,
+                      sourceType: output.sourceType,
+                      sourceId: null,
+                      metadata: null,
+                      createdAt: Option.match(existingRow, {
+                        onNone: () => event.payload.completedAt,
+                        onSome: (row) => row.createdAt,
+                      }),
+                      updatedAt: event.payload.completedAt,
+                    }),
+                  ),
+                ),
+            { concurrency: 1 },
+          ).pipe(Effect.asVoid);
+          return;
+
+        case "thread.phase-output-edited":
+          yield* projectionPhaseOutputRepository
+            .queryByKey({
+              phaseRunId: event.payload.phaseRunId,
+              outputKey: event.payload.outputKey,
+            })
+            .pipe(
+              Effect.flatMap((existingRow) =>
+                projectionPhaseOutputRepository.upsert({
+                  phaseRunId: event.payload.phaseRunId,
+                  outputKey: event.payload.outputKey,
+                  content: event.payload.newContent,
+                  sourceType: Option.match(existingRow, {
+                    onNone: () => "human",
+                    onSome: (row) => row.sourceType,
+                  }),
+                  sourceId: Option.match(existingRow, {
+                    onNone: () => null,
+                    onSome: (row) => row.sourceId,
+                  }),
+                  metadata: Option.match(existingRow, {
+                    onNone: () => null,
+                    onSome: (row) => row.metadata,
+                  }),
+                  createdAt: Option.match(existingRow, {
+                    onNone: () => event.payload.editedAt,
+                    onSome: (row) => row.createdAt,
+                  }),
+                  updatedAt: event.payload.editedAt,
+                }),
+              ),
+            );
+          return;
+
+        default:
+          return;
+      }
+    });
+
+    const applyInteractiveRequestsProjection: ProjectorDefinition["apply"] = Effect.fn(
+      "applyInteractiveRequestsProjection",
+    )(function* (event, _attachmentSideEffects) {
+      switch (event.type) {
+        case "request.opened":
+          yield* projectionInteractiveRequestRepository.upsert({
+            requestId: event.payload.requestId,
+            threadId: event.payload.threadId,
+            childThreadId: event.payload.childThreadId,
+            phaseRunId: event.payload.phaseRunId,
+            type: event.payload.requestType,
+            status: "pending",
+            payload: event.payload.payload,
+            resolvedWith: null,
+            createdAt: event.payload.createdAt,
+            resolvedAt: null,
+            staleReason: null,
+          });
+          return;
+
+        case "request.resolved":
+          yield* projectionInteractiveRequestRepository.updateStatus({
+            requestId: event.payload.requestId,
+            status: "resolved",
+            resolvedWith: event.payload.resolvedWith,
+            resolvedAt: event.payload.resolvedAt,
+          });
+          return;
+
+        case "request.stale":
+          yield* projectionInteractiveRequestRepository.markStale({
+            requestId: event.payload.requestId,
+            staleReason: event.payload.reason,
+          });
+          return;
 
         default:
           return;
@@ -1169,6 +1455,22 @@ const makeOrchestrationProjectionPipeline = Effect.fn("makeOrchestrationProjecti
         apply: applyProjectsProjection,
       },
       {
+        name: ORCHESTRATION_PROJECTOR_NAMES.phaseRuns,
+        apply: applyPhaseRunsProjection,
+      },
+      {
+        name: ORCHESTRATION_PROJECTOR_NAMES.channels,
+        apply: applyChannelsProjection,
+      },
+      {
+        name: ORCHESTRATION_PROJECTOR_NAMES.channelMessages,
+        apply: applyChannelMessagesProjection,
+      },
+      {
+        name: ORCHESTRATION_PROJECTOR_NAMES.phaseOutputs,
+        apply: applyPhaseOutputsProjection,
+      },
+      {
         name: ORCHESTRATION_PROJECTOR_NAMES.threadMessages,
         apply: applyThreadMessagesProjection,
       },
@@ -1197,6 +1499,10 @@ const makeOrchestrationProjectionPipeline = Effect.fn("makeOrchestrationProjecti
         apply: applyPendingApprovalsProjection,
       },
       {
+        name: ORCHESTRATION_PROJECTOR_NAMES.interactiveRequests,
+        apply: applyInteractiveRequestsProjection,
+      },
+      {
         name: ORCHESTRATION_PROJECTOR_NAMES.threads,
         apply: applyThreadsProjection,
       },
@@ -1204,7 +1510,7 @@ const makeOrchestrationProjectionPipeline = Effect.fn("makeOrchestrationProjecti
 
     const runProjectorForEvent = Effect.fn("runProjectorForEvent")(function* (
       projector: ProjectorDefinition,
-      event: OrchestrationEvent,
+      event: ForgeEvent,
     ) {
       const attachmentSideEffects: AttachmentSideEffects = {
         deletedThreadIds: new Set<string>(),
@@ -1296,11 +1602,16 @@ export const OrchestrationProjectionPipelineLive = Layer.effect(
 ).pipe(
   Layer.provideMerge(ProjectionProjectRepositoryLive),
   Layer.provideMerge(ProjectionThreadRepositoryLive),
+  Layer.provideMerge(ProjectionPhaseRunRepositoryLive),
+  Layer.provideMerge(ProjectionChannelRepositoryLive),
+  Layer.provideMerge(ProjectionChannelMessageRepositoryLive),
+  Layer.provideMerge(ProjectionPhaseOutputRepositoryLive),
   Layer.provideMerge(ProjectionThreadMessageRepositoryLive),
   Layer.provideMerge(ProjectionThreadProposedPlanRepositoryLive),
   Layer.provideMerge(ProjectionThreadActivityRepositoryLive),
   Layer.provideMerge(ProjectionThreadSessionRepositoryLive),
   Layer.provideMerge(ProjectionTurnRepositoryLive),
   Layer.provideMerge(ProjectionPendingApprovalRepositoryLive),
+  Layer.provideMerge(ProjectionInteractiveRequestRepositoryLive),
   Layer.provideMerge(ProjectionStateRepositoryLive),
 );

@@ -3,6 +3,7 @@ import {
   CommandId,
   CorrelationId,
   EventId,
+  type ForgeEvent,
   MessageId,
   ProjectId,
   ThreadId,
@@ -46,6 +47,33 @@ const exists = (filePath: string) =>
   });
 
 const BaseTestLayer = makeProjectionPipelinePrefixedTestLayer("t3-projection-pipeline-test-");
+
+function makeForgeEvent(input: {
+  sequence: number;
+  type: ForgeEvent["type"];
+  aggregateKind: ForgeEvent["aggregateKind"];
+  aggregateId: string;
+  occurredAt: string;
+  commandId: string | null;
+  payload: unknown;
+}): ForgeEvent {
+  return {
+    sequence: input.sequence,
+    eventId: EventId.makeUnsafe(`forge-${input.sequence}`),
+    type: input.type,
+    aggregateKind: input.aggregateKind,
+    aggregateId:
+      input.aggregateKind === "project"
+        ? ProjectId.makeUnsafe(input.aggregateId)
+        : ThreadId.makeUnsafe(input.aggregateId),
+    occurredAt: input.occurredAt,
+    commandId: input.commandId === null ? null : CommandId.makeUnsafe(input.commandId),
+    causationEventId: null,
+    correlationId: input.commandId === null ? null : CorrelationId.makeUnsafe(input.commandId),
+    metadata: {},
+    payload: input.payload as never,
+  } as ForgeEvent;
+}
 
 it.layer(BaseTestLayer)("OrchestrationProjectionPipeline", (it) => {
   it.effect("bootstraps all projection states and writes projection rows", () =>
@@ -166,6 +194,292 @@ it.layer(BaseTestLayer)("OrchestrationProjectionPipeline", (it) => {
       for (const row of stateRows) {
         assert.equal(row.lastAppliedSequence, 3);
       }
+    }),
+  );
+
+  it.effect("projects phase runs, channels, messages, outputs, and interactive requests", () =>
+    Effect.gen(function* () {
+      const projectionPipeline = yield* OrchestrationProjectionPipeline;
+      const eventStore = yield* OrchestrationEventStore;
+      const sql = yield* SqlClient.SqlClient;
+      const createdAt = "2026-04-05T15:00:00.000Z";
+      const phaseStartedAt = "2026-04-05T15:01:00.000Z";
+      const phaseCompletedAt = "2026-04-05T15:02:00.000Z";
+      const channelCreatedAt = "2026-04-05T15:03:00.000Z";
+      const channelMessageAt = "2026-04-05T15:04:00.000Z";
+      const requestOpenedAt = "2026-04-05T15:05:00.000Z";
+      const requestResolvedAt = "2026-04-05T15:06:00.000Z";
+
+      const savedProjectCreated = yield* eventStore.append({
+        type: "project.created",
+        eventId: EventId.makeUnsafe("evt-foundation-project"),
+        aggregateKind: "project",
+        aggregateId: ProjectId.makeUnsafe("project-foundation"),
+        occurredAt: createdAt,
+        commandId: CommandId.makeUnsafe("cmd-foundation-project"),
+        causationEventId: null,
+        correlationId: CommandId.makeUnsafe("cmd-foundation-project"),
+        metadata: {},
+        payload: {
+          projectId: ProjectId.makeUnsafe("project-foundation"),
+          title: "Foundation project",
+          workspaceRoot: "/tmp/foundation-project",
+          defaultModelSelection: null,
+          scripts: [],
+          createdAt,
+          updatedAt: createdAt,
+        },
+      });
+      yield* projectionPipeline.projectEvent(savedProjectCreated);
+
+      const savedThreadCreated = yield* eventStore.append({
+        type: "thread.created",
+        eventId: EventId.makeUnsafe("evt-foundation-thread"),
+        aggregateKind: "thread",
+        aggregateId: ThreadId.makeUnsafe("thread-foundation"),
+        occurredAt: createdAt,
+        commandId: CommandId.makeUnsafe("cmd-foundation-thread"),
+        causationEventId: null,
+        correlationId: CommandId.makeUnsafe("cmd-foundation-thread"),
+        metadata: {},
+        payload: {
+          threadId: ThreadId.makeUnsafe("thread-foundation"),
+          projectId: ProjectId.makeUnsafe("project-foundation"),
+          title: "Foundation thread",
+          modelSelection: {
+            provider: "codex",
+            model: "gpt-5-codex",
+          },
+          runtimeMode: "full-access",
+          branch: null,
+          worktreePath: null,
+          createdAt,
+          updatedAt: createdAt,
+        },
+      });
+      yield* projectionPipeline.projectEvent(savedThreadCreated);
+
+      yield* sql`
+        UPDATE projection_threads
+        SET workflow_id = 'workflow-foundation'
+        WHERE thread_id = 'thread-foundation'
+      `;
+
+      yield* projectionPipeline.projectEvent(
+        makeForgeEvent({
+          sequence: 3,
+          type: "thread.phase-started",
+          aggregateKind: "thread",
+          aggregateId: "thread-foundation",
+          occurredAt: phaseStartedAt,
+          commandId: "cmd-phase-started",
+          payload: {
+            threadId: "thread-foundation",
+            phaseRunId: "phase-run-foundation",
+            phaseId: "phase-plan",
+            phaseName: "Plan",
+            phaseType: "single-agent",
+            iteration: 1,
+            startedAt: phaseStartedAt,
+          },
+        }),
+      );
+
+      yield* projectionPipeline.projectEvent(
+        makeForgeEvent({
+          sequence: 4,
+          type: "thread.phase-completed",
+          aggregateKind: "thread",
+          aggregateId: "thread-foundation",
+          occurredAt: phaseCompletedAt,
+          commandId: "cmd-phase-completed",
+          payload: {
+            threadId: "thread-foundation",
+            phaseRunId: "phase-run-foundation",
+            outputs: [
+              {
+                key: "summary",
+                content: "Phase summary",
+                sourceType: "agent",
+              },
+            ],
+            completedAt: phaseCompletedAt,
+          },
+        }),
+      );
+
+      yield* projectionPipeline.projectEvent(
+        makeForgeEvent({
+          sequence: 5,
+          type: "channel.created",
+          aggregateKind: "thread",
+          aggregateId: "thread-foundation",
+          occurredAt: channelCreatedAt,
+          commandId: "cmd-channel-created",
+          payload: {
+            channelId: "channel-foundation",
+            threadId: "thread-foundation",
+            channelType: "guidance",
+            phaseRunId: "phase-run-foundation",
+            createdAt: channelCreatedAt,
+          },
+        }),
+      );
+
+      yield* projectionPipeline.projectEvent(
+        makeForgeEvent({
+          sequence: 6,
+          type: "channel.message-posted",
+          aggregateKind: "thread",
+          aggregateId: "thread-foundation",
+          occurredAt: channelMessageAt,
+          commandId: "cmd-channel-message",
+          payload: {
+            channelId: "channel-foundation",
+            messageId: "channel-message-foundation",
+            sequence: 0,
+            fromType: "human",
+            fromId: "user-1",
+            fromRole: null,
+            content: "Refine the plan",
+            createdAt: channelMessageAt,
+          },
+        }),
+      );
+
+      yield* projectionPipeline.projectEvent(
+        makeForgeEvent({
+          sequence: 7,
+          type: "request.opened",
+          aggregateKind: "thread",
+          aggregateId: "thread-foundation",
+          occurredAt: requestOpenedAt,
+          commandId: "cmd-request-opened",
+          payload: {
+            requestId: "request-foundation",
+            threadId: "thread-foundation",
+            childThreadId: null,
+            phaseRunId: "phase-run-foundation",
+            requestType: "user-input",
+            payload: {
+              type: "user-input",
+              questions: [{ id: "scope", question: "Ship it?" }],
+            },
+            createdAt: requestOpenedAt,
+          },
+        }),
+      );
+
+      yield* projectionPipeline.projectEvent(
+        makeForgeEvent({
+          sequence: 8,
+          type: "request.resolved",
+          aggregateKind: "thread",
+          aggregateId: "thread-foundation",
+          occurredAt: requestResolvedAt,
+          commandId: "cmd-request-resolved",
+          payload: {
+            requestId: "request-foundation",
+            resolvedWith: {
+              answers: {
+                scope: "yes",
+              },
+            },
+            resolvedAt: requestResolvedAt,
+          },
+        }),
+      );
+
+      const phaseRunRows = yield* sql<{
+        readonly phaseRunId: string;
+        readonly workflowId: string;
+        readonly status: string;
+      }>`
+        SELECT
+          phase_run_id AS "phaseRunId",
+          workflow_id AS "workflowId",
+          status
+        FROM phase_runs
+        WHERE phase_run_id = 'phase-run-foundation'
+      `;
+      assert.deepEqual(phaseRunRows, [
+        {
+          phaseRunId: "phase-run-foundation",
+          workflowId: "workflow-foundation",
+          status: "completed",
+        },
+      ]);
+
+      const phaseOutputRows = yield* sql<{
+        readonly outputKey: string;
+        readonly content: string;
+      }>`
+        SELECT
+          output_key AS "outputKey",
+          content
+        FROM phase_outputs
+        WHERE phase_run_id = 'phase-run-foundation'
+      `;
+      assert.deepEqual(phaseOutputRows, [
+        {
+          outputKey: "summary",
+          content: "Phase summary",
+        },
+      ]);
+
+      const channelRows = yield* sql<{
+        readonly channelId: string;
+        readonly status: string;
+      }>`
+        SELECT
+          channel_id AS "channelId",
+          status
+        FROM channels
+        WHERE channel_id = 'channel-foundation'
+      `;
+      assert.deepEqual(channelRows, [
+        {
+          channelId: "channel-foundation",
+          status: "open",
+        },
+      ]);
+
+      const channelMessageRows = yield* sql<{
+        readonly messageId: string;
+        readonly content: string;
+      }>`
+        SELECT
+          message_id AS "messageId",
+          content
+        FROM channel_messages
+        WHERE message_id = 'channel-message-foundation'
+      `;
+      assert.deepEqual(channelMessageRows, [
+        {
+          messageId: "channel-message-foundation",
+          content: "Refine the plan",
+        },
+      ]);
+
+      const requestRows = yield* sql<{
+        readonly requestId: string;
+        readonly status: string;
+        readonly resolvedAt: string | null;
+      }>`
+        SELECT
+          request_id AS "requestId",
+          status,
+          resolved_at AS "resolvedAt"
+        FROM interactive_requests
+        WHERE request_id = 'request-foundation'
+      `;
+      assert.deepEqual(requestRows, [
+        {
+          requestId: "request-foundation",
+          status: "resolved",
+          resolvedAt: requestResolvedAt,
+        },
+      ]);
     }),
   );
 });

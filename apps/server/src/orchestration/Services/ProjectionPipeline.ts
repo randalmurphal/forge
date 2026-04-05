@@ -6,7 +6,7 @@
  *
  * @module OrchestrationProjectionPipeline
  */
-import type { OrchestrationEvent } from "@t3tools/contracts";
+import type { ForgeEvent } from "@t3tools/contracts";
 import { ServiceMap } from "effect";
 import type { Effect } from "effect";
 
@@ -28,9 +28,7 @@ export interface OrchestrationProjectionPipelineShape {
    *
    * Projectors are executed sequentially to preserve deterministic ordering.
    */
-  readonly projectEvent: (
-    event: OrchestrationEvent,
-  ) => Effect.Effect<void, ProjectionRepositoryError>;
+  readonly projectEvent: (event: ForgeEvent) => Effect.Effect<void, ProjectionRepositoryError>;
 }
 
 /**

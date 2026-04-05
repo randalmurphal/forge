@@ -94,6 +94,14 @@ const makeDefaultOrchestrationReadModel = () => {
         createdAt: now,
         updatedAt: now,
         archivedAt: null,
+        parentThreadId: null,
+        phaseRunId: null,
+        workflowId: null,
+        currentPhaseId: null,
+        patternId: null,
+        role: null,
+        childThreadIds: [],
+        bootstrapStatus: null,
         latestTurn: null,
         messages: [],
         session: null,
@@ -103,8 +111,10 @@ const makeDefaultOrchestrationReadModel = () => {
         deletedAt: null,
       },
     ],
+    phaseRuns: [],
     channels: [],
     pendingRequests: [],
+    workflows: [],
   };
 };
 
@@ -1125,6 +1135,14 @@ it.layer(NodeServices.layer)("server router seam", (it) => {
             createdAt: now,
             updatedAt: now,
             archivedAt: null,
+            parentThreadId: null,
+            phaseRunId: null,
+            workflowId: null,
+            currentPhaseId: null,
+            patternId: null,
+            role: null,
+            childThreadIds: [],
+            bootstrapStatus: null,
             latestTurn: null,
             messages: [],
             session: null,
@@ -1134,8 +1152,10 @@ it.layer(NodeServices.layer)("server router seam", (it) => {
             deletedAt: null,
           },
         ],
+        phaseRuns: [],
         channels: [],
         pendingRequests: [],
+        workflows: [],
       };
 
       yield* buildAppUnderTest({

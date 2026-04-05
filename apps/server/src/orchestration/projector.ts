@@ -1,4 +1,5 @@
 import type {
+  Channel,
   ForgeEvent,
   GateResult,
   OrchestrationReadModel,
@@ -8,6 +9,7 @@ import type {
   QualityCheckReference,
   QualityCheckResult,
   ThreadId,
+  WorkflowId,
 } from "@t3tools/contracts";
 import {
   ChannelId,
@@ -34,6 +36,14 @@ import {
   ThreadBootstrapFailedPayload,
   ThreadBootstrapSkippedPayload,
   ThreadBootstrapStartedPayload,
+  ChannelClosedPayload,
+  ChannelConclusionProposedPayload,
+  ChannelConcludedPayload,
+  ChannelCreatedPayload,
+  ChannelMessagePostedPayload,
+  InteractiveRequestOpenedPayload,
+  InteractiveRequestResolvedPayload,
+  InteractiveRequestStalePayload,
   ThreadCorrectionDeliveredPayload,
   ThreadCorrectionQueuedPayload,
   ThreadCreatedPayload,
@@ -115,7 +125,7 @@ type ProjectedSynthesis = {
 type ProjectedThread = OrchestrationThread & {
   readonly parentThreadId: ThreadId | null;
   readonly phaseRunId: PhaseRunId | null;
-  readonly workflowId: string | null;
+  readonly workflowId: WorkflowId | null;
   readonly currentPhaseId: WorkflowPhaseId | null;
   readonly patternId: string | null;
   readonly role: string | null;
@@ -126,7 +136,12 @@ type ProjectedThread = OrchestrationThread & {
 type ProjectedReadModel = OrchestrationReadModel & {
   readonly threads: ReadonlyArray<ProjectedThread>;
   readonly phaseRuns: ReadonlyArray<ProjectedPhaseRun>;
-  readonly workflows: ReadonlyArray<unknown>;
+  readonly workflows: ReadonlyArray<{
+    readonly workflowId: WorkflowId;
+    readonly name: string;
+    readonly description: string;
+    readonly builtIn: boolean;
+  }>;
   readonly threadLinks: ReadonlyArray<ProjectedThreadLink>;
   readonly threadDependencies: ReadonlyArray<ProjectedThreadDependency>;
   readonly corrections: ReadonlyArray<ProjectedCorrection>;
@@ -157,7 +172,7 @@ function toProjectedReadModel(model: OrchestrationReadModel): ProjectedReadModel
   return {
     ...model,
     threads: model.threads.map(toProjectedThread),
-    phaseRuns: projected.phaseRuns ?? [],
+    phaseRuns: (projected.phaseRuns as ReadonlyArray<ProjectedPhaseRun> | undefined) ?? [],
     workflows: projected.workflows ?? [],
     threadLinks: projected.threadLinks ?? [],
     threadDependencies: projected.threadDependencies ?? [],
@@ -318,6 +333,13 @@ function updatePhaseRun(
   );
 }
 
+function upsertChannel(channels: ReadonlyArray<Channel>, channel: Channel): ReadonlyArray<Channel> {
+  return [...channels.filter((entry) => entry.id !== channel.id), channel].toSorted(
+    (left, right) =>
+      left.createdAt.localeCompare(right.createdAt) || left.id.localeCompare(right.id),
+  );
+}
+
 export function createEmptyReadModel(nowIso: string): OrchestrationReadModel {
   return {
     snapshotSequence: 0,
@@ -435,6 +457,14 @@ export function projectEvent(
             updatedAt: payload.updatedAt,
             archivedAt: null,
             deletedAt: null,
+            parentThreadId: null,
+            phaseRunId: null,
+            workflowId: null,
+            currentPhaseId: null,
+            patternId: null,
+            role: null,
+            childThreadIds: [],
+            bootstrapStatus: null,
             messages: [],
             activities: [],
             checkpoints: [],
@@ -963,7 +993,7 @@ export function projectEvent(
         Effect.map((payload) => {
           const phaseRun = nextBase.phaseRuns.find(
             (entry) => entry.phaseRunId === payload.phaseRunId,
-          );
+          ) as ProjectedPhaseRun | undefined;
           if (!phaseRun) {
             return nextBase;
           }
@@ -1178,12 +1208,226 @@ export function projectEvent(
 
     case "thread.promoted":
       return decodeForEvent(ThreadPromotedPayload, event.payload, event.type, "payload").pipe(
+        Effect.map((payload) => {
+          const sourceThread = nextBase.threads.find(
+            (entry) => entry.id === payload.sourceThreadId,
+          );
+          const nextChildThreadIds =
+            sourceThread === undefined ||
+            sourceThread.childThreadIds.includes(payload.targetThreadId)
+              ? (sourceThread?.childThreadIds ?? [])
+              : [...sourceThread.childThreadIds, payload.targetThreadId];
+
+          return {
+            ...nextBase,
+            threads: updateThread(
+              updateThread(nextBase.threads, payload.sourceThreadId, {
+                childThreadIds: nextChildThreadIds,
+                updatedAt: payload.promotedAt,
+              }),
+              payload.targetThreadId,
+              {
+                parentThreadId: payload.sourceThreadId,
+                updatedAt: payload.promotedAt,
+              },
+            ),
+          };
+        }),
+      );
+
+    case "channel.created":
+      return decodeForEvent(ChannelCreatedPayload, event.payload, event.type, "payload").pipe(
         Effect.map((payload) => ({
           ...nextBase,
-          threads: updateThread(nextBase.threads, payload.sourceThreadId, {
-            updatedAt: payload.promotedAt,
+          channels: upsertChannel(nextBase.channels, {
+            id: payload.channelId,
+            threadId: payload.threadId,
+            ...(payload.phaseRunId === null ? {} : { phaseRunId: payload.phaseRunId }),
+            type: payload.channelType,
+            status: "open",
+            createdAt: payload.createdAt,
+            updatedAt: payload.createdAt,
+          }),
+          threads: updateThread(nextBase.threads, payload.threadId, {
+            updatedAt: payload.createdAt,
           }),
         })),
+      );
+
+    case "channel.message-posted":
+      return decodeForEvent(ChannelMessagePostedPayload, event.payload, event.type, "payload").pipe(
+        Effect.map((payload) => {
+          const channel = nextBase.channels.find((entry) => entry.id === payload.channelId);
+          if (!channel) {
+            return nextBase;
+          }
+
+          return {
+            ...nextBase,
+            channels: upsertChannel(nextBase.channels, {
+              ...channel,
+              updatedAt: payload.createdAt,
+            }),
+            threads: updateThread(nextBase.threads, channel.threadId, {
+              updatedAt: payload.createdAt,
+            }),
+          };
+        }),
+      );
+
+    case "channel.conclusion-proposed":
+      return decodeForEvent(
+        ChannelConclusionProposedPayload,
+        event.payload,
+        event.type,
+        "payload",
+      ).pipe(
+        Effect.map((payload) => {
+          const channel = nextBase.channels.find((entry) => entry.id === payload.channelId);
+          if (!channel) {
+            return nextBase;
+          }
+
+          return {
+            ...nextBase,
+            channels: upsertChannel(nextBase.channels, {
+              ...channel,
+              updatedAt: payload.proposedAt,
+            }),
+            threads: updateThread(nextBase.threads, payload.threadId, {
+              updatedAt: payload.proposedAt,
+            }),
+          };
+        }),
+      );
+
+    case "channel.concluded":
+      return decodeForEvent(ChannelConcludedPayload, event.payload, event.type, "payload").pipe(
+        Effect.map((payload) => {
+          const channel = nextBase.channels.find((entry) => entry.id === payload.channelId);
+          if (!channel) {
+            return nextBase;
+          }
+
+          return {
+            ...nextBase,
+            channels: upsertChannel(nextBase.channels, {
+              ...channel,
+              status: "concluded",
+              updatedAt: payload.concludedAt,
+            }),
+            threads: updateThread(nextBase.threads, channel.threadId, {
+              updatedAt: payload.concludedAt,
+            }),
+          };
+        }),
+      );
+
+    case "channel.closed":
+      return decodeForEvent(ChannelClosedPayload, event.payload, event.type, "payload").pipe(
+        Effect.map((payload) => {
+          const channel = nextBase.channels.find((entry) => entry.id === payload.channelId);
+          if (!channel) {
+            return nextBase;
+          }
+
+          return {
+            ...nextBase,
+            channels: upsertChannel(nextBase.channels, {
+              ...channel,
+              status: "closed",
+              updatedAt: payload.closedAt,
+            }),
+            threads: updateThread(nextBase.threads, channel.threadId, {
+              updatedAt: payload.closedAt,
+            }),
+          };
+        }),
+      );
+
+    case "request.opened":
+      return decodeForEvent(
+        InteractiveRequestOpenedPayload,
+        event.payload,
+        event.type,
+        "payload",
+      ).pipe(
+        Effect.map((payload) => {
+          const pendingRequest: OrchestrationReadModel["pendingRequests"][number] = {
+            id: payload.requestId,
+            threadId: payload.threadId,
+            ...(payload.childThreadId === null ? {} : { childThreadId: payload.childThreadId }),
+            ...(payload.phaseRunId === null ? {} : { phaseRunId: payload.phaseRunId }),
+            type: payload.requestType,
+            status: "pending",
+            payload: payload.payload,
+            createdAt: payload.createdAt,
+          };
+
+          return {
+            ...nextBase,
+            pendingRequests: [
+              ...nextBase.pendingRequests.filter((entry) => entry.id !== payload.requestId),
+              pendingRequest,
+            ].toSorted(
+              (left, right) =>
+                left.createdAt.localeCompare(right.createdAt) || left.id.localeCompare(right.id),
+            ),
+            threads: updateThread(nextBase.threads, payload.threadId, {
+              updatedAt: payload.createdAt,
+            }),
+          };
+        }),
+      );
+
+    case "request.resolved":
+      return decodeForEvent(
+        InteractiveRequestResolvedPayload,
+        event.payload,
+        event.type,
+        "payload",
+      ).pipe(
+        Effect.map((payload) => {
+          const request = nextBase.pendingRequests.find((entry) => entry.id === payload.requestId);
+          if (!request) {
+            return nextBase;
+          }
+
+          return {
+            ...nextBase,
+            pendingRequests: nextBase.pendingRequests.filter(
+              (entry) => entry.id !== payload.requestId,
+            ),
+            threads: updateThread(nextBase.threads, request.threadId, {
+              updatedAt: payload.resolvedAt,
+            }),
+          };
+        }),
+      );
+
+    case "request.stale":
+      return decodeForEvent(
+        InteractiveRequestStalePayload,
+        event.payload,
+        event.type,
+        "payload",
+      ).pipe(
+        Effect.map((payload) => {
+          const request = nextBase.pendingRequests.find((entry) => entry.id === payload.requestId);
+          if (!request) {
+            return nextBase;
+          }
+
+          return {
+            ...nextBase,
+            pendingRequests: nextBase.pendingRequests.filter(
+              (entry) => entry.id !== payload.requestId,
+            ),
+            threads: updateThread(nextBase.threads, request.threadId, {
+              updatedAt: payload.staleAt,
+            }),
+          };
+        }),
       );
 
     case "thread.dependency-added":

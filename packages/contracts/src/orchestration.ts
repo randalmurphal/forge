@@ -29,7 +29,13 @@ import {
   InteractiveRequestType,
 } from "./interactiveRequest";
 import { ModelSelection, ProviderApprovalDecision } from "./providerSchemas";
-import { GateResult, PhaseType, QualityCheckReference, QualityCheckResult } from "./workflow";
+import {
+  GateResult,
+  PhaseRunStatus,
+  PhaseType,
+  QualityCheckReference,
+  QualityCheckResult,
+} from "./workflow";
 
 export * from "./providerSchemas";
 
@@ -258,6 +264,16 @@ export const OrchestrationThread = Schema.Struct({
   updatedAt: IsoDateTime,
   archivedAt: Schema.NullOr(IsoDateTime).pipe(Schema.withDecodingDefault(() => null)),
   deletedAt: Schema.NullOr(IsoDateTime),
+  parentThreadId: Schema.NullOr(ThreadId).pipe(Schema.withDecodingDefault(() => null)),
+  phaseRunId: Schema.NullOr(PhaseRunId).pipe(Schema.withDecodingDefault(() => null)),
+  workflowId: Schema.NullOr(WorkflowId).pipe(Schema.withDecodingDefault(() => null)),
+  currentPhaseId: Schema.NullOr(WorkflowPhaseId).pipe(Schema.withDecodingDefault(() => null)),
+  patternId: Schema.NullOr(TrimmedNonEmptyString).pipe(Schema.withDecodingDefault(() => null)),
+  role: Schema.NullOr(TrimmedNonEmptyString).pipe(Schema.withDecodingDefault(() => null)),
+  childThreadIds: Schema.Array(ThreadId).pipe(Schema.withDecodingDefault(() => [])),
+  bootstrapStatus: Schema.NullOr(TrimmedNonEmptyString).pipe(
+    Schema.withDecodingDefault(() => null),
+  ),
   messages: Schema.Array(OrchestrationMessage),
   proposedPlans: Schema.Array(OrchestrationProposedPlan).pipe(Schema.withDecodingDefault(() => [])),
   activities: Schema.Array(OrchestrationThreadActivity),
@@ -266,12 +282,39 @@ export const OrchestrationThread = Schema.Struct({
 });
 export type OrchestrationThread = typeof OrchestrationThread.Type;
 
+export const OrchestrationReadModelPhaseRun = Schema.Struct({
+  phaseRunId: PhaseRunId,
+  threadId: ThreadId,
+  phaseId: WorkflowPhaseId,
+  phaseName: TrimmedNonEmptyString,
+  phaseType: PhaseType,
+  iteration: PositiveInt,
+  status: PhaseRunStatus,
+  startedAt: Schema.NullOr(IsoDateTime),
+  completedAt: Schema.NullOr(IsoDateTime),
+});
+export type OrchestrationReadModelPhaseRun = typeof OrchestrationReadModelPhaseRun.Type;
+
+export const OrchestrationReadModelWorkflow = Schema.Struct({
+  workflowId: WorkflowId,
+  name: TrimmedNonEmptyString,
+  description: Schema.String,
+  builtIn: Schema.Boolean,
+});
+export type OrchestrationReadModelWorkflow = typeof OrchestrationReadModelWorkflow.Type;
+
 export const OrchestrationReadModel = Schema.Struct({
   snapshotSequence: NonNegativeInt,
   projects: Schema.Array(OrchestrationProject),
   threads: Schema.Array(OrchestrationThread),
+  phaseRuns: Schema.Array(OrchestrationReadModelPhaseRun).pipe(
+    Schema.withDecodingDefault(() => []),
+  ),
   channels: Schema.Array(Channel).pipe(Schema.withDecodingDefault(() => [])),
   pendingRequests: Schema.Array(InteractiveRequest).pipe(Schema.withDecodingDefault(() => [])),
+  workflows: Schema.Array(OrchestrationReadModelWorkflow).pipe(
+    Schema.withDecodingDefault(() => []),
+  ),
   updatedAt: IsoDateTime,
 });
 export type OrchestrationReadModel = typeof OrchestrationReadModel.Type;

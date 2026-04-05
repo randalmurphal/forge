@@ -1321,7 +1321,10 @@ describe("orchestration projector", () => {
     expect(finalState.threadDependencies).toEqual([]);
 
     const promotedThread = finalState.threads.find((thread) => thread.id === "thread-source");
+    const promotedChild = finalState.threads.find((thread) => thread.id === "thread-target");
+    expect(promotedThread?.childThreadIds).toEqual([ThreadId.makeUnsafe("thread-target")]);
     expect(promotedThread?.updatedAt).toBe(linkRemovedAt);
+    expect(promotedChild?.parentThreadId).toBe(ThreadId.makeUnsafe("thread-source"));
 
     const intermediateState = (await events
       .slice(0, 6)
@@ -1346,5 +1349,198 @@ describe("orchestration projector", () => {
         satisfiedAt: dependenciesSatisfiedAt,
       }),
     ]);
+  });
+
+  it("projects channel and request events into the additive read model", async () => {
+    const createdAt = "2026-04-05T14:00:00.000Z";
+    const channelCreatedAt = "2026-04-05T14:01:00.000Z";
+    const messagePostedAt = "2026-04-05T14:02:00.000Z";
+    const conclusionProposedAt = "2026-04-05T14:03:00.000Z";
+    const channelConcludedAt = "2026-04-05T14:04:00.000Z";
+    const requestOpenedAt = "2026-04-05T14:05:00.000Z";
+    const requestResolvedAt = "2026-04-05T14:06:00.000Z";
+    const requestOpenedAgainAt = "2026-04-05T14:07:00.000Z";
+    const requestStaleAt = "2026-04-05T14:08:00.000Z";
+    const channelClosedAt = "2026-04-05T14:09:00.000Z";
+
+    const events: ReadonlyArray<ForgeEvent> = [
+      makeEvent({
+        sequence: 1,
+        type: "thread.created",
+        aggregateKind: "thread",
+        aggregateId: "thread-channel",
+        occurredAt: createdAt,
+        commandId: "cmd-thread-channel",
+        payload: {
+          threadId: "thread-channel",
+          projectId: "project-1",
+          title: "Channel thread",
+          modelSelection: { provider: "codex", model: "gpt-5-codex" },
+          runtimeMode: "full-access",
+          branch: null,
+          worktreePath: null,
+          createdAt,
+          updatedAt: createdAt,
+        },
+      }),
+      makeEvent({
+        sequence: 2,
+        type: "channel.created",
+        aggregateKind: "thread",
+        aggregateId: "thread-channel",
+        occurredAt: channelCreatedAt,
+        commandId: "cmd-channel-create",
+        payload: {
+          channelId: "channel-1",
+          threadId: "thread-channel",
+          channelType: "guidance",
+          phaseRunId: null,
+          createdAt: channelCreatedAt,
+        },
+      }),
+      makeEvent({
+        sequence: 3,
+        type: "channel.message-posted",
+        aggregateKind: "thread",
+        aggregateId: "thread-channel",
+        occurredAt: messagePostedAt,
+        commandId: "cmd-channel-post",
+        payload: {
+          channelId: "channel-1",
+          messageId: "channel-message-1",
+          sequence: 0,
+          fromType: "human",
+          fromId: "human-1",
+          fromRole: null,
+          content: "Please adjust the plan",
+          createdAt: messagePostedAt,
+        },
+      }),
+      makeEvent({
+        sequence: 4,
+        type: "channel.conclusion-proposed",
+        aggregateKind: "thread",
+        aggregateId: "thread-channel",
+        occurredAt: conclusionProposedAt,
+        commandId: "cmd-channel-propose",
+        payload: {
+          channelId: "channel-1",
+          threadId: "thread-channel",
+          summary: "Looks good",
+          proposedAt: conclusionProposedAt,
+        },
+      }),
+      makeEvent({
+        sequence: 5,
+        type: "channel.concluded",
+        aggregateKind: "thread",
+        aggregateId: "thread-channel",
+        occurredAt: channelConcludedAt,
+        commandId: "cmd-channel-conclude",
+        payload: {
+          channelId: "channel-1",
+          concludedAt: channelConcludedAt,
+        },
+      }),
+      makeEvent({
+        sequence: 6,
+        type: "request.opened",
+        aggregateKind: "thread",
+        aggregateId: "thread-channel",
+        occurredAt: requestOpenedAt,
+        commandId: "cmd-request-open",
+        payload: {
+          requestId: "request-1",
+          threadId: "thread-channel",
+          childThreadId: null,
+          phaseRunId: null,
+          requestType: "user-input",
+          payload: {
+            type: "user-input",
+            questions: [{ id: "q1", question: "Proceed?" }],
+          },
+          createdAt: requestOpenedAt,
+        },
+      }),
+      makeEvent({
+        sequence: 7,
+        type: "request.resolved",
+        aggregateKind: "thread",
+        aggregateId: "thread-channel",
+        occurredAt: requestResolvedAt,
+        commandId: "cmd-request-resolve",
+        payload: {
+          requestId: "request-1",
+          resolvedWith: { answers: { q1: "yes" } },
+          resolvedAt: requestResolvedAt,
+        },
+      }),
+      makeEvent({
+        sequence: 8,
+        type: "request.opened",
+        aggregateKind: "thread",
+        aggregateId: "thread-channel",
+        occurredAt: requestOpenedAgainAt,
+        commandId: "cmd-request-open-2",
+        payload: {
+          requestId: "request-2",
+          threadId: "thread-channel",
+          childThreadId: null,
+          phaseRunId: null,
+          requestType: "correction-needed",
+          payload: {
+            type: "correction-needed",
+            reason: "Tighten the summary",
+          },
+          createdAt: requestOpenedAgainAt,
+        },
+      }),
+      makeEvent({
+        sequence: 9,
+        type: "request.stale",
+        aggregateKind: "thread",
+        aggregateId: "thread-channel",
+        occurredAt: requestStaleAt,
+        commandId: "cmd-request-stale",
+        payload: {
+          requestId: "request-2",
+          reason: "Superseded",
+          staleAt: requestStaleAt,
+        },
+      }),
+      makeEvent({
+        sequence: 10,
+        type: "channel.closed",
+        aggregateKind: "thread",
+        aggregateId: "thread-channel",
+        occurredAt: channelClosedAt,
+        commandId: "cmd-channel-close",
+        payload: {
+          channelId: "channel-1",
+          closedAt: channelClosedAt,
+        },
+      }),
+    ];
+
+    const finalState = await events.reduce<Promise<OrchestrationReadModel>>(
+      (statePromise, event) =>
+        statePromise.then((state) => Effect.runPromise(projectEvent(state, event))),
+      Promise.resolve(createEmptyReadModel(createdAt)),
+    );
+
+    expect(finalState.channels).toEqual([
+      {
+        id: "channel-1",
+        threadId: "thread-channel",
+        type: "guidance",
+        status: "closed",
+        createdAt: channelCreatedAt,
+        updatedAt: channelClosedAt,
+      },
+    ]);
+    expect(finalState.pendingRequests).toEqual([]);
+
+    const thread = finalState.threads.find((entry) => entry.id === "thread-channel");
+    expect(thread?.updatedAt).toBe(channelClosedAt);
   });
 });

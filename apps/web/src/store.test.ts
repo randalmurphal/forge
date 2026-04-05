@@ -115,6 +115,14 @@ function makeReadModelThread(overrides: Partial<OrchestrationReadModel["threads"
     updatedAt: "2026-02-27T00:00:00.000Z",
     archivedAt: null,
     deletedAt: null,
+    parentThreadId: null,
+    phaseRunId: null,
+    workflowId: null,
+    currentPhaseId: null,
+    patternId: null,
+    role: null,
+    childThreadIds: [],
+    bootstrapStatus: null,
     messages: [],
     activities: [],
     proposedPlans: [],
@@ -144,8 +152,10 @@ function makeReadModel(thread: OrchestrationReadModel["threads"][number]): Orche
       },
     ],
     threads: [thread],
+    phaseRuns: [],
     channels: [],
     pendingRequests: [],
+    workflows: [],
   };
 }
 
@@ -303,8 +313,10 @@ describe("store read model sync", () => {
         }),
       ],
       threads: [],
+      phaseRuns: [],
       channels: [],
       pendingRequests: [],
+      workflows: [],
     };
 
     const next = syncServerReadModel(initialState, readModel);

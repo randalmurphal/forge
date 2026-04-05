@@ -112,6 +112,14 @@ function createMinimalSnapshot(): OrchestrationReadModel {
         updatedAt: NOW_ISO,
         archivedAt: null,
         deletedAt: null,
+        parentThreadId: null,
+        phaseRunId: null,
+        workflowId: null,
+        currentPhaseId: null,
+        patternId: null,
+        role: null,
+        childThreadIds: [],
+        bootstrapStatus: null,
         messages: [
           {
             id: "msg-1" as MessageId,
@@ -137,8 +145,10 @@ function createMinimalSnapshot(): OrchestrationReadModel {
         },
       },
     ],
+    phaseRuns: [],
     channels: [],
     pendingRequests: [],
+    workflows: [],
     updatedAt: NOW_ISO,
   };
 }

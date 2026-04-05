@@ -39,6 +39,14 @@ const makeThread = (threadId: string, projectId: string): OrchestrationThread =>
   updatedAt: now,
   archivedAt: null,
   deletedAt: null,
+  parentThreadId: null,
+  phaseRunId: null,
+  workflowId: null,
+  currentPhaseId: null,
+  patternId: null,
+  role: null,
+  childThreadIds: [],
+  bootstrapStatus: null,
   messages: [],
   proposedPlans: [],
   activities: [],
@@ -76,8 +84,10 @@ const makeReadModel = (): OrchestrationReadModel => ({
     makeThread("thread-2", "project-a"),
     makeThread("thread-3", "project-b"),
   ],
+  phaseRuns: [],
   channels: [],
   pendingRequests: [],
+  workflows: [],
 });
 
 const qualityChecks = [

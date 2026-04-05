@@ -41,6 +41,10 @@
 - WI-17: Decider extensions -- channel commands
 - WI-18: Decider extensions -- interactive request commands
 - WI-19: Projector extensions -- workflow events
+- WI-20: Projector extensions -- channel events
+- WI-21: Projector extensions -- request events
+- WI-22: Read model extensions
+- WI-23: ProjectionPipeline extensions
 
 ## Iteration Log
 
@@ -63,6 +67,10 @@
 - 2026-04-05: Implemented WI-17 by extending the orchestration decider with additive channel command handling for create/post-message/conclude/close, adding typed channel invariants plus minimal read-model channel state needed for validation, deriving deterministic channel message sequences from the orchestration snapshot cursor, adding focused decider coverage in `decider.channelRequest.test.ts`, and confirming `bun fmt`, `bun lint`, `bun typecheck`, and `bun run test` all pass.
 - 2026-04-05: Implemented WI-18 by extending the orchestration decider with additive interactive-request command handling for open/resolve/mark-stale, adding pending-request invariants plus minimal read-model request state for validation, covering the new request flows and invariant failures in `decider.channelRequest.test.ts`, and confirming `bun fmt`, `bun lint`, `bun typecheck`, and `bun run test` all pass.
 - 2026-04-05: Implemented WI-19 by extending the orchestration projector to accept the staged Forge event surface, adding workflow event handlers for phase lifecycle, quality checks, bootstrap state, corrections, links, dependencies, promotion, and synthesis with additive projected workflow state (`phaseRuns`, link/dependency tracking, and future-aligned thread fields), adding focused workflow projection coverage in `projector.test.ts`, and confirming `bun fmt`, `bun lint`, `bun typecheck`, and `bun run test` all pass.
+- 2026-04-05: Implemented WI-20 by extending the orchestration projector with additive channel event handling for create/post-message/conclusion/close, updating projected thread timestamps plus promotion parent-child relationships, and adding focused projector coverage for channel state transitions in `projector.test.ts`.
+- 2026-04-05: Implemented WI-21 by extending the orchestration projector with additive interactive-request event handling for open/resolve/stale, keeping the read model’s `pendingRequests` set truly pending-only, and adding focused projector coverage for request lifecycle removal in `projector.test.ts`.
+- 2026-04-05: Implemented WI-22 by extending `OrchestrationThread` and `OrchestrationReadModel` with the additive workflow/read-model fields from the contracts spec, wiring the new defaults through existing server and web snapshot fixtures, and confirming `bun fmt`, `bun lint`, `bun typecheck`, and `bun run test` all pass against the widened schema surface.
+- 2026-04-05: Implemented WI-23 by widening the projection pipeline to the staged Forge event surface, registering new phase-run/channel/channel-message/phase-output plus interactive-request projectors and repositories, adding pipeline coverage that exercises the new projection tables through `projectEvent`, and confirming `bun fmt`, `bun lint`, `bun typecheck`, and `bun run test` all pass.
 
 ## Review Log
 
