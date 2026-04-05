@@ -136,6 +136,8 @@ describe("OrchestrationEngine", () => {
           session: null,
         },
       ],
+      channels: [],
+      pendingRequests: [],
     };
 
     const layer = OrchestrationEngineLive.pipe(

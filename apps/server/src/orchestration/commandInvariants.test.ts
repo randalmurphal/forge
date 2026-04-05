@@ -99,6 +99,8 @@ const readModel: OrchestrationReadModel = {
       deletedAt: null,
     },
   ],
+  channels: [],
+  pendingRequests: [],
 };
 
 const messageSendCommand: OrchestrationCommand = {

@@ -76,6 +76,8 @@ const makeReadModel = (): OrchestrationReadModel => ({
     makeThread("thread-2", "project-a"),
     makeThread("thread-3", "project-b"),
   ],
+  channels: [],
+  pendingRequests: [],
 });
 
 const qualityChecks = [

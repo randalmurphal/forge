@@ -293,6 +293,8 @@ function createSnapshotForTargetUser(options: {
         },
       },
     ],
+    channels: [],
+    pendingRequests: [],
     updatedAt: NOW_ISO,
   };
 }

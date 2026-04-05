@@ -688,6 +688,8 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
             snapshotSequence: computeSnapshotSequence(stateRows),
             projects,
             threads,
+            channels: [],
+            pendingRequests: [],
             updatedAt: updatedAt ?? new Date(0).toISOString(),
           };
 

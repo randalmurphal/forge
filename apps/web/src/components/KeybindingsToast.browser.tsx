@@ -137,6 +137,8 @@ function createMinimalSnapshot(): OrchestrationReadModel {
         },
       },
     ],
+    channels: [],
+    pendingRequests: [],
     updatedAt: NOW_ISO,
   };
 }

@@ -38,6 +38,8 @@
 - WI-14: Projection repositories -- phase outputs
 - WI-15: Projection repository -- interactive requests
 - WI-16: Decider extensions -- workflow commands
+- WI-17: Decider extensions -- channel commands
+- WI-18: Decider extensions -- interactive request commands
 
 ## Iteration Log
 
@@ -57,6 +59,8 @@
 - 2026-04-05: Implemented WI-14 by adding `ProjectionPhaseOutputs` service and layer for persisted phase-output upserts plus composite-key queries with typed `metadata_json` decoding, adding in-memory CRUD coverage for `queryByPhaseRunId`, `queryByKey`, and idempotent composite-key upserts, and confirming `bun fmt`, `bun lint`, `bun typecheck`, and `bun run test` all pass.
 - 2026-04-05: Implemented WI-15 by adding migration `024_InteractiveRequests` for the missing `interactive_requests` projection table and indexes, adding `ProjectionInteractiveRequests` service and layer for persisted interactive-request CRUD/status transitions with typed JSON decoding for payload and resolution unions, adding in-memory repository coverage for `queryByThreadId`, `queryById`, `queryPending`, `upsert`, `updateStatus`, and `markStale`, and confirming `bun fmt`, `bun lint`, `bun typecheck`, and `bun run test` all pass.
 - 2026-04-05: Implemented WI-16 by extending the orchestration decider with the staged workflow-thread command surface (`thread.correct`, phase lifecycle, quality checks, bootstrap, links, promotion, and dependencies), widening command invariants to the staged Forge command subset with new same-project/distinct-thread helpers, adding focused decider coverage for valid emissions and invariant failures in `decider.workflow.test.ts`, and confirming `bun fmt`, `bun lint`, `bun typecheck`, and `bun run test` all pass.
+- 2026-04-05: Implemented WI-17 by extending the orchestration decider with additive channel command handling for create/post-message/conclude/close, adding typed channel invariants plus minimal read-model channel state needed for validation, deriving deterministic channel message sequences from the orchestration snapshot cursor, adding focused decider coverage in `decider.channelRequest.test.ts`, and confirming `bun fmt`, `bun lint`, `bun typecheck`, and `bun run test` all pass.
+- 2026-04-05: Implemented WI-18 by extending the orchestration decider with additive interactive-request command handling for open/resolve/mark-stale, adding pending-request invariants plus minimal read-model request state for validation, covering the new request flows and invariant failures in `decider.channelRequest.test.ts`, and confirming `bun fmt`, `bun lint`, `bun typecheck`, and `bun run test` all pass.
 
 ## Review Log
 

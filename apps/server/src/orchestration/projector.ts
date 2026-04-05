@@ -160,6 +160,8 @@ export function createEmptyReadModel(nowIso: string): OrchestrationReadModel {
     snapshotSequence: 0,
     projects: [],
     threads: [],
+    channels: [],
+    pendingRequests: [],
     updatedAt: nowIso,
   };
 }
@@ -278,6 +280,8 @@ export function projectEvent(
           threads: existing
             ? nextBase.threads.map((entry) => (entry.id === thread.id ? thread : entry))
             : [...nextBase.threads, thread],
+          channels: nextBase.channels,
+          pendingRequests: nextBase.pendingRequests,
         };
       });
 

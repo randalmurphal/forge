@@ -103,6 +103,8 @@ const makeDefaultOrchestrationReadModel = () => {
         deletedAt: null,
       },
     ],
+    channels: [],
+    pendingRequests: [],
   };
 };
 
@@ -1132,6 +1134,8 @@ it.layer(NodeServices.layer)("server router seam", (it) => {
             deletedAt: null,
           },
         ],
+        channels: [],
+        pendingRequests: [],
       };
 
       yield* buildAppUnderTest({

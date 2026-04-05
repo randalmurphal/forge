@@ -21,8 +21,9 @@ import {
   WorkflowId,
   WorkflowPhaseId,
 } from "./baseSchemas";
-import { ChannelParticipantType, ChannelType } from "./channel";
+import { Channel, ChannelParticipantType, ChannelType } from "./channel";
 import {
+  InteractiveRequest,
   InteractiveRequestPayload,
   InteractiveRequestResolution,
   InteractiveRequestType,
@@ -269,6 +270,8 @@ export const OrchestrationReadModel = Schema.Struct({
   snapshotSequence: NonNegativeInt,
   projects: Schema.Array(OrchestrationProject),
   threads: Schema.Array(OrchestrationThread),
+  channels: Schema.Array(Channel).pipe(Schema.withDecodingDefault(() => [])),
+  pendingRequests: Schema.Array(InteractiveRequest).pipe(Schema.withDecodingDefault(() => [])),
   updatedAt: IsoDateTime,
 });
 export type OrchestrationReadModel = typeof OrchestrationReadModel.Type;

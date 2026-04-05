@@ -12,7 +12,12 @@ import { Effect } from "effect";
 
 import { OrchestrationCommandInvariantError } from "./Errors.ts";
 import {
+  requireChannel,
+  requireChannelAbsent,
+  requireChannelOpen,
   requireDistinctThreadIds,
+  requirePendingRequest,
+  requirePendingRequestAbsent,
   requireProject,
   requireProjectAbsent,
   requireThread,
@@ -45,8 +50,24 @@ type WorkflowThreadCommand = Extract<
       | "thread.remove-dependency";
   }
 >;
+type ChannelCommand = Extract<
+  ForgeCommand,
+  {
+    type: "channel.create" | "channel.post-message" | "channel.conclude" | "channel.close";
+  }
+>;
+type InteractiveRequestCommand = Extract<
+  ForgeCommand,
+  {
+    type: "request.open" | "request.resolve" | "request.mark-stale";
+  }
+>;
 
-export type DecidableOrchestrationCommand = OrchestrationCommand | WorkflowThreadCommand;
+export type DecidableOrchestrationCommand =
+  | OrchestrationCommand
+  | WorkflowThreadCommand
+  | ChannelCommand
+  | InteractiveRequestCommand;
 type DistributiveOmit<T, K extends PropertyKey> = T extends unknown ? Omit<T, K> : never;
 export type DecidedOrchestrationEvent = DistributiveOmit<ForgeEvent, "sequence">;
 
@@ -1194,6 +1215,208 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
           threadId: command.threadId,
           dependsOnThreadId: command.dependsOnThreadId,
           removedAt: command.createdAt,
+        },
+      };
+    }
+
+    case "channel.create": {
+      yield* requireThreadNotArchived({
+        readModel,
+        command,
+        threadId: command.threadId,
+      });
+      yield* requireChannelAbsent({
+        readModel,
+        command,
+        channelId: command.channelId,
+      });
+      return {
+        ...withEventBase({
+          aggregateKind: "channel",
+          aggregateId: command.channelId,
+          occurredAt: command.createdAt,
+          commandId: command.commandId,
+        }),
+        type: "channel.created",
+        payload: {
+          channelId: command.channelId,
+          threadId: command.threadId,
+          channelType: command.channelType,
+          phaseRunId: command.phaseRunId ?? null,
+          createdAt: command.createdAt,
+        },
+      };
+    }
+
+    case "channel.post-message": {
+      yield* requireChannelOpen({
+        readModel,
+        command,
+        channelId: command.channelId,
+      });
+      return {
+        ...withEventBase({
+          aggregateKind: "channel",
+          aggregateId: command.channelId,
+          occurredAt: command.createdAt,
+          commandId: command.commandId,
+        }),
+        type: "channel.message-posted",
+        payload: {
+          channelId: command.channelId,
+          messageId: command.messageId,
+          // Global event sequencing provides a deterministic monotonic cursor per channel.
+          sequence: readModel.snapshotSequence + 1,
+          fromType: command.fromType,
+          fromId: command.fromId,
+          fromRole: command.fromRole ?? null,
+          content: command.content,
+          createdAt: command.createdAt,
+        },
+      };
+    }
+
+    case "channel.conclude": {
+      yield* requireThreadNotArchived({
+        readModel,
+        command,
+        threadId: command.threadId,
+      });
+      yield* requireChannelOpen({
+        readModel,
+        command,
+        channelId: command.channelId,
+      });
+      return {
+        ...withEventBase({
+          aggregateKind: "channel",
+          aggregateId: command.channelId,
+          occurredAt: command.createdAt,
+          commandId: command.commandId,
+        }),
+        type: "channel.conclusion-proposed",
+        payload: {
+          channelId: command.channelId,
+          threadId: command.threadId,
+          summary: command.summary,
+          proposedAt: command.createdAt,
+        },
+      };
+    }
+
+    case "channel.close": {
+      yield* requireChannel({
+        readModel,
+        command,
+        channelId: command.channelId,
+      });
+      return {
+        ...withEventBase({
+          aggregateKind: "channel",
+          aggregateId: command.channelId,
+          occurredAt: command.createdAt,
+          commandId: command.commandId,
+        }),
+        type: "channel.closed",
+        payload: {
+          channelId: command.channelId,
+          closedAt: command.createdAt,
+        },
+      };
+    }
+
+    case "request.open": {
+      const thread = yield* requireThreadNotArchived({
+        readModel,
+        command,
+        threadId: command.threadId,
+      });
+      if (command.childThreadId !== undefined) {
+        yield* requireDistinctThreadIds({
+          command,
+          leftLabel: "threadId",
+          leftThreadId: command.threadId,
+          rightLabel: "childThreadId",
+          rightThreadId: command.childThreadId,
+        });
+        const childThread = yield* requireThreadNotArchived({
+          readModel,
+          command,
+          threadId: command.childThreadId,
+        });
+        yield* requireThreadsInSameProject({
+          command,
+          leftLabel: "threadId",
+          leftThread: thread,
+          rightLabel: "childThreadId",
+          rightThread: childThread,
+        });
+      }
+      yield* requirePendingRequestAbsent({
+        readModel,
+        command,
+        requestId: command.requestId,
+      });
+      return {
+        ...withEventBase({
+          aggregateKind: "request",
+          aggregateId: command.requestId,
+          occurredAt: command.createdAt,
+          commandId: command.commandId,
+        }),
+        type: "request.opened",
+        payload: {
+          requestId: command.requestId,
+          threadId: command.threadId,
+          childThreadId: command.childThreadId ?? null,
+          phaseRunId: command.phaseRunId ?? null,
+          requestType: command.requestType,
+          payload: command.payload,
+          createdAt: command.createdAt,
+        },
+      };
+    }
+
+    case "request.resolve": {
+      yield* requirePendingRequest({
+        readModel,
+        command,
+        requestId: command.requestId,
+      });
+      return {
+        ...withEventBase({
+          aggregateKind: "request",
+          aggregateId: command.requestId,
+          occurredAt: command.createdAt,
+          commandId: command.commandId,
+        }),
+        type: "request.resolved",
+        payload: {
+          requestId: command.requestId,
+          resolvedWith: command.resolvedWith,
+          resolvedAt: command.createdAt,
+        },
+      };
+    }
+
+    case "request.mark-stale": {
+      yield* requirePendingRequest({
+        readModel,
+        command,
+        requestId: command.requestId,
+      });
+      return {
+        ...withEventBase({
+          aggregateKind: "request",
+          aggregateId: command.requestId,
+          occurredAt: command.createdAt,
+          commandId: command.commandId,
+        }),
+        type: "request.stale",
+        payload: {
+          requestId: command.requestId,
+          reason: command.reason,
+          staleAt: command.createdAt,
         },
       };
     }

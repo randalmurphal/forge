@@ -144,6 +144,8 @@ function makeReadModel(thread: OrchestrationReadModel["threads"][number]): Orche
       },
     ],
     threads: [thread],
+    channels: [],
+    pendingRequests: [],
   };
 }
 
@@ -301,6 +303,8 @@ describe("store read model sync", () => {
         }),
       ],
       threads: [],
+      channels: [],
+      pendingRequests: [],
     };
 
     const next = syncServerReadModel(initialState, readModel);

@@ -1,5 +1,7 @@
 import type {
+  Channel as OrchestrationChannel,
   ForgeCommand,
+  InteractiveRequest,
   OrchestrationProject,
   OrchestrationReadModel,
   OrchestrationThread,
@@ -36,6 +38,20 @@ export function listThreadsByProjectId(
   projectId: ProjectId,
 ): ReadonlyArray<OrchestrationThread> {
   return readModel.threads.filter((thread) => thread.projectId === projectId);
+}
+
+export function findChannelById(
+  readModel: OrchestrationReadModel,
+  channelId: OrchestrationChannel["id"],
+): OrchestrationChannel | undefined {
+  return readModel.channels.find((channel) => channel.id === channelId);
+}
+
+export function findPendingRequestById(
+  readModel: OrchestrationReadModel,
+  requestId: InteractiveRequest["id"],
+): InteractiveRequest | undefined {
+  return readModel.pendingRequests.find((request) => request.id === requestId);
 }
 
 export function requireProject(input: {
@@ -138,6 +154,91 @@ export function requireThreadAbsent(input: {
     invariantError(
       input.command.type,
       `Thread '${input.threadId}' already exists and cannot be created twice.`,
+    ),
+  );
+}
+
+export function requireChannel(input: {
+  readonly readModel: OrchestrationReadModel;
+  readonly command: ForgeCommand;
+  readonly channelId: OrchestrationChannel["id"];
+}): Effect.Effect<OrchestrationChannel, OrchestrationCommandInvariantError> {
+  const channel = findChannelById(input.readModel, input.channelId);
+  if (channel) {
+    return Effect.succeed(channel);
+  }
+  return Effect.fail(
+    invariantError(
+      input.command.type,
+      `Channel '${input.channelId}' does not exist for command '${input.command.type}'.`,
+    ),
+  );
+}
+
+export function requireChannelAbsent(input: {
+  readonly readModel: OrchestrationReadModel;
+  readonly command: ForgeCommand;
+  readonly channelId: OrchestrationChannel["id"];
+}): Effect.Effect<void, OrchestrationCommandInvariantError> {
+  if (!findChannelById(input.readModel, input.channelId)) {
+    return Effect.void;
+  }
+  return Effect.fail(
+    invariantError(
+      input.command.type,
+      `Channel '${input.channelId}' already exists and cannot be created twice.`,
+    ),
+  );
+}
+
+export function requireChannelOpen(input: {
+  readonly readModel: OrchestrationReadModel;
+  readonly command: ForgeCommand;
+  readonly channelId: OrchestrationChannel["id"];
+}): Effect.Effect<OrchestrationChannel, OrchestrationCommandInvariantError> {
+  return requireChannel(input).pipe(
+    Effect.flatMap((channel) =>
+      channel.status === "open"
+        ? Effect.succeed(channel)
+        : Effect.fail(
+            invariantError(
+              input.command.type,
+              `Channel '${input.channelId}' is not open for command '${input.command.type}'.`,
+            ),
+          ),
+    ),
+  );
+}
+
+export function requirePendingRequest(input: {
+  readonly readModel: OrchestrationReadModel;
+  readonly command: ForgeCommand;
+  readonly requestId: InteractiveRequest["id"];
+}): Effect.Effect<InteractiveRequest, OrchestrationCommandInvariantError> {
+  const request = findPendingRequestById(input.readModel, input.requestId);
+  if (request) {
+    return Effect.succeed(request);
+  }
+  return Effect.fail(
+    invariantError(
+      input.command.type,
+      `Pending request '${input.requestId}' does not exist for command '${input.command.type}'.`,
+    ),
+  );
+}
+
+export function requirePendingRequestAbsent(input: {
+  readonly readModel: OrchestrationReadModel;
+  readonly command: ForgeCommand;
+  readonly requestId: InteractiveRequest["id"];
+}): Effect.Effect<void, OrchestrationCommandInvariantError> {
+  if (!findPendingRequestById(input.readModel, input.requestId)) {
+    return Effect.void;
+  }
+  return Effect.fail(
+    invariantError(
+      input.command.type,
+      `Pending request '${input.requestId}' already exists and cannot be opened twice.`,
     ),
   );
 }
