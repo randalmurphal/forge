@@ -21,6 +21,8 @@ import {
   DEFAULT_PROVIDER_INTERACTION_MODE,
   DEFAULT_RUNTIME_MODE,
   ForgeCommand,
+  ForgeClientSnapshot,
+  ForgeReadModel,
   ForgeEvent,
   OrchestrationCommand,
   OrchestrationEvent,
@@ -1812,6 +1814,378 @@ it.effect("round-trips additive workflow, channel, and request events through Fo
       });
       assert.deepStrictEqual(parsed, yield* decodeForgeEvent(testCase.event));
     }
+  }),
+);
+
+it.effect("round-trips the spec-defined ForgeReadModel contracts", () =>
+  Effect.gen(function* () {
+    const input = {
+      snapshotSequence: 42,
+      projects: [
+        {
+          projectId: " project-1 ",
+          title: " Forge Project ",
+          workspaceRoot: " /tmp/forge ",
+          defaultModel: {
+            provider: "codex",
+            model: " gpt-5.4 ",
+          },
+          scripts: [
+            {
+              id: " lint ",
+              name: " Lint ",
+              command: " bun lint ",
+              icon: "lint",
+              runOnWorktreeCreate: false,
+            },
+          ],
+          createdAt: "2026-01-01T03:00:00.000Z",
+          updatedAt: "2026-01-01T03:00:00.000Z",
+          deletedAt: null,
+        },
+      ],
+      sessions: [
+        {
+          threadId: " thread-1 ",
+          projectId: " project-1 ",
+          parentThreadId: null,
+          phaseRunId: " phase-run-1 ",
+          sessionType: "workflow",
+          title: " Review Workflow ",
+          description: "Workflow session",
+          status: "running",
+          role: null,
+          provider: "codex",
+          model: {
+            provider: "codex",
+            model: " gpt-5.4 ",
+          },
+          runtimeMode: "full-access",
+          workflowId: " workflow-1 ",
+          currentPhaseId: " phase-1 ",
+          patternId: " pattern-1 ",
+          branch: " feat/review ",
+          worktreePath: " /tmp/forge/worktree ",
+          bootstrapStatus: " queued ",
+          childThreadIds: [" child-thread-1 "],
+          createdAt: "2026-01-01T03:01:00.000Z",
+          updatedAt: "2026-01-01T03:02:00.000Z",
+          archivedAt: null,
+        },
+      ],
+      phaseRuns: [
+        {
+          phaseRunId: " phase-run-1 ",
+          threadId: " thread-1 ",
+          workflowId: " workflow-1 ",
+          phaseId: " phase-1 ",
+          phaseName: " Implement ",
+          phaseType: "single-agent",
+          iteration: 1,
+          status: "running",
+          startedAt: "2026-01-01T03:01:00.000Z",
+          completedAt: null,
+        },
+      ],
+      channels: [
+        {
+          channelId: " channel-1 ",
+          threadId: " thread-1 ",
+          channelType: "guidance",
+          status: "open",
+        },
+      ],
+      pendingRequests: [
+        {
+          requestId: " request-1 ",
+          threadId: " thread-1 ",
+          childThreadId: " child-thread-1 ",
+          requestType: "gate",
+          status: "pending",
+        },
+      ],
+      workflows: [
+        {
+          workflowId: " workflow-1 ",
+          name: " Review Workflow ",
+          description: "Runs review stages",
+          builtIn: true,
+        },
+      ],
+      updatedAt: "2026-01-01T03:03:00.000Z",
+    } as const;
+
+    const expected = {
+      snapshotSequence: 42,
+      projects: [
+        {
+          projectId: "project-1",
+          title: "Forge Project",
+          workspaceRoot: "/tmp/forge",
+          defaultModel: {
+            provider: "codex",
+            model: "gpt-5.4",
+          },
+          scripts: [
+            {
+              id: "lint",
+              name: "Lint",
+              command: "bun lint",
+              icon: "lint",
+              runOnWorktreeCreate: false,
+            },
+          ],
+          createdAt: "2026-01-01T03:00:00.000Z",
+          updatedAt: "2026-01-01T03:00:00.000Z",
+          deletedAt: null,
+        },
+      ],
+      sessions: [
+        {
+          threadId: "thread-1",
+          projectId: "project-1",
+          parentThreadId: null,
+          phaseRunId: "phase-run-1",
+          sessionType: "workflow",
+          title: "Review Workflow",
+          description: "Workflow session",
+          status: "running",
+          role: null,
+          provider: "codex",
+          model: {
+            provider: "codex",
+            model: "gpt-5.4",
+          },
+          runtimeMode: "full-access",
+          workflowId: "workflow-1",
+          currentPhaseId: "phase-1",
+          patternId: "pattern-1",
+          branch: "feat/review",
+          worktreePath: "/tmp/forge/worktree",
+          bootstrapStatus: "queued",
+          childThreadIds: ["child-thread-1"],
+          createdAt: "2026-01-01T03:01:00.000Z",
+          updatedAt: "2026-01-01T03:02:00.000Z",
+          archivedAt: null,
+        },
+      ],
+      phaseRuns: [
+        {
+          phaseRunId: "phase-run-1",
+          threadId: "thread-1",
+          workflowId: "workflow-1",
+          phaseId: "phase-1",
+          phaseName: "Implement",
+          phaseType: "single-agent",
+          iteration: 1,
+          status: "running",
+          startedAt: "2026-01-01T03:01:00.000Z",
+          completedAt: null,
+        },
+      ],
+      channels: [
+        {
+          channelId: "channel-1",
+          threadId: "thread-1",
+          channelType: "guidance",
+          status: "open",
+        },
+      ],
+      pendingRequests: [
+        {
+          requestId: "request-1",
+          threadId: "thread-1",
+          childThreadId: "child-thread-1",
+          requestType: "gate",
+          status: "pending",
+        },
+      ],
+      workflows: [
+        {
+          workflowId: "workflow-1",
+          name: "Review Workflow",
+          description: "Runs review stages",
+          builtIn: true,
+        },
+      ],
+      updatedAt: "2026-01-01T03:03:00.000Z",
+    } as const;
+
+    const { parsed, encoded } = yield* roundTrip(ForgeReadModel, input);
+
+    assert.deepStrictEqual(parsed, expected);
+    assert.deepStrictEqual(encoded, expected);
+  }),
+);
+
+it.effect("round-trips the spec-defined ForgeClientSnapshot contracts", () =>
+  Effect.gen(function* () {
+    const input = {
+      snapshotSequence: 9,
+      projects: [
+        {
+          id: " project-1 ",
+          title: " Forge Project ",
+          workspaceRoot: " /tmp/forge ",
+          defaultModelSelection: {
+            provider: "codex",
+            model: " gpt-5.4 ",
+          },
+          scripts: [],
+          createdAt: "2026-01-01T03:10:00.000Z",
+          updatedAt: "2026-01-01T03:10:00.000Z",
+          deletedAt: null,
+        },
+      ],
+      sessions: [
+        {
+          threadId: " thread-1 ",
+          projectId: " project-1 ",
+          parentThreadId: null,
+          sessionType: "agent",
+          title: " Leaf Session ",
+          status: "needs-attention",
+          role: " reviewer ",
+          provider: "claudeAgent",
+          model: {
+            provider: "claudeAgent",
+            model: " claude-opus-4-6 ",
+          },
+          runtimeMode: "approval-required",
+          workflowId: " workflow-1 ",
+          currentPhaseId: " phase-1 ",
+          patternId: " pattern-1 ",
+          branch: " feat/review ",
+          bootstrapStatus: null,
+          childThreadIds: [],
+          createdAt: "2026-01-01T03:11:00.000Z",
+          updatedAt: "2026-01-01T03:12:00.000Z",
+          archivedAt: null,
+        },
+      ],
+      phaseRuns: [
+        {
+          phaseRunId: " phase-run-1 ",
+          threadId: " thread-1 ",
+          phaseName: " Review ",
+          phaseType: "human",
+          iteration: 2,
+          status: "pending",
+        },
+      ],
+      channels: [
+        {
+          channelId: " channel-1 ",
+          threadId: " thread-1 ",
+          channelType: "review",
+          status: "concluded",
+          phaseRunId: " phase-run-1 ",
+        },
+      ],
+      pendingRequests: [
+        {
+          requestId: " request-1 ",
+          threadId: " thread-1 ",
+          requestType: "approval",
+          status: "resolved",
+        },
+      ],
+      workflows: [
+        {
+          workflowId: " workflow-1 ",
+          name: " Review Workflow ",
+          description: "",
+          builtIn: false,
+        },
+      ],
+      updatedAt: "2026-01-01T03:13:00.000Z",
+    } as const;
+
+    const expected = {
+      snapshotSequence: 9,
+      projects: [
+        {
+          id: "project-1",
+          title: "Forge Project",
+          workspaceRoot: "/tmp/forge",
+          defaultModelSelection: {
+            provider: "codex",
+            model: "gpt-5.4",
+          },
+          scripts: [],
+          createdAt: "2026-01-01T03:10:00.000Z",
+          updatedAt: "2026-01-01T03:10:00.000Z",
+          deletedAt: null,
+        },
+      ],
+      sessions: [
+        {
+          threadId: "thread-1",
+          projectId: "project-1",
+          parentThreadId: null,
+          sessionType: "agent",
+          title: "Leaf Session",
+          status: "needs-attention",
+          role: "reviewer",
+          provider: "claudeAgent",
+          model: {
+            provider: "claudeAgent",
+            model: "claude-opus-4-6",
+          },
+          runtimeMode: "approval-required",
+          workflowId: "workflow-1",
+          currentPhaseId: "phase-1",
+          patternId: "pattern-1",
+          branch: "feat/review",
+          bootstrapStatus: null,
+          childThreadIds: [],
+          createdAt: "2026-01-01T03:11:00.000Z",
+          updatedAt: "2026-01-01T03:12:00.000Z",
+          archivedAt: null,
+        },
+      ],
+      phaseRuns: [
+        {
+          phaseRunId: "phase-run-1",
+          threadId: "thread-1",
+          phaseName: "Review",
+          phaseType: "human",
+          iteration: 2,
+          status: "pending",
+        },
+      ],
+      channels: [
+        {
+          channelId: "channel-1",
+          threadId: "thread-1",
+          channelType: "review",
+          status: "concluded",
+          phaseRunId: "phase-run-1",
+        },
+      ],
+      pendingRequests: [
+        {
+          requestId: "request-1",
+          threadId: "thread-1",
+          requestType: "approval",
+          status: "resolved",
+        },
+      ],
+      workflows: [
+        {
+          workflowId: "workflow-1",
+          name: "Review Workflow",
+          description: "",
+          builtIn: false,
+        },
+      ],
+      updatedAt: "2026-01-01T03:13:00.000Z",
+    } as const;
+
+    const { parsed, encoded } = yield* roundTrip(ForgeClientSnapshot, input);
+
+    assert.deepStrictEqual(parsed, expected);
+    assert.deepStrictEqual(encoded, expected);
   }),
 );
 
