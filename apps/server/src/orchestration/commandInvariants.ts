@@ -5,6 +5,7 @@ import type {
   OrchestrationProject,
   OrchestrationReadModel,
   OrchestrationThread,
+  PhaseRunId,
   ProjectId,
   ThreadId,
 } from "@t3tools/contracts";
@@ -62,6 +63,24 @@ export function findPendingRequestById(
   requestId: InteractiveRequest["id"],
 ): InteractiveRequest | undefined {
   return readModel.pendingRequests.find((request) => request.id === requestId);
+}
+
+type PhaseRunOutputLike = {
+  readonly key: string;
+  readonly content: string;
+};
+
+type ProjectedPhaseRunLike = OrchestrationReadModel["phaseRuns"][number] & {
+  readonly outputs?: ReadonlyArray<PhaseRunOutputLike>;
+};
+
+export function findPhaseRunById(
+  readModel: OrchestrationReadModel,
+  phaseRunId: PhaseRunId,
+): ProjectedPhaseRunLike | undefined {
+  return readModel.phaseRuns.find(
+    (phaseRun): phaseRun is ProjectedPhaseRunLike => phaseRun.phaseRunId === phaseRunId,
+  );
 }
 
 export function requireProject(input: {
@@ -251,6 +270,32 @@ export function requirePendingRequestAbsent(input: {
       `Pending request '${input.requestId}' already exists and cannot be opened twice.`,
     ),
   );
+}
+
+export function requirePhaseRunForThread(input: {
+  readonly readModel: OrchestrationReadModel;
+  readonly command: ForgeCommand;
+  readonly phaseRunId: PhaseRunId;
+  readonly threadId: ThreadId;
+}): Effect.Effect<ProjectedPhaseRunLike, OrchestrationCommandInvariantError> {
+  const phaseRun = findPhaseRunById(input.readModel, input.phaseRunId);
+  if (!phaseRun) {
+    return Effect.fail(
+      invariantError(
+        input.command.type,
+        `Phase run '${input.phaseRunId}' does not exist for command '${input.command.type}'.`,
+      ),
+    );
+  }
+  if (phaseRun.threadId !== input.threadId) {
+    return Effect.fail(
+      invariantError(
+        input.command.type,
+        `Phase run '${input.phaseRunId}' does not belong to thread '${input.threadId}'.`,
+      ),
+    );
+  }
+  return Effect.succeed(phaseRun);
 }
 
 export function requireNonNegativeInteger(input: {

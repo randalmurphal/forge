@@ -18,6 +18,7 @@ import {
   requireChannelAbsent,
   requireChannelOpen,
   requireDistinctThreadIds,
+  requirePhaseRunForThread,
   requirePendingRequest,
   requirePendingRequestAbsent,
   requireProject,
@@ -39,6 +40,7 @@ type WorkflowThreadCommand = Extract<
       | "thread.complete-phase"
       | "thread.fail-phase"
       | "thread.skip-phase"
+      | "thread.edit-phase-output"
       | "thread.quality-check-start"
       | "thread.quality-check-complete"
       | "thread.bootstrap-started"
@@ -862,6 +864,39 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
           threadId: command.threadId,
           phaseRunId: command.phaseRunId,
           skippedAt: command.createdAt,
+        },
+      };
+    }
+
+    case "thread.edit-phase-output": {
+      yield* requireThread({
+        readModel,
+        command,
+        threadId: command.threadId,
+      });
+      const phaseRun = yield* requirePhaseRunForThread({
+        readModel,
+        command,
+        threadId: command.threadId,
+        phaseRunId: command.phaseRunId,
+      });
+      const previousContent =
+        phaseRun.outputs?.find((output) => output.key === command.outputKey)?.content ?? "";
+      return {
+        ...withEventBase({
+          aggregateKind: "thread",
+          aggregateId: command.threadId,
+          occurredAt: command.createdAt,
+          commandId: command.commandId,
+        }),
+        type: "thread.phase-output-edited",
+        payload: {
+          threadId: command.threadId,
+          phaseRunId: command.phaseRunId,
+          outputKey: command.outputKey,
+          previousContent,
+          newContent: command.content,
+          editedAt: command.createdAt,
         },
       };
     }

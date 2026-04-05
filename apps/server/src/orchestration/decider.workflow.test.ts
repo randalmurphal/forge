@@ -460,6 +460,49 @@ describe("decider workflow commands", () => {
     expect(event.payload.channelId).toBe(ChannelId.makeUnsafe("channel-guidance-existing"));
   });
 
+  it("emits thread.phase-output-edited with the previous content from the projected phase run", async () => {
+    const readModel: OrchestrationReadModel = {
+      ...makeReadModel(),
+      phaseRuns: [
+        {
+          phaseRunId: PhaseRunId.makeUnsafe("phase-run-1"),
+          threadId: ThreadId.makeUnsafe("thread-1"),
+          phaseId: WorkflowPhaseId.makeUnsafe("phase-plan"),
+          phaseName: "Plan",
+          phaseType: "single-agent",
+          iteration: 1,
+          status: "running",
+          startedAt: now,
+          completedAt: null,
+          outputs: [
+            {
+              key: "output",
+              content: "old summary",
+              sourceType: "agent",
+            },
+          ],
+        } as OrchestrationReadModel["phaseRuns"][number],
+      ],
+    };
+
+    const result = await run(
+      {
+        type: "thread.edit-phase-output",
+        commandId: CommandId.makeUnsafe("cmd-edit-phase-output"),
+        threadId: ThreadId.makeUnsafe("thread-1"),
+        phaseRunId: PhaseRunId.makeUnsafe("phase-run-1"),
+        outputKey: "output",
+        content: "new summary",
+        createdAt: now,
+      },
+      readModel,
+    );
+
+    const event = expectSingleEvent(result, "thread.phase-output-edited");
+    expect(event.payload.previousContent).toBe("old summary");
+    expect(event.payload.newContent).toBe("new summary");
+  });
+
   it("rejects missing target threads for thread-scoped workflow commands", async () => {
     const commands: ReadonlyArray<DecidableOrchestrationCommand> = [
       {
@@ -499,6 +542,15 @@ describe("decider workflow commands", () => {
         commandId: CommandId.makeUnsafe("cmd-invalid-skip-phase"),
         threadId: ThreadId.makeUnsafe("missing"),
         phaseRunId: PhaseRunId.makeUnsafe("phase-run-1"),
+        createdAt: now,
+      },
+      {
+        type: "thread.edit-phase-output",
+        commandId: CommandId.makeUnsafe("cmd-invalid-edit-phase-output"),
+        threadId: ThreadId.makeUnsafe("missing"),
+        phaseRunId: PhaseRunId.makeUnsafe("phase-run-1"),
+        outputKey: "output",
+        content: "nope",
         createdAt: now,
       },
       {
@@ -579,6 +631,53 @@ describe("decider workflow commands", () => {
     for (const command of commands) {
       await expect(run(command)).rejects.toThrow("does not exist");
     }
+  });
+
+  it("rejects phase output edits when the phase run is missing or belongs to a different thread", async () => {
+    await expectInvariant(
+      {
+        type: "thread.edit-phase-output",
+        commandId: CommandId.makeUnsafe("cmd-missing-phase-run"),
+        threadId: ThreadId.makeUnsafe("thread-1"),
+        phaseRunId: PhaseRunId.makeUnsafe("phase-run-missing"),
+        outputKey: "output",
+        content: "updated",
+        createdAt: now,
+      },
+      "Phase run 'phase-run-missing' does not exist",
+    );
+
+    const readModel: OrchestrationReadModel = {
+      ...makeReadModel(),
+      phaseRuns: [
+        {
+          phaseRunId: PhaseRunId.makeUnsafe("phase-run-2"),
+          threadId: ThreadId.makeUnsafe("thread-2"),
+          phaseId: WorkflowPhaseId.makeUnsafe("phase-review"),
+          phaseName: "Review",
+          phaseType: "single-agent",
+          iteration: 1,
+          status: "running",
+          startedAt: now,
+          completedAt: null,
+        },
+      ],
+    };
+
+    await expect(
+      run(
+        {
+          type: "thread.edit-phase-output",
+          commandId: CommandId.makeUnsafe("cmd-wrong-thread-phase-run"),
+          threadId: ThreadId.makeUnsafe("thread-1"),
+          phaseRunId: PhaseRunId.makeUnsafe("phase-run-2"),
+          outputKey: "output",
+          content: "updated",
+          createdAt: now,
+        },
+        readModel,
+      ),
+    ).rejects.toThrow("does not belong to thread 'thread-1'");
   });
 
   it("rejects invalid thread relationships for links, promotion, and dependencies", async () => {
