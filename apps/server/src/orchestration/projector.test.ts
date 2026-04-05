@@ -195,6 +195,48 @@ describe("orchestration projector", () => {
     ).rejects.toBeDefined();
   });
 
+  it("accepts staged thread.created payloads without failing legacy projection replay", async () => {
+    const now = new Date().toISOString();
+    const model = createEmptyReadModel(now);
+
+    const next = await Effect.runPromise(
+      projectEvent(
+        model,
+        makeEvent({
+          sequence: 1,
+          type: "thread.created",
+          aggregateKind: "thread",
+          aggregateId: "thread-staged-1",
+          occurredAt: now,
+          commandId: "cmd-thread-create-staged",
+          payload: {
+            threadId: "thread-staged-1",
+            projectId: "project-1",
+            parentThreadId: null,
+            phaseRunId: null,
+            sessionType: "workflow",
+            title: "staged workflow session",
+            description: "future forge session payload",
+            workflowId: null,
+            patternId: null,
+            runtimeMode: "full-access",
+            model: null,
+            provider: null,
+            role: null,
+            branch: null,
+            bootstrapStatus: null,
+            createdAt: now,
+            updatedAt: now,
+          },
+        }),
+      ),
+    );
+
+    expect(next.snapshotSequence).toBe(1);
+    expect(next.updatedAt).toBe(now);
+    expect(next.threads).toEqual([]);
+  });
+
   it("applies thread.archived and thread.unarchived events", async () => {
     const now = new Date().toISOString();
     const later = new Date(Date.parse(now) + 1_000).toISOString();

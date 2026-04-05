@@ -31,6 +31,7 @@ import {
   ProjectCreatedPayload,
   ProjectDeletedPayload,
   ProjectMetaUpdatedPayload,
+  SessionCreatedPayload,
   SessionArchivedPayload,
   SessionCheckpointCapturedPayload,
   SessionCheckpointDiffCompletedPayload,
@@ -447,11 +448,14 @@ export function projectEvent(
     case "thread.created":
       return Effect.gen(function* () {
         const payload = yield* decodeForEvent(
-          ThreadCreatedPayload,
+          Schema.Union([ThreadCreatedPayload, SessionCreatedPayload]),
           event.payload,
           event.type,
           "payload",
         );
+        if (!("modelSelection" in payload) || !("interactionMode" in payload)) {
+          return nextBase;
+        }
         const thread: OrchestrationThread = yield* decodeForEvent(
           OrchestrationThread,
           {
