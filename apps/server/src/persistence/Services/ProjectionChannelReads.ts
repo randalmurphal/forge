@@ -42,7 +42,7 @@ export interface ProjectionChannelReadRepositoryShape {
   ) => Effect.Effect<Option.Option<ProjectionChannelReadCursor>, ProjectionRepositoryError>;
 
   /**
-   * Insert or replace a participant cursor.
+   * Insert or advance a participant cursor without allowing it to move backward.
    */
   readonly updateCursor: (
     input: UpdateProjectionChannelReadCursorInput,

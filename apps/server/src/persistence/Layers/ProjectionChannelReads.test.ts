@@ -43,4 +43,34 @@ layer("ProjectionChannelReadRepository", (it) => {
       });
     }),
   );
+
+  it.effect("keeps the highest cursor when a stale update arrives later", () =>
+    Effect.gen(function* () {
+      const repository = yield* ProjectionChannelReadRepository;
+      const channelId = ChannelId.makeUnsafe("channel-read-cursor-monotonic");
+      const threadId = ThreadId.makeUnsafe("thread-read-cursor-monotonic");
+
+      yield* repository.updateCursor({
+        channelId,
+        threadId,
+        lastReadSequence: 7,
+        updatedAt: "2026-04-05T14:30:00.000Z",
+      });
+
+      yield* repository.updateCursor({
+        channelId,
+        threadId,
+        lastReadSequence: 3,
+        updatedAt: "2026-04-05T14:31:00.000Z",
+      });
+
+      const persisted = yield* repository.getCursor({ channelId, threadId });
+      assert.deepStrictEqual(Option.getOrNull(persisted), {
+        channelId,
+        threadId,
+        lastReadSequence: 7,
+        updatedAt: "2026-04-05T14:30:00.000Z",
+      });
+    }),
+  );
 });

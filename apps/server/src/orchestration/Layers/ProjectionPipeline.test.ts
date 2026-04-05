@@ -526,6 +526,144 @@ it.layer(BaseTestLayer)("OrchestrationProjectionPipeline", (it) => {
     }),
   );
 
+  it.effect("keeps channel read cursors monotonic when later events report an older sequence", () =>
+    Effect.gen(function* () {
+      const projectionPipeline = yield* OrchestrationProjectionPipeline;
+      const eventStore = yield* OrchestrationEventStore;
+      const sql = yield* SqlClient.SqlClient;
+      const createdAt = "2026-04-05T15:10:00.000Z";
+      const firstReadAt = "2026-04-05T15:11:00.000Z";
+      const staleReadAt = "2026-04-05T15:12:00.000Z";
+
+      yield* projectionPipeline.projectEvent(
+        yield* eventStore.append({
+          type: "project.created",
+          eventId: EventId.makeUnsafe("evt-channel-read-project"),
+          aggregateKind: "project",
+          aggregateId: ProjectId.makeUnsafe("project-channel-read"),
+          occurredAt: createdAt,
+          commandId: CommandId.makeUnsafe("cmd-channel-read-project"),
+          causationEventId: null,
+          correlationId: CommandId.makeUnsafe("cmd-channel-read-project"),
+          metadata: {},
+          payload: {
+            projectId: ProjectId.makeUnsafe("project-channel-read"),
+            title: "Channel read project",
+            workspaceRoot: "/tmp/channel-read-project",
+            defaultModelSelection: null,
+            scripts: [],
+            createdAt,
+            updatedAt: createdAt,
+          },
+        }),
+      );
+
+      yield* projectionPipeline.projectEvent(
+        yield* eventStore.append({
+          type: "thread.created",
+          eventId: EventId.makeUnsafe("evt-channel-read-thread"),
+          aggregateKind: "thread",
+          aggregateId: ThreadId.makeUnsafe("thread-channel-read-parent"),
+          occurredAt: createdAt,
+          commandId: CommandId.makeUnsafe("cmd-channel-read-thread"),
+          causationEventId: null,
+          correlationId: CommandId.makeUnsafe("cmd-channel-read-thread"),
+          metadata: {},
+          payload: {
+            threadId: ThreadId.makeUnsafe("thread-channel-read-parent"),
+            projectId: ProjectId.makeUnsafe("project-channel-read"),
+            title: "Channel read thread",
+            modelSelection: {
+              provider: "codex",
+              model: "gpt-5-codex",
+            },
+            runtimeMode: "full-access",
+            interactionMode: "default",
+            branch: null,
+            worktreePath: null,
+            createdAt,
+            updatedAt: createdAt,
+          },
+        }),
+      );
+
+      yield* projectionPipeline.projectEvent(
+        makeForgeEvent({
+          sequence: 3,
+          type: "channel.created",
+          aggregateKind: "channel",
+          aggregateId: "channel-read-monotonic",
+          occurredAt: createdAt,
+          commandId: "cmd-channel-read-created",
+          payload: {
+            channelId: "channel-read-monotonic",
+            threadId: "thread-channel-read-parent",
+            channelType: "guidance",
+            phaseRunId: null,
+            createdAt,
+          },
+        }),
+      );
+
+      yield* projectionPipeline.projectEvent(
+        makeForgeEvent({
+          sequence: 4,
+          type: "channel.messages-read",
+          aggregateKind: "channel",
+          aggregateId: "channel-read-monotonic",
+          occurredAt: firstReadAt,
+          commandId: "cmd-channel-read-high",
+          payload: {
+            channelId: "channel-read-monotonic",
+            threadId: "thread-channel-read-child",
+            upToSequence: 7,
+            readAt: firstReadAt,
+          },
+        }),
+      );
+
+      yield* projectionPipeline.projectEvent(
+        makeForgeEvent({
+          sequence: 5,
+          type: "channel.messages-read",
+          aggregateKind: "channel",
+          aggregateId: "channel-read-monotonic",
+          occurredAt: staleReadAt,
+          commandId: "cmd-channel-read-stale",
+          payload: {
+            channelId: "channel-read-monotonic",
+            threadId: "thread-channel-read-child",
+            upToSequence: 3,
+            readAt: staleReadAt,
+          },
+        }),
+      );
+
+      const channelReadRows = yield* sql<{
+        readonly channelId: string;
+        readonly threadId: string;
+        readonly lastReadSequence: number;
+        readonly updatedAt: string;
+      }>`
+        SELECT
+          channel_id AS "channelId",
+          thread_id AS "threadId",
+          last_read_sequence AS "lastReadSequence",
+          updated_at AS "updatedAt"
+        FROM channel_reads
+        WHERE channel_id = 'channel-read-monotonic'
+      `;
+      assert.deepEqual(channelReadRows, [
+        {
+          channelId: "channel-read-monotonic",
+          threadId: "thread-channel-read-child",
+          lastReadSequence: 7,
+          updatedAt: firstReadAt,
+        },
+      ]);
+    }),
+  );
+
   it.effect(
     "persists additive thread projection columns for promotion, bootstrap, and phase lifecycle events",
     () =>

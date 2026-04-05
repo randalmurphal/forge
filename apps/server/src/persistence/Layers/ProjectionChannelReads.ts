@@ -49,8 +49,16 @@ const makeProjectionChannelReadRepository = Effect.gen(function* () {
         )
         ON CONFLICT (channel_id, thread_id)
         DO UPDATE SET
-          last_read_sequence = excluded.last_read_sequence,
-          updated_at = excluded.updated_at
+          last_read_sequence = CASE
+            WHEN excluded.last_read_sequence > channel_reads.last_read_sequence
+              THEN excluded.last_read_sequence
+            ELSE channel_reads.last_read_sequence
+          END,
+          updated_at = CASE
+            WHEN excluded.last_read_sequence >= channel_reads.last_read_sequence
+              THEN excluded.updated_at
+            ELSE channel_reads.updated_at
+          END
       `,
   });
 
