@@ -9,6 +9,13 @@ import {
 } from "./baseSchemas";
 import { ModelSelection, ProviderSandboxMode } from "./providerSchemas";
 
+const decodeNonNegativeInt = Schema.decodeUnknownSync(NonNegativeInt);
+const decodePositiveInt = Schema.decodeUnknownSync(PositiveInt);
+const DEFAULT_PHASE_GATE_MAX_RETRIES = decodeNonNegativeInt(3);
+const DEFAULT_DELIBERATION_MAX_TURNS = decodePositiveInt(20);
+const DEFAULT_QUALITY_CHECK_TIMEOUT_MS = decodeNonNegativeInt(300000);
+const DEFAULT_BOOTSTRAP_TIMEOUT_MS = decodeNonNegativeInt(300000);
+
 export const AgentOutputMode = Schema.Literals(["schema", "channel", "conversation"]);
 export type AgentOutputMode = typeof AgentOutputMode.Type;
 
@@ -53,7 +60,7 @@ export const PhaseGate = Schema.Struct({
   qualityChecks: Schema.optional(Schema.Array(QualityCheckReference)),
   onFail: GateOnFail,
   retryPhase: Schema.optional(TrimmedNonEmptyString),
-  maxRetries: NonNegativeInt.pipe(Schema.withDecodingDefault(() => 3 as any)),
+  maxRetries: NonNegativeInt.pipe(Schema.withDecodingDefault(() => DEFAULT_PHASE_GATE_MAX_RETRIES)),
 });
 export type PhaseGate = typeof PhaseGate.Type;
 
@@ -109,7 +116,7 @@ export type DeliberationParticipant = typeof DeliberationParticipant.Type;
 
 export const DeliberationConfig = Schema.Struct({
   participants: Schema.Array(DeliberationParticipant).check(Schema.isMinLength(2)),
-  maxTurns: PositiveInt.pipe(Schema.withDecodingDefault(() => 20 as any)),
+  maxTurns: PositiveInt.pipe(Schema.withDecodingDefault(() => DEFAULT_DELIBERATION_MAX_TURNS)),
 });
 export type DeliberationConfig = typeof DeliberationConfig.Type;
 
@@ -169,14 +176,14 @@ export function defaultSandboxMode(phaseType: PhaseType): ProviderSandboxMode {
 
 export const QualityCheckConfig = Schema.Struct({
   command: TrimmedNonEmptyString,
-  timeout: NonNegativeInt.pipe(Schema.withDecodingDefault(() => 300000 as any)),
+  timeout: NonNegativeInt.pipe(Schema.withDecodingDefault(() => DEFAULT_QUALITY_CHECK_TIMEOUT_MS)),
   required: Schema.Boolean.pipe(Schema.withDecodingDefault(() => true)),
 });
 export type QualityCheckConfig = typeof QualityCheckConfig.Type;
 
 export const BootstrapConfig = Schema.Struct({
   command: TrimmedNonEmptyString,
-  timeout: NonNegativeInt.pipe(Schema.withDecodingDefault(() => 300000 as any)),
+  timeout: NonNegativeInt.pipe(Schema.withDecodingDefault(() => DEFAULT_BOOTSTRAP_TIMEOUT_MS)),
 });
 export type BootstrapConfig = typeof BootstrapConfig.Type;
 

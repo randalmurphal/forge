@@ -5,6 +5,7 @@ import { Effect, Schema } from "effect";
 import {
   AgentOutputConfig,
   DEFAULT_AGENT_OUTPUT_CONFIG,
+  DeliberationConfig,
   ForgeProjectConfig,
   PromptTemplate,
   WorkflowDefinition,
@@ -13,6 +14,7 @@ import {
 } from "./workflow";
 
 const decodeAgentOutputConfig = Schema.decodeUnknownEffect(AgentOutputConfig);
+const decodeDeliberationConfig = Schema.decodeUnknownEffect(DeliberationConfig);
 const decodeWorkflowPhase = Schema.decodeUnknownEffect(WorkflowPhase);
 const decodeWorkflowDefinition = Schema.decodeUnknownEffect(WorkflowDefinition);
 const decodeForgeProjectConfig = Schema.decodeUnknownEffect(ForgeProjectConfig);
@@ -81,6 +83,47 @@ it.effect("decodes workflow phases with gate defaults and default conversation o
         required: true,
       },
     ]);
+  }),
+);
+
+it.effect("decodes deliberation configs with validated default maxTurns", () =>
+  Effect.gen(function* () {
+    const parsed = yield* decodeDeliberationConfig({
+      participants: [
+        {
+          role: " advocate ",
+          agent: {
+            prompt: "Argue for the change",
+          },
+        },
+        {
+          role: " scrutinizer ",
+          agent: {
+            prompt: "Look for flaws",
+          },
+        },
+      ],
+    });
+
+    assert.deepStrictEqual(parsed, {
+      participants: [
+        {
+          role: "advocate",
+          agent: {
+            prompt: "Argue for the change",
+            output: DEFAULT_AGENT_OUTPUT_CONFIG,
+          },
+        },
+        {
+          role: "scrutinizer",
+          agent: {
+            prompt: "Look for flaws",
+            output: DEFAULT_AGENT_OUTPUT_CONFIG,
+          },
+        },
+      ],
+      maxTurns: 20,
+    });
   }),
 );
 
