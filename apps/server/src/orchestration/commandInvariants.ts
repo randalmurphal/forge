@@ -2,6 +2,7 @@ import type {
   Channel as OrchestrationChannel,
   ForgeCommand,
   InteractiveRequest,
+  InteractiveRequestResolution,
   OrchestrationProject,
   OrchestrationReadModel,
   OrchestrationThread,
@@ -289,6 +290,74 @@ export function requirePendingRequestAbsent(input: {
     invariantError(
       input.command.type,
       `Pending request '${input.requestId}' already exists and cannot be opened twice.`,
+    ),
+  );
+}
+
+export function requireInteractiveRequestPayloadMatchesType(input: {
+  readonly command: Extract<ForgeCommand, { type: "request.open" }>;
+}): Effect.Effect<void, OrchestrationCommandInvariantError> {
+  if (input.command.requestType === input.command.payload.type) {
+    return Effect.void;
+  }
+  return Effect.fail(
+    invariantError(
+      input.command.type,
+      `requestType '${input.command.requestType}' must match payload.type '${input.command.payload.type}'.`,
+    ),
+  );
+}
+
+function isApprovalResolution(
+  resolution: InteractiveRequestResolution,
+): resolution is Extract<InteractiveRequestResolution, { decision: string }> {
+  return (
+    "decision" in resolution &&
+    (resolution.decision === "accept" ||
+      resolution.decision === "acceptForSession" ||
+      resolution.decision === "decline" ||
+      resolution.decision === "cancel")
+  );
+}
+
+function isGateResolution(
+  resolution: InteractiveRequestResolution,
+): resolution is Extract<InteractiveRequestResolution, { decision: string }> {
+  return (
+    "decision" in resolution &&
+    (resolution.decision === "approve" || resolution.decision === "reject")
+  );
+}
+
+function interactiveRequestResolutionMatchesType(
+  requestType: InteractiveRequest["type"],
+  resolution: InteractiveRequestResolution,
+): boolean {
+  switch (requestType) {
+    case "approval":
+      return isApprovalResolution(resolution);
+    case "user-input":
+      return "answers" in resolution;
+    case "gate":
+      return isGateResolution(resolution);
+    case "bootstrap-failed":
+      return "action" in resolution;
+    case "correction-needed":
+      return "correction" in resolution && !("decision" in resolution);
+  }
+}
+
+export function requirePendingRequestResolutionMatchesType(input: {
+  readonly command: Extract<ForgeCommand, { type: "request.resolve" }>;
+  readonly request: InteractiveRequest;
+}): Effect.Effect<void, OrchestrationCommandInvariantError> {
+  if (interactiveRequestResolutionMatchesType(input.request.type, input.command.resolvedWith)) {
+    return Effect.void;
+  }
+  return Effect.fail(
+    invariantError(
+      input.command.type,
+      `Resolution for request '${input.request.id}' must match pending request type '${input.request.type}'.`,
     ),
   );
 }

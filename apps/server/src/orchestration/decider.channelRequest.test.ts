@@ -336,6 +336,23 @@ describe("decider interactive request commands", () => {
     ).rejects.toThrow("must belong to the same project");
   });
 
+  it("rejects request.open when requestType does not match payload.type", async () => {
+    await expect(
+      run({
+        type: "request.open",
+        commandId: CommandId.makeUnsafe("cmd-request-open-mismatched-type"),
+        requestId: InteractiveRequestId.makeUnsafe("request-mismatched-type"),
+        threadId: ThreadId.makeUnsafe("thread-parent"),
+        requestType: "gate",
+        payload: {
+          type: "correction-needed",
+          reason: "The implementation is incomplete.",
+        },
+        createdAt: now,
+      }),
+    ).rejects.toThrow("must match payload.type");
+  });
+
   it("emits request.resolved for request.resolve", async () => {
     const result = await run({
       type: "request.resolve",
@@ -355,6 +372,20 @@ describe("decider interactive request commands", () => {
       },
       resolvedAt: now,
     });
+  });
+
+  it("rejects request.resolve when the resolution does not match the pending request type", async () => {
+    await expect(
+      run({
+        type: "request.resolve",
+        commandId: CommandId.makeUnsafe("cmd-request-resolve-mismatched-type"),
+        requestId: InteractiveRequestId.makeUnsafe("request-pending"),
+        resolvedWith: {
+          correction: "Please retry with a narrower diff.",
+        },
+        createdAt: now,
+      }),
+    ).rejects.toThrow("must match pending request type");
   });
 
   it("rejects request.resolve when the pending request does not exist", async () => {

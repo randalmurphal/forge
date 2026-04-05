@@ -18,6 +18,8 @@ import {
   requireChannelAbsent,
   requireChannelOpen,
   requireDistinctThreadIds,
+  requireInteractiveRequestPayloadMatchesType,
+  requirePendingRequestResolutionMatchesType,
   requirePhaseRunForThread,
   requirePhaseRunStatus,
   requirePendingRequest,
@@ -1471,6 +1473,7 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
         command,
         threadId: command.threadId,
       });
+      yield* requireInteractiveRequestPayloadMatchesType({ command });
       if (command.childThreadId !== undefined) {
         yield* requireDistinctThreadIds({
           command,
@@ -1518,10 +1521,14 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
     }
 
     case "request.resolve": {
-      yield* requirePendingRequest({
+      const request = yield* requirePendingRequest({
         readModel,
         command,
         requestId: command.requestId,
+      });
+      yield* requirePendingRequestResolutionMatchesType({
+        command,
+        request,
       });
       return {
         ...withEventBase({
