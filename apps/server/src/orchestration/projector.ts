@@ -41,6 +41,7 @@ import {
   ChannelConcludedPayload,
   ChannelCreatedPayload,
   ChannelMessagePostedPayload,
+  ChannelMessagesReadPayload,
   InteractiveRequestOpenedPayload,
   InteractiveRequestResolvedPayload,
   InteractiveRequestStalePayload,
@@ -1273,6 +1274,11 @@ export function projectEvent(
             }),
           };
         }),
+      );
+
+    case "channel.messages-read":
+      return decodeForEvent(ChannelMessagesReadPayload, event.payload, event.type, "payload").pipe(
+        Effect.as(nextBase),
       );
 
     case "channel.conclusion-proposed":

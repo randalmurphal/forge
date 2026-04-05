@@ -1280,6 +1280,7 @@ export const ForgeEventType = Schema.Union([
     "thread.synthesis-completed",
     "channel.created",
     "channel.message-posted",
+    "channel.messages-read",
     "channel.conclusion-proposed",
     "channel.concluded",
     "channel.closed",
@@ -1470,6 +1471,14 @@ export const ChannelMessagePostedPayload = Schema.Struct({
 });
 export type ChannelMessagePostedPayload = typeof ChannelMessagePostedPayload.Type;
 
+export const ChannelMessagesReadPayload = Schema.Struct({
+  channelId: ChannelId,
+  threadId: ThreadId,
+  upToSequence: NonNegativeInt,
+  readAt: IsoDateTime,
+});
+export type ChannelMessagesReadPayload = typeof ChannelMessagesReadPayload.Type;
+
 export const ChannelConclusionProposedPayload = Schema.Struct({
   channelId: ChannelId,
   threadId: ThreadId,
@@ -1638,6 +1647,11 @@ export const ForgeEvent = Schema.Union([
     ...ForgeEventBaseFields,
     type: Schema.Literal("channel.message-posted"),
     payload: ChannelMessagePostedPayload,
+  }),
+  Schema.Struct({
+    ...ForgeEventBaseFields,
+    type: Schema.Literal("channel.messages-read"),
+    payload: ChannelMessagesReadPayload,
   }),
   Schema.Struct({
     ...ForgeEventBaseFields,

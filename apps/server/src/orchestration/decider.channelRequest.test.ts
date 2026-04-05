@@ -224,6 +224,27 @@ describe("decider channel commands", () => {
     ).rejects.toThrow("is not open");
   });
 
+  it("emits channel.messages-read for channel.read-messages", async () => {
+    const result = await run({
+      type: "channel.read-messages",
+      commandId: CommandId.makeUnsafe("cmd-channel-read"),
+      channelId: ChannelId.makeUnsafe("channel-open"),
+      threadId: ThreadId.makeUnsafe("thread-child"),
+      upToSequence: 12,
+      createdAt: now,
+    });
+
+    const event = expectSingleEvent(result, "channel.messages-read");
+    expect(event.aggregateKind).toBe("channel");
+    expect(event.aggregateId).toBe(ChannelId.makeUnsafe("channel-open"));
+    expect(event.payload).toEqual({
+      channelId: ChannelId.makeUnsafe("channel-open"),
+      threadId: ThreadId.makeUnsafe("thread-child"),
+      upToSequence: 12,
+      readAt: now,
+    });
+  });
+
   it("emits channel.conclusion-proposed for channel.conclude", async () => {
     const result = await run({
       type: "channel.conclude",

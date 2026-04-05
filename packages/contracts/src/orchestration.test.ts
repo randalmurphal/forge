@@ -11,6 +11,7 @@ import {
   ChannelCreatedPayload,
   ChannelCreateCommand,
   ChannelMessagePostedPayload,
+  ChannelMessagesReadPayload,
   ChannelPostMessageCommand,
   ChannelReadMessagesCommand,
   DEFAULT_PROVIDER_INTERACTION_MODE,
@@ -1617,6 +1618,27 @@ it.effect("round-trips additive workflow, channel, and request events through Fo
           fromRole: "reviewer",
           content: "First note",
           createdAt: "2026-01-01T01:26:00.000Z",
+        },
+      },
+      {
+        payloadSchema: ChannelMessagesReadPayload,
+        event: {
+          ...baseEvent,
+          aggregateKind: "channel",
+          aggregateId: "channel-1",
+          type: "channel.messages-read",
+          payload: {
+            channelId: " channel-1 ",
+            threadId: " thread-2 ",
+            upToSequence: 4,
+            readAt: "2026-01-01T01:26:30.000Z",
+          },
+        },
+        expectedPayload: {
+          channelId: "channel-1",
+          threadId: "thread-2",
+          upToSequence: 4,
+          readAt: "2026-01-01T01:26:30.000Z",
         },
       },
       {

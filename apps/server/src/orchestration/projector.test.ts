@@ -1,6 +1,8 @@
 import {
+  ChannelId,
   CommandId,
   EventId,
+  InteractiveRequestId,
   LinkId,
   PhaseRunId,
   ProjectId,
@@ -76,7 +78,11 @@ function makeEvent(input: {
     aggregateId:
       input.aggregateKind === "project"
         ? ProjectId.makeUnsafe(input.aggregateId)
-        : ThreadId.makeUnsafe(input.aggregateId),
+        : input.aggregateKind === "channel"
+          ? ChannelId.makeUnsafe(input.aggregateId)
+          : input.aggregateKind === "request"
+            ? InteractiveRequestId.makeUnsafe(input.aggregateId)
+            : ThreadId.makeUnsafe(input.aggregateId),
     occurredAt: input.occurredAt,
     commandId: input.commandId === null ? null : CommandId.makeUnsafe(input.commandId),
     causationEventId: null,
@@ -1418,6 +1424,20 @@ describe("orchestration projector", () => {
       }),
       makeEvent({
         sequence: 4,
+        type: "channel.messages-read",
+        aggregateKind: "channel",
+        aggregateId: "channel-1",
+        occurredAt: "2026-04-05T10:03:30.000Z",
+        commandId: "cmd-channel-read",
+        payload: {
+          channelId: "channel-1",
+          threadId: "thread-channel",
+          upToSequence: 0,
+          readAt: "2026-04-05T10:03:30.000Z",
+        },
+      }),
+      makeEvent({
+        sequence: 5,
         type: "channel.conclusion-proposed",
         aggregateKind: "thread",
         aggregateId: "thread-channel",
@@ -1431,7 +1451,7 @@ describe("orchestration projector", () => {
         },
       }),
       makeEvent({
-        sequence: 5,
+        sequence: 6,
         type: "channel.concluded",
         aggregateKind: "thread",
         aggregateId: "thread-channel",
@@ -1443,7 +1463,7 @@ describe("orchestration projector", () => {
         },
       }),
       makeEvent({
-        sequence: 6,
+        sequence: 7,
         type: "request.opened",
         aggregateKind: "thread",
         aggregateId: "thread-channel",
@@ -1463,7 +1483,7 @@ describe("orchestration projector", () => {
         },
       }),
       makeEvent({
-        sequence: 7,
+        sequence: 8,
         type: "request.resolved",
         aggregateKind: "thread",
         aggregateId: "thread-channel",
@@ -1476,7 +1496,7 @@ describe("orchestration projector", () => {
         },
       }),
       makeEvent({
-        sequence: 8,
+        sequence: 9,
         type: "request.opened",
         aggregateKind: "thread",
         aggregateId: "thread-channel",
@@ -1496,7 +1516,7 @@ describe("orchestration projector", () => {
         },
       }),
       makeEvent({
-        sequence: 9,
+        sequence: 10,
         type: "request.stale",
         aggregateKind: "thread",
         aggregateId: "thread-channel",
@@ -1509,7 +1529,7 @@ describe("orchestration projector", () => {
         },
       }),
       makeEvent({
-        sequence: 10,
+        sequence: 11,
         type: "channel.closed",
         aggregateKind: "thread",
         aggregateId: "thread-channel",

@@ -53,7 +53,12 @@ type WorkflowThreadCommand = Extract<
 type ChannelCommand = Extract<
   ForgeCommand,
   {
-    type: "channel.create" | "channel.post-message" | "channel.conclude" | "channel.close";
+    type:
+      | "channel.create"
+      | "channel.post-message"
+      | "channel.read-messages"
+      | "channel.conclude"
+      | "channel.close";
   }
 >;
 type InteractiveRequestCommand = Extract<
@@ -1272,6 +1277,46 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
           fromRole: command.fromRole ?? null,
           content: command.content,
           createdAt: command.createdAt,
+        },
+      };
+    }
+
+    case "channel.read-messages": {
+      const channel = yield* requireChannel({
+        readModel,
+        command,
+        channelId: command.channelId,
+      });
+      const parentThread = yield* requireThread({
+        readModel,
+        command,
+        threadId: channel.threadId,
+      });
+      const thread = yield* requireThread({
+        readModel,
+        command,
+        threadId: command.threadId,
+      });
+      yield* requireThreadsInSameProject({
+        command,
+        leftLabel: "channel.threadId",
+        leftThread: parentThread,
+        rightLabel: "threadId",
+        rightThread: thread,
+      });
+      return {
+        ...withEventBase({
+          aggregateKind: "channel",
+          aggregateId: command.channelId,
+          occurredAt: command.createdAt,
+          commandId: command.commandId,
+        }),
+        type: "channel.messages-read",
+        payload: {
+          channelId: command.channelId,
+          threadId: command.threadId,
+          upToSequence: command.upToSequence,
+          readAt: command.createdAt,
         },
       };
     }

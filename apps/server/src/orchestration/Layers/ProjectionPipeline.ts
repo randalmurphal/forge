@@ -11,6 +11,7 @@ import { toPersistenceSqlError, type ProjectionRepositoryError } from "../../per
 import { OrchestrationEventStore } from "../../persistence/Services/OrchestrationEventStore.ts";
 import { ProjectionPendingApprovalRepository } from "../../persistence/Services/ProjectionPendingApprovals.ts";
 import { ProjectionChannelMessageRepository } from "../../persistence/Services/ProjectionChannelMessages.ts";
+import { ProjectionChannelReadRepository } from "../../persistence/Services/ProjectionChannelReads.ts";
 import { ProjectionChannelRepository } from "../../persistence/Services/ProjectionChannels.ts";
 import { ProjectionInteractiveRequestRepository } from "../../persistence/Services/ProjectionInteractiveRequests.ts";
 import { ProjectionPhaseOutputRepository } from "../../persistence/Services/ProjectionPhaseOutputs.ts";
@@ -35,6 +36,7 @@ import {
 import { ProjectionThreadRepository } from "../../persistence/Services/ProjectionThreads.ts";
 import { ProjectionPendingApprovalRepositoryLive } from "../../persistence/Layers/ProjectionPendingApprovals.ts";
 import { ProjectionChannelMessageRepositoryLive } from "../../persistence/Layers/ProjectionChannelMessages.ts";
+import { ProjectionChannelReadRepositoryLive } from "../../persistence/Layers/ProjectionChannelReads.ts";
 import { ProjectionChannelRepositoryLive } from "../../persistence/Layers/ProjectionChannels.ts";
 import { ProjectionInteractiveRequestRepositoryLive } from "../../persistence/Layers/ProjectionInteractiveRequests.ts";
 import { ProjectionPhaseOutputRepositoryLive } from "../../persistence/Layers/ProjectionPhaseOutputs.ts";
@@ -65,6 +67,7 @@ export const ORCHESTRATION_PROJECTOR_NAMES = {
   phaseRuns: "projection.phase-runs",
   channels: "projection.channels",
   channelMessages: "projection.channel-messages",
+  channelReads: "projection.channel-reads",
   phaseOutputs: "projection.phase-outputs",
   threadMessages: "projection.thread-messages",
   threadProposedPlans: "projection.thread-proposed-plans",
@@ -381,6 +384,7 @@ const makeOrchestrationProjectionPipeline = Effect.fn("makeOrchestrationProjecti
     const projectionPhaseRunRepository = yield* ProjectionPhaseRunRepository;
     const projectionChannelRepository = yield* ProjectionChannelRepository;
     const projectionChannelMessageRepository = yield* ProjectionChannelMessageRepository;
+    const projectionChannelReadRepository = yield* ProjectionChannelReadRepository;
     const projectionPhaseOutputRepository = yield* ProjectionPhaseOutputRepository;
     const projectionThreadMessageRepository = yield* ProjectionThreadMessageRepository;
     const projectionThreadProposedPlanRepository = yield* ProjectionThreadProposedPlanRepository;
@@ -787,6 +791,21 @@ const makeOrchestrationProjectionPipeline = Effect.fn("makeOrchestrationProjecti
         metadata: null,
         createdAt: event.payload.createdAt,
         deletedAt: null,
+      });
+    });
+
+    const applyChannelReadsProjection: ProjectorDefinition["apply"] = Effect.fn(
+      "applyChannelReadsProjection",
+    )(function* (event, _attachmentSideEffects) {
+      if (event.type !== "channel.messages-read") {
+        return;
+      }
+
+      yield* projectionChannelReadRepository.updateCursor({
+        channelId: event.payload.channelId,
+        threadId: event.payload.threadId,
+        lastReadSequence: event.payload.upToSequence,
+        updatedAt: event.payload.readAt,
       });
     });
 
@@ -1467,6 +1486,10 @@ const makeOrchestrationProjectionPipeline = Effect.fn("makeOrchestrationProjecti
         apply: applyChannelMessagesProjection,
       },
       {
+        name: ORCHESTRATION_PROJECTOR_NAMES.channelReads,
+        apply: applyChannelReadsProjection,
+      },
+      {
         name: ORCHESTRATION_PROJECTOR_NAMES.phaseOutputs,
         apply: applyPhaseOutputsProjection,
       },
@@ -1605,6 +1628,7 @@ export const OrchestrationProjectionPipelineLive = Layer.effect(
   Layer.provideMerge(ProjectionPhaseRunRepositoryLive),
   Layer.provideMerge(ProjectionChannelRepositoryLive),
   Layer.provideMerge(ProjectionChannelMessageRepositoryLive),
+  Layer.provideMerge(ProjectionChannelReadRepositoryLive),
   Layer.provideMerge(ProjectionPhaseOutputRepositoryLive),
   Layer.provideMerge(ProjectionThreadMessageRepositoryLive),
   Layer.provideMerge(ProjectionThreadProposedPlanRepositoryLive),

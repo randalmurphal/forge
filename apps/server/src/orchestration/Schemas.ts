@@ -21,6 +21,7 @@ import {
   ThreadSynthesisCompletedPayload as ContractsThreadSynthesisCompletedPayloadSchema,
   ChannelCreatedPayload as ContractsChannelCreatedPayloadSchema,
   ChannelMessagePostedPayload as ContractsChannelMessagePostedPayloadSchema,
+  ChannelMessagesReadPayload as ContractsChannelMessagesReadPayloadSchema,
   ChannelConclusionProposedPayload as ContractsChannelConclusionProposedPayloadSchema,
   ChannelConcludedPayload as ContractsChannelConcludedPayloadSchema,
   ChannelClosedPayload as ContractsChannelClosedPayloadSchema,
@@ -101,6 +102,7 @@ export const ThreadDependenciesSatisfiedPayload = ContractsThreadDependenciesSat
 export const ThreadSynthesisCompletedPayload = ContractsThreadSynthesisCompletedPayloadSchema;
 export const ChannelCreatedPayload = ContractsChannelCreatedPayloadSchema;
 export const ChannelMessagePostedPayload = ContractsChannelMessagePostedPayloadSchema;
+export const ChannelMessagesReadPayload = ContractsChannelMessagesReadPayloadSchema;
 export const ChannelConclusionProposedPayload = ContractsChannelConclusionProposedPayloadSchema;
 export const ChannelConcludedPayload = ContractsChannelConcludedPayloadSchema;
 export const ChannelClosedPayload = ContractsChannelClosedPayloadSchema;

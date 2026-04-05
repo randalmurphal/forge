@@ -1,9 +1,11 @@
 import {
+  ChannelId,
   CheckpointRef,
   CommandId,
   CorrelationId,
   EventId,
   type ForgeEvent,
+  InteractiveRequestId,
   MessageId,
   ProjectId,
   ThreadId,
@@ -65,7 +67,11 @@ function makeForgeEvent(input: {
     aggregateId:
       input.aggregateKind === "project"
         ? ProjectId.makeUnsafe(input.aggregateId)
-        : ThreadId.makeUnsafe(input.aggregateId),
+        : input.aggregateKind === "channel"
+          ? ChannelId.makeUnsafe(input.aggregateId)
+          : input.aggregateKind === "request"
+            ? InteractiveRequestId.makeUnsafe(input.aggregateId)
+            : ThreadId.makeUnsafe(input.aggregateId),
     occurredAt: input.occurredAt,
     commandId: input.commandId === null ? null : CommandId.makeUnsafe(input.commandId),
     causationEventId: null,
@@ -458,6 +464,43 @@ it.layer(BaseTestLayer)("OrchestrationProjectionPipeline", (it) => {
         {
           messageId: "channel-message-foundation",
           content: "Refine the plan",
+        },
+      ]);
+
+      yield* projectionPipeline.projectEvent(
+        makeForgeEvent({
+          sequence: 9,
+          type: "channel.messages-read",
+          aggregateKind: "channel",
+          aggregateId: "channel-foundation",
+          occurredAt: requestResolvedAt,
+          commandId: "cmd-channel-read",
+          payload: {
+            channelId: "channel-foundation",
+            threadId: "thread-child",
+            upToSequence: 0,
+            readAt: requestResolvedAt,
+          },
+        }),
+      );
+
+      const channelReadRows = yield* sql<{
+        readonly channelId: string;
+        readonly threadId: string;
+        readonly lastReadSequence: number;
+      }>`
+        SELECT
+          channel_id AS "channelId",
+          thread_id AS "threadId",
+          last_read_sequence AS "lastReadSequence"
+        FROM channel_reads
+        WHERE channel_id = 'channel-foundation'
+      `;
+      assert.deepEqual(channelReadRows, [
+        {
+          channelId: "channel-foundation",
+          threadId: "thread-child",
+          lastReadSequence: 0,
         },
       ]);
 
