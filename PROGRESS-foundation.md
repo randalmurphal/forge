@@ -9,6 +9,7 @@
 - The contracts package exports schema modules through `packages/contracts/src/index.ts`; `baseSchemas.ts` changes do not require additional index wiring.
 - New contract domains should live in dedicated files and be exported from `packages/contracts/src/index.ts` rather than extending unrelated schema modules.
 - When additive command schemas outpace runtime support, keep the existing `OrchestrationCommand` and client RPC command unions stable and stage the expanded surface behind `ForgeCommand` until decider/engine handling is added.
+- Persistence repository tests that share an `it.layer(...)` suite can observe rows created by earlier tests; scope assertions to the rows under test or use a fresh layer when isolation matters.
 
 ## Known Issues
 
@@ -30,6 +31,7 @@
 - WI-8: Database migrations -- channel tables
 - WI-9: Database migrations -- thread extensions
 - WI-10: Database migrations -- phase outputs and other tables
+- WI-11: Projection repositories -- workflows
 
 ## Iteration Log
 
@@ -43,6 +45,7 @@
 - 2026-04-05: Implemented WI-8 by adding migration `021_ChannelTables` for `channels`, `channel_messages`, `channel_reads`, and `tool_call_results`, registering it in the migration loader, adding an in-memory migration test that verifies the new tables, indexes, and composite keys, and confirming `bun fmt`, `bun lint`, `bun typecheck`, and `bun run test` all pass with the migration in place.
 - 2026-04-05: Implemented WI-9 by adding migration `022_ThreadExtensions` for the new thread projection columns and parent/phase indexes, registering it in the migration loader, adding an in-memory migration test that verifies the new columns plus compatibility with preexisting thread rows, and confirming `bun fmt`, `bun lint`, `bun typecheck`, and `bun run test` all pass with the migration in place.
 - 2026-04-05: Implemented WI-10 by adding migration `023_PhaseOutputTables` for `phase_outputs`, `session_synthesis`, `session_dependencies`, `session_links`, `phase_run_provenance`, `phase_run_outcomes`, `project_knowledge`, and `attention_signals`, registering it in the migration loader, adding an in-memory migration test that verifies the new tables plus their required indexes and partial unique indexes, and confirming `bun fmt`, `bun lint`, `bun typecheck`, and `bun run test` all pass with the migration in place.
+- 2026-04-05: Implemented WI-11 by adding `ProjectionWorkflows` service and layer for CRUD access to the `workflows` table with typed `phases_json` decoding and user-workflow precedence in `queryByName`, adding in-memory CRUD coverage for `queryAll`, `queryById`, `queryByName`, `upsert`, and `delete`, and confirming `bun fmt`, `bun lint`, `bun typecheck`, and `bun run test` all pass.
 
 ## Review Log
 
