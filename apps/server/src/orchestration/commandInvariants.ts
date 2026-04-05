@@ -74,6 +74,8 @@ type ProjectedPhaseRunLike = OrchestrationReadModel["phaseRuns"][number] & {
   readonly outputs?: ReadonlyArray<PhaseRunOutputLike>;
 };
 
+type ProjectedPhaseRunStatus = ProjectedPhaseRunLike["status"];
+
 export function findPhaseRunById(
   readModel: OrchestrationReadModel,
   phaseRunId: PhaseRunId,
@@ -165,6 +167,25 @@ export function requireThreadNotArchived(input: {
             invariantError(
               input.command.type,
               `Thread '${input.threadId}' is already archived and cannot handle command '${input.command.type}'.`,
+            ),
+          ),
+    ),
+  );
+}
+
+export function requireThreadWithoutActivePhase(input: {
+  readonly readModel: OrchestrationReadModel;
+  readonly command: ForgeCommand;
+  readonly threadId: ThreadId;
+}): Effect.Effect<OrchestrationThread, OrchestrationCommandInvariantError> {
+  return requireThread(input).pipe(
+    Effect.flatMap((thread) =>
+      thread.phaseRunId === null
+        ? Effect.succeed(thread)
+        : Effect.fail(
+            invariantError(
+              input.command.type,
+              `Thread '${input.threadId}' already has active phase run '${thread.phaseRunId}' and cannot start a new phase.`,
             ),
           ),
     ),
@@ -296,6 +317,28 @@ export function requirePhaseRunForThread(input: {
     );
   }
   return Effect.succeed(phaseRun);
+}
+
+export function requirePhaseRunStatus(input: {
+  readonly command: ForgeCommand;
+  readonly phaseRun: ProjectedPhaseRunLike;
+  readonly expected: ReadonlyArray<ProjectedPhaseRunStatus>;
+}): Effect.Effect<ProjectedPhaseRunLike, OrchestrationCommandInvariantError> {
+  if (input.expected.includes(input.phaseRun.status)) {
+    return Effect.succeed(input.phaseRun);
+  }
+
+  const formattedExpected =
+    input.expected.length === 1
+      ? `'${input.expected[0]}'`
+      : input.expected.map((status) => `'${status}'`).join(", ");
+
+  return Effect.fail(
+    invariantError(
+      input.command.type,
+      `Phase run '${input.phaseRun.phaseRunId}' must have status ${formattedExpected} for command '${input.command.type}', but was '${input.phaseRun.status}'.`,
+    ),
+  );
 }
 
 export function requireNonNegativeInteger(input: {

@@ -19,6 +19,7 @@ import {
   requireChannelOpen,
   requireDistinctThreadIds,
   requirePhaseRunForThread,
+  requirePhaseRunStatus,
   requirePendingRequest,
   requirePendingRequestAbsent,
   requireProject,
@@ -27,6 +28,7 @@ import {
   requireThreadArchived,
   requireThreadAbsent,
   requireThreadNotArchived,
+  requireThreadWithoutActivePhase,
   requireThreadsInSameProject,
 } from "./commandInvariants.ts";
 
@@ -779,6 +781,11 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
         command,
         threadId: command.threadId,
       });
+      yield* requireThreadWithoutActivePhase({
+        readModel,
+        command,
+        threadId: command.threadId,
+      });
       return {
         ...withEventBase({
           aggregateKind: "thread",
@@ -805,6 +812,17 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
         command,
         threadId: command.threadId,
       });
+      const phaseRun = yield* requirePhaseRunForThread({
+        readModel,
+        command,
+        threadId: command.threadId,
+        phaseRunId: command.phaseRunId,
+      });
+      yield* requirePhaseRunStatus({
+        command,
+        phaseRun,
+        expected: ["running"],
+      });
       return {
         ...withEventBase({
           aggregateKind: "thread",
@@ -829,6 +847,17 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
         command,
         threadId: command.threadId,
       });
+      const phaseRun = yield* requirePhaseRunForThread({
+        readModel,
+        command,
+        threadId: command.threadId,
+        phaseRunId: command.phaseRunId,
+      });
+      yield* requirePhaseRunStatus({
+        command,
+        phaseRun,
+        expected: ["running"],
+      });
       return {
         ...withEventBase({
           aggregateKind: "thread",
@@ -851,6 +880,17 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
         readModel,
         command,
         threadId: command.threadId,
+      });
+      const phaseRun = yield* requirePhaseRunForThread({
+        readModel,
+        command,
+        threadId: command.threadId,
+        phaseRunId: command.phaseRunId,
+      });
+      yield* requirePhaseRunStatus({
+        command,
+        phaseRun,
+        expected: ["running"],
       });
       return {
         ...withEventBase({
@@ -907,6 +947,17 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
         command,
         threadId: command.threadId,
       });
+      const phaseRun = yield* requirePhaseRunForThread({
+        readModel,
+        command,
+        threadId: command.threadId,
+        phaseRunId: command.phaseRunId,
+      });
+      yield* requirePhaseRunStatus({
+        command,
+        phaseRun,
+        expected: ["completed"],
+      });
       return {
         ...withEventBase({
           aggregateKind: "thread",
@@ -929,6 +980,17 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
         readModel,
         command,
         threadId: command.threadId,
+      });
+      const phaseRun = yield* requirePhaseRunForThread({
+        readModel,
+        command,
+        threadId: command.threadId,
+        phaseRunId: command.phaseRunId,
+      });
+      yield* requirePhaseRunStatus({
+        command,
+        phaseRun,
+        expected: ["completed"],
       });
       return {
         ...withEventBase({

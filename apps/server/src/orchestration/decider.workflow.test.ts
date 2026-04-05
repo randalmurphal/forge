@@ -112,9 +112,27 @@ const gateResult = {
   evaluatedAt: now,
 };
 
+function makePhaseRun(
+  overrides: Partial<OrchestrationReadModel["phaseRuns"][number]> = {},
+): OrchestrationReadModel["phaseRuns"][number] {
+  return {
+    phaseRunId: PhaseRunId.makeUnsafe("phase-run-1"),
+    threadId: ThreadId.makeUnsafe("thread-1"),
+    phaseId: WorkflowPhaseId.makeUnsafe("phase-plan"),
+    phaseName: "Plan",
+    phaseType: "single-agent",
+    iteration: 1,
+    status: "running",
+    startedAt: now,
+    completedAt: null,
+    ...overrides,
+  };
+}
+
 type SuccessCase = {
   readonly name: string;
   readonly command: DecidableOrchestrationCommand;
+  readonly readModel?: OrchestrationReadModel;
   readonly assertResult: (
     result: DecidedOrchestrationEvent | ReadonlyArray<DecidedOrchestrationEvent>,
   ) => void;
@@ -132,9 +150,13 @@ async function run(
   );
 }
 
-async function expectInvariant(command: DecidableOrchestrationCommand, message: string) {
+async function expectInvariant(
+  command: DecidableOrchestrationCommand,
+  message: string,
+  readModel: OrchestrationReadModel = makeReadModel(),
+) {
   await expect(
-    Effect.runPromise(decideOrchestrationCommand({ command, readModel: makeReadModel() })),
+    Effect.runPromise(decideOrchestrationCommand({ command, readModel })),
   ).rejects.toThrow(message);
 }
 
@@ -210,6 +232,10 @@ describe("decider workflow commands", () => {
         gateResult,
         createdAt: now,
       },
+      readModel: {
+        ...makeReadModel(),
+        phaseRuns: [makePhaseRun()],
+      },
       assertResult: (result) => {
         const event = expectSingleEvent(result, "thread.phase-completed");
         expect(event.payload.phaseRunId).toBe(PhaseRunId.makeUnsafe("phase-run-1"));
@@ -233,6 +259,10 @@ describe("decider workflow commands", () => {
         error: "phase failed",
         createdAt: now,
       },
+      readModel: {
+        ...makeReadModel(),
+        phaseRuns: [makePhaseRun()],
+      },
       assertResult: (result) => {
         const event = expectSingleEvent(result, "thread.phase-failed");
         expect(event.payload.error).toBe("phase failed");
@@ -246,6 +276,10 @@ describe("decider workflow commands", () => {
         threadId: ThreadId.makeUnsafe("thread-1"),
         phaseRunId: PhaseRunId.makeUnsafe("phase-run-1"),
         createdAt: now,
+      },
+      readModel: {
+        ...makeReadModel(),
+        phaseRuns: [makePhaseRun()],
       },
       assertResult: (result) => {
         expectSingleEvent(result, "thread.phase-skipped");
@@ -261,6 +295,15 @@ describe("decider workflow commands", () => {
         checks: [...qualityChecks],
         createdAt: now,
       },
+      readModel: {
+        ...makeReadModel(),
+        phaseRuns: [
+          makePhaseRun({
+            status: "completed",
+            completedAt: now,
+          }),
+        ],
+      },
       assertResult: (result) => {
         const event = expectSingleEvent(result, "thread.quality-check-started");
         expect(event.payload.checks).toEqual([...qualityChecks]);
@@ -275,6 +318,15 @@ describe("decider workflow commands", () => {
         phaseRunId: PhaseRunId.makeUnsafe("phase-run-1"),
         results: [...qualityCheckResults],
         createdAt: now,
+      },
+      readModel: {
+        ...makeReadModel(),
+        phaseRuns: [
+          makePhaseRun({
+            status: "completed",
+            completedAt: now,
+          }),
+        ],
       },
       assertResult: (result) => {
         const event = expectSingleEvent(result, "thread.quality-check-completed");
@@ -426,8 +478,8 @@ describe("decider workflow commands", () => {
     },
   ];
 
-  it.each(successCases)("$name", async ({ command, assertResult }) => {
-    assertResult(await run(command));
+  it.each(successCases)("$name", async ({ command, readModel, assertResult }) => {
+    assertResult(await run(command, readModel));
   });
 
   it("reuses an existing guidance channel for repeated thread.correct commands", async () => {
@@ -678,6 +730,231 @@ describe("decider workflow commands", () => {
         readModel,
       ),
     ).rejects.toThrow("does not belong to thread 'thread-1'");
+  });
+
+  it("rejects thread.start-phase when the thread already has an active phase run", async () => {
+    const baseReadModel = makeReadModel();
+    const threadIndex = baseReadModel.threads.findIndex(
+      (thread) => thread.id === ThreadId.makeUnsafe("thread-1"),
+    );
+    if (threadIndex === -1) {
+      throw new Error("Expected thread-1 fixture to exist.");
+    }
+    const threads = baseReadModel.threads.slice();
+    const activeThread: OrchestrationThread = {
+      ...baseReadModel.threads[threadIndex]!,
+      phaseRunId: PhaseRunId.makeUnsafe("phase-run-active"),
+    };
+    threads[threadIndex] = activeThread;
+    const readModel: OrchestrationReadModel = {
+      ...baseReadModel,
+      threads,
+    };
+
+    await expectInvariant(
+      {
+        type: "thread.start-phase",
+        commandId: CommandId.makeUnsafe("cmd-duplicate-start-phase"),
+        threadId: ThreadId.makeUnsafe("thread-1"),
+        phaseId: WorkflowPhaseId.makeUnsafe("phase-review"),
+        phaseName: "Review",
+        phaseType: "single-agent",
+        iteration: 2,
+        createdAt: now,
+      },
+      "already has active phase run 'phase-run-active'",
+      readModel,
+    );
+  });
+
+  it("rejects phase lifecycle commands when the phase run is missing, belongs to another thread, or has an invalid status", async () => {
+    const missingPhaseRunCommands: ReadonlyArray<DecidableOrchestrationCommand> = [
+      {
+        type: "thread.complete-phase",
+        commandId: CommandId.makeUnsafe("cmd-complete-missing-phase-run"),
+        threadId: ThreadId.makeUnsafe("thread-1"),
+        phaseRunId: PhaseRunId.makeUnsafe("phase-run-missing"),
+        createdAt: now,
+      },
+      {
+        type: "thread.fail-phase",
+        commandId: CommandId.makeUnsafe("cmd-fail-missing-phase-run"),
+        threadId: ThreadId.makeUnsafe("thread-1"),
+        phaseRunId: PhaseRunId.makeUnsafe("phase-run-missing"),
+        error: "phase failed",
+        createdAt: now,
+      },
+      {
+        type: "thread.skip-phase",
+        commandId: CommandId.makeUnsafe("cmd-skip-missing-phase-run"),
+        threadId: ThreadId.makeUnsafe("thread-1"),
+        phaseRunId: PhaseRunId.makeUnsafe("phase-run-missing"),
+        createdAt: now,
+      },
+      {
+        type: "thread.quality-check-start",
+        commandId: CommandId.makeUnsafe("cmd-qc-start-missing-phase-run"),
+        threadId: ThreadId.makeUnsafe("thread-1"),
+        phaseRunId: PhaseRunId.makeUnsafe("phase-run-missing"),
+        checks: [...qualityChecks],
+        createdAt: now,
+      },
+      {
+        type: "thread.quality-check-complete",
+        commandId: CommandId.makeUnsafe("cmd-qc-complete-missing-phase-run"),
+        threadId: ThreadId.makeUnsafe("thread-1"),
+        phaseRunId: PhaseRunId.makeUnsafe("phase-run-missing"),
+        results: [...qualityCheckResults],
+        createdAt: now,
+      },
+    ];
+
+    for (const command of missingPhaseRunCommands) {
+      await expectInvariant(command, "Phase run 'phase-run-missing' does not exist");
+    }
+
+    const foreignPhaseRunReadModel: OrchestrationReadModel = {
+      ...makeReadModel(),
+      phaseRuns: [
+        makePhaseRun({
+          phaseRunId: PhaseRunId.makeUnsafe("phase-run-foreign"),
+          threadId: ThreadId.makeUnsafe("thread-2"),
+        }),
+      ],
+    };
+
+    const foreignPhaseRunCommands: ReadonlyArray<DecidableOrchestrationCommand> = [
+      {
+        type: "thread.complete-phase",
+        commandId: CommandId.makeUnsafe("cmd-complete-foreign-phase-run"),
+        threadId: ThreadId.makeUnsafe("thread-1"),
+        phaseRunId: PhaseRunId.makeUnsafe("phase-run-foreign"),
+        createdAt: now,
+      },
+      {
+        type: "thread.fail-phase",
+        commandId: CommandId.makeUnsafe("cmd-fail-foreign-phase-run"),
+        threadId: ThreadId.makeUnsafe("thread-1"),
+        phaseRunId: PhaseRunId.makeUnsafe("phase-run-foreign"),
+        error: "phase failed",
+        createdAt: now,
+      },
+      {
+        type: "thread.skip-phase",
+        commandId: CommandId.makeUnsafe("cmd-skip-foreign-phase-run"),
+        threadId: ThreadId.makeUnsafe("thread-1"),
+        phaseRunId: PhaseRunId.makeUnsafe("phase-run-foreign"),
+        createdAt: now,
+      },
+      {
+        type: "thread.quality-check-start",
+        commandId: CommandId.makeUnsafe("cmd-qc-start-foreign-phase-run"),
+        threadId: ThreadId.makeUnsafe("thread-1"),
+        phaseRunId: PhaseRunId.makeUnsafe("phase-run-foreign"),
+        checks: [...qualityChecks],
+        createdAt: now,
+      },
+      {
+        type: "thread.quality-check-complete",
+        commandId: CommandId.makeUnsafe("cmd-qc-complete-foreign-phase-run"),
+        threadId: ThreadId.makeUnsafe("thread-1"),
+        phaseRunId: PhaseRunId.makeUnsafe("phase-run-foreign"),
+        results: [...qualityCheckResults],
+        createdAt: now,
+      },
+    ];
+
+    for (const command of foreignPhaseRunCommands) {
+      await expectInvariant(
+        command,
+        "Phase run 'phase-run-foreign' does not belong to thread 'thread-1'",
+        foreignPhaseRunReadModel,
+      );
+    }
+
+    const nonRunningPhaseReadModel: OrchestrationReadModel = {
+      ...makeReadModel(),
+      phaseRuns: [
+        makePhaseRun({
+          phaseRunId: PhaseRunId.makeUnsafe("phase-run-completed"),
+          status: "completed",
+          completedAt: now,
+        }),
+      ],
+    };
+
+    await expectInvariant(
+      {
+        type: "thread.complete-phase",
+        commandId: CommandId.makeUnsafe("cmd-complete-completed-phase-run"),
+        threadId: ThreadId.makeUnsafe("thread-1"),
+        phaseRunId: PhaseRunId.makeUnsafe("phase-run-completed"),
+        createdAt: now,
+      },
+      "must have status 'running'",
+      nonRunningPhaseReadModel,
+    );
+
+    await expectInvariant(
+      {
+        type: "thread.fail-phase",
+        commandId: CommandId.makeUnsafe("cmd-fail-completed-phase-run"),
+        threadId: ThreadId.makeUnsafe("thread-1"),
+        phaseRunId: PhaseRunId.makeUnsafe("phase-run-completed"),
+        error: "phase failed",
+        createdAt: now,
+      },
+      "must have status 'running'",
+      nonRunningPhaseReadModel,
+    );
+
+    await expectInvariant(
+      {
+        type: "thread.skip-phase",
+        commandId: CommandId.makeUnsafe("cmd-skip-completed-phase-run"),
+        threadId: ThreadId.makeUnsafe("thread-1"),
+        phaseRunId: PhaseRunId.makeUnsafe("phase-run-completed"),
+        createdAt: now,
+      },
+      "must have status 'running'",
+      nonRunningPhaseReadModel,
+    );
+
+    const nonCompletedPhaseReadModel: OrchestrationReadModel = {
+      ...makeReadModel(),
+      phaseRuns: [
+        makePhaseRun({
+          phaseRunId: PhaseRunId.makeUnsafe("phase-run-running"),
+          status: "running",
+        }),
+      ],
+    };
+
+    await expectInvariant(
+      {
+        type: "thread.quality-check-start",
+        commandId: CommandId.makeUnsafe("cmd-qc-start-running-phase-run"),
+        threadId: ThreadId.makeUnsafe("thread-1"),
+        phaseRunId: PhaseRunId.makeUnsafe("phase-run-running"),
+        checks: [...qualityChecks],
+        createdAt: now,
+      },
+      "must have status 'completed'",
+      nonCompletedPhaseReadModel,
+    );
+
+    await expectInvariant(
+      {
+        type: "thread.quality-check-complete",
+        commandId: CommandId.makeUnsafe("cmd-qc-complete-running-phase-run"),
+        threadId: ThreadId.makeUnsafe("thread-1"),
+        phaseRunId: PhaseRunId.makeUnsafe("phase-run-running"),
+        results: [...qualityCheckResults],
+        createdAt: now,
+      },
+      "must have status 'completed'",
+      nonCompletedPhaseReadModel,
+    );
   });
 
   it("rejects invalid thread relationships for links, promotion, and dependencies", async () => {
