@@ -30,6 +30,7 @@ import {
   ProjectCreatedPayload,
   ProjectDeletedPayload,
   ProjectMetaUpdatedPayload,
+  SessionArchivedPayload,
   ThreadActivityAppendedPayload,
   ThreadArchivedPayload,
   ThreadBootstrapCompletedPayload,
@@ -497,12 +498,17 @@ export function projectEvent(
       );
 
     case "thread.archived":
-      return decodeForEvent(ThreadArchivedPayload, event.payload, event.type, "payload").pipe(
+      return decodeForEvent(
+        Schema.Union([ThreadArchivedPayload, SessionArchivedPayload]),
+        event.payload,
+        event.type,
+        "payload",
+      ).pipe(
         Effect.map((payload) => ({
           ...nextBase,
           threads: updateThread(nextBase.threads, payload.threadId, {
             archivedAt: payload.archivedAt,
-            updatedAt: payload.updatedAt,
+            updatedAt: "updatedAt" in payload ? payload.updatedAt : payload.archivedAt,
           }),
         })),
       );
