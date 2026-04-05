@@ -39,6 +39,20 @@ import {
   RequestMarkStaleCommand,
   RequestOpenCommand,
   RequestResolveCommand,
+  SessionArchivedPayload,
+  SessionCancelCommand,
+  SessionCancelledPayload,
+  SessionCompletedPayload,
+  SessionCreateCommand,
+  SessionCreatedPayload,
+  SessionFailedPayload,
+  SessionMetaUpdateCommand,
+  SessionPauseCommand,
+  SessionRecoverCommand,
+  SessionRestartCommand,
+  SessionRestartedPayload,
+  SessionResumeCommand,
+  SessionStatusChangedPayload,
   ThreadAddDependencyCommand,
   ThreadAddLinkCommand,
   ThreadBootstrapQueuedPayload,
@@ -570,6 +584,171 @@ it.effect("preserves proposed plan implementation metadata when present", () =>
     });
     assert.strictEqual(parsed.implementedAt, "2026-01-02T00:00:00.000Z");
     assert.strictEqual(parsed.implementationThreadId, "thread-2");
+  }),
+);
+
+it.effect("round-trips the Forge lifecycle command surface through ForgeCommand", () =>
+  Effect.gen(function* () {
+    const cases = [
+      {
+        schema: SessionCreateCommand,
+        input: {
+          type: "thread.create",
+          commandId: " cmd-session-create-1 ",
+          threadId: " thread-1 ",
+          projectId: " project-1 ",
+          parentThreadId: " parent-1 ",
+          phaseRunId: " phase-run-1 ",
+          sessionType: "workflow",
+          title: " Workflow Session ",
+          description: " Create a workflow session. ",
+          workflowId: " workflow-1 ",
+          patternId: " pattern-1 ",
+          runtimeMode: "full-access",
+          model: {
+            provider: "codex",
+            model: " gpt-5.4 ",
+          },
+          provider: "codex",
+          role: " orchestrator ",
+          branchOverride: " feat/workflow ",
+          requiresWorktree: true,
+          createdAt: "2026-01-01T00:00:00.000Z",
+        },
+        expected: {
+          type: "thread.create",
+          commandId: "cmd-session-create-1",
+          threadId: "thread-1",
+          projectId: "project-1",
+          parentThreadId: "parent-1",
+          phaseRunId: "phase-run-1",
+          sessionType: "workflow",
+          title: "Workflow Session",
+          description: " Create a workflow session. ",
+          workflowId: "workflow-1",
+          patternId: "pattern-1",
+          runtimeMode: "full-access",
+          model: {
+            provider: "codex",
+            model: "gpt-5.4",
+          },
+          provider: "codex",
+          role: "orchestrator",
+          branchOverride: "feat/workflow",
+          requiresWorktree: true,
+          createdAt: "2026-01-01T00:00:00.000Z",
+        },
+      },
+      {
+        schema: SessionPauseCommand,
+        input: {
+          type: "thread.pause",
+          commandId: " cmd-session-pause-1 ",
+          threadId: " thread-1 ",
+          createdAt: "2026-01-01T00:01:00.000Z",
+        },
+        expected: {
+          type: "thread.pause",
+          commandId: "cmd-session-pause-1",
+          threadId: "thread-1",
+          createdAt: "2026-01-01T00:01:00.000Z",
+        },
+      },
+      {
+        schema: SessionResumeCommand,
+        input: {
+          type: "thread.resume",
+          commandId: "cmd-session-resume-1",
+          threadId: " thread-1 ",
+          createdAt: "2026-01-01T00:02:00.000Z",
+        },
+        expected: {
+          type: "thread.resume",
+          commandId: "cmd-session-resume-1",
+          threadId: "thread-1",
+          createdAt: "2026-01-01T00:02:00.000Z",
+        },
+      },
+      {
+        schema: SessionRecoverCommand,
+        input: {
+          type: "thread.recover",
+          commandId: "cmd-session-recover-1",
+          threadId: " thread-1 ",
+          createdAt: "2026-01-01T00:03:00.000Z",
+        },
+        expected: {
+          type: "thread.recover",
+          commandId: "cmd-session-recover-1",
+          threadId: "thread-1",
+          createdAt: "2026-01-01T00:03:00.000Z",
+        },
+      },
+      {
+        schema: SessionCancelCommand,
+        input: {
+          type: "thread.cancel",
+          commandId: "cmd-session-cancel-1",
+          threadId: " thread-1 ",
+          reason: "Cancelled by operator.",
+          createdAt: "2026-01-01T00:04:00.000Z",
+        },
+        expected: {
+          type: "thread.cancel",
+          commandId: "cmd-session-cancel-1",
+          threadId: "thread-1",
+          reason: "Cancelled by operator.",
+          createdAt: "2026-01-01T00:04:00.000Z",
+        },
+      },
+      {
+        schema: SessionRestartCommand,
+        input: {
+          type: "thread.restart",
+          commandId: "cmd-session-restart-1",
+          threadId: " thread-1 ",
+          fromPhaseId: " phase-1 ",
+          createdAt: "2026-01-01T00:05:00.000Z",
+        },
+        expected: {
+          type: "thread.restart",
+          commandId: "cmd-session-restart-1",
+          threadId: "thread-1",
+          fromPhaseId: "phase-1",
+          createdAt: "2026-01-01T00:05:00.000Z",
+        },
+      },
+      {
+        schema: SessionMetaUpdateCommand,
+        input: {
+          type: "thread.meta-update",
+          commandId: "cmd-session-meta-update-1",
+          threadId: " thread-1 ",
+          title: " Refined Title ",
+          description: "Refined description.",
+          branch: " feat/refined ",
+          worktreePath: " /tmp/worktree ",
+          createdAt: "2026-01-01T00:06:00.000Z",
+        },
+        expected: {
+          type: "thread.meta-update",
+          commandId: "cmd-session-meta-update-1",
+          threadId: "thread-1",
+          title: "Refined Title",
+          description: "Refined description.",
+          branch: "feat/refined",
+          worktreePath: "/tmp/worktree",
+          createdAt: "2026-01-01T00:06:00.000Z",
+        },
+      },
+    ] as const;
+
+    for (const testCase of cases) {
+      const parsed = yield* decode(testCase.schema, testCase.input);
+      assert.deepStrictEqual(parsed, testCase.expected);
+      assert.deepStrictEqual(yield* decodeForgeCommand(testCase.input), testCase.expected);
+      assert.deepStrictEqual(yield* encode(testCase.schema, parsed), testCase.expected);
+    }
   }),
 );
 
@@ -1134,6 +1313,257 @@ it.effect("rejects thread.add-link when no linked thread or external id is provi
     );
 
     assert.strictEqual(result._tag, "Failure");
+  }),
+);
+
+it.effect("round-trips the Forge lifecycle event surface through ForgeEvent", () =>
+  Effect.gen(function* () {
+    const baseEvent = {
+      sequence: 1,
+      occurredAt: "2026-01-01T00:00:00.000Z",
+      causationEventId: null,
+      metadata: {},
+    } as const;
+
+    const cases = [
+      {
+        payloadSchema: SessionCreatedPayload,
+        event: {
+          ...baseEvent,
+          eventId: "event-session-created-1",
+          aggregateKind: "thread",
+          aggregateId: "thread-1",
+          type: "thread.created",
+          commandId: "cmd-session-create-1",
+          correlationId: "cmd-session-create-1",
+          payload: {
+            threadId: "thread-1",
+            projectId: "project-1",
+            parentThreadId: "parent-1",
+            phaseRunId: "phase-run-1",
+            sessionType: "workflow",
+            title: " Workflow Session ",
+            description: "Workflow description",
+            workflowId: "workflow-1",
+            workflowSnapshot: '{"id":"workflow-1"}',
+            patternId: " pattern-1 ",
+            runtimeMode: "full-access",
+            model: {
+              provider: "codex",
+              model: " gpt-5.4 ",
+            },
+            provider: "codex",
+            role: " orchestrator ",
+            branch: " feat/workflow ",
+            bootstrapStatus: "queued",
+            createdAt: "2026-01-01T00:00:00.000Z",
+            updatedAt: "2026-01-01T00:00:00.000Z",
+          },
+        },
+        expectedPayload: {
+          threadId: "thread-1",
+          projectId: "project-1",
+          parentThreadId: "parent-1",
+          phaseRunId: "phase-run-1",
+          sessionType: "workflow",
+          title: "Workflow Session",
+          description: "Workflow description",
+          workflowId: "workflow-1",
+          workflowSnapshot: '{"id":"workflow-1"}',
+          patternId: "pattern-1",
+          runtimeMode: "full-access",
+          model: {
+            provider: "codex",
+            model: "gpt-5.4",
+          },
+          provider: "codex",
+          role: "orchestrator",
+          branch: "feat/workflow",
+          bootstrapStatus: "queued",
+          createdAt: "2026-01-01T00:00:00.000Z",
+          updatedAt: "2026-01-01T00:00:00.000Z",
+        },
+      },
+      {
+        payloadSchema: SessionStatusChangedPayload,
+        event: {
+          ...baseEvent,
+          sequence: 2,
+          eventId: "event-session-status-1",
+          aggregateKind: "thread",
+          aggregateId: "thread-1",
+          type: "thread.status-changed",
+          commandId: "cmd-session-pause-1",
+          correlationId: "cmd-session-pause-1",
+          payload: {
+            threadId: "thread-1",
+            status: "paused",
+            previousStatus: "running",
+            updatedAt: "2026-01-01T00:01:00.000Z",
+          },
+        },
+        expectedPayload: {
+          threadId: "thread-1",
+          status: "paused",
+          previousStatus: "running",
+          updatedAt: "2026-01-01T00:01:00.000Z",
+        },
+      },
+      {
+        payloadSchema: ThreadMetaUpdatedPayload,
+        event: {
+          ...baseEvent,
+          sequence: 3,
+          eventId: "event-session-meta-1",
+          aggregateKind: "thread",
+          aggregateId: "thread-1",
+          type: "thread.meta-updated",
+          commandId: "cmd-session-meta-update-1",
+          correlationId: "cmd-session-meta-update-1",
+          payload: {
+            threadId: "thread-1",
+            title: " Refined Title ",
+            description: "Refined description.",
+            branch: " feat/refined ",
+            worktreePath: " /tmp/worktree ",
+            updatedAt: "2026-01-01T00:02:00.000Z",
+          },
+        },
+        expectedPayload: {
+          threadId: "thread-1",
+          title: "Refined Title",
+          description: "Refined description.",
+          branch: "feat/refined",
+          worktreePath: "/tmp/worktree",
+          updatedAt: "2026-01-01T00:02:00.000Z",
+        },
+      },
+      {
+        payloadSchema: SessionCompletedPayload,
+        event: {
+          ...baseEvent,
+          sequence: 4,
+          eventId: "event-session-completed-1",
+          aggregateKind: "thread",
+          aggregateId: "thread-1",
+          type: "thread.completed",
+          commandId: "cmd-session-complete-1",
+          correlationId: "cmd-session-complete-1",
+          payload: {
+            threadId: "thread-1",
+            completedAt: "2026-01-01T00:03:00.000Z",
+          },
+        },
+        expectedPayload: {
+          threadId: "thread-1",
+          completedAt: "2026-01-01T00:03:00.000Z",
+        },
+      },
+      {
+        payloadSchema: SessionFailedPayload,
+        event: {
+          ...baseEvent,
+          sequence: 5,
+          eventId: "event-session-failed-1",
+          aggregateKind: "thread",
+          aggregateId: "thread-1",
+          type: "thread.failed",
+          commandId: "cmd-session-fail-1",
+          correlationId: "cmd-session-fail-1",
+          payload: {
+            threadId: "thread-1",
+            error: "Workflow failed",
+            failedAt: "2026-01-01T00:04:00.000Z",
+          },
+        },
+        expectedPayload: {
+          threadId: "thread-1",
+          error: "Workflow failed",
+          failedAt: "2026-01-01T00:04:00.000Z",
+        },
+      },
+      {
+        payloadSchema: SessionCancelledPayload,
+        event: {
+          ...baseEvent,
+          sequence: 6,
+          eventId: "event-session-cancelled-1",
+          aggregateKind: "thread",
+          aggregateId: "thread-1",
+          type: "thread.cancelled",
+          commandId: "cmd-session-cancel-1",
+          correlationId: "cmd-session-cancel-1",
+          payload: {
+            threadId: "thread-1",
+            reason: "Cancelled by operator.",
+            cancelledAt: "2026-01-01T00:05:00.000Z",
+          },
+        },
+        expectedPayload: {
+          threadId: "thread-1",
+          reason: "Cancelled by operator.",
+          cancelledAt: "2026-01-01T00:05:00.000Z",
+        },
+      },
+      {
+        payloadSchema: SessionArchivedPayload,
+        event: {
+          ...baseEvent,
+          sequence: 7,
+          eventId: "event-session-archived-1",
+          aggregateKind: "thread",
+          aggregateId: "thread-1",
+          type: "thread.archived",
+          commandId: "cmd-session-archive-1",
+          correlationId: "cmd-session-archive-1",
+          payload: {
+            threadId: "thread-1",
+            archivedAt: "2026-01-01T00:06:00.000Z",
+          },
+        },
+        expectedPayload: {
+          threadId: "thread-1",
+          archivedAt: "2026-01-01T00:06:00.000Z",
+        },
+      },
+      {
+        payloadSchema: SessionRestartedPayload,
+        event: {
+          ...baseEvent,
+          sequence: 8,
+          eventId: "event-session-restarted-1",
+          aggregateKind: "thread",
+          aggregateId: "thread-1",
+          type: "thread.restarted",
+          commandId: "cmd-session-restart-1",
+          correlationId: "cmd-session-restart-1",
+          payload: {
+            threadId: "thread-1",
+            fromPhaseId: " phase-1 ",
+            restartedAt: "2026-01-01T00:07:00.000Z",
+          },
+        },
+        expectedPayload: {
+          threadId: "thread-1",
+          fromPhaseId: "phase-1",
+          restartedAt: "2026-01-01T00:07:00.000Z",
+        },
+      },
+    ] as const;
+
+    for (const testCase of cases) {
+      const { parsed, encoded } = yield* roundTrip(ForgeEvent, testCase.event);
+
+      assert.deepStrictEqual(parsed.payload, testCase.expectedPayload);
+      assert.deepStrictEqual(
+        yield* decode(testCase.payloadSchema, testCase.event.payload),
+        testCase.expectedPayload,
+      );
+      assert.deepStrictEqual(encoded, {
+        ...testCase.event,
+        payload: testCase.expectedPayload,
+      });
+    }
   }),
 );
 

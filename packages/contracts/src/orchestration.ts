@@ -490,6 +490,28 @@ export const ProjectCreateCommand = Schema.Struct({
   createdAt: IsoDateTime,
 });
 
+export const SessionCreateCommand = Schema.Struct({
+  type: Schema.Literal("thread.create"),
+  commandId: CommandId,
+  threadId: ThreadId,
+  projectId: ProjectId,
+  parentThreadId: Schema.optional(ThreadId),
+  phaseRunId: Schema.optional(PhaseRunId),
+  sessionType: ForgeSessionType,
+  title: TrimmedNonEmptyString,
+  description: Schema.String.pipe(Schema.withDecodingDefault(() => "")),
+  workflowId: Schema.optional(WorkflowId),
+  patternId: Schema.optional(TrimmedNonEmptyString),
+  runtimeMode: RuntimeMode,
+  model: Schema.optional(ModelSelection),
+  provider: Schema.optional(ProviderKind),
+  role: Schema.optional(TrimmedNonEmptyString),
+  branchOverride: Schema.optional(TrimmedNonEmptyString),
+  requiresWorktree: Schema.optional(Schema.Boolean),
+  createdAt: IsoDateTime,
+});
+export type SessionCreateCommand = typeof SessionCreateCommand.Type;
+
 const ProjectMetaUpdateCommand = Schema.Struct({
   type: Schema.Literal("project.meta.update"),
   commandId: CommandId,
@@ -549,6 +571,60 @@ const ThreadMetaUpdateCommand = Schema.Struct({
   branch: Schema.optional(Schema.NullOr(TrimmedNonEmptyString)),
   worktreePath: Schema.optional(Schema.NullOr(TrimmedNonEmptyString)),
 });
+
+export const SessionPauseCommand = Schema.Struct({
+  type: Schema.Literal("thread.pause"),
+  commandId: CommandId,
+  threadId: ThreadId,
+  createdAt: IsoDateTime,
+});
+export type SessionPauseCommand = typeof SessionPauseCommand.Type;
+
+export const SessionResumeCommand = Schema.Struct({
+  type: Schema.Literal("thread.resume"),
+  commandId: CommandId,
+  threadId: ThreadId,
+  createdAt: IsoDateTime,
+});
+export type SessionResumeCommand = typeof SessionResumeCommand.Type;
+
+export const SessionRecoverCommand = Schema.Struct({
+  type: Schema.Literal("thread.recover"),
+  commandId: CommandId,
+  threadId: ThreadId,
+  createdAt: IsoDateTime,
+});
+export type SessionRecoverCommand = typeof SessionRecoverCommand.Type;
+
+export const SessionCancelCommand = Schema.Struct({
+  type: Schema.Literal("thread.cancel"),
+  commandId: CommandId,
+  threadId: ThreadId,
+  reason: Schema.optional(Schema.String),
+  createdAt: IsoDateTime,
+});
+export type SessionCancelCommand = typeof SessionCancelCommand.Type;
+
+export const SessionRestartCommand = Schema.Struct({
+  type: Schema.Literal("thread.restart"),
+  commandId: CommandId,
+  threadId: ThreadId,
+  fromPhaseId: Schema.optional(WorkflowPhaseId),
+  createdAt: IsoDateTime,
+});
+export type SessionRestartCommand = typeof SessionRestartCommand.Type;
+
+export const SessionMetaUpdateCommand = Schema.Struct({
+  type: Schema.Literal("thread.meta-update"),
+  commandId: CommandId,
+  threadId: ThreadId,
+  title: Schema.optional(TrimmedNonEmptyString),
+  description: Schema.optional(Schema.String),
+  branch: Schema.optional(Schema.NullOr(TrimmedNonEmptyString)),
+  worktreePath: Schema.optional(Schema.NullOr(TrimmedNonEmptyString)),
+  createdAt: IsoDateTime,
+});
+export type SessionMetaUpdateCommand = typeof SessionMetaUpdateCommand.Type;
 
 const ThreadRuntimeModeSetCommand = Schema.Struct({
   type: Schema.Literal("thread.runtime-mode.set"),
@@ -1043,6 +1119,12 @@ export type InternalOrchestrationCommand = typeof InternalOrchestrationCommand.T
 
 const ForgeDispatchableClientOrchestrationCommand = Schema.Union([
   DispatchableClientOrchestrationCommand,
+  SessionCreateCommand,
+  SessionPauseCommand,
+  SessionResumeCommand,
+  SessionCancelCommand,
+  SessionRestartCommand,
+  SessionMetaUpdateCommand,
   ThreadCorrectCommand,
   ThreadAddLinkCommand,
   ThreadRemoveLinkCommand,
@@ -1056,6 +1138,7 @@ const ForgeDispatchableClientOrchestrationCommand = Schema.Union([
 
 const ForgeInternalOrchestrationCommand = Schema.Union([
   InternalOrchestrationCommand,
+  SessionRecoverCommand,
   ThreadStartPhaseCommand,
   ThreadCompletePhaseCommand,
   ThreadFailPhaseCommand,
@@ -1155,10 +1238,62 @@ export const ThreadCreatedPayload = Schema.Struct({
   updatedAt: IsoDateTime,
 });
 
+export const SessionCreatedPayload = Schema.Struct({
+  threadId: ThreadId,
+  projectId: ProjectId,
+  parentThreadId: Schema.NullOr(ThreadId).pipe(Schema.withDecodingDefault(() => null)),
+  phaseRunId: Schema.NullOr(PhaseRunId).pipe(Schema.withDecodingDefault(() => null)),
+  sessionType: ForgeSessionType,
+  title: TrimmedNonEmptyString,
+  description: Schema.String.pipe(Schema.withDecodingDefault(() => "")),
+  workflowId: Schema.NullOr(WorkflowId).pipe(Schema.withDecodingDefault(() => null)),
+  workflowSnapshot: Schema.optional(Schema.String),
+  patternId: Schema.NullOr(TrimmedNonEmptyString).pipe(Schema.withDecodingDefault(() => null)),
+  runtimeMode: RuntimeMode,
+  model: Schema.NullOr(ModelSelection).pipe(Schema.withDecodingDefault(() => null)),
+  provider: Schema.NullOr(ProviderKind).pipe(Schema.withDecodingDefault(() => null)),
+  role: Schema.NullOr(TrimmedNonEmptyString).pipe(Schema.withDecodingDefault(() => null)),
+  branch: Schema.NullOr(TrimmedNonEmptyString).pipe(Schema.withDecodingDefault(() => null)),
+  bootstrapStatus: Schema.NullOr(TrimmedNonEmptyString).pipe(
+    Schema.withDecodingDefault(() => null),
+  ),
+  createdAt: IsoDateTime,
+  updatedAt: IsoDateTime,
+});
+export type SessionCreatedPayload = typeof SessionCreatedPayload.Type;
+
 export const ThreadDeletedPayload = Schema.Struct({
   threadId: ThreadId,
   deletedAt: IsoDateTime,
 });
+
+export const SessionStatusChangedPayload = Schema.Struct({
+  threadId: ThreadId,
+  status: SessionStatus,
+  previousStatus: SessionStatus,
+  updatedAt: IsoDateTime,
+});
+export type SessionStatusChangedPayload = typeof SessionStatusChangedPayload.Type;
+
+export const SessionCompletedPayload = Schema.Struct({
+  threadId: ThreadId,
+  completedAt: IsoDateTime,
+});
+export type SessionCompletedPayload = typeof SessionCompletedPayload.Type;
+
+export const SessionFailedPayload = Schema.Struct({
+  threadId: ThreadId,
+  error: Schema.String,
+  failedAt: IsoDateTime,
+});
+export type SessionFailedPayload = typeof SessionFailedPayload.Type;
+
+export const SessionCancelledPayload = Schema.Struct({
+  threadId: ThreadId,
+  reason: Schema.optional(Schema.String),
+  cancelledAt: IsoDateTime,
+});
+export type SessionCancelledPayload = typeof SessionCancelledPayload.Type;
 
 export const ThreadArchivedPayload = Schema.Struct({
   threadId: ThreadId,
@@ -1166,19 +1301,38 @@ export const ThreadArchivedPayload = Schema.Struct({
   updatedAt: IsoDateTime,
 });
 
+export const SessionArchivedPayload = Schema.Struct({
+  threadId: ThreadId,
+  archivedAt: IsoDateTime,
+});
+export type SessionArchivedPayload = typeof SessionArchivedPayload.Type;
+
 export const ThreadUnarchivedPayload = Schema.Struct({
   threadId: ThreadId,
   updatedAt: IsoDateTime,
 });
 
+export const SessionUnarchivedPayload = ThreadUnarchivedPayload;
+export type SessionUnarchivedPayload = typeof SessionUnarchivedPayload.Type;
+
 export const ThreadMetaUpdatedPayload = Schema.Struct({
   threadId: ThreadId,
   title: Schema.optional(TrimmedNonEmptyString),
+  description: Schema.optional(Schema.String),
   modelSelection: Schema.optional(ModelSelection),
   branch: Schema.optional(Schema.NullOr(TrimmedNonEmptyString)),
   worktreePath: Schema.optional(Schema.NullOr(TrimmedNonEmptyString)),
   updatedAt: IsoDateTime,
 });
+export const SessionMetaUpdatedPayload = ThreadMetaUpdatedPayload;
+export type SessionMetaUpdatedPayload = typeof SessionMetaUpdatedPayload.Type;
+
+export const SessionRestartedPayload = Schema.Struct({
+  threadId: ThreadId,
+  fromPhaseId: Schema.optional(WorkflowPhaseId),
+  restartedAt: IsoDateTime,
+});
+export type SessionRestartedPayload = typeof SessionRestartedPayload.Type;
 
 export const ThreadRuntimeModeSetPayload = Schema.Struct({
   threadId: ThreadId,
@@ -1419,6 +1573,10 @@ export type OrchestrationEvent = typeof OrchestrationEvent.Type;
 export const ForgeEventType = Schema.Union([
   OrchestrationEventType,
   Schema.Literals([
+    "thread.status-changed",
+    "thread.completed",
+    "thread.failed",
+    "thread.cancelled",
     "thread.phase-started",
     "thread.phase-completed",
     "thread.phase-failed",
@@ -1435,6 +1593,7 @@ export const ForgeEventType = Schema.Union([
     "thread.bootstrap-skipped",
     "thread.link-added",
     "thread.link-removed",
+    "thread.restarted",
     "thread.promoted",
     "thread.dependency-added",
     "thread.dependency-removed",
@@ -1705,7 +1864,42 @@ const ForgeEventBaseFields = {
 } as const;
 
 export const ForgeEvent = Schema.Union([
+  Schema.Struct({
+    ...ForgeEventBaseFields,
+    type: Schema.Literal("thread.created"),
+    payload: SessionCreatedPayload,
+  }),
   OrchestrationEvent,
+  Schema.Struct({
+    ...ForgeEventBaseFields,
+    type: Schema.Literal("thread.status-changed"),
+    payload: SessionStatusChangedPayload,
+  }),
+  Schema.Struct({
+    ...ForgeEventBaseFields,
+    type: Schema.Literal("thread.completed"),
+    payload: SessionCompletedPayload,
+  }),
+  Schema.Struct({
+    ...ForgeEventBaseFields,
+    type: Schema.Literal("thread.failed"),
+    payload: SessionFailedPayload,
+  }),
+  Schema.Struct({
+    ...ForgeEventBaseFields,
+    type: Schema.Literal("thread.cancelled"),
+    payload: SessionCancelledPayload,
+  }),
+  Schema.Struct({
+    ...ForgeEventBaseFields,
+    type: Schema.Literal("thread.archived"),
+    payload: SessionArchivedPayload,
+  }),
+  Schema.Struct({
+    ...ForgeEventBaseFields,
+    type: Schema.Literal("thread.restarted"),
+    payload: SessionRestartedPayload,
+  }),
   Schema.Struct({
     ...ForgeEventBaseFields,
     type: Schema.Literal("thread.phase-started"),

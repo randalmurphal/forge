@@ -462,6 +462,9 @@ const makeOrchestrationProjectionPipeline = Effect.fn("makeOrchestrationProjecti
     )(function* (event, attachmentSideEffects) {
       switch (event.type) {
         case "thread.created":
+          if (!("modelSelection" in event.payload) || !("interactionMode" in event.payload)) {
+            return;
+          }
           yield* projectionThreadRepository.upsert({
             threadId: event.payload.threadId,
             projectId: event.payload.projectId,
@@ -500,7 +503,8 @@ const makeOrchestrationProjectionPipeline = Effect.fn("makeOrchestrationProjecti
           yield* projectionThreadRepository.upsert({
             ...existingRow.value,
             archivedAt: event.payload.archivedAt,
-            updatedAt: event.payload.updatedAt,
+            updatedAt:
+              "updatedAt" in event.payload ? event.payload.updatedAt : event.payload.archivedAt,
           });
           return;
         }
