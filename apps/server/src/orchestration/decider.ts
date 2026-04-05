@@ -68,6 +68,7 @@ type ChannelCommand = Extract<
       | "channel.post-message"
       | "channel.read-messages"
       | "channel.conclude"
+      | "channel.mark-concluded"
       | "channel.close";
   }
 >;
@@ -1444,6 +1445,27 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
           threadId: command.threadId,
           summary: command.summary,
           proposedAt: command.createdAt,
+        },
+      };
+    }
+
+    case "channel.mark-concluded": {
+      yield* requireChannelOpen({
+        readModel,
+        command,
+        channelId: command.channelId,
+      });
+      return {
+        ...withEventBase({
+          aggregateKind: "channel",
+          aggregateId: command.channelId,
+          occurredAt: command.createdAt,
+          commandId: command.commandId,
+        }),
+        type: "channel.concluded",
+        payload: {
+          channelId: command.channelId,
+          concludedAt: command.createdAt,
         },
       };
     }

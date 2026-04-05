@@ -95,8 +95,9 @@ export const makeChannelMcpToolHandlers = Effect.fn("makeChannelMcpToolHandlers"
   const channelService = yield* ChannelService;
   const orchestrationEngine = yield* OrchestrationEngineService;
   const sql = yield* SqlClient.SqlClient;
+  const services = yield* Effect.services();
 
-  const run = <A, E>(effect: Effect.Effect<A, E>) => Effect.runPromise(effect);
+  const run = Effect.runPromiseWith(services);
 
   const getChannel = Effect.fn("McpChannelServer.getChannel")(function* () {
     const readModel = yield* orchestrationEngine.getReadModel();

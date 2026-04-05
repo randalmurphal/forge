@@ -303,6 +303,21 @@ describe("decider channel commands", () => {
       closedAt: now,
     });
   });
+
+  it("emits channel.concluded for channel.mark-concluded", async () => {
+    const result = await run({
+      type: "channel.mark-concluded",
+      commandId: CommandId.makeUnsafe("cmd-channel-mark-concluded"),
+      channelId: ChannelId.makeUnsafe("channel-open"),
+      createdAt: now,
+    });
+
+    const event = expectSingleEvent(result, "channel.concluded");
+    expect(event.payload).toEqual({
+      channelId: ChannelId.makeUnsafe("channel-open"),
+      concludedAt: now,
+    });
+  });
 });
 
 describe("decider interactive request commands", () => {

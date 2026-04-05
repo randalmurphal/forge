@@ -9,6 +9,7 @@ import {
   ChannelConcludedPayload,
   ChannelConclusionEvent,
   ChannelConcludeCommand,
+  ChannelMarkConcludedCommand,
   ChannelCreatedPayload,
   ChannelMessageEvent,
   ChannelCreateCommand,
@@ -1225,6 +1226,21 @@ it.effect("round-trips additive workflow, channel, and request commands through 
           commandId: "cmd-channel-close-1",
           channelId: "channel-1",
           createdAt: "2026-01-01T00:23:00.000Z",
+        },
+      },
+      {
+        schema: ChannelMarkConcludedCommand,
+        input: {
+          type: "channel.mark-concluded",
+          commandId: "cmd-channel-mark-concluded-1",
+          channelId: " channel-1 ",
+          createdAt: "2026-01-01T00:23:30.000Z",
+        },
+        expected: {
+          type: "channel.mark-concluded",
+          commandId: "cmd-channel-mark-concluded-1",
+          channelId: "channel-1",
+          createdAt: "2026-01-01T00:23:30.000Z",
         },
       },
       {

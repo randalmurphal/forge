@@ -995,6 +995,14 @@ export const ChannelConcludeCommand = Schema.Struct({
 });
 export type ChannelConcludeCommand = typeof ChannelConcludeCommand.Type;
 
+export const ChannelMarkConcludedCommand = Schema.Struct({
+  type: Schema.Literal("channel.mark-concluded"),
+  commandId: CommandId,
+  channelId: ChannelId,
+  createdAt: IsoDateTime,
+});
+export type ChannelMarkConcludedCommand = typeof ChannelMarkConcludedCommand.Type;
+
 export const ChannelCloseCommand = Schema.Struct({
   type: Schema.Literal("channel.close"),
   commandId: CommandId,
@@ -1189,6 +1197,7 @@ const ForgeInternalOrchestrationCommand = Schema.Union([
   ThreadBootstrapSkippedCommand,
   ChannelCreateCommand,
   ChannelConcludeCommand,
+  ChannelMarkConcludedCommand,
   ChannelCloseCommand,
   RequestOpenCommand,
   RequestMarkStaleCommand,
