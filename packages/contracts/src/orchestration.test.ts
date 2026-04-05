@@ -7,13 +7,17 @@ import {
   ChannelConclusionProposedPayload,
   ChannelCloseCommand,
   ChannelConcludedPayload,
+  ChannelConclusionEvent,
   ChannelConcludeCommand,
   ChannelCreatedPayload,
+  ChannelMessageEvent,
   ChannelCreateCommand,
   ChannelMessagePostedPayload,
   ChannelMessagesReadPayload,
   ChannelPostMessageCommand,
+  ChannelPushEvent,
   ChannelReadMessagesCommand,
+  ChannelStatusEvent,
   DEFAULT_PROVIDER_INTERACTION_MODE,
   DEFAULT_RUNTIME_MODE,
   ForgeCommand,
@@ -76,6 +80,11 @@ import {
   ThreadCreatedPayload,
   ThreadTurnDiff,
   ThreadTurnStartRequestedPayload,
+  WorkflowBootstrapEvent,
+  WorkflowGateEvent,
+  WorkflowPhaseEvent,
+  WorkflowPushEvent,
+  WorkflowQualityCheckEvent,
 } from "./orchestration";
 
 const decodeTurnDiffInput = Schema.decodeUnknownEffect(OrchestrationGetTurnDiffInput);
@@ -1802,6 +1811,199 @@ it.effect("round-trips additive workflow, channel, and request events through Fo
         payload: testCase.expectedPayload,
       });
       assert.deepStrictEqual(parsed, yield* decodeForgeEvent(testCase.event));
+    }
+  }),
+);
+
+it.effect("round-trips workflow push events from the foundation contracts", () =>
+  Effect.gen(function* () {
+    const cases = [
+      {
+        schema: WorkflowPhaseEvent,
+        input: {
+          channel: "workflow.phase",
+          threadId: "thread-1",
+          phaseRunId: " phase-run-1 ",
+          event: "completed",
+          phaseInfo: {
+            phaseId: " phase-1 ",
+            phaseName: " Implement ",
+            phaseType: "single-agent",
+            iteration: 1,
+          },
+          outputs: [{ key: " summary ", content: "Done", sourceType: " agent " }],
+          timestamp: "2026-01-01T02:00:00.000Z",
+        },
+        expected: {
+          channel: "workflow.phase",
+          threadId: "thread-1",
+          phaseRunId: "phase-run-1",
+          event: "completed",
+          phaseInfo: {
+            phaseId: "phase-1",
+            phaseName: "Implement",
+            phaseType: "single-agent",
+            iteration: 1,
+          },
+          outputs: [{ key: "summary", content: "Done", sourceType: "agent" }],
+          timestamp: "2026-01-01T02:00:00.000Z",
+        },
+      },
+      {
+        schema: WorkflowQualityCheckEvent,
+        input: {
+          channel: "workflow.quality-check",
+          threadId: "thread-1",
+          phaseRunId: " phase-run-1 ",
+          checkName: " lint ",
+          status: "failed",
+          output: "1 failure",
+          timestamp: "2026-01-01T02:01:00.000Z",
+        },
+        expected: {
+          channel: "workflow.quality-check",
+          threadId: "thread-1",
+          phaseRunId: "phase-run-1",
+          checkName: "lint",
+          status: "failed",
+          output: "1 failure",
+          timestamp: "2026-01-01T02:01:00.000Z",
+        },
+      },
+      {
+        schema: WorkflowBootstrapEvent,
+        input: {
+          channel: "workflow.bootstrap",
+          threadId: "thread-1",
+          event: "failed",
+          error: "Install failed",
+          timestamp: "2026-01-01T02:02:00.000Z",
+        },
+        expected: {
+          channel: "workflow.bootstrap",
+          threadId: "thread-1",
+          event: "failed",
+          error: "Install failed",
+          timestamp: "2026-01-01T02:02:00.000Z",
+        },
+      },
+      {
+        schema: WorkflowGateEvent,
+        input: {
+          channel: "workflow.gate",
+          threadId: "thread-1",
+          phaseRunId: " phase-run-1 ",
+          gateType: "human-approval",
+          status: "waiting-human",
+          requestId: " request-1 ",
+          timestamp: "2026-01-01T02:03:00.000Z",
+        },
+        expected: {
+          channel: "workflow.gate",
+          threadId: "thread-1",
+          phaseRunId: "phase-run-1",
+          gateType: "human-approval",
+          status: "waiting-human",
+          requestId: "request-1",
+          timestamp: "2026-01-01T02:03:00.000Z",
+        },
+      },
+    ] as const;
+
+    for (const testCase of cases) {
+      const { parsed, encoded } = yield* roundTrip(testCase.schema, testCase.input);
+      const unionParsed = yield* decode(WorkflowPushEvent, testCase.input);
+
+      assert.deepStrictEqual(parsed, testCase.expected);
+      assert.deepStrictEqual(encoded, testCase.expected);
+      assert.deepStrictEqual(unionParsed, testCase.expected);
+    }
+  }),
+);
+
+it.effect("round-trips channel push events from the foundation contracts", () =>
+  Effect.gen(function* () {
+    const cases = [
+      {
+        schema: ChannelMessageEvent,
+        input: {
+          channel: "channel.message",
+          channelId: " channel-1 ",
+          threadId: "thread-1",
+          message: {
+            id: " channel-message-1 ",
+            channelId: " channel-1 ",
+            sequence: 3,
+            fromType: "agent",
+            fromId: " thread-2 ",
+            fromRole: " reviewer ",
+            content: "Needs one more check",
+            createdAt: "2026-01-01T02:10:00.000Z",
+          },
+          timestamp: "2026-01-01T02:10:00.000Z",
+        },
+        expected: {
+          channel: "channel.message",
+          channelId: "channel-1",
+          threadId: "thread-1",
+          message: {
+            id: "channel-message-1",
+            channelId: "channel-1",
+            sequence: 3,
+            fromType: "agent",
+            fromId: "thread-2",
+            fromRole: "reviewer",
+            content: "Needs one more check",
+            createdAt: "2026-01-01T02:10:00.000Z",
+          },
+          timestamp: "2026-01-01T02:10:00.000Z",
+        },
+      },
+      {
+        schema: ChannelConclusionEvent,
+        input: {
+          channel: "channel.conclusion",
+          channelId: " channel-1 ",
+          threadId: "thread-1",
+          sessionId: " thread-2 ",
+          summary: "Consensus reached",
+          allProposed: true,
+          timestamp: "2026-01-01T02:11:00.000Z",
+        },
+        expected: {
+          channel: "channel.conclusion",
+          channelId: "channel-1",
+          threadId: "thread-1",
+          sessionId: "thread-2",
+          summary: "Consensus reached",
+          allProposed: true,
+          timestamp: "2026-01-01T02:11:00.000Z",
+        },
+      },
+      {
+        schema: ChannelStatusEvent,
+        input: {
+          channel: "channel.status",
+          channelId: " channel-1 ",
+          status: "closed",
+          timestamp: "2026-01-01T02:12:00.000Z",
+        },
+        expected: {
+          channel: "channel.status",
+          channelId: "channel-1",
+          status: "closed",
+          timestamp: "2026-01-01T02:12:00.000Z",
+        },
+      },
+    ] as const;
+
+    for (const testCase of cases) {
+      const { parsed, encoded } = yield* roundTrip(testCase.schema, testCase.input);
+      const unionParsed = yield* decode(ChannelPushEvent, testCase.input);
+
+      assert.deepStrictEqual(parsed, testCase.expected);
+      assert.deepStrictEqual(encoded, testCase.expected);
+      assert.deepStrictEqual(unionParsed, testCase.expected);
     }
   }),
 );

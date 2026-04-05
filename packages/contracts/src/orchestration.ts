@@ -21,7 +21,13 @@ import {
   WorkflowId,
   WorkflowPhaseId,
 } from "./baseSchemas";
-import { Channel, ChannelParticipantType, ChannelType } from "./channel";
+import {
+  Channel,
+  ChannelMessage,
+  ChannelParticipantType,
+  ChannelStatus,
+  ChannelType,
+} from "./channel";
 import {
   InteractiveRequest,
   InteractiveRequestPayload,
@@ -30,6 +36,7 @@ import {
 } from "./interactiveRequest";
 import { ModelSelection, ProviderApprovalDecision } from "./providerSchemas";
 import {
+  GateAfter,
   GateResult,
   PhaseRunStatus,
   PhaseType,
@@ -1697,6 +1704,98 @@ export const ForgeEvent = Schema.Union([
   }),
 ]);
 export type ForgeEvent = typeof ForgeEvent.Type;
+
+export const WorkflowPhaseEvent = Schema.Struct({
+  channel: Schema.Literal("workflow.phase"),
+  threadId: ThreadId,
+  phaseRunId: PhaseRunId,
+  event: Schema.Literals(["started", "completed", "failed", "skipped"]),
+  phaseInfo: Schema.Struct({
+    phaseId: WorkflowPhaseId,
+    phaseName: TrimmedNonEmptyString,
+    phaseType: PhaseType,
+    iteration: PositiveInt,
+  }),
+  outputs: Schema.optional(Schema.Array(PhaseOutputEntry)),
+  error: Schema.optional(Schema.String),
+  timestamp: IsoDateTime,
+});
+export type WorkflowPhaseEvent = typeof WorkflowPhaseEvent.Type;
+
+export const WorkflowQualityCheckEvent = Schema.Struct({
+  channel: Schema.Literal("workflow.quality-check"),
+  threadId: ThreadId,
+  phaseRunId: PhaseRunId,
+  checkName: TrimmedNonEmptyString,
+  status: Schema.Literals(["running", "passed", "failed"]),
+  output: Schema.optional(Schema.String),
+  timestamp: IsoDateTime,
+});
+export type WorkflowQualityCheckEvent = typeof WorkflowQualityCheckEvent.Type;
+
+export const WorkflowBootstrapEvent = Schema.Struct({
+  channel: Schema.Literal("workflow.bootstrap"),
+  threadId: ThreadId,
+  event: Schema.Literals(["started", "output", "completed", "failed", "skipped"]),
+  data: Schema.optional(Schema.String),
+  error: Schema.optional(Schema.String),
+  timestamp: IsoDateTime,
+});
+export type WorkflowBootstrapEvent = typeof WorkflowBootstrapEvent.Type;
+
+export const WorkflowGateEvent = Schema.Struct({
+  channel: Schema.Literal("workflow.gate"),
+  threadId: ThreadId,
+  phaseRunId: PhaseRunId,
+  gateType: GateAfter,
+  status: Schema.Literals(["evaluating", "passed", "waiting-human", "failed"]),
+  requestId: Schema.optional(InteractiveRequestId),
+  timestamp: IsoDateTime,
+});
+export type WorkflowGateEvent = typeof WorkflowGateEvent.Type;
+
+export const WorkflowPushEvent = Schema.Union([
+  WorkflowPhaseEvent,
+  WorkflowQualityCheckEvent,
+  WorkflowBootstrapEvent,
+  WorkflowGateEvent,
+]);
+export type WorkflowPushEvent = typeof WorkflowPushEvent.Type;
+
+export const ChannelMessageEvent = Schema.Struct({
+  channel: Schema.Literal("channel.message"),
+  channelId: ChannelId,
+  threadId: ThreadId,
+  message: ChannelMessage,
+  timestamp: IsoDateTime,
+});
+export type ChannelMessageEvent = typeof ChannelMessageEvent.Type;
+
+export const ChannelConclusionEvent = Schema.Struct({
+  channel: Schema.Literal("channel.conclusion"),
+  channelId: ChannelId,
+  threadId: ThreadId,
+  sessionId: ThreadId,
+  summary: Schema.String,
+  allProposed: Schema.Boolean,
+  timestamp: IsoDateTime,
+});
+export type ChannelConclusionEvent = typeof ChannelConclusionEvent.Type;
+
+export const ChannelStatusEvent = Schema.Struct({
+  channel: Schema.Literal("channel.status"),
+  channelId: ChannelId,
+  status: ChannelStatus,
+  timestamp: IsoDateTime,
+});
+export type ChannelStatusEvent = typeof ChannelStatusEvent.Type;
+
+export const ChannelPushEvent = Schema.Union([
+  ChannelMessageEvent,
+  ChannelConclusionEvent,
+  ChannelStatusEvent,
+]);
+export type ChannelPushEvent = typeof ChannelPushEvent.Type;
 
 export const OrchestrationCommandReceiptStatus = Schema.Literals(["accepted", "rejected"]);
 export type OrchestrationCommandReceiptStatus = typeof OrchestrationCommandReceiptStatus.Type;
