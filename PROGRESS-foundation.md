@@ -40,6 +40,7 @@
 - WI-16: Decider extensions -- workflow commands
 - WI-17: Decider extensions -- channel commands
 - WI-18: Decider extensions -- interactive request commands
+- WI-19: Projector extensions -- workflow events
 
 ## Iteration Log
 
@@ -61,6 +62,7 @@
 - 2026-04-05: Implemented WI-16 by extending the orchestration decider with the staged workflow-thread command surface (`thread.correct`, phase lifecycle, quality checks, bootstrap, links, promotion, and dependencies), widening command invariants to the staged Forge command subset with new same-project/distinct-thread helpers, adding focused decider coverage for valid emissions and invariant failures in `decider.workflow.test.ts`, and confirming `bun fmt`, `bun lint`, `bun typecheck`, and `bun run test` all pass.
 - 2026-04-05: Implemented WI-17 by extending the orchestration decider with additive channel command handling for create/post-message/conclude/close, adding typed channel invariants plus minimal read-model channel state needed for validation, deriving deterministic channel message sequences from the orchestration snapshot cursor, adding focused decider coverage in `decider.channelRequest.test.ts`, and confirming `bun fmt`, `bun lint`, `bun typecheck`, and `bun run test` all pass.
 - 2026-04-05: Implemented WI-18 by extending the orchestration decider with additive interactive-request command handling for open/resolve/mark-stale, adding pending-request invariants plus minimal read-model request state for validation, covering the new request flows and invariant failures in `decider.channelRequest.test.ts`, and confirming `bun fmt`, `bun lint`, `bun typecheck`, and `bun run test` all pass.
+- 2026-04-05: Implemented WI-19 by extending the orchestration projector to accept the staged Forge event surface, adding workflow event handlers for phase lifecycle, quality checks, bootstrap state, corrections, links, dependencies, promotion, and synthesis with additive projected workflow state (`phaseRuns`, link/dependency tracking, and future-aligned thread fields), adding focused workflow projection coverage in `projector.test.ts`, and confirming `bun fmt`, `bun lint`, `bun typecheck`, and `bun run test` all pass.
 
 ## Review Log
 

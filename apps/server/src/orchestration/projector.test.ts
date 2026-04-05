@@ -1,24 +1,73 @@
 import {
   CommandId,
   EventId,
+  LinkId,
+  PhaseRunId,
   ProjectId,
   ThreadId,
-  type OrchestrationEvent,
+  WorkflowPhaseId,
+  type ForgeEvent,
+  type OrchestrationReadModel,
 } from "@t3tools/contracts";
 import { Effect } from "effect";
 import { describe, expect, it } from "vitest";
 
 import { createEmptyReadModel, projectEvent } from "./projector.ts";
 
+type ProjectedWorkflowReadModel = OrchestrationReadModel & {
+  readonly threads: ReadonlyArray<
+    OrchestrationReadModel["threads"][number] & {
+      readonly phaseRunId: string | null;
+      readonly currentPhaseId: string | null;
+      readonly bootstrapStatus: string | null;
+    }
+  >;
+  readonly phaseRuns: ReadonlyArray<{
+    readonly phaseRunId: string;
+    readonly threadId: string;
+    readonly phaseId: string;
+    readonly phaseName: string;
+    readonly phaseType: string;
+    readonly iteration: number;
+    readonly status: string;
+    readonly outputs: ReadonlyArray<{ readonly key: string; readonly content: string }>;
+    readonly gateResult: unknown;
+    readonly qualityCheckReferences: ReadonlyArray<unknown> | null;
+    readonly qualityCheckResults: ReadonlyArray<unknown> | null;
+    readonly startedAt: string | null;
+    readonly completedAt: string | null;
+    readonly failure: string | null;
+  }>;
+  readonly threadLinks: ReadonlyArray<{
+    readonly threadId: string;
+    readonly linkId: string;
+    readonly linkType: string;
+    readonly linkedThreadId: string | null;
+  }>;
+  readonly threadDependencies: ReadonlyArray<{
+    readonly threadId: string;
+    readonly dependsOnThreadId: string;
+    readonly satisfiedAt: string | null;
+  }>;
+  readonly corrections: ReadonlyArray<{
+    readonly threadId: string;
+    readonly deliveredAt: string | null;
+  }>;
+  readonly synthesis: ReadonlyArray<{
+    readonly threadId: string;
+    readonly completedAt: string;
+  }>;
+};
+
 function makeEvent(input: {
   sequence: number;
-  type: OrchestrationEvent["type"];
+  type: ForgeEvent["type"];
   occurredAt: string;
-  aggregateKind: OrchestrationEvent["aggregateKind"];
+  aggregateKind: ForgeEvent["aggregateKind"];
   aggregateId: string;
   commandId: string | null;
   payload: unknown;
-}): OrchestrationEvent {
+}): ForgeEvent {
   return {
     sequence: input.sequence,
     eventId: EventId.makeUnsafe(`event-${input.sequence}`),
@@ -34,7 +83,7 @@ function makeEvent(input: {
     correlationId: null,
     metadata: {},
     payload: input.payload as never,
-  } as OrchestrationEvent;
+  } as ForgeEvent;
 }
 
 describe("orchestration projector", () => {
@@ -89,6 +138,14 @@ describe("orchestration projector", () => {
         updatedAt: now,
         archivedAt: null,
         deletedAt: null,
+        parentThreadId: null,
+        phaseRunId: null,
+        workflowId: null,
+        currentPhaseId: null,
+        patternId: null,
+        role: null,
+        childThreadIds: [],
+        bootstrapStatus: null,
         messages: [],
         proposedPlans: [],
         activities: [],
@@ -476,7 +533,7 @@ describe("orchestration projector", () => {
       ),
     );
 
-    const events: ReadonlyArray<OrchestrationEvent> = [
+    const events: ReadonlyArray<ForgeEvent> = [
       makeEvent({
         sequence: 2,
         type: "thread.message-sent",
@@ -691,7 +748,7 @@ describe("orchestration projector", () => {
       ),
     );
 
-    const events: ReadonlyArray<OrchestrationEvent> = [
+    const events: ReadonlyArray<ForgeEvent> = [
       makeEvent({
         sequence: 2,
         type: "thread.turn-diff-completed",
@@ -844,27 +901,25 @@ describe("orchestration projector", () => {
       ),
     );
 
-    const messageEvents: ReadonlyArray<OrchestrationEvent> = Array.from(
-      { length: 2_100 },
-      (_, index) =>
-        makeEvent({
-          sequence: index + 2,
-          type: "thread.message-sent",
-          aggregateKind: "thread",
-          aggregateId: "thread-capped",
-          occurredAt: `2026-03-01T10:00:${String(index % 60).padStart(2, "0")}.000Z`,
-          commandId: `cmd-message-${index}`,
-          payload: {
-            threadId: "thread-capped",
-            messageId: `msg-${index}`,
-            role: "assistant",
-            text: `message-${index}`,
-            turnId: `turn-${index}`,
-            streaming: false,
-            createdAt: `2026-03-01T10:00:${String(index % 60).padStart(2, "0")}.000Z`,
-            updatedAt: `2026-03-01T10:00:${String(index % 60).padStart(2, "0")}.000Z`,
-          },
-        }),
+    const messageEvents: ReadonlyArray<ForgeEvent> = Array.from({ length: 2_100 }, (_, index) =>
+      makeEvent({
+        sequence: index + 2,
+        type: "thread.message-sent",
+        aggregateKind: "thread",
+        aggregateId: "thread-capped",
+        occurredAt: `2026-03-01T10:00:${String(index % 60).padStart(2, "0")}.000Z`,
+        commandId: `cmd-message-${index}`,
+        payload: {
+          threadId: "thread-capped",
+          messageId: `msg-${index}`,
+          role: "assistant",
+          text: `message-${index}`,
+          turnId: `turn-${index}`,
+          streaming: false,
+          createdAt: `2026-03-01T10:00:${String(index % 60).padStart(2, "0")}.000Z`,
+          updatedAt: `2026-03-01T10:00:${String(index % 60).padStart(2, "0")}.000Z`,
+        },
+      }),
     );
     const afterMessages = await messageEvents.reduce<
       Promise<ReturnType<typeof createEmptyReadModel>>
@@ -874,27 +929,25 @@ describe("orchestration projector", () => {
       Promise.resolve(afterCreate),
     );
 
-    const checkpointEvents: ReadonlyArray<OrchestrationEvent> = Array.from(
-      { length: 600 },
-      (_, index) =>
-        makeEvent({
-          sequence: index + 2_102,
-          type: "thread.turn-diff-completed",
-          aggregateKind: "thread",
-          aggregateId: "thread-capped",
-          occurredAt: `2026-03-01T10:30:${String(index % 60).padStart(2, "0")}.000Z`,
-          commandId: `cmd-checkpoint-${index}`,
-          payload: {
-            threadId: "thread-capped",
-            turnId: `turn-${index}`,
-            checkpointTurnCount: index + 1,
-            checkpointRef: `refs/t3/checkpoints/thread-capped/turn/${index + 1}`,
-            status: "ready",
-            files: [],
-            assistantMessageId: `msg-${index}`,
-            completedAt: `2026-03-01T10:30:${String(index % 60).padStart(2, "0")}.000Z`,
-          },
-        }),
+    const checkpointEvents: ReadonlyArray<ForgeEvent> = Array.from({ length: 600 }, (_, index) =>
+      makeEvent({
+        sequence: index + 2_102,
+        type: "thread.turn-diff-completed",
+        aggregateKind: "thread",
+        aggregateId: "thread-capped",
+        occurredAt: `2026-03-01T10:30:${String(index % 60).padStart(2, "0")}.000Z`,
+        commandId: `cmd-checkpoint-${index}`,
+        payload: {
+          threadId: "thread-capped",
+          turnId: `turn-${index}`,
+          checkpointTurnCount: index + 1,
+          checkpointRef: `refs/t3/checkpoints/thread-capped/turn/${index + 1}`,
+          status: "ready",
+          files: [],
+          assistantMessageId: `msg-${index}`,
+          completedAt: `2026-03-01T10:30:${String(index % 60).padStart(2, "0")}.000Z`,
+        },
+      }),
     );
     const finalState = await checkpointEvents.reduce<
       Promise<ReturnType<typeof createEmptyReadModel>>
@@ -911,5 +964,387 @@ describe("orchestration projector", () => {
     expect(thread?.checkpoints).toHaveLength(500);
     expect(thread?.checkpoints[0]?.turnId).toBe("turn-100");
     expect(thread?.checkpoints.at(-1)?.turnId).toBe("turn-599");
+  });
+
+  it("projects workflow phase lifecycle, quality checks, bootstrap, corrections, and synthesis", async () => {
+    const createdAt = "2026-04-05T12:00:00.000Z";
+    const phaseStartedAt = "2026-04-05T12:01:00.000Z";
+    const qualityStartedAt = "2026-04-05T12:02:00.000Z";
+    const qualityCompletedAt = "2026-04-05T12:03:00.000Z";
+    const phaseCompletedAt = "2026-04-05T12:04:00.000Z";
+    const bootstrapStartedAt = "2026-04-05T12:05:00.000Z";
+    const bootstrapCompletedAt = "2026-04-05T12:06:00.000Z";
+    const correctionQueuedAt = "2026-04-05T12:07:00.000Z";
+    const correctionDeliveredAt = "2026-04-05T12:08:00.000Z";
+    const synthesisCompletedAt = "2026-04-05T12:09:00.000Z";
+
+    const events: ReadonlyArray<ForgeEvent> = [
+      makeEvent({
+        sequence: 1,
+        type: "thread.created",
+        aggregateKind: "thread",
+        aggregateId: "thread-workflow",
+        occurredAt: createdAt,
+        commandId: "cmd-create-workflow-thread",
+        payload: {
+          threadId: "thread-workflow",
+          projectId: "project-1",
+          title: "Workflow thread",
+          modelSelection: {
+            provider: "codex",
+            model: "gpt-5-codex",
+          },
+          runtimeMode: "full-access",
+          branch: null,
+          worktreePath: null,
+          createdAt,
+          updatedAt: createdAt,
+        },
+      }),
+      makeEvent({
+        sequence: 2,
+        type: "thread.phase-started",
+        aggregateKind: "thread",
+        aggregateId: "thread-workflow",
+        occurredAt: phaseStartedAt,
+        commandId: "cmd-phase-start",
+        payload: {
+          threadId: "thread-workflow",
+          phaseRunId: "phase-run-1",
+          phaseId: "phase-plan",
+          phaseName: "Plan",
+          phaseType: "single-agent",
+          iteration: 1,
+          startedAt: phaseStartedAt,
+        },
+      }),
+      makeEvent({
+        sequence: 3,
+        type: "thread.quality-check-started",
+        aggregateKind: "thread",
+        aggregateId: "thread-workflow",
+        occurredAt: qualityStartedAt,
+        commandId: "cmd-quality-start",
+        payload: {
+          threadId: "thread-workflow",
+          phaseRunId: "phase-run-1",
+          checks: [{ check: "lint", required: true }],
+          startedAt: qualityStartedAt,
+        },
+      }),
+      makeEvent({
+        sequence: 4,
+        type: "thread.quality-check-completed",
+        aggregateKind: "thread",
+        aggregateId: "thread-workflow",
+        occurredAt: qualityCompletedAt,
+        commandId: "cmd-quality-complete",
+        payload: {
+          threadId: "thread-workflow",
+          phaseRunId: "phase-run-1",
+          results: [{ check: "lint", passed: true, output: "ok" }],
+          completedAt: qualityCompletedAt,
+        },
+      }),
+      makeEvent({
+        sequence: 5,
+        type: "thread.phase-completed",
+        aggregateKind: "thread",
+        aggregateId: "thread-workflow",
+        occurredAt: phaseCompletedAt,
+        commandId: "cmd-phase-complete",
+        payload: {
+          threadId: "thread-workflow",
+          phaseRunId: "phase-run-1",
+          outputs: [{ key: "output", content: "phase complete", sourceType: "agent" }],
+          gateResult: {
+            status: "passed",
+            qualityCheckResults: [{ check: "lint", passed: true, output: "ok" }],
+            evaluatedAt: phaseCompletedAt,
+          },
+          completedAt: phaseCompletedAt,
+        },
+      }),
+      makeEvent({
+        sequence: 6,
+        type: "thread.bootstrap-started",
+        aggregateKind: "thread",
+        aggregateId: "thread-workflow",
+        occurredAt: bootstrapStartedAt,
+        commandId: "cmd-bootstrap-start",
+        payload: {
+          threadId: "thread-workflow",
+          startedAt: bootstrapStartedAt,
+        },
+      }),
+      makeEvent({
+        sequence: 7,
+        type: "thread.bootstrap-completed",
+        aggregateKind: "thread",
+        aggregateId: "thread-workflow",
+        occurredAt: bootstrapCompletedAt,
+        commandId: "cmd-bootstrap-complete",
+        payload: {
+          threadId: "thread-workflow",
+          completedAt: bootstrapCompletedAt,
+        },
+      }),
+      makeEvent({
+        sequence: 8,
+        type: "thread.correction-queued",
+        aggregateKind: "thread",
+        aggregateId: "thread-workflow",
+        occurredAt: correctionQueuedAt,
+        commandId: "cmd-correction-queued",
+        payload: {
+          threadId: "thread-workflow",
+          content: "Tighten the plan.",
+          channelId: "channel-guidance-1",
+          messageId: "channel-message-1",
+          createdAt: correctionQueuedAt,
+        },
+      }),
+      makeEvent({
+        sequence: 9,
+        type: "thread.correction-delivered",
+        aggregateKind: "thread",
+        aggregateId: "thread-workflow",
+        occurredAt: correctionDeliveredAt,
+        commandId: "cmd-correction-delivered",
+        payload: {
+          threadId: "thread-workflow",
+          deliveredAt: correctionDeliveredAt,
+        },
+      }),
+      makeEvent({
+        sequence: 10,
+        type: "thread.synthesis-completed",
+        aggregateKind: "thread",
+        aggregateId: "thread-workflow",
+        occurredAt: synthesisCompletedAt,
+        commandId: "cmd-synthesis-complete",
+        payload: {
+          threadId: "thread-workflow",
+          content: "Final synthesis",
+          generatedByThreadId: "thread-workflow",
+          completedAt: synthesisCompletedAt,
+        },
+      }),
+    ];
+
+    const finalState = (await events.reduce<Promise<OrchestrationReadModel>>(
+      (statePromise, event) =>
+        statePromise.then((state) => Effect.runPromise(projectEvent(state, event))),
+      Promise.resolve(createEmptyReadModel(createdAt)),
+    )) as ProjectedWorkflowReadModel;
+
+    const thread = finalState.threads[0];
+    const phaseRun = finalState.phaseRuns[0];
+    const correction = finalState.corrections[0];
+    const synthesis = finalState.synthesis[0];
+
+    expect(thread?.phaseRunId).toBeNull();
+    expect(thread?.currentPhaseId).toBeNull();
+    expect(thread?.bootstrapStatus).toBe("completed");
+    expect(phaseRun).toEqual({
+      phaseRunId: PhaseRunId.makeUnsafe("phase-run-1"),
+      threadId: ThreadId.makeUnsafe("thread-workflow"),
+      phaseId: WorkflowPhaseId.makeUnsafe("phase-plan"),
+      phaseName: "Plan",
+      phaseType: "single-agent",
+      iteration: 1,
+      status: "completed",
+      outputs: [{ key: "output", content: "phase complete", sourceType: "agent" }],
+      gateResult: {
+        status: "passed",
+        qualityCheckResults: [{ check: "lint", passed: true, output: "ok" }],
+        evaluatedAt: phaseCompletedAt,
+      },
+      qualityCheckReferences: [{ check: "lint", required: true }],
+      qualityCheckResults: [{ check: "lint", passed: true, output: "ok" }],
+      startedAt: phaseStartedAt,
+      completedAt: phaseCompletedAt,
+      failure: null,
+    });
+    expect(correction).toEqual(
+      expect.objectContaining({
+        threadId: ThreadId.makeUnsafe("thread-workflow"),
+        deliveredAt: correctionDeliveredAt,
+      }),
+    );
+    expect(synthesis).toEqual(
+      expect.objectContaining({
+        threadId: ThreadId.makeUnsafe("thread-workflow"),
+        completedAt: synthesisCompletedAt,
+      }),
+    );
+  });
+
+  it("projects workflow link, promotion, and dependency state", async () => {
+    const createdAt = "2026-04-05T13:00:00.000Z";
+    const linkCreatedAt = "2026-04-05T13:01:00.000Z";
+    const promotedAt = "2026-04-05T13:02:00.000Z";
+    const dependencyCreatedAt = "2026-04-05T13:03:00.000Z";
+    const dependenciesSatisfiedAt = "2026-04-05T13:04:00.000Z";
+    const dependencyRemovedAt = "2026-04-05T13:05:00.000Z";
+    const linkRemovedAt = "2026-04-05T13:06:00.000Z";
+
+    const events: ReadonlyArray<ForgeEvent> = [
+      makeEvent({
+        sequence: 1,
+        type: "thread.created",
+        aggregateKind: "thread",
+        aggregateId: "thread-source",
+        occurredAt: createdAt,
+        commandId: "cmd-create-source",
+        payload: {
+          threadId: "thread-source",
+          projectId: "project-1",
+          title: "Source",
+          modelSelection: { provider: "codex", model: "gpt-5-codex" },
+          runtimeMode: "full-access",
+          branch: null,
+          worktreePath: null,
+          createdAt,
+          updatedAt: createdAt,
+        },
+      }),
+      makeEvent({
+        sequence: 2,
+        type: "thread.created",
+        aggregateKind: "thread",
+        aggregateId: "thread-target",
+        occurredAt: createdAt,
+        commandId: "cmd-create-target",
+        payload: {
+          threadId: "thread-target",
+          projectId: "project-1",
+          title: "Target",
+          modelSelection: { provider: "codex", model: "gpt-5-codex" },
+          runtimeMode: "full-access",
+          branch: null,
+          worktreePath: null,
+          createdAt,
+          updatedAt: createdAt,
+        },
+      }),
+      makeEvent({
+        sequence: 3,
+        type: "thread.link-added",
+        aggregateKind: "thread",
+        aggregateId: "thread-source",
+        occurredAt: linkCreatedAt,
+        commandId: "cmd-link-add",
+        payload: {
+          threadId: "thread-source",
+          linkId: "link-related-1",
+          linkType: "related",
+          linkedThreadId: "thread-target",
+          externalId: null,
+          externalUrl: null,
+          createdAt: linkCreatedAt,
+        },
+      }),
+      makeEvent({
+        sequence: 4,
+        type: "thread.promoted",
+        aggregateKind: "thread",
+        aggregateId: "thread-source",
+        occurredAt: promotedAt,
+        commandId: "cmd-promote",
+        payload: {
+          sourceThreadId: "thread-source",
+          targetThreadId: "thread-target",
+          promotedAt,
+        },
+      }),
+      makeEvent({
+        sequence: 5,
+        type: "thread.dependency-added",
+        aggregateKind: "thread",
+        aggregateId: "thread-target",
+        occurredAt: dependencyCreatedAt,
+        commandId: "cmd-dependency-add",
+        payload: {
+          threadId: "thread-target",
+          dependsOnThreadId: "thread-source",
+          createdAt: dependencyCreatedAt,
+        },
+      }),
+      makeEvent({
+        sequence: 6,
+        type: "thread.dependencies-satisfied",
+        aggregateKind: "thread",
+        aggregateId: "thread-target",
+        occurredAt: dependenciesSatisfiedAt,
+        commandId: "cmd-dependency-satisfied",
+        payload: {
+          threadId: "thread-target",
+          satisfiedAt: dependenciesSatisfiedAt,
+        },
+      }),
+      makeEvent({
+        sequence: 7,
+        type: "thread.dependency-removed",
+        aggregateKind: "thread",
+        aggregateId: "thread-target",
+        occurredAt: dependencyRemovedAt,
+        commandId: "cmd-dependency-remove",
+        payload: {
+          threadId: "thread-target",
+          dependsOnThreadId: "thread-source",
+          removedAt: dependencyRemovedAt,
+        },
+      }),
+      makeEvent({
+        sequence: 8,
+        type: "thread.link-removed",
+        aggregateKind: "thread",
+        aggregateId: "thread-source",
+        occurredAt: linkRemovedAt,
+        commandId: "cmd-link-remove",
+        payload: {
+          threadId: "thread-source",
+          linkId: "link-related-1",
+          removedAt: linkRemovedAt,
+        },
+      }),
+    ];
+
+    const finalState = (await events.reduce<Promise<OrchestrationReadModel>>(
+      (statePromise, event) =>
+        statePromise.then((state) => Effect.runPromise(projectEvent(state, event))),
+      Promise.resolve(createEmptyReadModel(createdAt)),
+    )) as ProjectedWorkflowReadModel;
+
+    expect(finalState.threadLinks).toEqual([]);
+    expect(finalState.threadDependencies).toEqual([]);
+
+    const promotedThread = finalState.threads.find((thread) => thread.id === "thread-source");
+    expect(promotedThread?.updatedAt).toBe(linkRemovedAt);
+
+    const intermediateState = (await events
+      .slice(0, 6)
+      .reduce<Promise<OrchestrationReadModel>>(
+        (statePromise, event) =>
+          statePromise.then((state) => Effect.runPromise(projectEvent(state, event))),
+        Promise.resolve(createEmptyReadModel(createdAt)),
+      )) as ProjectedWorkflowReadModel;
+
+    expect(intermediateState.threadLinks).toEqual([
+      expect.objectContaining({
+        threadId: ThreadId.makeUnsafe("thread-source"),
+        linkId: LinkId.makeUnsafe("link-related-1"),
+        linkType: "related",
+        linkedThreadId: ThreadId.makeUnsafe("thread-target"),
+      }),
+    ]);
+    expect(intermediateState.threadDependencies).toEqual([
+      expect.objectContaining({
+        threadId: ThreadId.makeUnsafe("thread-target"),
+        dependsOnThreadId: ThreadId.makeUnsafe("thread-source"),
+        satisfiedAt: dependenciesSatisfiedAt,
+      }),
+    ]);
   });
 });
