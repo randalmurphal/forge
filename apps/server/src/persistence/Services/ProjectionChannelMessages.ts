@@ -15,7 +15,7 @@ import {
   ThreadId,
   TrimmedNonEmptyString,
 } from "@t3tools/contracts";
-import { Schema, ServiceMap } from "effect";
+import { Option, Schema, ServiceMap } from "effect";
 import type { Effect } from "effect";
 
 import type { ProjectionRepositoryError } from "../Errors.ts";
@@ -58,6 +58,12 @@ export const QueryProjectionChannelMessagesByChannelIdInput = Schema.Struct({
 export type QueryProjectionChannelMessagesByChannelIdInput =
   typeof QueryProjectionChannelMessagesByChannelIdInput.Type;
 
+export const QueryProjectionChannelMessageByIdInput = Schema.Struct({
+  messageId: ChannelMessageId,
+});
+export type QueryProjectionChannelMessageByIdInput =
+  typeof QueryProjectionChannelMessageByIdInput.Type;
+
 export const GetProjectionChannelUnreadCountInput = Schema.Struct({
   channelId: ChannelId,
   threadId: ThreadId,
@@ -85,6 +91,13 @@ export interface ProjectionChannelMessageRepositoryShape {
   readonly queryByChannelId: (
     input: QueryProjectionChannelMessagesByChannelIdInput,
   ) => Effect.Effect<ReadonlyArray<ProjectionChannelMessage>, ProjectionRepositoryError>;
+
+  /**
+   * Read a single channel message row by id.
+   */
+  readonly queryById: (
+    input: QueryProjectionChannelMessageByIdInput,
+  ) => Effect.Effect<Option.Option<ProjectionChannelMessage>, ProjectionRepositoryError>;
 
   /**
    * Count unread messages for a participating thread using `channel_reads`.

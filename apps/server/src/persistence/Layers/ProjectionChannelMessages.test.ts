@@ -1,6 +1,6 @@
 import { ChannelId, ChannelMessageId, ThreadId } from "@t3tools/contracts";
 import { assert, it } from "@effect/vitest";
-import { Effect, Layer, Schema } from "effect";
+import { Effect, Layer, Option, Schema } from "effect";
 import * as SqlClient from "effect/unstable/sql/SqlClient";
 
 import { PersistenceDecodeError } from "../Errors.ts";
@@ -123,6 +123,22 @@ layer("ProjectionChannelMessageRepository", (it) => {
         secondPage.map((message) => message.sequence),
         [2, 3],
       );
+
+      const byId = yield* messages.queryById({
+        messageId: ChannelMessageId.makeUnsafe("message-2"),
+      });
+      assert.deepStrictEqual(Option.getOrNull(byId), {
+        messageId: ChannelMessageId.makeUnsafe("message-2"),
+        channelId,
+        sequence: 1,
+        fromType: "agent",
+        fromId: "thread-child-reviewer",
+        fromRole: "reviewer",
+        content: "I found one issue",
+        metadata: { severity: "high" },
+        createdAt: "2026-04-05T14:11:00.000Z",
+        deletedAt: null,
+      });
 
       const unreadBeforeCursor = yield* messages.getUnreadCount({
         channelId,

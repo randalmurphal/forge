@@ -1,4 +1,4 @@
-import { Effect, Layer, Schema, Struct } from "effect";
+import { Effect, Layer, Option, Schema, Struct } from "effect";
 import * as SqlClient from "effect/unstable/sql/SqlClient";
 import * as SqlSchema from "effect/unstable/sql/SqlSchema";
 
@@ -7,6 +7,7 @@ import {
   GetProjectionChannelUnreadCountInput,
   ProjectionChannelMessage,
   ProjectionChannelMessageRepository,
+  QueryProjectionChannelMessageByIdInput,
   QueryProjectionChannelMessagesByChannelIdInput,
   type ProjectionChannelMessageRepositoryShape,
 } from "../Services/ProjectionChannelMessages.ts";
@@ -90,6 +91,28 @@ const makeProjectionChannelMessageRepository = Effect.gen(function* () {
       `,
   });
 
+  const queryProjectionChannelMessageRowById = SqlSchema.findOneOption({
+    Request: QueryProjectionChannelMessageByIdInput,
+    Result: ProjectionChannelMessageDbRow,
+    execute: ({ messageId }) =>
+      sql`
+        SELECT
+          message_id AS "messageId",
+          channel_id AS "channelId",
+          sequence,
+          from_type AS "fromType",
+          from_id AS "fromId",
+          from_role AS "fromRole",
+          content,
+          metadata_json AS "metadata",
+          created_at AS "createdAt",
+          deleted_at AS "deletedAt"
+        FROM channel_messages
+        WHERE message_id = ${messageId}
+        LIMIT 1
+      `,
+  });
+
   const getProjectionChannelUnreadCountRow = SqlSchema.findOne({
     Request: GetProjectionChannelUnreadCountInput,
     Result: ProjectionChannelUnreadCountRow,
@@ -128,6 +151,17 @@ const makeProjectionChannelMessageRepository = Effect.gen(function* () {
       ),
     );
 
+  const queryById: ProjectionChannelMessageRepositoryShape["queryById"] = (input) =>
+    queryProjectionChannelMessageRowById(input).pipe(
+      Effect.mapError(
+        toPersistenceSqlOrDecodeError(
+          "ProjectionChannelMessageRepository.queryById:query",
+          "ProjectionChannelMessageRepository.queryById:decodeRows",
+        ),
+      ),
+      Effect.map((row) => Option.map(row, (value) => value)),
+    );
+
   const getUnreadCount: ProjectionChannelMessageRepositoryShape["getUnreadCount"] = (input) =>
     getProjectionChannelUnreadCountRow(input).pipe(
       Effect.mapError(
@@ -139,6 +173,7 @@ const makeProjectionChannelMessageRepository = Effect.gen(function* () {
   return {
     insert,
     queryByChannelId,
+    queryById,
     getUnreadCount,
   } satisfies ProjectionChannelMessageRepositoryShape;
 });
