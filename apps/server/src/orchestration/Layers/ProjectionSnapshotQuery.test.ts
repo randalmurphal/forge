@@ -1,4 +1,16 @@
-import { CheckpointRef, EventId, MessageId, ProjectId, ThreadId, TurnId } from "@t3tools/contracts";
+import {
+  ChannelId,
+  CheckpointRef,
+  EventId,
+  InteractiveRequestId,
+  MessageId,
+  PhaseRunId,
+  ProjectId,
+  ThreadId,
+  TurnId,
+  WorkflowId,
+  WorkflowPhaseId,
+} from "@t3tools/contracts";
 import { assert, it } from "@effect/vitest";
 import { Effect, Layer } from "effect";
 import * as SqlClient from "effect/unstable/sql/SqlClient";
@@ -345,6 +357,303 @@ projectionSnapshotLayer("ProjectionSnapshotQuery", (it) => {
         },
       ]);
     }),
+  );
+
+  it.effect(
+    "rehydrates additive workflow, channel, and pending request state from SQL projections",
+    () =>
+      Effect.gen(function* () {
+        const snapshotQuery = yield* ProjectionSnapshotQuery;
+        const sql = yield* SqlClient.SqlClient;
+
+        yield* sql`DELETE FROM workflows`;
+        yield* sql`DELETE FROM interactive_requests`;
+        yield* sql`DELETE FROM channels`;
+        yield* sql`DELETE FROM phase_runs`;
+        yield* sql`DELETE FROM projection_thread_sessions`;
+        yield* sql`DELETE FROM projection_thread_activities`;
+        yield* sql`DELETE FROM projection_thread_messages`;
+        yield* sql`DELETE FROM projection_thread_proposed_plans`;
+        yield* sql`DELETE FROM projection_turns`;
+        yield* sql`DELETE FROM projection_threads`;
+        yield* sql`DELETE FROM projection_projects`;
+        yield* sql`DELETE FROM projection_state`;
+
+        yield* sql`
+        INSERT INTO projection_projects (
+          project_id,
+          title,
+          workspace_root,
+          default_model_selection_json,
+          scripts_json,
+          created_at,
+          updated_at,
+          deleted_at
+        )
+        VALUES (
+          'project-additive',
+          'Additive Project',
+          '/tmp/project-additive',
+          '{"provider":"codex","model":"gpt-5-codex"}',
+          '[]',
+          '2026-04-05T00:00:00.000Z',
+          '2026-04-05T00:00:01.000Z',
+          NULL
+        )
+      `;
+
+        yield* sql`
+        INSERT INTO projection_threads (
+          thread_id,
+          project_id,
+          title,
+          model_selection_json,
+          runtime_mode,
+          interaction_mode,
+          branch,
+          worktree_path,
+          latest_turn_id,
+          created_at,
+          updated_at,
+          archived_at,
+          deleted_at,
+          parent_thread_id,
+          phase_run_id,
+          workflow_id,
+          current_phase_id,
+          pattern_id,
+          role,
+          bootstrap_status
+        )
+        VALUES
+          (
+            'thread-parent',
+            'project-additive',
+            'Parent Thread',
+            '{"provider":"codex","model":"gpt-5-codex"}',
+            'full-access',
+            'default',
+            NULL,
+            NULL,
+            NULL,
+            '2026-04-05T00:00:02.000Z',
+            '2026-04-05T00:00:03.000Z',
+            NULL,
+            NULL,
+            NULL,
+            NULL,
+            NULL,
+            NULL,
+            NULL,
+            NULL,
+            NULL
+          ),
+          (
+            'thread-child',
+            'project-additive',
+            'Child Thread',
+            '{"provider":"codex","model":"gpt-5-codex"}',
+            'full-access',
+            'default',
+            NULL,
+            NULL,
+            NULL,
+            '2026-04-05T00:00:04.000Z',
+            '2026-04-05T00:00:10.000Z',
+            NULL,
+            NULL,
+            'thread-parent',
+            'phase-run-1',
+            'workflow-1',
+            'phase-1',
+            NULL,
+            'reviewer',
+            'running'
+          )
+      `;
+
+        yield* sql`
+        INSERT INTO workflows (
+          workflow_id,
+          name,
+          description,
+          phases_json,
+          built_in,
+          created_at,
+          updated_at
+        )
+        VALUES (
+          'workflow-1',
+          'Review Workflow',
+          'Workflow description',
+          '[]',
+          1,
+          '2026-04-05T00:00:05.000Z',
+          '2026-04-05T00:00:06.000Z'
+        )
+      `;
+
+        yield* sql`
+        INSERT INTO phase_runs (
+          phase_run_id,
+          thread_id,
+          workflow_id,
+          phase_id,
+          phase_name,
+          phase_type,
+          iteration,
+          status,
+          started_at,
+          completed_at
+        )
+        VALUES (
+          'phase-run-1',
+          'thread-child',
+          'workflow-1',
+          'phase-1',
+          'Review',
+          'single-agent',
+          1,
+          'running',
+          '2026-04-05T00:00:07.000Z',
+          NULL
+        )
+      `;
+
+        yield* sql`
+        INSERT INTO channels (
+          channel_id,
+          thread_id,
+          phase_run_id,
+          type,
+          status,
+          created_at,
+          updated_at
+        )
+        VALUES (
+          'channel-1',
+          'thread-child',
+          'phase-run-1',
+          'guidance',
+          'open',
+          '2026-04-05T00:00:08.000Z',
+          '2026-04-05T00:00:09.000Z'
+        )
+      `;
+
+        yield* sql`
+        INSERT INTO interactive_requests (
+          request_id,
+          thread_id,
+          child_thread_id,
+          phase_run_id,
+          type,
+          status,
+          payload_json,
+          resolved_with_json,
+          created_at,
+          resolved_at,
+          stale_reason
+        )
+        VALUES (
+          'request-1',
+          'thread-child',
+          NULL,
+          'phase-run-1',
+          'user-input',
+          'pending',
+          '{"type":"user-input","questions":[{"id":"scope","question":"Ship it?"}]}',
+          NULL,
+          '2026-04-05T00:00:11.000Z',
+          NULL,
+          NULL
+        )
+      `;
+
+        for (const projector of Object.values(ORCHESTRATION_PROJECTOR_NAMES)) {
+          const sequence =
+            projector === ORCHESTRATION_PROJECTOR_NAMES.phaseRuns
+              ? 7
+              : projector === ORCHESTRATION_PROJECTOR_NAMES.interactiveRequests
+                ? 8
+                : projector === ORCHESTRATION_PROJECTOR_NAMES.channels
+                  ? 9
+                  : 20;
+          yield* sql`
+          INSERT INTO projection_state (
+            projector,
+            last_applied_sequence,
+            updated_at
+          )
+          VALUES (
+            ${projector},
+            ${sequence},
+            '2026-04-05T00:00:12.000Z'
+          )
+        `;
+        }
+
+        const snapshot = yield* snapshotQuery.getSnapshot();
+
+        assert.equal(snapshot.snapshotSequence, 7);
+        assert.deepEqual(snapshot.workflows, [
+          {
+            workflowId: WorkflowId.makeUnsafe("workflow-1"),
+            name: "Review Workflow",
+            description: "Workflow description",
+            builtIn: true,
+          },
+        ]);
+        assert.deepEqual(snapshot.phaseRuns, [
+          {
+            phaseRunId: PhaseRunId.makeUnsafe("phase-run-1"),
+            threadId: ThreadId.makeUnsafe("thread-child"),
+            phaseId: WorkflowPhaseId.makeUnsafe("phase-1"),
+            phaseName: "Review",
+            phaseType: "single-agent",
+            iteration: 1,
+            status: "running",
+            startedAt: "2026-04-05T00:00:07.000Z",
+            completedAt: null,
+          },
+        ]);
+        assert.deepEqual(snapshot.channels, [
+          {
+            id: ChannelId.makeUnsafe("channel-1"),
+            threadId: ThreadId.makeUnsafe("thread-child"),
+            phaseRunId: PhaseRunId.makeUnsafe("phase-run-1"),
+            type: "guidance",
+            status: "open",
+            createdAt: "2026-04-05T00:00:08.000Z",
+            updatedAt: "2026-04-05T00:00:09.000Z",
+          },
+        ]);
+        assert.deepEqual(snapshot.pendingRequests, [
+          {
+            id: InteractiveRequestId.makeUnsafe("request-1"),
+            threadId: ThreadId.makeUnsafe("thread-child"),
+            phaseRunId: PhaseRunId.makeUnsafe("phase-run-1"),
+            type: "user-input",
+            status: "pending",
+            payload: {
+              type: "user-input",
+              questions: [{ id: "scope", question: "Ship it?" }],
+            },
+            createdAt: "2026-04-05T00:00:11.000Z",
+          },
+        ]);
+
+        const parentThread = snapshot.threads.find((thread) => thread.id === "thread-parent");
+        const childThread = snapshot.threads.find((thread) => thread.id === "thread-child");
+
+        assert.deepEqual(parentThread?.childThreadIds, [ThreadId.makeUnsafe("thread-child")]);
+        assert.equal(childThread?.parentThreadId, ThreadId.makeUnsafe("thread-parent"));
+        assert.equal(childThread?.phaseRunId, "phase-run-1");
+        assert.equal(childThread?.workflowId, "workflow-1");
+        assert.equal(childThread?.currentPhaseId, "phase-1");
+        assert.equal(childThread?.role, "reviewer");
+        assert.equal(childThread?.bootstrapStatus, "running");
+      }),
   );
 
   it.effect(

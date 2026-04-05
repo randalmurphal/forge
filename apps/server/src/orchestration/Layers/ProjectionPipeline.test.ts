@@ -526,6 +526,193 @@ it.layer(BaseTestLayer)("OrchestrationProjectionPipeline", (it) => {
     }),
   );
 
+  it.effect(
+    "persists additive thread projection columns for promotion, bootstrap, and phase lifecycle events",
+    () =>
+      Effect.gen(function* () {
+        const projectionPipeline = yield* OrchestrationProjectionPipeline;
+        const eventStore = yield* OrchestrationEventStore;
+        const sql = yield* SqlClient.SqlClient;
+        const createdAt = "2026-04-05T16:00:00.000Z";
+        const promotedAt = "2026-04-05T16:01:00.000Z";
+        const bootstrapStartedAt = "2026-04-05T16:02:00.000Z";
+        const phaseStartedAt = "2026-04-05T16:03:00.000Z";
+        const phaseCompletedAt = "2026-04-05T16:04:00.000Z";
+
+        for (const threadId of ["thread-parent-columns", "thread-child-columns"] as const) {
+          yield* projectionPipeline.projectEvent(
+            yield* eventStore.append({
+              type: "thread.created",
+              eventId: EventId.makeUnsafe(`evt-${threadId}`),
+              aggregateKind: "thread",
+              aggregateId: ThreadId.makeUnsafe(threadId),
+              occurredAt: createdAt,
+              commandId: CommandId.makeUnsafe(`cmd-${threadId}`),
+              causationEventId: null,
+              correlationId: CommandId.makeUnsafe(`cmd-${threadId}`),
+              metadata: {},
+              payload: {
+                threadId: ThreadId.makeUnsafe(threadId),
+                projectId: ProjectId.makeUnsafe("project-columns"),
+                title: threadId,
+                modelSelection: {
+                  provider: "codex",
+                  model: "gpt-5-codex",
+                },
+                runtimeMode: "full-access",
+                interactionMode: "default",
+                branch: null,
+                worktreePath: null,
+                createdAt,
+                updatedAt: createdAt,
+              },
+            }),
+          );
+        }
+
+        yield* sql`
+        UPDATE projection_threads
+        SET workflow_id = 'workflow-columns'
+        WHERE thread_id = 'thread-child-columns'
+      `;
+
+        yield* projectionPipeline.projectEvent(
+          makeForgeEvent({
+            sequence: 10,
+            type: "thread.promoted",
+            aggregateKind: "thread",
+            aggregateId: "thread-parent-columns",
+            occurredAt: promotedAt,
+            commandId: "cmd-promoted-columns",
+            payload: {
+              sourceThreadId: "thread-parent-columns",
+              targetThreadId: "thread-child-columns",
+              promotedAt,
+            },
+          }),
+        );
+
+        yield* projectionPipeline.projectEvent(
+          makeForgeEvent({
+            sequence: 11,
+            type: "thread.bootstrap-started",
+            aggregateKind: "thread",
+            aggregateId: "thread-child-columns",
+            occurredAt: bootstrapStartedAt,
+            commandId: "cmd-bootstrap-columns",
+            payload: {
+              threadId: "thread-child-columns",
+              startedAt: bootstrapStartedAt,
+            },
+          }),
+        );
+
+        yield* projectionPipeline.projectEvent(
+          makeForgeEvent({
+            sequence: 12,
+            type: "thread.phase-started",
+            aggregateKind: "thread",
+            aggregateId: "thread-child-columns",
+            occurredAt: phaseStartedAt,
+            commandId: "cmd-phase-started-columns",
+            payload: {
+              threadId: "thread-child-columns",
+              phaseRunId: "phase-run-columns",
+              phaseId: "phase-columns",
+              phaseName: "Columns",
+              phaseType: "single-agent",
+              iteration: 1,
+              startedAt: phaseStartedAt,
+            },
+          }),
+        );
+
+        let threadRows = yield* sql<{
+          readonly threadId: string;
+          readonly parentThreadId: string | null;
+          readonly phaseRunId: string | null;
+          readonly currentPhaseId: string | null;
+          readonly bootstrapStatus: string | null;
+          readonly updatedAt: string;
+        }>`
+        SELECT
+          thread_id AS "threadId",
+          parent_thread_id AS "parentThreadId",
+          phase_run_id AS "phaseRunId",
+          current_phase_id AS "currentPhaseId",
+          bootstrap_status AS "bootstrapStatus",
+          updated_at AS "updatedAt"
+        FROM projection_threads
+        WHERE thread_id IN ('thread-parent-columns', 'thread-child-columns')
+        ORDER BY thread_id ASC
+      `;
+        assert.deepEqual(threadRows, [
+          {
+            threadId: "thread-child-columns",
+            parentThreadId: "thread-parent-columns",
+            phaseRunId: "phase-run-columns",
+            currentPhaseId: "phase-columns",
+            bootstrapStatus: "running",
+            updatedAt: phaseStartedAt,
+          },
+          {
+            threadId: "thread-parent-columns",
+            parentThreadId: null,
+            phaseRunId: null,
+            currentPhaseId: null,
+            bootstrapStatus: null,
+            updatedAt: promotedAt,
+          },
+        ]);
+
+        yield* projectionPipeline.projectEvent(
+          makeForgeEvent({
+            sequence: 13,
+            type: "thread.phase-completed",
+            aggregateKind: "thread",
+            aggregateId: "thread-child-columns",
+            occurredAt: phaseCompletedAt,
+            commandId: "cmd-phase-completed-columns",
+            payload: {
+              threadId: "thread-child-columns",
+              phaseRunId: "phase-run-columns",
+              outputs: [],
+              completedAt: phaseCompletedAt,
+            },
+          }),
+        );
+
+        threadRows = yield* sql<{
+          readonly threadId: string;
+          readonly parentThreadId: string | null;
+          readonly phaseRunId: string | null;
+          readonly currentPhaseId: string | null;
+          readonly bootstrapStatus: string | null;
+          readonly updatedAt: string;
+        }>`
+        SELECT
+          thread_id AS "threadId",
+          parent_thread_id AS "parentThreadId",
+          phase_run_id AS "phaseRunId",
+          current_phase_id AS "currentPhaseId",
+          bootstrap_status AS "bootstrapStatus",
+          updated_at AS "updatedAt"
+        FROM projection_threads
+        WHERE thread_id = 'thread-child-columns'
+      `;
+        assert.deepEqual(threadRows, [
+          {
+            threadId: "thread-child-columns",
+            parentThreadId: "thread-parent-columns",
+            phaseRunId: null,
+            currentPhaseId: null,
+            bootstrapStatus: "running",
+            updatedAt: phaseCompletedAt,
+          },
+        ]);
+      }),
+  );
+
   it.effect("persists additive lifecycle updates for outputs, channels, and stale requests", () =>
     Effect.gen(function* () {
       const projectionPipeline = yield* OrchestrationProjectionPipeline;
@@ -745,7 +932,7 @@ it.layer(BaseTestLayer)("OrchestrationProjectionPipeline", (it) => {
           payload: {
             requestId: "request-lifecycle",
             reason: "phase advanced",
-            markedAt: requestStaleAt,
+            staleAt: requestStaleAt,
           },
         }),
       );

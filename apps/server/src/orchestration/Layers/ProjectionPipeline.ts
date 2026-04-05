@@ -638,6 +638,252 @@ const makeOrchestrationProjectionPipeline = Effect.fn("makeOrchestrationProjecti
           return;
         }
 
+        case "thread.phase-started":
+          yield* setProjectionThreadPhaseState({
+            threadId: event.payload.threadId,
+            phaseRunId: event.payload.phaseRunId,
+            currentPhaseId: event.payload.phaseId,
+            updatedAt: event.payload.startedAt,
+          });
+          return;
+
+        case "thread.phase-completed":
+          yield* setProjectionThreadPhaseState({
+            threadId: event.payload.threadId,
+            phaseRunId: null,
+            currentPhaseId: null,
+            updatedAt: event.payload.completedAt,
+          });
+          return;
+
+        case "thread.phase-failed":
+          yield* setProjectionThreadPhaseState({
+            threadId: event.payload.threadId,
+            phaseRunId: null,
+            currentPhaseId: null,
+            updatedAt: event.payload.failedAt,
+          });
+          return;
+
+        case "thread.phase-skipped":
+          yield* setProjectionThreadPhaseState({
+            threadId: event.payload.threadId,
+            phaseRunId: null,
+            currentPhaseId: null,
+            updatedAt: event.payload.skippedAt,
+          });
+          return;
+
+        case "thread.phase-output-edited":
+          yield* touchProjectionThread({
+            threadId: event.payload.threadId,
+            updatedAt: event.payload.editedAt,
+          });
+          return;
+
+        case "thread.quality-check-started":
+          yield* touchProjectionThread({
+            threadId: event.payload.threadId,
+            updatedAt: event.payload.startedAt,
+          });
+          return;
+
+        case "thread.quality-check-completed":
+          yield* touchProjectionThread({
+            threadId: event.payload.threadId,
+            updatedAt: event.payload.completedAt,
+          });
+          return;
+
+        case "thread.bootstrap-queued":
+          yield* setProjectionThreadBootstrapStatus({
+            threadId: event.payload.threadId,
+            bootstrapStatus: "queued",
+            updatedAt: event.payload.queuedAt,
+          });
+          return;
+
+        case "thread.bootstrap-started":
+          yield* setProjectionThreadBootstrapStatus({
+            threadId: event.payload.threadId,
+            bootstrapStatus: "running",
+            updatedAt: event.payload.startedAt,
+          });
+          return;
+
+        case "thread.bootstrap-completed":
+          yield* setProjectionThreadBootstrapStatus({
+            threadId: event.payload.threadId,
+            bootstrapStatus: "completed",
+            updatedAt: event.payload.completedAt,
+          });
+          return;
+
+        case "thread.bootstrap-failed":
+          yield* setProjectionThreadBootstrapStatus({
+            threadId: event.payload.threadId,
+            bootstrapStatus: "failed",
+            updatedAt: event.payload.failedAt,
+          });
+          return;
+
+        case "thread.bootstrap-skipped":
+          yield* setProjectionThreadBootstrapStatus({
+            threadId: event.payload.threadId,
+            bootstrapStatus: "skipped",
+            updatedAt: event.payload.skippedAt,
+          });
+          return;
+
+        case "thread.correction-queued":
+          yield* touchProjectionThread({
+            threadId: event.payload.threadId,
+            updatedAt: event.payload.createdAt,
+          });
+          return;
+
+        case "thread.correction-delivered":
+          yield* touchProjectionThread({
+            threadId: event.payload.threadId,
+            updatedAt: event.payload.deliveredAt,
+          });
+          return;
+
+        case "thread.link-added":
+          yield* touchProjectionThread({
+            threadId: event.payload.threadId,
+            updatedAt: event.payload.createdAt,
+          });
+          return;
+
+        case "thread.link-removed":
+          yield* touchProjectionThread({
+            threadId: event.payload.threadId,
+            updatedAt: event.payload.removedAt,
+          });
+          return;
+
+        case "thread.promoted":
+          yield* touchProjectionThread({
+            threadId: event.payload.sourceThreadId,
+            updatedAt: event.payload.promotedAt,
+          });
+          yield* setProjectionThreadParent({
+            threadId: event.payload.targetThreadId,
+            parentThreadId: event.payload.sourceThreadId,
+            updatedAt: event.payload.promotedAt,
+          });
+          return;
+
+        case "channel.created":
+          yield* touchProjectionThread({
+            threadId: event.payload.threadId,
+            updatedAt: event.payload.createdAt,
+          });
+          return;
+
+        case "channel.message-posted": {
+          const threadId = yield* lookupThreadIdByChannelId(event.payload.channelId);
+          if (threadId === null) {
+            return;
+          }
+          yield* touchProjectionThread({
+            threadId,
+            updatedAt: event.payload.createdAt,
+          });
+          return;
+        }
+
+        case "channel.conclusion-proposed":
+          yield* touchProjectionThread({
+            threadId: event.payload.threadId,
+            updatedAt: event.payload.proposedAt,
+          });
+          return;
+
+        case "channel.concluded": {
+          const threadId = yield* lookupThreadIdByChannelId(event.payload.channelId);
+          if (threadId === null) {
+            return;
+          }
+          yield* touchProjectionThread({
+            threadId,
+            updatedAt: event.payload.concludedAt,
+          });
+          return;
+        }
+
+        case "channel.closed": {
+          const threadId = yield* lookupThreadIdByChannelId(event.payload.channelId);
+          if (threadId === null) {
+            return;
+          }
+          yield* touchProjectionThread({
+            threadId,
+            updatedAt: event.payload.closedAt,
+          });
+          return;
+        }
+
+        case "request.opened":
+          yield* touchProjectionThread({
+            threadId: event.payload.threadId,
+            updatedAt: event.payload.createdAt,
+          });
+          return;
+
+        case "request.resolved": {
+          const threadId = yield* lookupThreadIdByRequestId(event.payload.requestId);
+          if (threadId === null) {
+            return;
+          }
+          yield* touchProjectionThread({
+            threadId,
+            updatedAt: event.payload.resolvedAt,
+          });
+          return;
+        }
+
+        case "request.stale": {
+          const threadId = yield* lookupThreadIdByRequestId(event.payload.requestId);
+          if (threadId === null) {
+            return;
+          }
+          yield* touchProjectionThread({
+            threadId,
+            updatedAt: event.payload.staleAt,
+          });
+          return;
+        }
+
+        case "thread.dependency-added":
+          yield* touchProjectionThread({
+            threadId: event.payload.threadId,
+            updatedAt: event.payload.createdAt,
+          });
+          return;
+
+        case "thread.dependency-removed":
+          yield* touchProjectionThread({
+            threadId: event.payload.threadId,
+            updatedAt: event.payload.removedAt,
+          });
+          return;
+
+        case "thread.dependencies-satisfied":
+          yield* touchProjectionThread({
+            threadId: event.payload.threadId,
+            updatedAt: event.payload.satisfiedAt,
+          });
+          return;
+
+        case "thread.synthesis-completed":
+          yield* touchProjectionThread({
+            threadId: event.payload.threadId,
+            updatedAt: event.payload.completedAt,
+          });
+          return;
+
         default:
           return;
       }
@@ -656,6 +902,111 @@ const makeOrchestrationProjectionPipeline = Effect.fn("makeOrchestrationProjecti
       );
       const workflowId = rows[0]?.workflowId ?? null;
       return workflowId === null ? null : WorkflowId.makeUnsafe(workflowId);
+    });
+
+    const lookupThreadIdByChannelId = Effect.fn("lookupThreadIdByChannelId")(function* (
+      channelId: string,
+    ) {
+      const rows = yield* sql<{ readonly threadId: string }>`
+          SELECT thread_id AS "threadId"
+          FROM channels
+          WHERE channel_id = ${channelId}
+          LIMIT 1
+        `.pipe(
+        Effect.mapError(
+          toPersistenceSqlError("ProjectionPipeline.lookupThreadIdByChannelId:query"),
+        ),
+      );
+      return rows[0]?.threadId ?? null;
+    });
+
+    const lookupThreadIdByRequestId = Effect.fn("lookupThreadIdByRequestId")(function* (
+      requestId: string,
+    ) {
+      const rows = yield* sql<{ readonly threadId: string }>`
+          SELECT thread_id AS "threadId"
+          FROM interactive_requests
+          WHERE request_id = ${requestId}
+          LIMIT 1
+        `.pipe(
+        Effect.mapError(
+          toPersistenceSqlError("ProjectionPipeline.lookupThreadIdByRequestId:query"),
+        ),
+      );
+      return rows[0]?.threadId ?? null;
+    });
+
+    const touchProjectionThread = Effect.fn("touchProjectionThread")(function* (input: {
+      readonly threadId: string;
+      readonly updatedAt: string;
+    }) {
+      yield* sql`
+        UPDATE projection_threads
+        SET updated_at = ${input.updatedAt}
+        WHERE thread_id = ${input.threadId}
+      `.pipe(
+        Effect.mapError(toPersistenceSqlError("ProjectionPipeline.touchProjectionThread:query")),
+      );
+    });
+
+    const setProjectionThreadPhaseState = Effect.fn("setProjectionThreadPhaseState")(
+      function* (input: {
+        readonly threadId: string;
+        readonly phaseRunId: string | null;
+        readonly currentPhaseId: string | null;
+        readonly updatedAt: string;
+      }) {
+        yield* sql`
+        UPDATE projection_threads
+        SET
+          phase_run_id = ${input.phaseRunId},
+          current_phase_id = ${input.currentPhaseId},
+          updated_at = ${input.updatedAt}
+        WHERE thread_id = ${input.threadId}
+      `.pipe(
+          Effect.mapError(
+            toPersistenceSqlError("ProjectionPipeline.setProjectionThreadPhaseState:query"),
+          ),
+        );
+      },
+    );
+
+    const setProjectionThreadBootstrapStatus = Effect.fn("setProjectionThreadBootstrapStatus")(
+      function* (input: {
+        readonly threadId: string;
+        readonly bootstrapStatus: string;
+        readonly updatedAt: string;
+      }) {
+        yield* sql`
+        UPDATE projection_threads
+        SET
+          bootstrap_status = ${input.bootstrapStatus},
+          updated_at = ${input.updatedAt}
+        WHERE thread_id = ${input.threadId}
+      `.pipe(
+          Effect.mapError(
+            toPersistenceSqlError("ProjectionPipeline.setProjectionThreadBootstrapStatus:query"),
+          ),
+        );
+      },
+    );
+
+    const setProjectionThreadParent = Effect.fn("setProjectionThreadParent")(function* (input: {
+      readonly threadId: string;
+      readonly parentThreadId: string | null;
+      readonly updatedAt: string;
+    }) {
+      yield* sql`
+        UPDATE projection_threads
+        SET
+          parent_thread_id = ${input.parentThreadId},
+          updated_at = ${input.updatedAt}
+        WHERE thread_id = ${input.threadId}
+      `.pipe(
+        Effect.mapError(
+          toPersistenceSqlError("ProjectionPipeline.setProjectionThreadParent:query"),
+        ),
+      );
     });
 
     const applyPhaseRunsProjection: ProjectorDefinition["apply"] = Effect.fn(

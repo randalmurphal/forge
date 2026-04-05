@@ -1,13 +1,23 @@
 import {
+  Channel,
   ChatAttachment,
+  InteractiveRequest,
   IsoDateTime,
   MessageId,
   NonNegativeInt,
   OrchestrationCheckpointFile,
   OrchestrationProposedPlanId,
   OrchestrationReadModel,
+  PhaseRunId,
+  PhaseRunStatus,
+  PhaseType,
   ProjectScript,
+  ProviderInteractionMode,
+  RuntimeMode,
   TurnId,
+  WorkflowId,
+  WorkflowPhase,
+  WorkflowPhaseId,
   type OrchestrationCheckpointSummary,
   type OrchestrationLatestTurn,
   type OrchestrationMessage,
@@ -37,7 +47,6 @@ import { ProjectionThreadActivity } from "../../persistence/Services/ProjectionT
 import { ProjectionThreadMessage } from "../../persistence/Services/ProjectionThreadMessages.ts";
 import { ProjectionThreadProposedPlan } from "../../persistence/Services/ProjectionThreadProposedPlans.ts";
 import { ProjectionThreadSession } from "../../persistence/Services/ProjectionThreadSessions.ts";
-import { ProjectionThread } from "../../persistence/Services/ProjectionThreads.ts";
 import { ORCHESTRATION_PROJECTOR_NAMES } from "./ProjectionPipeline.ts";
 import {
   ProjectionSnapshotQuery,
@@ -60,11 +69,28 @@ const ProjectionThreadMessageDbRowSchema = ProjectionThreadMessage.mapFields(
   }),
 );
 const ProjectionThreadProposedPlanDbRowSchema = ProjectionThreadProposedPlan;
-const ProjectionThreadDbRowSchema = ProjectionThread.mapFields(
-  Struct.assign({
-    modelSelection: Schema.fromJsonString(ModelSelection),
-  }),
-);
+const ProjectionThreadDbRowSchema = Schema.Struct({
+  threadId: ThreadId,
+  projectId: ProjectId,
+  title: Schema.String,
+  modelSelection: Schema.fromJsonString(ModelSelection),
+  runtimeMode: RuntimeMode,
+  interactionMode: ProviderInteractionMode,
+  branch: Schema.NullOr(Schema.String),
+  worktreePath: Schema.NullOr(Schema.String),
+  latestTurnId: Schema.NullOr(TurnId),
+  createdAt: IsoDateTime,
+  updatedAt: IsoDateTime,
+  archivedAt: Schema.NullOr(IsoDateTime),
+  deletedAt: Schema.NullOr(IsoDateTime),
+  parentThreadId: Schema.NullOr(ThreadId),
+  phaseRunId: Schema.NullOr(PhaseRunId),
+  workflowId: Schema.NullOr(WorkflowId),
+  currentPhaseId: Schema.NullOr(WorkflowPhaseId),
+  patternId: Schema.NullOr(Schema.String),
+  role: Schema.NullOr(Schema.String),
+  bootstrapStatus: Schema.NullOr(Schema.String),
+});
 const ProjectionThreadActivityDbRowSchema = ProjectionThreadActivity.mapFields(
   Struct.assign({
     payload: Schema.fromJsonString(Schema.Unknown),
@@ -72,13 +98,56 @@ const ProjectionThreadActivityDbRowSchema = ProjectionThreadActivity.mapFields(
   }),
 );
 const ProjectionThreadSessionDbRowSchema = ProjectionThreadSession;
+const ProjectionPhaseRunDbRowSchema = Schema.Struct({
+  phaseRunId: PhaseRunId,
+  threadId: ThreadId,
+  workflowId: WorkflowId,
+  phaseId: WorkflowPhaseId,
+  phaseName: Schema.String,
+  phaseType: PhaseType,
+  status: PhaseRunStatus,
+  iteration: Schema.Number,
+  startedAt: Schema.NullOr(IsoDateTime),
+  completedAt: Schema.NullOr(IsoDateTime),
+});
+const ProjectionChannelDbRowSchema = Schema.Struct({
+  channelId: Channel.fields.id,
+  threadId: ThreadId,
+  phaseRunId: Schema.NullOr(PhaseRunId),
+  type: Channel.fields.type,
+  status: Channel.fields.status,
+  createdAt: IsoDateTime,
+  updatedAt: IsoDateTime,
+});
+const ProjectionInteractiveRequestDbRowSchema = Schema.Struct({
+  requestId: InteractiveRequest.fields.id,
+  threadId: ThreadId,
+  childThreadId: Schema.NullOr(ThreadId),
+  phaseRunId: Schema.NullOr(PhaseRunId),
+  type: InteractiveRequest.fields.type,
+  status: InteractiveRequest.fields.status,
+  payload: Schema.fromJsonString(InteractiveRequest.fields.payload),
+  resolvedWith: Schema.NullOr(Schema.fromJsonString(InteractiveRequest.fields.resolvedWith)),
+  createdAt: IsoDateTime,
+  resolvedAt: Schema.NullOr(IsoDateTime),
+  staleReason: Schema.NullOr(Schema.String),
+});
+const ProjectionWorkflowDbRowSchema = Schema.Struct({
+  workflowId: WorkflowId,
+  name: Schema.String,
+  description: Schema.String,
+  phases: Schema.fromJsonString(Schema.Array(WorkflowPhase)),
+  builtIn: Schema.Number,
+  createdAt: IsoDateTime,
+  updatedAt: IsoDateTime,
+});
 const ProjectionCheckpointDbRowSchema = ProjectionCheckpoint.mapFields(
   Struct.assign({
     files: Schema.fromJsonString(Schema.Array(OrchestrationCheckpointFile)),
   }),
 );
 const ProjectionLatestTurnDbRowSchema = Schema.Struct({
-  threadId: ProjectionThread.fields.threadId,
+  threadId: ThreadId,
   turnId: TurnId,
   state: Schema.String,
   requestedAt: IsoDateTime,
@@ -116,6 +185,9 @@ const ProjectionThreadCheckpointContextThreadRowSchema = Schema.Struct({
 const REQUIRED_SNAPSHOT_PROJECTORS = [
   ORCHESTRATION_PROJECTOR_NAMES.projects,
   ORCHESTRATION_PROJECTOR_NAMES.threads,
+  ORCHESTRATION_PROJECTOR_NAMES.phaseRuns,
+  ORCHESTRATION_PROJECTOR_NAMES.channels,
+  ORCHESTRATION_PROJECTOR_NAMES.interactiveRequests,
   ORCHESTRATION_PROJECTOR_NAMES.threadMessages,
   ORCHESTRATION_PROJECTOR_NAMES.threadProposedPlans,
   ORCHESTRATION_PROJECTOR_NAMES.threadActivities,
@@ -201,7 +273,14 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
           created_at AS "createdAt",
           updated_at AS "updatedAt",
           archived_at AS "archivedAt",
-          deleted_at AS "deletedAt"
+          deleted_at AS "deletedAt",
+          parent_thread_id AS "parentThreadId",
+          phase_run_id AS "phaseRunId",
+          workflow_id AS "workflowId",
+          current_phase_id AS "currentPhaseId",
+          pattern_id AS "patternId",
+          role,
+          bootstrap_status AS "bootstrapStatus"
         FROM projection_threads
         ORDER BY created_at ASC, thread_id ASC
       `,
@@ -345,6 +424,86 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
       `,
   });
 
+  const listWorkflowRows = SqlSchema.findAll({
+    Request: Schema.Void,
+    Result: ProjectionWorkflowDbRowSchema,
+    execute: () =>
+      sql`
+        SELECT
+          workflow_id AS "workflowId",
+          name,
+          description,
+          phases_json AS "phases",
+          built_in AS "builtIn",
+          created_at AS "createdAt",
+          updated_at AS "updatedAt"
+        FROM workflows
+        ORDER BY name ASC, built_in ASC, workflow_id ASC
+      `,
+  });
+
+  const listPhaseRunRows = SqlSchema.findAll({
+    Request: Schema.Void,
+    Result: ProjectionPhaseRunDbRowSchema,
+    execute: () =>
+      sql`
+        SELECT
+          phase_run_id AS "phaseRunId",
+          thread_id AS "threadId",
+          workflow_id AS "workflowId",
+          phase_id AS "phaseId",
+          phase_name AS "phaseName",
+          phase_type AS "phaseType",
+          status,
+          iteration,
+          started_at AS "startedAt",
+          completed_at AS "completedAt"
+        FROM phase_runs
+        ORDER BY thread_id ASC, iteration ASC, started_at ASC, phase_run_id ASC
+      `,
+  });
+
+  const listChannelRows = SqlSchema.findAll({
+    Request: Schema.Void,
+    Result: ProjectionChannelDbRowSchema,
+    execute: () =>
+      sql`
+        SELECT
+          channel_id AS "channelId",
+          thread_id AS "threadId",
+          phase_run_id AS "phaseRunId",
+          type,
+          status,
+          created_at AS "createdAt",
+          updated_at AS "updatedAt"
+        FROM channels
+        ORDER BY thread_id ASC, created_at ASC, channel_id ASC
+      `,
+  });
+
+  const listPendingInteractiveRequestRows = SqlSchema.findAll({
+    Request: Schema.Void,
+    Result: ProjectionInteractiveRequestDbRowSchema,
+    execute: () =>
+      sql`
+        SELECT
+          request_id AS "requestId",
+          thread_id AS "threadId",
+          child_thread_id AS "childThreadId",
+          phase_run_id AS "phaseRunId",
+          type,
+          status,
+          payload_json AS "payload",
+          resolved_with_json AS "resolvedWith",
+          created_at AS "createdAt",
+          resolved_at AS "resolvedAt",
+          stale_reason AS "staleReason"
+        FROM interactive_requests
+        WHERE status = 'pending'
+        ORDER BY created_at ASC, request_id ASC
+      `,
+  });
+
   const readProjectionCounts = SqlSchema.findOne({
     Request: Schema.Void,
     Result: ProjectionCountsRowSchema,
@@ -446,6 +605,10 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
             sessionRows,
             checkpointRows,
             latestTurnRows,
+            workflowRows,
+            phaseRunRows,
+            channelRows,
+            pendingRequestRows,
             stateRows,
           ] = yield* Effect.all([
             listProjectRows(undefined).pipe(
@@ -512,6 +675,38 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
                 ),
               ),
             ),
+            listWorkflowRows(undefined).pipe(
+              Effect.mapError(
+                toPersistenceSqlOrDecodeError(
+                  "ProjectionSnapshotQuery.getSnapshot:listWorkflows:query",
+                  "ProjectionSnapshotQuery.getSnapshot:listWorkflows:decodeRows",
+                ),
+              ),
+            ),
+            listPhaseRunRows(undefined).pipe(
+              Effect.mapError(
+                toPersistenceSqlOrDecodeError(
+                  "ProjectionSnapshotQuery.getSnapshot:listPhaseRuns:query",
+                  "ProjectionSnapshotQuery.getSnapshot:listPhaseRuns:decodeRows",
+                ),
+              ),
+            ),
+            listChannelRows(undefined).pipe(
+              Effect.mapError(
+                toPersistenceSqlOrDecodeError(
+                  "ProjectionSnapshotQuery.getSnapshot:listChannels:query",
+                  "ProjectionSnapshotQuery.getSnapshot:listChannels:decodeRows",
+                ),
+              ),
+            ),
+            listPendingInteractiveRequestRows(undefined).pipe(
+              Effect.mapError(
+                toPersistenceSqlOrDecodeError(
+                  "ProjectionSnapshotQuery.getSnapshot:listPendingInteractiveRequests:query",
+                  "ProjectionSnapshotQuery.getSnapshot:listPendingInteractiveRequests:decodeRows",
+                ),
+              ),
+            ),
             listProjectionStateRows(undefined).pipe(
               Effect.mapError(
                 toPersistenceSqlOrDecodeError(
@@ -538,6 +733,9 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
             updatedAt = maxIso(updatedAt, row.updatedAt);
           }
           for (const row of stateRows) {
+            updatedAt = maxIso(updatedAt, row.updatedAt);
+          }
+          for (const row of workflowRows) {
             updatedAt = maxIso(updatedAt, row.updatedAt);
           }
 
@@ -652,6 +850,34 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
             });
           }
 
+          for (const row of phaseRunRows) {
+            if (row.completedAt !== null) {
+              updatedAt = maxIso(updatedAt, row.completedAt);
+              continue;
+            }
+            if (row.startedAt !== null) {
+              updatedAt = maxIso(updatedAt, row.startedAt);
+            }
+          }
+
+          for (const row of channelRows) {
+            updatedAt = maxIso(updatedAt, row.updatedAt);
+          }
+
+          for (const row of pendingRequestRows) {
+            updatedAt = maxIso(updatedAt, row.createdAt);
+          }
+
+          const childThreadIdsByParent = new Map<string, Array<ThreadId>>();
+          for (const row of threadRows) {
+            if (row.parentThreadId === null) {
+              continue;
+            }
+            const childThreadIds = childThreadIdsByParent.get(row.parentThreadId) ?? [];
+            childThreadIds.push(row.threadId);
+            childThreadIdsByParent.set(row.parentThreadId, childThreadIds);
+          }
+
           const projects: ReadonlyArray<OrchestrationProject> = projectRows.map((row) => ({
             id: row.projectId,
             title: row.title,
@@ -677,14 +903,14 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
             updatedAt: row.updatedAt,
             archivedAt: row.archivedAt,
             deletedAt: row.deletedAt,
-            parentThreadId: null,
-            phaseRunId: null,
-            workflowId: null,
-            currentPhaseId: null,
-            patternId: null,
-            role: null,
-            childThreadIds: [],
-            bootstrapStatus: null,
+            parentThreadId: row.parentThreadId,
+            phaseRunId: row.phaseRunId,
+            workflowId: row.workflowId,
+            currentPhaseId: row.currentPhaseId,
+            patternId: row.patternId,
+            role: row.role,
+            childThreadIds: childThreadIdsByParent.get(row.threadId) ?? [],
+            bootstrapStatus: row.bootstrapStatus,
             messages: messagesByThread.get(row.threadId) ?? [],
             proposedPlans: proposedPlansByThread.get(row.threadId) ?? [],
             activities: activitiesByThread.get(row.threadId) ?? [],
@@ -692,14 +918,75 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
             session: sessionsByThread.get(row.threadId) ?? null,
           }));
 
+          const phaseRuns = phaseRunRows.map((row) => ({
+            phaseRunId: row.phaseRunId,
+            threadId: row.threadId,
+            phaseId: row.phaseId,
+            phaseName: row.phaseName,
+            phaseType: row.phaseType,
+            iteration: row.iteration,
+            status: row.status,
+            startedAt: row.startedAt,
+            completedAt: row.completedAt,
+          }));
+
+          const channels = channelRows.map((row) => {
+            const channel = {
+              id: row.channelId,
+              threadId: row.threadId,
+              type: row.type,
+              status: row.status,
+              createdAt: row.createdAt,
+              updatedAt: row.updatedAt,
+            };
+            if (row.phaseRunId !== null) {
+              Object.assign(channel, { phaseRunId: row.phaseRunId });
+            }
+            return channel;
+          });
+
+          const pendingRequests = pendingRequestRows.map((row) => {
+            const pendingRequest = {
+              id: row.requestId,
+              threadId: row.threadId,
+              type: row.type,
+              status: row.status,
+              payload: row.payload,
+              createdAt: row.createdAt,
+            };
+            if (row.childThreadId !== null) {
+              Object.assign(pendingRequest, { childThreadId: row.childThreadId });
+            }
+            if (row.phaseRunId !== null) {
+              Object.assign(pendingRequest, { phaseRunId: row.phaseRunId });
+            }
+            if (row.resolvedWith !== null) {
+              Object.assign(pendingRequest, { resolvedWith: row.resolvedWith });
+            }
+            if (row.resolvedAt !== null) {
+              Object.assign(pendingRequest, { resolvedAt: row.resolvedAt });
+            }
+            if (row.staleReason !== null) {
+              Object.assign(pendingRequest, { staleReason: row.staleReason });
+            }
+            return pendingRequest;
+          });
+
+          const workflows = workflowRows.map((row) => ({
+            workflowId: row.workflowId,
+            name: row.name,
+            description: row.description,
+            builtIn: row.builtIn === 1,
+          }));
+
           const snapshot = {
             snapshotSequence: computeSnapshotSequence(stateRows),
             projects,
             threads,
-            phaseRuns: [],
-            channels: [],
-            pendingRequests: [],
-            workflows: [],
+            phaseRuns,
+            channels,
+            pendingRequests,
+            workflows,
             updatedAt: updatedAt ?? new Date(0).toISOString(),
           };
 
