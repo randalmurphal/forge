@@ -1,5 +1,5 @@
 import type {
-  OrchestrationCommand,
+  ForgeCommand,
   OrchestrationProject,
   OrchestrationReadModel,
   OrchestrationThread,
@@ -40,7 +40,7 @@ export function listThreadsByProjectId(
 
 export function requireProject(input: {
   readonly readModel: OrchestrationReadModel;
-  readonly command: OrchestrationCommand;
+  readonly command: ForgeCommand;
   readonly projectId: ProjectId;
 }): Effect.Effect<OrchestrationProject, OrchestrationCommandInvariantError> {
   const project = findProjectById(input.readModel, input.projectId);
@@ -57,7 +57,7 @@ export function requireProject(input: {
 
 export function requireProjectAbsent(input: {
   readonly readModel: OrchestrationReadModel;
-  readonly command: OrchestrationCommand;
+  readonly command: ForgeCommand;
   readonly projectId: ProjectId;
 }): Effect.Effect<void, OrchestrationCommandInvariantError> {
   if (!findProjectById(input.readModel, input.projectId)) {
@@ -73,7 +73,7 @@ export function requireProjectAbsent(input: {
 
 export function requireThread(input: {
   readonly readModel: OrchestrationReadModel;
-  readonly command: OrchestrationCommand;
+  readonly command: ForgeCommand;
   readonly threadId: ThreadId;
 }): Effect.Effect<OrchestrationThread, OrchestrationCommandInvariantError> {
   const thread = findThreadById(input.readModel, input.threadId);
@@ -90,7 +90,7 @@ export function requireThread(input: {
 
 export function requireThreadArchived(input: {
   readonly readModel: OrchestrationReadModel;
-  readonly command: OrchestrationCommand;
+  readonly command: ForgeCommand;
   readonly threadId: ThreadId;
 }): Effect.Effect<OrchestrationThread, OrchestrationCommandInvariantError> {
   return requireThread(input).pipe(
@@ -109,7 +109,7 @@ export function requireThreadArchived(input: {
 
 export function requireThreadNotArchived(input: {
   readonly readModel: OrchestrationReadModel;
-  readonly command: OrchestrationCommand;
+  readonly command: ForgeCommand;
   readonly threadId: ThreadId;
 }): Effect.Effect<OrchestrationThread, OrchestrationCommandInvariantError> {
   return requireThread(input).pipe(
@@ -128,7 +128,7 @@ export function requireThreadNotArchived(input: {
 
 export function requireThreadAbsent(input: {
   readonly readModel: OrchestrationReadModel;
-  readonly command: OrchestrationCommand;
+  readonly command: ForgeCommand;
   readonly threadId: ThreadId;
 }): Effect.Effect<void, OrchestrationCommandInvariantError> {
   if (!findThreadById(input.readModel, input.threadId)) {
@@ -143,7 +143,7 @@ export function requireThreadAbsent(input: {
 }
 
 export function requireNonNegativeInteger(input: {
-  readonly commandType: OrchestrationCommand["type"];
+  readonly commandType: ForgeCommand["type"];
   readonly field: string;
   readonly value: number;
 }): Effect.Effect<void, OrchestrationCommandInvariantError> {
@@ -154,6 +154,42 @@ export function requireNonNegativeInteger(input: {
     invariantError(
       input.commandType,
       `${input.field} must be an integer greater than or equal to 0.`,
+    ),
+  );
+}
+
+export function requireDistinctThreadIds(input: {
+  readonly command: ForgeCommand;
+  readonly leftLabel: string;
+  readonly leftThreadId: ThreadId;
+  readonly rightLabel: string;
+  readonly rightThreadId: ThreadId;
+}): Effect.Effect<void, OrchestrationCommandInvariantError> {
+  if (input.leftThreadId !== input.rightThreadId) {
+    return Effect.void;
+  }
+  return Effect.fail(
+    invariantError(
+      input.command.type,
+      `${input.leftLabel} and ${input.rightLabel} must reference different threads.`,
+    ),
+  );
+}
+
+export function requireThreadsInSameProject(input: {
+  readonly command: ForgeCommand;
+  readonly leftLabel: string;
+  readonly leftThread: OrchestrationThread;
+  readonly rightLabel: string;
+  readonly rightThread: OrchestrationThread;
+}): Effect.Effect<void, OrchestrationCommandInvariantError> {
+  if (input.leftThread.projectId === input.rightThread.projectId) {
+    return Effect.void;
+  }
+  return Effect.fail(
+    invariantError(
+      input.command.type,
+      `${input.leftLabel} '${input.leftThread.id}' and ${input.rightLabel} '${input.rightThread.id}' must belong to the same project.`,
     ),
   );
 }

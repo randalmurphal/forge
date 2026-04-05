@@ -1,25 +1,59 @@
 import type {
+  ChannelId,
+  ChannelMessageId,
+  ForgeCommand,
+  ForgeEvent,
+  LinkId,
   OrchestrationCommand,
-  OrchestrationEvent,
   OrchestrationReadModel,
+  PhaseRunId,
 } from "@t3tools/contracts";
 import { Effect } from "effect";
 
 import { OrchestrationCommandInvariantError } from "./Errors.ts";
 import {
+  requireDistinctThreadIds,
   requireProject,
   requireProjectAbsent,
   requireThread,
   requireThreadArchived,
   requireThreadAbsent,
   requireThreadNotArchived,
+  requireThreadsInSameProject,
 } from "./commandInvariants.ts";
 
 const nowIso = () => new Date().toISOString();
-const defaultMetadata: Omit<OrchestrationEvent, "sequence" | "type" | "payload"> = {
-  eventId: crypto.randomUUID() as OrchestrationEvent["eventId"],
+type WorkflowThreadCommand = Extract<
+  ForgeCommand,
+  {
+    type:
+      | "thread.correct"
+      | "thread.start-phase"
+      | "thread.complete-phase"
+      | "thread.fail-phase"
+      | "thread.skip-phase"
+      | "thread.quality-check-start"
+      | "thread.quality-check-complete"
+      | "thread.bootstrap-started"
+      | "thread.bootstrap-completed"
+      | "thread.bootstrap-failed"
+      | "thread.bootstrap-skipped"
+      | "thread.add-link"
+      | "thread.remove-link"
+      | "thread.promote"
+      | "thread.add-dependency"
+      | "thread.remove-dependency";
+  }
+>;
+
+export type DecidableOrchestrationCommand = OrchestrationCommand | WorkflowThreadCommand;
+type DistributiveOmit<T, K extends PropertyKey> = T extends unknown ? Omit<T, K> : never;
+export type DecidedOrchestrationEvent = DistributiveOmit<ForgeEvent, "sequence">;
+
+const defaultMetadata: Omit<ForgeEvent, "sequence" | "type" | "payload"> = {
+  eventId: crypto.randomUUID() as ForgeEvent["eventId"],
   aggregateKind: "thread",
-  aggregateId: "" as OrchestrationEvent["aggregateId"],
+  aggregateId: "" as ForgeEvent["aggregateId"],
   occurredAt: nowIso(),
   commandId: null,
   causationEventId: null,
@@ -27,17 +61,29 @@ const defaultMetadata: Omit<OrchestrationEvent, "sequence" | "type" | "payload">
   metadata: {},
 };
 
-function withEventBase(
-  input: Pick<OrchestrationCommand, "commandId"> & {
-    readonly aggregateKind: OrchestrationEvent["aggregateKind"];
-    readonly aggregateId: OrchestrationEvent["aggregateId"];
+function withEventBase<
+  TAggregateKind extends ForgeEvent["aggregateKind"],
+  TAggregateId extends ForgeEvent["aggregateId"],
+>(
+  input: Pick<DecidableOrchestrationCommand, "commandId"> & {
+    readonly aggregateKind: TAggregateKind;
+    readonly aggregateId: TAggregateId;
     readonly occurredAt: string;
-    readonly metadata?: OrchestrationEvent["metadata"];
+    readonly metadata?: ForgeEvent["metadata"];
   },
-): Omit<OrchestrationEvent, "sequence" | "type" | "payload"> {
+): {
+  readonly eventId: ForgeEvent["eventId"];
+  readonly aggregateKind: TAggregateKind;
+  readonly aggregateId: TAggregateId;
+  readonly occurredAt: string;
+  readonly commandId: ForgeEvent["commandId"];
+  readonly causationEventId: ForgeEvent["causationEventId"];
+  readonly correlationId: ForgeEvent["correlationId"];
+  readonly metadata: ForgeEvent["metadata"];
+} {
   return {
     ...defaultMetadata,
-    eventId: crypto.randomUUID() as OrchestrationEvent["eventId"],
+    eventId: crypto.randomUUID() as ForgeEvent["eventId"],
     aggregateKind: input.aggregateKind,
     aggregateId: input.aggregateId,
     occurredAt: input.occurredAt,
@@ -51,10 +97,10 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
   command,
   readModel,
 }: {
-  readonly command: OrchestrationCommand;
+  readonly command: DecidableOrchestrationCommand;
   readonly readModel: OrchestrationReadModel;
 }): Effect.fn.Return<
-  Omit<OrchestrationEvent, "sequence"> | ReadonlyArray<Omit<OrchestrationEvent, "sequence">>,
+  DecidedOrchestrationEvent | ReadonlyArray<DecidedOrchestrationEvent>,
   OrchestrationCommandInvariantError
 > {
   switch (command.type) {
@@ -340,7 +386,7 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
           detail: `Proposed plan '${sourceProposedPlan?.planId}' belongs to thread '${sourceThread.id}' in a different project.`,
         });
       }
-      const userMessageEvent: Omit<OrchestrationEvent, "sequence"> = {
+      const userMessageEvent: DecidedOrchestrationEvent = {
         ...withEventBase({
           aggregateKind: "thread",
           aggregateId: command.threadId,
@@ -360,7 +406,7 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
           updatedAt: command.createdAt,
         },
       };
-      const turnStartRequestedEvent: Omit<OrchestrationEvent, "sequence"> = {
+      const turnStartRequestedEvent: DecidedOrchestrationEvent = {
         ...withEventBase({
           aggregateKind: "thread",
           aggregateId: command.threadId,
@@ -659,7 +705,7 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
         "requestId" in command.activity.payload &&
         typeof (command.activity.payload as { requestId?: unknown }).requestId === "string"
           ? ((command.activity.payload as { requestId: string })
-              .requestId as OrchestrationEvent["metadata"]["requestId"])
+              .requestId as ForgeEvent["metadata"]["requestId"])
           : undefined;
       return {
         ...withEventBase({
@@ -673,6 +719,481 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
         payload: {
           threadId: command.threadId,
           activity: command.activity,
+        },
+      };
+    }
+
+    case "thread.correct": {
+      yield* requireThreadNotArchived({
+        readModel,
+        command,
+        threadId: command.threadId,
+      });
+      return {
+        ...withEventBase({
+          aggregateKind: "thread",
+          aggregateId: command.threadId,
+          occurredAt: command.createdAt,
+          commandId: command.commandId,
+        }),
+        type: "thread.correction-queued",
+        payload: {
+          threadId: command.threadId,
+          content: command.content,
+          channelId: crypto.randomUUID() as ChannelId,
+          messageId: crypto.randomUUID() as ChannelMessageId,
+          createdAt: command.createdAt,
+        },
+      };
+    }
+
+    case "thread.start-phase": {
+      yield* requireThreadNotArchived({
+        readModel,
+        command,
+        threadId: command.threadId,
+      });
+      return {
+        ...withEventBase({
+          aggregateKind: "thread",
+          aggregateId: command.threadId,
+          occurredAt: command.createdAt,
+          commandId: command.commandId,
+        }),
+        type: "thread.phase-started",
+        payload: {
+          threadId: command.threadId,
+          phaseRunId: crypto.randomUUID() as PhaseRunId,
+          phaseId: command.phaseId,
+          phaseName: command.phaseName,
+          phaseType: command.phaseType,
+          iteration: command.iteration,
+          startedAt: command.createdAt,
+        },
+      };
+    }
+
+    case "thread.complete-phase": {
+      yield* requireThread({
+        readModel,
+        command,
+        threadId: command.threadId,
+      });
+      return {
+        ...withEventBase({
+          aggregateKind: "thread",
+          aggregateId: command.threadId,
+          occurredAt: command.createdAt,
+          commandId: command.commandId,
+        }),
+        type: "thread.phase-completed",
+        payload: {
+          threadId: command.threadId,
+          phaseRunId: command.phaseRunId,
+          outputs: command.outputs ?? [],
+          ...(command.gateResult !== undefined ? { gateResult: command.gateResult } : {}),
+          completedAt: command.createdAt,
+        },
+      };
+    }
+
+    case "thread.fail-phase": {
+      yield* requireThread({
+        readModel,
+        command,
+        threadId: command.threadId,
+      });
+      return {
+        ...withEventBase({
+          aggregateKind: "thread",
+          aggregateId: command.threadId,
+          occurredAt: command.createdAt,
+          commandId: command.commandId,
+        }),
+        type: "thread.phase-failed",
+        payload: {
+          threadId: command.threadId,
+          phaseRunId: command.phaseRunId,
+          error: command.error,
+          failedAt: command.createdAt,
+        },
+      };
+    }
+
+    case "thread.skip-phase": {
+      yield* requireThread({
+        readModel,
+        command,
+        threadId: command.threadId,
+      });
+      return {
+        ...withEventBase({
+          aggregateKind: "thread",
+          aggregateId: command.threadId,
+          occurredAt: command.createdAt,
+          commandId: command.commandId,
+        }),
+        type: "thread.phase-skipped",
+        payload: {
+          threadId: command.threadId,
+          phaseRunId: command.phaseRunId,
+          skippedAt: command.createdAt,
+        },
+      };
+    }
+
+    case "thread.quality-check-start": {
+      yield* requireThread({
+        readModel,
+        command,
+        threadId: command.threadId,
+      });
+      return {
+        ...withEventBase({
+          aggregateKind: "thread",
+          aggregateId: command.threadId,
+          occurredAt: command.createdAt,
+          commandId: command.commandId,
+        }),
+        type: "thread.quality-check-started",
+        payload: {
+          threadId: command.threadId,
+          phaseRunId: command.phaseRunId,
+          checks: command.checks,
+          startedAt: command.createdAt,
+        },
+      };
+    }
+
+    case "thread.quality-check-complete": {
+      yield* requireThread({
+        readModel,
+        command,
+        threadId: command.threadId,
+      });
+      return {
+        ...withEventBase({
+          aggregateKind: "thread",
+          aggregateId: command.threadId,
+          occurredAt: command.createdAt,
+          commandId: command.commandId,
+        }),
+        type: "thread.quality-check-completed",
+        payload: {
+          threadId: command.threadId,
+          phaseRunId: command.phaseRunId,
+          results: command.results,
+          completedAt: command.createdAt,
+        },
+      };
+    }
+
+    case "thread.bootstrap-started": {
+      yield* requireThread({
+        readModel,
+        command,
+        threadId: command.threadId,
+      });
+      return {
+        ...withEventBase({
+          aggregateKind: "thread",
+          aggregateId: command.threadId,
+          occurredAt: command.createdAt,
+          commandId: command.commandId,
+        }),
+        type: "thread.bootstrap-started",
+        payload: {
+          threadId: command.threadId,
+          startedAt: command.createdAt,
+        },
+      };
+    }
+
+    case "thread.bootstrap-completed": {
+      yield* requireThread({
+        readModel,
+        command,
+        threadId: command.threadId,
+      });
+      return {
+        ...withEventBase({
+          aggregateKind: "thread",
+          aggregateId: command.threadId,
+          occurredAt: command.createdAt,
+          commandId: command.commandId,
+        }),
+        type: "thread.bootstrap-completed",
+        payload: {
+          threadId: command.threadId,
+          completedAt: command.createdAt,
+        },
+      };
+    }
+
+    case "thread.bootstrap-failed": {
+      yield* requireThread({
+        readModel,
+        command,
+        threadId: command.threadId,
+      });
+      return {
+        ...withEventBase({
+          aggregateKind: "thread",
+          aggregateId: command.threadId,
+          occurredAt: command.createdAt,
+          commandId: command.commandId,
+        }),
+        type: "thread.bootstrap-failed",
+        payload: {
+          threadId: command.threadId,
+          error: command.error,
+          stdout: command.stdout,
+          command: command.command,
+          failedAt: command.createdAt,
+        },
+      };
+    }
+
+    case "thread.bootstrap-skipped": {
+      yield* requireThread({
+        readModel,
+        command,
+        threadId: command.threadId,
+      });
+      return {
+        ...withEventBase({
+          aggregateKind: "thread",
+          aggregateId: command.threadId,
+          occurredAt: command.createdAt,
+          commandId: command.commandId,
+        }),
+        type: "thread.bootstrap-skipped",
+        payload: {
+          threadId: command.threadId,
+          skippedAt: command.createdAt,
+        },
+      };
+    }
+
+    case "thread.add-link": {
+      const thread = yield* requireThread({
+        readModel,
+        command,
+        threadId: command.threadId,
+      });
+      if (command.linkedThreadId !== undefined) {
+        yield* requireDistinctThreadIds({
+          command,
+          leftLabel: "threadId",
+          leftThreadId: command.threadId,
+          rightLabel: "linkedThreadId",
+          rightThreadId: command.linkedThreadId,
+        });
+        const linkedThread = yield* requireThread({
+          readModel,
+          command,
+          threadId: command.linkedThreadId,
+        });
+        yield* requireThreadsInSameProject({
+          command,
+          leftLabel: "threadId",
+          leftThread: thread,
+          rightLabel: "linkedThreadId",
+          rightThread: linkedThread,
+        });
+      }
+      return {
+        ...withEventBase({
+          aggregateKind: "thread",
+          aggregateId: command.threadId,
+          occurredAt: command.createdAt,
+          commandId: command.commandId,
+        }),
+        type: "thread.link-added",
+        payload: {
+          threadId: command.threadId,
+          linkId: command.linkId,
+          linkType: command.linkType,
+          linkedThreadId: command.linkedThreadId ?? null,
+          externalId: command.externalId ?? null,
+          externalUrl: command.externalUrl ?? null,
+          createdAt: command.createdAt,
+        },
+      };
+    }
+
+    case "thread.remove-link": {
+      yield* requireThread({
+        readModel,
+        command,
+        threadId: command.threadId,
+      });
+      return {
+        ...withEventBase({
+          aggregateKind: "thread",
+          aggregateId: command.threadId,
+          occurredAt: command.createdAt,
+          commandId: command.commandId,
+        }),
+        type: "thread.link-removed",
+        payload: {
+          threadId: command.threadId,
+          linkId: command.linkId,
+          removedAt: command.createdAt,
+        },
+      };
+    }
+
+    case "thread.promote": {
+      const sourceThread = yield* requireThread({
+        readModel,
+        command,
+        threadId: command.sourceThreadId,
+      });
+      yield* requireThreadAbsent({
+        readModel,
+        command,
+        threadId: command.targetThreadId,
+      });
+      yield* requireDistinctThreadIds({
+        command,
+        leftLabel: "sourceThreadId",
+        leftThreadId: command.sourceThreadId,
+        rightLabel: "targetThreadId",
+        rightThreadId: command.targetThreadId,
+      });
+      return [
+        {
+          ...withEventBase({
+            aggregateKind: "thread",
+            aggregateId: command.sourceThreadId,
+            occurredAt: command.createdAt,
+            commandId: command.commandId,
+          }),
+          type: "thread.promoted",
+          payload: {
+            sourceThreadId: command.sourceThreadId,
+            targetThreadId: command.targetThreadId,
+            promotedAt: command.createdAt,
+          },
+        },
+        {
+          ...withEventBase({
+            aggregateKind: "thread",
+            aggregateId: command.sourceThreadId,
+            occurredAt: command.createdAt,
+            commandId: command.commandId,
+          }),
+          type: "thread.link-added",
+          payload: {
+            threadId: command.sourceThreadId,
+            linkId: crypto.randomUUID() as LinkId,
+            linkType: "promoted-to",
+            linkedThreadId: command.targetThreadId,
+            externalId: null,
+            externalUrl: null,
+            createdAt: command.createdAt,
+          },
+        },
+        {
+          ...withEventBase({
+            aggregateKind: "thread",
+            aggregateId: command.targetThreadId,
+            occurredAt: command.createdAt,
+            commandId: command.commandId,
+          }),
+          type: "thread.link-added",
+          payload: {
+            threadId: command.targetThreadId,
+            linkId: crypto.randomUUID() as LinkId,
+            linkType: "promoted-from",
+            linkedThreadId: sourceThread.id,
+            externalId: null,
+            externalUrl: null,
+            createdAt: command.createdAt,
+          },
+        },
+      ];
+    }
+
+    case "thread.add-dependency": {
+      const thread = yield* requireThread({
+        readModel,
+        command,
+        threadId: command.threadId,
+      });
+      yield* requireDistinctThreadIds({
+        command,
+        leftLabel: "threadId",
+        leftThreadId: command.threadId,
+        rightLabel: "dependsOnThreadId",
+        rightThreadId: command.dependsOnThreadId,
+      });
+      const dependsOnThread = yield* requireThread({
+        readModel,
+        command,
+        threadId: command.dependsOnThreadId,
+      });
+      yield* requireThreadsInSameProject({
+        command,
+        leftLabel: "threadId",
+        leftThread: thread,
+        rightLabel: "dependsOnThreadId",
+        rightThread: dependsOnThread,
+      });
+      return {
+        ...withEventBase({
+          aggregateKind: "thread",
+          aggregateId: command.threadId,
+          occurredAt: command.createdAt,
+          commandId: command.commandId,
+        }),
+        type: "thread.dependency-added",
+        payload: {
+          threadId: command.threadId,
+          dependsOnThreadId: command.dependsOnThreadId,
+          createdAt: command.createdAt,
+        },
+      };
+    }
+
+    case "thread.remove-dependency": {
+      const thread = yield* requireThread({
+        readModel,
+        command,
+        threadId: command.threadId,
+      });
+      yield* requireDistinctThreadIds({
+        command,
+        leftLabel: "threadId",
+        leftThreadId: command.threadId,
+        rightLabel: "dependsOnThreadId",
+        rightThreadId: command.dependsOnThreadId,
+      });
+      const dependsOnThread = yield* requireThread({
+        readModel,
+        command,
+        threadId: command.dependsOnThreadId,
+      });
+      yield* requireThreadsInSameProject({
+        command,
+        leftLabel: "threadId",
+        leftThread: thread,
+        rightLabel: "dependsOnThreadId",
+        rightThread: dependsOnThread,
+      });
+      return {
+        ...withEventBase({
+          aggregateKind: "thread",
+          aggregateId: command.threadId,
+          occurredAt: command.createdAt,
+          commandId: command.commandId,
+        }),
+        type: "thread.dependency-removed",
+        payload: {
+          threadId: command.threadId,
+          dependsOnThreadId: command.dependsOnThreadId,
+          removedAt: command.createdAt,
         },
       };
     }
