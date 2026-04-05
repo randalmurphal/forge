@@ -1,5 +1,6 @@
 import {
   ApprovalRequestId,
+  CheckpointRef,
   type ChatAttachment,
   type ForgeEvent,
   WorkflowId,
@@ -633,6 +634,87 @@ const makeOrchestrationProjectionPipeline = Effect.fn("makeOrchestrationProjecti
           yield* projectionThreadRepository.upsert({
             ...existingRow.value,
             updatedAt: event.occurredAt,
+          });
+          return;
+        }
+
+        case "thread.turn-requested":
+          yield* touchProjectionThread({
+            threadId: event.payload.threadId,
+            updatedAt: event.payload.createdAt,
+          });
+          return;
+
+        case "thread.turn-started": {
+          const existingRow = yield* projectionThreadRepository.getById({
+            threadId: event.payload.threadId,
+          });
+          if (Option.isNone(existingRow)) {
+            return;
+          }
+          yield* projectionThreadRepository.upsert({
+            ...existingRow.value,
+            latestTurnId: event.payload.turnId,
+            updatedAt: event.payload.startedAt,
+          });
+          return;
+        }
+
+        case "thread.turn-completed": {
+          const existingRow = yield* projectionThreadRepository.getById({
+            threadId: event.payload.threadId,
+          });
+          if (Option.isNone(existingRow)) {
+            return;
+          }
+          yield* projectionThreadRepository.upsert({
+            ...existingRow.value,
+            latestTurnId: event.payload.turnId,
+            updatedAt: event.payload.completedAt,
+          });
+          return;
+        }
+
+        case "thread.turn-restarted":
+          yield* touchProjectionThread({
+            threadId: event.payload.threadId,
+            updatedAt: event.payload.restartedAt,
+          });
+          return;
+
+        case "thread.checkpoint-captured": {
+          const existingRow = yield* projectionThreadRepository.getById({
+            threadId: event.payload.threadId,
+          });
+          if (Option.isNone(existingRow)) {
+            return;
+          }
+          yield* projectionThreadRepository.upsert({
+            ...existingRow.value,
+            latestTurnId: event.payload.turnId,
+            updatedAt: event.payload.capturedAt,
+          });
+          return;
+        }
+
+        case "thread.checkpoint-diff-completed":
+          yield* touchProjectionThread({
+            threadId: event.payload.threadId,
+            updatedAt: event.payload.completedAt,
+          });
+          return;
+
+        case "thread.checkpoint-reverted": {
+          const existingRow = yield* projectionThreadRepository.getById({
+            threadId: event.payload.threadId,
+          });
+          if (Option.isNone(existingRow)) {
+            return;
+          }
+          yield* projectionThreadRepository.upsert({
+            ...existingRow.value,
+            latestTurnId: null,
+            updatedAt: event.payload.revertedAt,
           });
           return;
         }
@@ -1603,6 +1685,81 @@ const makeOrchestrationProjectionPipeline = Effect.fn("makeOrchestrationProjecti
           return;
         }
 
+        case "thread.turn-started": {
+          const existingTurn = yield* projectionTurnRepository.getByTurnId({
+            threadId: event.payload.threadId,
+            turnId: event.payload.turnId,
+          });
+          if (Option.isSome(existingTurn)) {
+            yield* projectionTurnRepository.upsertByTurnId({
+              ...existingTurn.value,
+              state:
+                existingTurn.value.state === "completed" || existingTurn.value.state === "error"
+                  ? existingTurn.value.state
+                  : "running",
+              startedAt: existingTurn.value.startedAt ?? event.payload.startedAt,
+              requestedAt: existingTurn.value.requestedAt ?? event.payload.startedAt,
+              completedAt: null,
+            });
+          } else {
+            yield* projectionTurnRepository.upsertByTurnId({
+              turnId: event.payload.turnId,
+              threadId: event.payload.threadId,
+              pendingMessageId: null,
+              sourceProposedPlanThreadId: null,
+              sourceProposedPlanId: null,
+              assistantMessageId: null,
+              state: "running",
+              requestedAt: event.payload.startedAt,
+              startedAt: event.payload.startedAt,
+              completedAt: null,
+              checkpointTurnCount: null,
+              checkpointRef: null,
+              checkpointStatus: null,
+              checkpointFiles: [],
+            });
+          }
+
+          yield* projectionTurnRepository.deletePendingTurnStartByThreadId({
+            threadId: event.payload.threadId,
+          });
+          return;
+        }
+
+        case "thread.turn-completed": {
+          const existingTurn = yield* projectionTurnRepository.getByTurnId({
+            threadId: event.payload.threadId,
+            turnId: event.payload.turnId,
+          });
+          if (Option.isSome(existingTurn)) {
+            yield* projectionTurnRepository.upsertByTurnId({
+              ...existingTurn.value,
+              state: existingTurn.value.state === "error" ? "error" : "completed",
+              startedAt: existingTurn.value.startedAt ?? event.payload.completedAt,
+              requestedAt: existingTurn.value.requestedAt ?? event.payload.completedAt,
+              completedAt: event.payload.completedAt,
+            });
+            return;
+          }
+          yield* projectionTurnRepository.upsertByTurnId({
+            turnId: event.payload.turnId,
+            threadId: event.payload.threadId,
+            pendingMessageId: null,
+            sourceProposedPlanThreadId: null,
+            sourceProposedPlanId: null,
+            assistantMessageId: null,
+            state: "completed",
+            requestedAt: event.payload.completedAt,
+            startedAt: event.payload.completedAt,
+            completedAt: event.payload.completedAt,
+            checkpointTurnCount: null,
+            checkpointRef: null,
+            checkpointStatus: null,
+            checkpointFiles: [],
+          });
+          return;
+        }
+
         case "thread.session-set": {
           const turnId = event.payload.session.activeTurnId;
           if (turnId === null || event.payload.session.status !== "running") {
@@ -1809,6 +1966,77 @@ const makeOrchestrationProjectionPipeline = Effect.fn("makeOrchestrationProjecti
             checkpointStatus: event.payload.status,
             checkpointFiles: event.payload.files,
           });
+          return;
+        }
+
+        case "thread.checkpoint-captured": {
+          const existingTurn = yield* projectionTurnRepository.getByTurnId({
+            threadId: event.payload.threadId,
+            turnId: event.payload.turnId,
+          });
+          yield* projectionTurnRepository.clearCheckpointTurnConflict({
+            threadId: event.payload.threadId,
+            turnId: event.payload.turnId,
+            checkpointTurnCount: event.payload.turnCount,
+          });
+
+          if (Option.isSome(existingTurn)) {
+            yield* projectionTurnRepository.upsertByTurnId({
+              ...existingTurn.value,
+              state: existingTurn.value.state === "error" ? "error" : "completed",
+              checkpointTurnCount: event.payload.turnCount,
+              checkpointRef: CheckpointRef.makeUnsafe(event.payload.ref),
+              checkpointStatus: "ready",
+              startedAt: existingTurn.value.startedAt ?? event.payload.capturedAt,
+              requestedAt: existingTurn.value.requestedAt ?? event.payload.capturedAt,
+              completedAt: event.payload.capturedAt,
+            });
+            return;
+          }
+
+          yield* projectionTurnRepository.upsertByTurnId({
+            turnId: event.payload.turnId,
+            threadId: event.payload.threadId,
+            pendingMessageId: null,
+            sourceProposedPlanThreadId: null,
+            sourceProposedPlanId: null,
+            assistantMessageId: null,
+            state: "completed",
+            requestedAt: event.payload.capturedAt,
+            startedAt: event.payload.capturedAt,
+            completedAt: event.payload.capturedAt,
+            checkpointTurnCount: event.payload.turnCount,
+            checkpointRef: CheckpointRef.makeUnsafe(event.payload.ref),
+            checkpointStatus: "ready",
+            checkpointFiles: [],
+          });
+          return;
+        }
+
+        case "thread.checkpoint-reverted": {
+          const existingTurns = yield* projectionTurnRepository.listByThreadId({
+            threadId: event.payload.threadId,
+          });
+          const keptTurns = existingTurns.filter(
+            (turn) =>
+              turn.turnId !== null &&
+              turn.checkpointTurnCount !== null &&
+              turn.checkpointTurnCount <= event.payload.turnCount,
+          );
+          yield* projectionTurnRepository.deleteByThreadId({
+            threadId: event.payload.threadId,
+          });
+          yield* Effect.forEach(
+            keptTurns,
+            (turn) =>
+              turn.turnId === null
+                ? Effect.void
+                : projectionTurnRepository.upsertByTurnId({
+                    ...turn,
+                    turnId: turn.turnId,
+                  }),
+            { concurrency: 1 },
+          ).pipe(Effect.asVoid);
           return;
         }
 

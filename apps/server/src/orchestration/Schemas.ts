@@ -51,6 +51,13 @@ import {
   ThreadApprovalResponseRequestedPayload as ContractsThreadApprovalResponseRequestedPayloadSchema,
   ThreadCheckpointRevertRequestedPayload as ContractsThreadCheckpointRevertRequestedPayloadSchema,
   ThreadSessionStopRequestedPayload as ContractsThreadSessionStopRequestedPayloadSchema,
+  SessionTurnRequestedPayload as ContractsSessionTurnRequestedPayloadSchema,
+  SessionTurnStartedPayload as ContractsSessionTurnStartedPayloadSchema,
+  SessionTurnCompletedPayload as ContractsSessionTurnCompletedPayloadSchema,
+  SessionTurnRestartedPayload as ContractsSessionTurnRestartedPayloadSchema,
+  SessionCheckpointCapturedPayload as ContractsSessionCheckpointCapturedPayloadSchema,
+  SessionCheckpointDiffCompletedPayload as ContractsSessionCheckpointDiffCompletedPayloadSchema,
+  SessionCheckpointRevertedPayload as ContractsSessionCheckpointRevertedPayloadSchema,
 } from "@t3tools/contracts";
 
 // Server-internal alias surface, backed by contract schemas as the source of truth.
@@ -82,6 +89,14 @@ export const ThreadApprovalResponseRequestedPayload =
 export const ThreadCheckpointRevertRequestedPayload =
   ContractsThreadCheckpointRevertRequestedPayloadSchema;
 export const ThreadSessionStopRequestedPayload = ContractsThreadSessionStopRequestedPayloadSchema;
+export const SessionTurnRequestedPayload = ContractsSessionTurnRequestedPayloadSchema;
+export const SessionTurnStartedPayload = ContractsSessionTurnStartedPayloadSchema;
+export const SessionTurnCompletedPayload = ContractsSessionTurnCompletedPayloadSchema;
+export const SessionTurnRestartedPayload = ContractsSessionTurnRestartedPayloadSchema;
+export const SessionCheckpointCapturedPayload = ContractsSessionCheckpointCapturedPayloadSchema;
+export const SessionCheckpointDiffCompletedPayload =
+  ContractsSessionCheckpointDiffCompletedPayloadSchema;
+export const SessionCheckpointRevertedPayload = ContractsSessionCheckpointRevertedPayloadSchema;
 
 export const ThreadPhaseStartedPayload = ContractsThreadPhaseStartedPayloadSchema;
 export const ThreadPhaseCompletedPayload = ContractsThreadPhaseCompletedPayloadSchema;

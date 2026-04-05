@@ -267,6 +267,235 @@ describe("orchestration projector", () => {
     expect(unarchived.threads[0]?.archivedAt).toBeNull();
   });
 
+  it("applies staged thread turn lifecycle events", async () => {
+    const createdAt = "2026-04-05T17:00:00.000Z";
+    const startedAt = "2026-04-05T17:00:05.000Z";
+    const completedAt = "2026-04-05T17:00:10.000Z";
+
+    const created = await Effect.runPromise(
+      projectEvent(
+        createEmptyReadModel(createdAt),
+        makeEvent({
+          sequence: 1,
+          type: "thread.created",
+          aggregateKind: "thread",
+          aggregateId: "thread-turn-stage",
+          occurredAt: createdAt,
+          commandId: "cmd-thread-turn-stage-create",
+          payload: {
+            threadId: "thread-turn-stage",
+            projectId: "project-turn-stage",
+            title: "turn stage",
+            modelSelection: {
+              provider: "codex",
+              model: "gpt-5-codex",
+            },
+            runtimeMode: "full-access",
+            interactionMode: "default",
+            branch: null,
+            worktreePath: null,
+            createdAt,
+            updatedAt: createdAt,
+          },
+        }),
+      ),
+    );
+
+    const started = await Effect.runPromise(
+      projectEvent(
+        created,
+        makeEvent({
+          sequence: 2,
+          type: "thread.turn-started",
+          aggregateKind: "thread",
+          aggregateId: "thread-turn-stage",
+          occurredAt: startedAt,
+          commandId: "cmd-thread-turn-stage-started",
+          payload: {
+            threadId: "thread-turn-stage",
+            turnId: "turn-stage-1",
+            startedAt,
+          },
+        }),
+      ),
+    );
+
+    expect(started.threads[0]?.latestTurn).toEqual({
+      turnId: "turn-stage-1",
+      state: "running",
+      requestedAt: startedAt,
+      startedAt,
+      completedAt: null,
+      assistantMessageId: null,
+    });
+
+    const completed = await Effect.runPromise(
+      projectEvent(
+        started,
+        makeEvent({
+          sequence: 3,
+          type: "thread.turn-completed",
+          aggregateKind: "thread",
+          aggregateId: "thread-turn-stage",
+          occurredAt: completedAt,
+          commandId: "cmd-thread-turn-stage-completed",
+          payload: {
+            threadId: "thread-turn-stage",
+            turnId: "turn-stage-1",
+            completedAt,
+          },
+        }),
+      ),
+    );
+
+    expect(completed.threads[0]?.latestTurn).toEqual({
+      turnId: "turn-stage-1",
+      state: "completed",
+      requestedAt: startedAt,
+      startedAt,
+      completedAt,
+      assistantMessageId: null,
+    });
+    expect(completed.threads[0]?.updatedAt).toBe(completedAt);
+  });
+
+  it("applies staged checkpoint capture and revert events", async () => {
+    const createdAt = "2026-04-05T17:10:00.000Z";
+    const startedAt = "2026-04-05T17:10:05.000Z";
+    const messageAt = "2026-04-05T17:10:06.000Z";
+    const capturedAt = "2026-04-05T17:10:08.000Z";
+    const revertedAt = "2026-04-05T17:10:09.000Z";
+
+    const created = await Effect.runPromise(
+      projectEvent(
+        createEmptyReadModel(createdAt),
+        makeEvent({
+          sequence: 1,
+          type: "thread.created",
+          aggregateKind: "thread",
+          aggregateId: "thread-checkpoint-stage",
+          occurredAt: createdAt,
+          commandId: "cmd-thread-checkpoint-stage-create",
+          payload: {
+            threadId: "thread-checkpoint-stage",
+            projectId: "project-checkpoint-stage",
+            title: "checkpoint stage",
+            modelSelection: {
+              provider: "codex",
+              model: "gpt-5-codex",
+            },
+            runtimeMode: "full-access",
+            interactionMode: "default",
+            branch: null,
+            worktreePath: null,
+            createdAt,
+            updatedAt: createdAt,
+          },
+        }),
+      ),
+    );
+
+    const started = await Effect.runPromise(
+      projectEvent(
+        created,
+        makeEvent({
+          sequence: 2,
+          type: "thread.turn-started",
+          aggregateKind: "thread",
+          aggregateId: "thread-checkpoint-stage",
+          occurredAt: startedAt,
+          commandId: "cmd-thread-checkpoint-stage-started",
+          payload: {
+            threadId: "thread-checkpoint-stage",
+            turnId: "turn-checkpoint-stage-1",
+            startedAt,
+          },
+        }),
+      ),
+    );
+
+    const withMessage = await Effect.runPromise(
+      projectEvent(
+        started,
+        makeEvent({
+          sequence: 3,
+          type: "thread.message-sent",
+          aggregateKind: "thread",
+          aggregateId: "thread-checkpoint-stage",
+          occurredAt: messageAt,
+          commandId: "cmd-thread-checkpoint-stage-message",
+          payload: {
+            threadId: "thread-checkpoint-stage",
+            messageId: "message-checkpoint-stage-1",
+            role: "assistant",
+            text: "checkpoint output",
+            turnId: "turn-checkpoint-stage-1",
+            streaming: false,
+            createdAt: messageAt,
+            updatedAt: messageAt,
+          },
+        }),
+      ),
+    );
+
+    const captured = await Effect.runPromise(
+      projectEvent(
+        withMessage,
+        makeEvent({
+          sequence: 4,
+          type: "thread.checkpoint-captured",
+          aggregateKind: "thread",
+          aggregateId: "thread-checkpoint-stage",
+          occurredAt: capturedAt,
+          commandId: "cmd-thread-checkpoint-stage-captured",
+          payload: {
+            threadId: "thread-checkpoint-stage",
+            turnId: "turn-checkpoint-stage-1",
+            turnCount: 1,
+            ref: "refs/t3/checkpoints/thread-checkpoint-stage/turn/1",
+            capturedAt,
+          },
+        }),
+      ),
+    );
+
+    expect(captured.threads[0]?.checkpoints).toEqual([
+      {
+        turnId: "turn-checkpoint-stage-1",
+        checkpointTurnCount: 1,
+        checkpointRef: "refs/t3/checkpoints/thread-checkpoint-stage/turn/1",
+        status: "ready",
+        files: [],
+        assistantMessageId: null,
+        completedAt: capturedAt,
+      },
+    ]);
+
+    const reverted = await Effect.runPromise(
+      projectEvent(
+        captured,
+        makeEvent({
+          sequence: 5,
+          type: "thread.checkpoint-reverted",
+          aggregateKind: "thread",
+          aggregateId: "thread-checkpoint-stage",
+          occurredAt: revertedAt,
+          commandId: "cmd-thread-checkpoint-stage-reverted",
+          payload: {
+            threadId: "thread-checkpoint-stage",
+            turnCount: 0,
+            revertedAt,
+          },
+        }),
+      ),
+    );
+
+    expect(reverted.threads[0]?.checkpoints).toEqual([]);
+    expect(reverted.threads[0]?.messages).toEqual([]);
+    expect(reverted.threads[0]?.latestTurn).toBeNull();
+    expect(reverted.threads[0]?.updatedAt).toBe(revertedAt);
+  });
+
   it("accepts staged thread.archived payloads without updatedAt", async () => {
     const now = new Date().toISOString();
     const later = new Date(Date.parse(now) + 1_000).toISOString();

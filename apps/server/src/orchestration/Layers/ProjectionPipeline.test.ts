@@ -665,6 +665,212 @@ it.layer(BaseTestLayer)("OrchestrationProjectionPipeline", (it) => {
   );
 
   it.effect(
+    "projects staged turn and checkpoint lifecycle events into thread and turn tables",
+    () =>
+      Effect.gen(function* () {
+        const projectionPipeline = yield* OrchestrationProjectionPipeline;
+        const eventStore = yield* OrchestrationEventStore;
+        const sql = yield* SqlClient.SqlClient;
+        const createdAt = "2026-04-05T15:20:00.000Z";
+        const startedAt = "2026-04-05T15:20:05.000Z";
+        const completedAt = "2026-04-05T15:20:07.000Z";
+        const capturedAt = "2026-04-05T15:20:08.000Z";
+        const revertedAt = "2026-04-05T15:20:09.000Z";
+
+        yield* projectionPipeline.projectEvent(
+          yield* eventStore.append({
+            type: "project.created",
+            eventId: EventId.makeUnsafe("evt-staged-turn-project"),
+            aggregateKind: "project",
+            aggregateId: ProjectId.makeUnsafe("project-staged-turn"),
+            occurredAt: createdAt,
+            commandId: CommandId.makeUnsafe("cmd-staged-turn-project"),
+            causationEventId: null,
+            correlationId: CommandId.makeUnsafe("cmd-staged-turn-project"),
+            metadata: {},
+            payload: {
+              projectId: ProjectId.makeUnsafe("project-staged-turn"),
+              title: "staged turn project",
+              workspaceRoot: "/tmp/staged-turn-project",
+              defaultModelSelection: null,
+              scripts: [],
+              createdAt,
+              updatedAt: createdAt,
+            },
+          }),
+        );
+
+        yield* projectionPipeline.projectEvent(
+          yield* eventStore.append({
+            type: "thread.created",
+            eventId: EventId.makeUnsafe("evt-staged-turn-thread"),
+            aggregateKind: "thread",
+            aggregateId: ThreadId.makeUnsafe("thread-staged-turn"),
+            occurredAt: createdAt,
+            commandId: CommandId.makeUnsafe("cmd-staged-turn-thread"),
+            causationEventId: null,
+            correlationId: CommandId.makeUnsafe("cmd-staged-turn-thread"),
+            metadata: {},
+            payload: {
+              threadId: ThreadId.makeUnsafe("thread-staged-turn"),
+              projectId: ProjectId.makeUnsafe("project-staged-turn"),
+              title: "staged turn thread",
+              modelSelection: {
+                provider: "codex",
+                model: "gpt-5-codex",
+              },
+              runtimeMode: "full-access",
+              interactionMode: "default",
+              branch: null,
+              worktreePath: null,
+              createdAt,
+              updatedAt: createdAt,
+            },
+          }),
+        );
+
+        yield* projectionPipeline.projectEvent(
+          makeForgeEvent({
+            sequence: 3,
+            type: "thread.turn-started",
+            aggregateKind: "thread",
+            aggregateId: "thread-staged-turn",
+            occurredAt: startedAt,
+            commandId: "cmd-staged-turn-started",
+            payload: {
+              threadId: "thread-staged-turn",
+              turnId: "turn-staged-1",
+              startedAt,
+            },
+          }),
+        );
+
+        yield* projectionPipeline.projectEvent(
+          makeForgeEvent({
+            sequence: 4,
+            type: "thread.turn-completed",
+            aggregateKind: "thread",
+            aggregateId: "thread-staged-turn",
+            occurredAt: completedAt,
+            commandId: "cmd-staged-turn-completed",
+            payload: {
+              threadId: "thread-staged-turn",
+              turnId: "turn-staged-1",
+              completedAt,
+            },
+          }),
+        );
+
+        yield* projectionPipeline.projectEvent(
+          makeForgeEvent({
+            sequence: 5,
+            type: "thread.checkpoint-captured",
+            aggregateKind: "thread",
+            aggregateId: "thread-staged-turn",
+            occurredAt: capturedAt,
+            commandId: "cmd-staged-turn-captured",
+            payload: {
+              threadId: "thread-staged-turn",
+              turnId: "turn-staged-1",
+              turnCount: 1,
+              ref: "refs/t3/checkpoints/thread-staged-turn/turn/1",
+              capturedAt,
+            },
+          }),
+        );
+
+        const threadRowsBeforeRevert = yield* sql<{
+          readonly latestTurnId: string | null;
+          readonly updatedAt: string;
+        }>`
+        SELECT
+          latest_turn_id AS "latestTurnId",
+          updated_at AS "updatedAt"
+        FROM projection_threads
+        WHERE thread_id = 'thread-staged-turn'
+      `;
+        assert.deepEqual(threadRowsBeforeRevert, [
+          {
+            latestTurnId: "turn-staged-1",
+            updatedAt: capturedAt,
+          },
+        ]);
+
+        const turnRowsBeforeRevert = yield* sql<{
+          readonly turnId: string | null;
+          readonly state: string;
+          readonly checkpointTurnCount: number | null;
+          readonly checkpointRef: string | null;
+          readonly checkpointStatus: string | null;
+          readonly startedAt: string | null;
+          readonly completedAt: string | null;
+        }>`
+        SELECT
+          turn_id AS "turnId",
+          state,
+          checkpoint_turn_count AS "checkpointTurnCount",
+          checkpoint_ref AS "checkpointRef",
+          checkpoint_status AS "checkpointStatus",
+          started_at AS "startedAt",
+          completed_at AS "completedAt"
+        FROM projection_turns
+        WHERE thread_id = 'thread-staged-turn'
+      `;
+        assert.deepEqual(turnRowsBeforeRevert, [
+          {
+            turnId: "turn-staged-1",
+            state: "completed",
+            checkpointTurnCount: 1,
+            checkpointRef: "refs/t3/checkpoints/thread-staged-turn/turn/1",
+            checkpointStatus: "ready",
+            startedAt,
+            completedAt: capturedAt,
+          },
+        ]);
+
+        yield* projectionPipeline.projectEvent(
+          makeForgeEvent({
+            sequence: 6,
+            type: "thread.checkpoint-reverted",
+            aggregateKind: "thread",
+            aggregateId: "thread-staged-turn",
+            occurredAt: revertedAt,
+            commandId: "cmd-staged-turn-reverted",
+            payload: {
+              threadId: "thread-staged-turn",
+              turnCount: 0,
+              revertedAt,
+            },
+          }),
+        );
+
+        const threadRowsAfterRevert = yield* sql<{
+          readonly latestTurnId: string | null;
+          readonly updatedAt: string;
+        }>`
+        SELECT
+          latest_turn_id AS "latestTurnId",
+          updated_at AS "updatedAt"
+        FROM projection_threads
+        WHERE thread_id = 'thread-staged-turn'
+      `;
+        assert.deepEqual(threadRowsAfterRevert, [
+          {
+            latestTurnId: null,
+            updatedAt: revertedAt,
+          },
+        ]);
+
+        const turnRowsAfterRevert = yield* sql<{ readonly turnId: string | null }>`
+        SELECT turn_id AS "turnId"
+        FROM projection_turns
+        WHERE thread_id = 'thread-staged-turn'
+      `;
+        assert.deepEqual(turnRowsAfterRevert, []);
+      }),
+  );
+
+  it.effect(
     "persists additive thread projection columns for promotion, bootstrap, and phase lifecycle events",
     () =>
       Effect.gen(function* () {

@@ -12,6 +12,7 @@ import type {
   WorkflowId,
 } from "@t3tools/contracts";
 import {
+  CheckpointRef,
   ChannelId,
   ChannelMessageId,
   LinkId,
@@ -31,6 +32,13 @@ import {
   ProjectDeletedPayload,
   ProjectMetaUpdatedPayload,
   SessionArchivedPayload,
+  SessionCheckpointCapturedPayload,
+  SessionCheckpointDiffCompletedPayload,
+  SessionCheckpointRevertedPayload,
+  SessionTurnCompletedPayload,
+  SessionTurnRequestedPayload,
+  SessionTurnRestartedPayload,
+  SessionTurnStartedPayload,
   ThreadActivityAppendedPayload,
   ThreadArchivedPayload,
   ThreadBootstrapCompletedPayload,
@@ -628,6 +636,106 @@ export function projectEvent(
         };
       });
 
+    case "thread.turn-requested":
+      return decodeForEvent(SessionTurnRequestedPayload, event.payload, event.type, "payload").pipe(
+        Effect.map((payload) => ({
+          ...nextBase,
+          threads: updateThread(nextBase.threads, payload.threadId, {
+            updatedAt: payload.createdAt,
+          }),
+        })),
+      );
+
+    case "thread.turn-started":
+      return decodeForEvent(SessionTurnStartedPayload, event.payload, event.type, "payload").pipe(
+        Effect.map((payload) => {
+          const thread = nextBase.threads.find((entry) => entry.id === payload.threadId) as
+            | ProjectedThread
+            | undefined;
+          if (!thread) {
+            return nextBase;
+          }
+
+          const existingTurn =
+            thread.latestTurn?.turnId === payload.turnId ? thread.latestTurn : null;
+
+          return {
+            ...nextBase,
+            threads: updateThread(nextBase.threads, payload.threadId, {
+              latestTurn: {
+                turnId: payload.turnId,
+                state: "running",
+                requestedAt: existingTurn?.requestedAt ?? payload.startedAt,
+                startedAt: payload.startedAt,
+                completedAt: null,
+                assistantMessageId: existingTurn?.assistantMessageId ?? null,
+              },
+              updatedAt: payload.startedAt,
+            }),
+          };
+        }),
+      );
+
+    case "thread.turn-completed":
+      return decodeForEvent(SessionTurnCompletedPayload, event.payload, event.type, "payload").pipe(
+        Effect.map((payload) => {
+          const thread = nextBase.threads.find((entry) => entry.id === payload.threadId) as
+            | ProjectedThread
+            | undefined;
+          if (!thread) {
+            return nextBase;
+          }
+
+          const existingTurn =
+            thread.latestTurn?.turnId === payload.turnId ? thread.latestTurn : null;
+          const requestedAt = existingTurn?.requestedAt ?? payload.completedAt;
+          const startedAt = existingTurn?.startedAt ?? payload.completedAt;
+
+          return {
+            ...nextBase,
+            threads: updateThread(nextBase.threads, payload.threadId, {
+              latestTurn: {
+                turnId: payload.turnId,
+                state: "completed",
+                requestedAt,
+                startedAt,
+                completedAt: payload.completedAt,
+                assistantMessageId: existingTurn?.assistantMessageId ?? null,
+              },
+              updatedAt: payload.completedAt,
+            }),
+          };
+        }),
+      );
+
+    case "thread.turn-restarted":
+      return decodeForEvent(SessionTurnRestartedPayload, event.payload, event.type, "payload").pipe(
+        Effect.map((payload) => {
+          const thread = nextBase.threads.find((entry) => entry.id === payload.threadId) as
+            | ProjectedThread
+            | undefined;
+          if (!thread) {
+            return nextBase;
+          }
+
+          return {
+            ...nextBase,
+            threads: updateThread(nextBase.threads, payload.threadId, {
+              latestTurn:
+                thread.latestTurn === null
+                  ? null
+                  : {
+                      ...thread.latestTurn,
+                      state: "interrupted",
+                      startedAt: thread.latestTurn.startedAt ?? payload.restartedAt,
+                      completedAt: payload.restartedAt,
+                    },
+              updatedAt: payload.restartedAt,
+            }),
+          };
+        }),
+      );
+
     case "thread.session-set":
       return Effect.gen(function* () {
         const payload = yield* decodeForEvent(
@@ -825,6 +933,136 @@ export function projectEvent(
               activities,
               latestTurn,
               updatedAt: event.occurredAt,
+            }),
+          };
+        }),
+      );
+
+    case "thread.checkpoint-captured":
+      return decodeForEvent(
+        SessionCheckpointCapturedPayload,
+        event.payload,
+        event.type,
+        "payload",
+      ).pipe(
+        Effect.map((payload) => {
+          const thread = nextBase.threads.find((entry) => entry.id === payload.threadId) as
+            | ProjectedThread
+            | undefined;
+          if (!thread) {
+            return nextBase;
+          }
+
+          const existingCheckpoint = thread.checkpoints.find(
+            (entry) => entry.turnId === payload.turnId,
+          );
+          const checkpoint = {
+            turnId: payload.turnId,
+            checkpointTurnCount: payload.turnCount,
+            checkpointRef: CheckpointRef.makeUnsafe(payload.ref),
+            status: "ready" as const,
+            files: existingCheckpoint?.files ?? [],
+            assistantMessageId:
+              existingCheckpoint?.assistantMessageId ??
+              (thread.latestTurn?.turnId === payload.turnId
+                ? thread.latestTurn.assistantMessageId
+                : null),
+            completedAt: payload.capturedAt,
+          };
+          const checkpoints = [
+            ...thread.checkpoints.filter((entry) => entry.turnId !== payload.turnId),
+            checkpoint,
+          ]
+            .toSorted((left, right) => left.checkpointTurnCount - right.checkpointTurnCount)
+            .slice(-MAX_THREAD_CHECKPOINTS);
+
+          return {
+            ...nextBase,
+            threads: updateThread(nextBase.threads, payload.threadId, {
+              checkpoints,
+              latestTurn:
+                thread.latestTurn?.turnId === payload.turnId
+                  ? {
+                      ...thread.latestTurn,
+                      state: "completed",
+                      completedAt: payload.capturedAt,
+                      assistantMessageId: checkpoint.assistantMessageId,
+                    }
+                  : thread.latestTurn,
+              updatedAt: payload.capturedAt,
+            }),
+          };
+        }),
+      );
+
+    case "thread.checkpoint-diff-completed":
+      return decodeForEvent(
+        SessionCheckpointDiffCompletedPayload,
+        event.payload,
+        event.type,
+        "payload",
+      ).pipe(
+        Effect.map((payload) => ({
+          ...nextBase,
+          threads: updateThread(nextBase.threads, payload.threadId, {
+            updatedAt: payload.completedAt,
+          }),
+        })),
+      );
+
+    case "thread.checkpoint-reverted":
+      return decodeForEvent(
+        SessionCheckpointRevertedPayload,
+        event.payload,
+        event.type,
+        "payload",
+      ).pipe(
+        Effect.map((payload) => {
+          const thread = nextBase.threads.find((entry) => entry.id === payload.threadId) as
+            | ProjectedThread
+            | undefined;
+          if (!thread) {
+            return nextBase;
+          }
+
+          const checkpoints = thread.checkpoints
+            .filter((entry) => entry.checkpointTurnCount <= payload.turnCount)
+            .toSorted((left, right) => left.checkpointTurnCount - right.checkpointTurnCount)
+            .slice(-MAX_THREAD_CHECKPOINTS);
+          const retainedTurnIds = new Set(checkpoints.map((checkpoint) => checkpoint.turnId));
+          const messages = retainThreadMessagesAfterRevert(
+            thread.messages,
+            retainedTurnIds,
+            payload.turnCount,
+          ).slice(-MAX_THREAD_MESSAGES);
+          const proposedPlans = retainThreadProposedPlansAfterRevert(
+            thread.proposedPlans,
+            retainedTurnIds,
+          ).slice(-200);
+          const activities = retainThreadActivitiesAfterRevert(thread.activities, retainedTurnIds);
+
+          const latestCheckpoint = checkpoints.at(-1) ?? null;
+          const latestTurn =
+            latestCheckpoint === null
+              ? null
+              : {
+                  turnId: latestCheckpoint.turnId,
+                  state: checkpointStatusToLatestTurnState(latestCheckpoint.status),
+                  requestedAt: latestCheckpoint.completedAt,
+                  startedAt: latestCheckpoint.completedAt,
+                  completedAt: latestCheckpoint.completedAt,
+                  assistantMessageId: latestCheckpoint.assistantMessageId,
+                };
+
+          return {
+            ...nextBase,
+            threads: updateThread(nextBase.threads, payload.threadId, {
+              checkpoints,
+              messages,
+              proposedPlans,
+              activities,
+              latestTurn,
+              updatedAt: payload.revertedAt,
             }),
           };
         }),
