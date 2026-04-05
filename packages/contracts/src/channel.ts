@@ -55,6 +55,13 @@ export const InjectionState = Schema.Struct({
 });
 export type InjectionState = typeof InjectionState.Type;
 
+const decodeNonNegativeInt = Schema.decodeUnknownSync(NonNegativeInt);
+const decodePositiveInt = Schema.decodeUnknownSync(PositiveInt);
+const DEFAULT_DELIBERATION_STRATEGY: DeliberationStrategy = "ping-pong";
+const DEFAULT_MAX_NUDGES = decodeNonNegativeInt(3);
+const DEFAULT_STALL_TIMEOUT_MS = decodeNonNegativeInt(120000);
+const INITIAL_TURN_COUNT = decodeNonNegativeInt(0);
+
 export const DeliberationState = Schema.Struct({
   strategy: DeliberationStrategy,
   currentSpeaker: Schema.NullOr(ThreadId),
@@ -64,23 +71,23 @@ export const DeliberationState = Schema.Struct({
   concluded: Schema.Boolean,
   lastPostTimestamp: Schema.Record(Schema.String, IsoDateTime),
   nudgeCount: Schema.Record(Schema.String, NonNegativeInt),
-  maxNudges: NonNegativeInt.pipe(Schema.withDecodingDefault(() => 3 as any)),
-  stallTimeoutMs: NonNegativeInt.pipe(Schema.withDecodingDefault(() => 120000 as any)),
+  maxNudges: NonNegativeInt.pipe(Schema.withDecodingDefault(() => DEFAULT_MAX_NUDGES)),
+  stallTimeoutMs: NonNegativeInt.pipe(Schema.withDecodingDefault(() => DEFAULT_STALL_TIMEOUT_MS)),
   injectionState: Schema.optional(InjectionState),
 });
 export type DeliberationState = typeof DeliberationState.Type;
 
 export function createInitialDeliberationState(maxTurns: number): DeliberationState {
   return {
-    strategy: "ping-pong" as any,
+    strategy: DEFAULT_DELIBERATION_STRATEGY,
     currentSpeaker: null,
-    turnCount: 0 as any,
-    maxTurns: maxTurns as any,
+    turnCount: INITIAL_TURN_COUNT,
+    maxTurns: decodePositiveInt(maxTurns),
     conclusionProposals: {},
     concluded: false,
     lastPostTimestamp: {},
     nudgeCount: {},
-    maxNudges: 3 as any,
-    stallTimeoutMs: 120000 as any,
+    maxNudges: DEFAULT_MAX_NUDGES,
+    stallTimeoutMs: DEFAULT_STALL_TIMEOUT_MS,
   };
 }

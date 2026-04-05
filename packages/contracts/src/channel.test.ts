@@ -84,3 +84,7 @@ it("creates initial deliberation state defaults", () => {
     stallTimeoutMs: 120000,
   });
 });
+
+it("rejects invalid maxTurns when creating initial deliberation state", () => {
+  assert.throws(() => createInitialDeliberationState(0));
+});
