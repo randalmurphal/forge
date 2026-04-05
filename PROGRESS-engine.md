@@ -26,6 +26,7 @@
 - `WI-5: QualityCheckRunner service`
 - `WI-6: BootstrapReactor`
 - `WI-7: WorkflowEngine service`
+- `WI-8: WorkflowReactor`
 
 ## Iteration Log
 
@@ -36,6 +37,7 @@
 - `2026-04-05`: Added `QualityCheckRunner` with project/global Forge config resolution, sequential shell execution in the session worktree, structured pass/fail output capture, timeout handling, and graceful degradation for missing config files or unknown quality-check keys.
 - `2026-04-05`: Added `BootstrapReactor` with deterministic bootstrap command ids, git worktree creation under the configured worktree root, project `.forge/config.json` bootstrap command execution with timeout handling, `thread.meta.update` worktree materialization, bootstrap-failed interactive requests with retry/skip handling, and coverage for success, failure, retry, and idempotent replay. Also widened orchestration event-store and command-receipt persistence to accept the full Forge event aggregate set needed for bootstrap request events.
 - `2026-04-05`: Added `WorkflowEngine` with deterministic phase-start, quality-check, and gate-request command dispatch, workflow resolution from thread snapshots or the registry, gate evaluation for auto/quality/human flows, retry/advance logic driven from projection state, and focused unit coverage for first-phase start, next-phase advance, quality-check retry, human approval waits, and terminal completion.
+- `2026-04-05`: Added `WorkflowReactor` with PubSub-driven workflow lifecycle handling for ready-at-create threads, bootstrap completion, phase completion, and resolved gate requests, plus deterministic/idempotent command dispatch through the orchestration engine. Also extended `WorkflowEngine.advancePhase` with an explicit gate-result override so resolved human gates advance or retry instead of reopening the approval request.
 
 ## Review Log
 

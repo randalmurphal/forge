@@ -294,11 +294,13 @@ export const makeWorkflowEngine = Effect.gen(function* () {
         });
       }
 
-      const gateResult = yield* evaluateGate({
-        threadId: input.threadId,
-        phaseRunId: currentPhaseRun.phaseRunId,
-        gate: currentPhase.gate,
-      });
+      const gateResult =
+        input.gateResultOverride ??
+        (yield* evaluateGate({
+          threadId: input.threadId,
+          phaseRunId: currentPhaseRun.phaseRunId,
+          gate: currentPhase.gate,
+        }));
 
       if (gateResult.status === "waiting-human") {
         return gateResult;

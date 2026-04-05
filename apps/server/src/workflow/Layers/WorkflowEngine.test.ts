@@ -413,6 +413,78 @@ it.effect("opens a gate request and waits when a human approval gate is reached"
   }),
 );
 
+it.effect("uses a provided gate result override instead of reopening a resolved human gate", () =>
+  Effect.gen(function* () {
+    const commands: Array<any> = [];
+    const humanWorkflow: WorkflowDefinition = {
+      ...buildLoopWorkflow,
+      phases: [
+        {
+          id: implementPhaseId,
+          name: "implement",
+          type: "single-agent",
+          agent: {
+            prompt: "implement",
+            output: { type: "conversation" },
+          },
+          gate: {
+            after: "human-approval",
+            onFail: "retry",
+            retryPhase: "implement",
+            maxRetries: 3,
+          },
+        },
+        buildLoopWorkflow.phases[1]!,
+      ],
+    };
+
+    const gateResult = yield* Effect.gen(function* () {
+      const workflowEngine = yield* WorkflowEngine;
+      return yield* workflowEngine.advancePhase({
+        threadId,
+        gateResultOverride: {
+          status: "passed",
+          humanDecision: "approve",
+          evaluatedAt: "2026-04-05T12:02:00.000Z",
+        },
+      });
+    }).pipe(
+      Effect.provide(
+        makeWorkflowEngineTestLayer({
+          commands,
+          threadWorkflow: humanWorkflow,
+          phaseRunsByThread: [
+            {
+              phaseRunId,
+              threadId,
+              workflowId,
+              phaseId: implementPhaseId,
+              phaseName: "implement",
+              phaseType: "single-agent",
+              sandboxMode: "workspace-write",
+              iteration: 1,
+              status: "completed",
+              gateResult: null,
+              qualityChecks: null,
+              deliberationState: null,
+              startedAt: "2026-04-05T12:00:00.000Z",
+              completedAt: "2026-04-05T12:01:00.000Z",
+            },
+          ],
+        }),
+      ),
+    );
+
+    assert.strictEqual(gateResult.status, "passed");
+    assert.deepStrictEqual(
+      commands.map((command) => command.type),
+      ["thread.start-phase"],
+    );
+    assert.strictEqual(commands[0]?.phaseId, reviewPhaseId);
+    assert.strictEqual(commands[0]?.iteration, 1);
+  }),
+);
+
 it.effect("stops advancing when the last phase is already complete", () =>
   Effect.gen(function* () {
     const commands: Array<any> = [];

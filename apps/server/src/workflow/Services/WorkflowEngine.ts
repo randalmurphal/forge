@@ -18,6 +18,7 @@ export type StartWorkflowInput = typeof StartWorkflowInput.Type;
 
 export const AdvancePhaseInput = Schema.Struct({
   threadId: ThreadId,
+  gateResultOverride: Schema.optional(GateResult),
 });
 export type AdvancePhaseInput = typeof AdvancePhaseInput.Type;
 
