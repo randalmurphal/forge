@@ -35,6 +35,7 @@ import {
   RequestResolveCommand,
   ThreadAddDependencyCommand,
   ThreadAddLinkCommand,
+  ThreadBootstrapQueuedPayload,
   ThreadBootstrapCompletedPayload,
   ThreadBootstrapCompletedCommand,
   ThreadBootstrapFailedPayload,
@@ -1311,6 +1312,23 @@ it.effect("round-trips additive workflow, channel, and request events through Fo
           phaseRunId: "phase-run-1",
           results: [{ check: "test", passed: false, output: "1 failure" }],
           completedAt: "2026-01-01T01:11:00.000Z",
+        },
+      },
+      {
+        payloadSchema: ThreadBootstrapQueuedPayload,
+        event: {
+          ...baseEvent,
+          aggregateKind: "thread",
+          aggregateId: "thread-1",
+          type: "thread.bootstrap-queued",
+          payload: {
+            threadId: "thread-1",
+            queuedAt: "2026-01-01T01:11:30.000Z",
+          },
+        },
+        expectedPayload: {
+          threadId: "thread-1",
+          queuedAt: "2026-01-01T01:11:30.000Z",
         },
       },
       {

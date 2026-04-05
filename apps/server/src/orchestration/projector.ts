@@ -34,6 +34,7 @@ import {
   ThreadArchivedPayload,
   ThreadBootstrapCompletedPayload,
   ThreadBootstrapFailedPayload,
+  ThreadBootstrapQueuedPayload,
   ThreadBootstrapSkippedPayload,
   ThreadBootstrapStartedPayload,
   ChannelClosedPayload,
@@ -1057,6 +1058,22 @@ export function projectEvent(
           }),
           threads: updateThread(nextBase.threads, payload.threadId, {
             updatedAt: payload.completedAt,
+          }),
+        })),
+      );
+
+    case "thread.bootstrap-queued":
+      return decodeForEvent(
+        ThreadBootstrapQueuedPayload,
+        event.payload,
+        event.type,
+        "payload",
+      ).pipe(
+        Effect.map((payload) => ({
+          ...nextBase,
+          threads: updateThread(nextBase.threads, payload.threadId, {
+            bootstrapStatus: "queued",
+            updatedAt: payload.queuedAt,
           }),
         })),
       );

@@ -6,6 +6,7 @@ import {
   ThreadPhaseOutputEditedPayload as ContractsThreadPhaseOutputEditedPayloadSchema,
   ThreadQualityCheckStartedPayload as ContractsThreadQualityCheckStartedPayloadSchema,
   ThreadQualityCheckCompletedPayload as ContractsThreadQualityCheckCompletedPayloadSchema,
+  ThreadBootstrapQueuedPayload as ContractsThreadBootstrapQueuedPayloadSchema,
   ThreadBootstrapStartedPayload as ContractsThreadBootstrapStartedPayloadSchema,
   ThreadBootstrapCompletedPayload as ContractsThreadBootstrapCompletedPayloadSchema,
   ThreadBootstrapFailedPayload as ContractsThreadBootstrapFailedPayloadSchema,
@@ -87,6 +88,7 @@ export const ThreadPhaseSkippedPayload = ContractsThreadPhaseSkippedPayloadSchem
 export const ThreadPhaseOutputEditedPayload = ContractsThreadPhaseOutputEditedPayloadSchema;
 export const ThreadQualityCheckStartedPayload = ContractsThreadQualityCheckStartedPayloadSchema;
 export const ThreadQualityCheckCompletedPayload = ContractsThreadQualityCheckCompletedPayloadSchema;
+export const ThreadBootstrapQueuedPayload = ContractsThreadBootstrapQueuedPayloadSchema;
 export const ThreadBootstrapStartedPayload = ContractsThreadBootstrapStartedPayloadSchema;
 export const ThreadBootstrapCompletedPayload = ContractsThreadBootstrapCompletedPayloadSchema;
 export const ThreadBootstrapFailedPayload = ContractsThreadBootstrapFailedPayloadSchema;

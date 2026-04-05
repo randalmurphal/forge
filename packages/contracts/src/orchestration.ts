@@ -1267,6 +1267,7 @@ export const ForgeEventType = Schema.Union([
     "thread.quality-check-completed",
     "thread.correction-queued",
     "thread.correction-delivered",
+    "thread.bootstrap-queued",
     "thread.bootstrap-started",
     "thread.bootstrap-completed",
     "thread.bootstrap-failed",
@@ -1354,6 +1355,12 @@ export const ThreadQualityCheckCompletedPayload = Schema.Struct({
   completedAt: IsoDateTime,
 });
 export type ThreadQualityCheckCompletedPayload = typeof ThreadQualityCheckCompletedPayload.Type;
+
+export const ThreadBootstrapQueuedPayload = Schema.Struct({
+  threadId: ThreadId,
+  queuedAt: IsoDateTime,
+});
+export type ThreadBootstrapQueuedPayload = typeof ThreadBootstrapQueuedPayload.Type;
 
 export const ThreadBootstrapStartedPayload = Schema.Struct({
   threadId: ThreadId,
@@ -1572,6 +1579,11 @@ export const ForgeEvent = Schema.Union([
     ...ForgeEventBaseFields,
     type: Schema.Literal("thread.quality-check-completed"),
     payload: ThreadQualityCheckCompletedPayload,
+  }),
+  Schema.Struct({
+    ...ForgeEventBaseFields,
+    type: Schema.Literal("thread.bootstrap-queued"),
+    payload: ThreadBootstrapQueuedPayload,
   }),
   Schema.Struct({
     ...ForgeEventBaseFields,

@@ -1186,6 +1186,60 @@ describe("orchestration projector", () => {
     );
   });
 
+  it("projects queued bootstrap status before bootstrap starts", async () => {
+    const createdAt = "2026-04-05T12:30:00.000Z";
+    const queuedAt = "2026-04-05T12:31:00.000Z";
+
+    const created = await Effect.runPromise(
+      projectEvent(
+        createEmptyReadModel(createdAt),
+        makeEvent({
+          sequence: 1,
+          type: "thread.created",
+          aggregateKind: "thread",
+          aggregateId: "thread-bootstrap",
+          occurredAt: createdAt,
+          commandId: "cmd-create-bootstrap",
+          payload: {
+            threadId: "thread-bootstrap",
+            projectId: "project-1",
+            title: "Bootstrap thread",
+            modelSelection: {
+              provider: "codex",
+              model: "gpt-5-codex",
+            },
+            runtimeMode: "full-access",
+            branch: null,
+            worktreePath: null,
+            createdAt,
+            updatedAt: createdAt,
+          },
+        }),
+      ),
+    );
+
+    const queued = await Effect.runPromise(
+      projectEvent(
+        created,
+        makeEvent({
+          sequence: 2,
+          type: "thread.bootstrap-queued",
+          aggregateKind: "thread",
+          aggregateId: "thread-bootstrap",
+          occurredAt: queuedAt,
+          commandId: "cmd-bootstrap-queued",
+          payload: {
+            threadId: "thread-bootstrap",
+            queuedAt,
+          },
+        }),
+      ),
+    );
+
+    expect(queued.threads[0]?.bootstrapStatus).toBe("queued");
+    expect(queued.threads[0]?.updatedAt).toBe(queuedAt);
+  });
+
   it("projects workflow link, promotion, and dependency state", async () => {
     const createdAt = "2026-04-05T13:00:00.000Z";
     const linkCreatedAt = "2026-04-05T13:01:00.000Z";
