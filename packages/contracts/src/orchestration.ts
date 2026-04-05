@@ -1209,6 +1209,423 @@ export const OrchestrationEvent = Schema.Union([
 ]);
 export type OrchestrationEvent = typeof OrchestrationEvent.Type;
 
+export const ForgeEventType = Schema.Union([
+  OrchestrationEventType,
+  Schema.Literals([
+    "thread.phase-started",
+    "thread.phase-completed",
+    "thread.phase-failed",
+    "thread.phase-skipped",
+    "thread.phase-output-edited",
+    "thread.quality-check-started",
+    "thread.quality-check-completed",
+    "thread.correction-queued",
+    "thread.correction-delivered",
+    "thread.bootstrap-started",
+    "thread.bootstrap-completed",
+    "thread.bootstrap-failed",
+    "thread.bootstrap-skipped",
+    "thread.link-added",
+    "thread.link-removed",
+    "thread.promoted",
+    "thread.dependency-added",
+    "thread.dependency-removed",
+    "thread.dependencies-satisfied",
+    "thread.synthesis-completed",
+    "channel.created",
+    "channel.message-posted",
+    "channel.conclusion-proposed",
+    "channel.concluded",
+    "channel.closed",
+    "request.opened",
+    "request.resolved",
+    "request.stale",
+  ]),
+]);
+export type ForgeEventType = typeof ForgeEventType.Type;
+
+export const ForgeAggregateKind = Schema.Literals(["project", "thread", "channel", "request"]);
+export type ForgeAggregateKind = typeof ForgeAggregateKind.Type;
+
+export const ThreadPhaseStartedPayload = Schema.Struct({
+  threadId: ThreadId,
+  phaseRunId: PhaseRunId,
+  phaseId: WorkflowPhaseId,
+  phaseName: TrimmedNonEmptyString,
+  phaseType: PhaseType,
+  iteration: PositiveInt,
+  startedAt: IsoDateTime,
+});
+export type ThreadPhaseStartedPayload = typeof ThreadPhaseStartedPayload.Type;
+
+export const ThreadPhaseCompletedPayload = Schema.Struct({
+  threadId: ThreadId,
+  phaseRunId: PhaseRunId,
+  outputs: Schema.Array(PhaseOutputEntry),
+  gateResult: Schema.optional(GateResult),
+  completedAt: IsoDateTime,
+});
+export type ThreadPhaseCompletedPayload = typeof ThreadPhaseCompletedPayload.Type;
+
+export const ThreadPhaseFailedPayload = Schema.Struct({
+  threadId: ThreadId,
+  phaseRunId: PhaseRunId,
+  error: Schema.String,
+  failedAt: IsoDateTime,
+});
+export type ThreadPhaseFailedPayload = typeof ThreadPhaseFailedPayload.Type;
+
+export const ThreadPhaseSkippedPayload = Schema.Struct({
+  threadId: ThreadId,
+  phaseRunId: PhaseRunId,
+  skippedAt: IsoDateTime,
+});
+export type ThreadPhaseSkippedPayload = typeof ThreadPhaseSkippedPayload.Type;
+
+export const ThreadPhaseOutputEditedPayload = Schema.Struct({
+  threadId: ThreadId,
+  phaseRunId: PhaseRunId,
+  outputKey: TrimmedNonEmptyString,
+  previousContent: Schema.String,
+  newContent: Schema.String,
+  editedAt: IsoDateTime,
+});
+export type ThreadPhaseOutputEditedPayload = typeof ThreadPhaseOutputEditedPayload.Type;
+
+export const ThreadQualityCheckStartedPayload = Schema.Struct({
+  threadId: ThreadId,
+  phaseRunId: PhaseRunId,
+  checks: Schema.Array(QualityCheckReference),
+  startedAt: IsoDateTime,
+});
+export type ThreadQualityCheckStartedPayload = typeof ThreadQualityCheckStartedPayload.Type;
+
+export const ThreadQualityCheckCompletedPayload = Schema.Struct({
+  threadId: ThreadId,
+  phaseRunId: PhaseRunId,
+  results: Schema.Array(QualityCheckResult),
+  completedAt: IsoDateTime,
+});
+export type ThreadQualityCheckCompletedPayload = typeof ThreadQualityCheckCompletedPayload.Type;
+
+export const ThreadBootstrapStartedPayload = Schema.Struct({
+  threadId: ThreadId,
+  startedAt: IsoDateTime,
+});
+export type ThreadBootstrapStartedPayload = typeof ThreadBootstrapStartedPayload.Type;
+
+export const ThreadBootstrapCompletedPayload = Schema.Struct({
+  threadId: ThreadId,
+  completedAt: IsoDateTime,
+});
+export type ThreadBootstrapCompletedPayload = typeof ThreadBootstrapCompletedPayload.Type;
+
+export const ThreadBootstrapFailedPayload = Schema.Struct({
+  threadId: ThreadId,
+  error: Schema.String,
+  stdout: Schema.String,
+  command: TrimmedNonEmptyString,
+  failedAt: IsoDateTime,
+});
+export type ThreadBootstrapFailedPayload = typeof ThreadBootstrapFailedPayload.Type;
+
+export const ThreadBootstrapSkippedPayload = Schema.Struct({
+  threadId: ThreadId,
+  skippedAt: IsoDateTime,
+});
+export type ThreadBootstrapSkippedPayload = typeof ThreadBootstrapSkippedPayload.Type;
+
+export const ThreadCorrectionQueuedPayload = Schema.Struct({
+  threadId: ThreadId,
+  content: Schema.String,
+  channelId: ChannelId,
+  messageId: ChannelMessageId,
+  createdAt: IsoDateTime,
+});
+export type ThreadCorrectionQueuedPayload = typeof ThreadCorrectionQueuedPayload.Type;
+
+export const ThreadCorrectionDeliveredPayload = Schema.Struct({
+  threadId: ThreadId,
+  deliveredAt: IsoDateTime,
+});
+export type ThreadCorrectionDeliveredPayload = typeof ThreadCorrectionDeliveredPayload.Type;
+
+export const ThreadLinkAddedPayload = Schema.Struct({
+  threadId: ThreadId,
+  linkId: LinkId,
+  linkType: LinkType,
+  linkedThreadId: Schema.NullOr(ThreadId),
+  externalId: Schema.NullOr(TrimmedNonEmptyString),
+  externalUrl: Schema.NullOr(TrimmedNonEmptyString),
+  createdAt: IsoDateTime,
+});
+export type ThreadLinkAddedPayload = typeof ThreadLinkAddedPayload.Type;
+
+export const ThreadLinkRemovedPayload = Schema.Struct({
+  threadId: ThreadId,
+  linkId: LinkId,
+  removedAt: IsoDateTime,
+});
+export type ThreadLinkRemovedPayload = typeof ThreadLinkRemovedPayload.Type;
+
+export const ThreadPromotedPayload = Schema.Struct({
+  sourceThreadId: ThreadId,
+  targetThreadId: ThreadId,
+  promotedAt: IsoDateTime,
+});
+export type ThreadPromotedPayload = typeof ThreadPromotedPayload.Type;
+
+export const ThreadDependencyAddedPayload = Schema.Struct({
+  threadId: ThreadId,
+  dependsOnThreadId: ThreadId,
+  createdAt: IsoDateTime,
+});
+export type ThreadDependencyAddedPayload = typeof ThreadDependencyAddedPayload.Type;
+
+export const ThreadDependencyRemovedPayload = Schema.Struct({
+  threadId: ThreadId,
+  dependsOnThreadId: ThreadId,
+  removedAt: IsoDateTime,
+});
+export type ThreadDependencyRemovedPayload = typeof ThreadDependencyRemovedPayload.Type;
+
+export const ThreadDependenciesSatisfiedPayload = Schema.Struct({
+  threadId: ThreadId,
+  satisfiedAt: IsoDateTime,
+});
+export type ThreadDependenciesSatisfiedPayload = typeof ThreadDependenciesSatisfiedPayload.Type;
+
+export const ThreadSynthesisCompletedPayload = Schema.Struct({
+  threadId: ThreadId,
+  content: Schema.String,
+  generatedByThreadId: ThreadId,
+  completedAt: IsoDateTime,
+});
+export type ThreadSynthesisCompletedPayload = typeof ThreadSynthesisCompletedPayload.Type;
+
+export const ChannelCreatedPayload = Schema.Struct({
+  channelId: ChannelId,
+  threadId: ThreadId,
+  channelType: ChannelType,
+  phaseRunId: Schema.NullOr(PhaseRunId),
+  createdAt: IsoDateTime,
+});
+export type ChannelCreatedPayload = typeof ChannelCreatedPayload.Type;
+
+export const ChannelMessagePostedPayload = Schema.Struct({
+  channelId: ChannelId,
+  messageId: ChannelMessageId,
+  sequence: NonNegativeInt,
+  fromType: ChannelParticipantType,
+  fromId: TrimmedNonEmptyString,
+  fromRole: Schema.NullOr(TrimmedNonEmptyString),
+  content: Schema.String,
+  createdAt: IsoDateTime,
+});
+export type ChannelMessagePostedPayload = typeof ChannelMessagePostedPayload.Type;
+
+export const ChannelConclusionProposedPayload = Schema.Struct({
+  channelId: ChannelId,
+  threadId: ThreadId,
+  summary: Schema.String,
+  proposedAt: IsoDateTime,
+});
+export type ChannelConclusionProposedPayload = typeof ChannelConclusionProposedPayload.Type;
+
+export const ChannelConcludedPayload = Schema.Struct({
+  channelId: ChannelId,
+  concludedAt: IsoDateTime,
+});
+export type ChannelConcludedPayload = typeof ChannelConcludedPayload.Type;
+
+export const ChannelClosedPayload = Schema.Struct({
+  channelId: ChannelId,
+  closedAt: IsoDateTime,
+});
+export type ChannelClosedPayload = typeof ChannelClosedPayload.Type;
+
+export const InteractiveRequestOpenedPayload = Schema.Struct({
+  requestId: InteractiveRequestId,
+  threadId: ThreadId,
+  childThreadId: Schema.NullOr(ThreadId),
+  phaseRunId: Schema.NullOr(PhaseRunId),
+  requestType: InteractiveRequestType,
+  payload: InteractiveRequestPayload,
+  createdAt: IsoDateTime,
+});
+export type InteractiveRequestOpenedPayload = typeof InteractiveRequestOpenedPayload.Type;
+
+export const InteractiveRequestResolvedPayload = Schema.Struct({
+  requestId: InteractiveRequestId,
+  resolvedWith: InteractiveRequestResolution,
+  resolvedAt: IsoDateTime,
+});
+export type InteractiveRequestResolvedPayload = typeof InteractiveRequestResolvedPayload.Type;
+
+export const InteractiveRequestStalePayload = Schema.Struct({
+  requestId: InteractiveRequestId,
+  reason: Schema.String,
+  staleAt: IsoDateTime,
+});
+export type InteractiveRequestStalePayload = typeof InteractiveRequestStalePayload.Type;
+
+const ForgeEventBaseFields = {
+  sequence: NonNegativeInt,
+  eventId: EventId,
+  aggregateKind: ForgeAggregateKind,
+  aggregateId: Schema.Union([ProjectId, ThreadId, ChannelId, InteractiveRequestId]),
+  occurredAt: IsoDateTime,
+  commandId: Schema.NullOr(CommandId),
+  causationEventId: Schema.NullOr(EventId),
+  correlationId: Schema.NullOr(CommandId),
+  metadata: OrchestrationEventMetadata,
+} as const;
+
+export const ForgeEvent = Schema.Union([
+  OrchestrationEvent,
+  Schema.Struct({
+    ...ForgeEventBaseFields,
+    type: Schema.Literal("thread.phase-started"),
+    payload: ThreadPhaseStartedPayload,
+  }),
+  Schema.Struct({
+    ...ForgeEventBaseFields,
+    type: Schema.Literal("thread.phase-completed"),
+    payload: ThreadPhaseCompletedPayload,
+  }),
+  Schema.Struct({
+    ...ForgeEventBaseFields,
+    type: Schema.Literal("thread.phase-failed"),
+    payload: ThreadPhaseFailedPayload,
+  }),
+  Schema.Struct({
+    ...ForgeEventBaseFields,
+    type: Schema.Literal("thread.phase-skipped"),
+    payload: ThreadPhaseSkippedPayload,
+  }),
+  Schema.Struct({
+    ...ForgeEventBaseFields,
+    type: Schema.Literal("thread.phase-output-edited"),
+    payload: ThreadPhaseOutputEditedPayload,
+  }),
+  Schema.Struct({
+    ...ForgeEventBaseFields,
+    type: Schema.Literal("thread.quality-check-started"),
+    payload: ThreadQualityCheckStartedPayload,
+  }),
+  Schema.Struct({
+    ...ForgeEventBaseFields,
+    type: Schema.Literal("thread.quality-check-completed"),
+    payload: ThreadQualityCheckCompletedPayload,
+  }),
+  Schema.Struct({
+    ...ForgeEventBaseFields,
+    type: Schema.Literal("thread.bootstrap-started"),
+    payload: ThreadBootstrapStartedPayload,
+  }),
+  Schema.Struct({
+    ...ForgeEventBaseFields,
+    type: Schema.Literal("thread.bootstrap-completed"),
+    payload: ThreadBootstrapCompletedPayload,
+  }),
+  Schema.Struct({
+    ...ForgeEventBaseFields,
+    type: Schema.Literal("thread.bootstrap-failed"),
+    payload: ThreadBootstrapFailedPayload,
+  }),
+  Schema.Struct({
+    ...ForgeEventBaseFields,
+    type: Schema.Literal("thread.bootstrap-skipped"),
+    payload: ThreadBootstrapSkippedPayload,
+  }),
+  Schema.Struct({
+    ...ForgeEventBaseFields,
+    type: Schema.Literal("thread.correction-queued"),
+    payload: ThreadCorrectionQueuedPayload,
+  }),
+  Schema.Struct({
+    ...ForgeEventBaseFields,
+    type: Schema.Literal("thread.correction-delivered"),
+    payload: ThreadCorrectionDeliveredPayload,
+  }),
+  Schema.Struct({
+    ...ForgeEventBaseFields,
+    type: Schema.Literal("thread.link-added"),
+    payload: ThreadLinkAddedPayload,
+  }),
+  Schema.Struct({
+    ...ForgeEventBaseFields,
+    type: Schema.Literal("thread.link-removed"),
+    payload: ThreadLinkRemovedPayload,
+  }),
+  Schema.Struct({
+    ...ForgeEventBaseFields,
+    type: Schema.Literal("thread.promoted"),
+    payload: ThreadPromotedPayload,
+  }),
+  Schema.Struct({
+    ...ForgeEventBaseFields,
+    type: Schema.Literal("thread.dependency-added"),
+    payload: ThreadDependencyAddedPayload,
+  }),
+  Schema.Struct({
+    ...ForgeEventBaseFields,
+    type: Schema.Literal("thread.dependency-removed"),
+    payload: ThreadDependencyRemovedPayload,
+  }),
+  Schema.Struct({
+    ...ForgeEventBaseFields,
+    type: Schema.Literal("thread.dependencies-satisfied"),
+    payload: ThreadDependenciesSatisfiedPayload,
+  }),
+  Schema.Struct({
+    ...ForgeEventBaseFields,
+    type: Schema.Literal("thread.synthesis-completed"),
+    payload: ThreadSynthesisCompletedPayload,
+  }),
+  Schema.Struct({
+    ...ForgeEventBaseFields,
+    type: Schema.Literal("channel.created"),
+    payload: ChannelCreatedPayload,
+  }),
+  Schema.Struct({
+    ...ForgeEventBaseFields,
+    type: Schema.Literal("channel.message-posted"),
+    payload: ChannelMessagePostedPayload,
+  }),
+  Schema.Struct({
+    ...ForgeEventBaseFields,
+    type: Schema.Literal("channel.conclusion-proposed"),
+    payload: ChannelConclusionProposedPayload,
+  }),
+  Schema.Struct({
+    ...ForgeEventBaseFields,
+    type: Schema.Literal("channel.concluded"),
+    payload: ChannelConcludedPayload,
+  }),
+  Schema.Struct({
+    ...ForgeEventBaseFields,
+    type: Schema.Literal("channel.closed"),
+    payload: ChannelClosedPayload,
+  }),
+  Schema.Struct({
+    ...ForgeEventBaseFields,
+    type: Schema.Literal("request.opened"),
+    payload: InteractiveRequestOpenedPayload,
+  }),
+  Schema.Struct({
+    ...ForgeEventBaseFields,
+    type: Schema.Literal("request.resolved"),
+    payload: InteractiveRequestResolvedPayload,
+  }),
+  Schema.Struct({
+    ...ForgeEventBaseFields,
+    type: Schema.Literal("request.stale"),
+    payload: InteractiveRequestStalePayload,
+  }),
+]);
+export type ForgeEvent = typeof ForgeEvent.Type;
+
 export const OrchestrationCommandReceiptStatus = Schema.Literals(["accepted", "rejected"]);
 export type OrchestrationCommandReceiptStatus = typeof OrchestrationCommandReceiptStatus.Type;
 
