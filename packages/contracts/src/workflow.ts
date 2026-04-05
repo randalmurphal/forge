@@ -7,7 +7,7 @@ import {
   WorkflowId,
   WorkflowPhaseId,
 } from "./baseSchemas";
-import { ModelSelection, ProviderSandboxMode } from "./orchestration";
+import { ModelSelection, ProviderSandboxMode } from "./providerSchemas";
 
 export const AgentOutputMode = Schema.Literals(["schema", "channel", "conversation"]);
 export type AgentOutputMode = typeof AgentOutputMode.Type;

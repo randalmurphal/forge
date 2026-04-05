@@ -8,6 +8,7 @@
 - Branded entity identifiers live in `packages/contracts/src/baseSchemas.ts` and are created with the local `makeEntityId` helper over `TrimmedNonEmptyString`.
 - The contracts package exports schema modules through `packages/contracts/src/index.ts`; `baseSchemas.ts` changes do not require additional index wiring.
 - New contract domains should live in dedicated files and be exported from `packages/contracts/src/index.ts` rather than extending unrelated schema modules.
+- When additive command schemas outpace runtime support, keep the existing `OrchestrationCommand` and client RPC command unions stable and stage the expanded surface behind `ForgeCommand` until decider/engine handling is added.
 
 ## Known Issues
 
@@ -23,6 +24,7 @@
 - WI-2: Workflow contract types
 - WI-3: Channel contract types
 - WI-4: Interactive request contract types
+- WI-5: New command types
 
 ## Iteration Log
 
@@ -30,6 +32,7 @@
 - 2026-04-05: Implemented WI-2 by adding workflow, gate, quality check, bootstrap, and project config schemas in `packages/contracts/src/workflow.ts`, exporting them from the contracts index, and adding decode coverage for key workflow unions and defaults.
 - 2026-04-05: Implemented WI-3 by adding channel entities, deliberation state schemas, and channel contract tests covering channel message decoding and deliberation defaults.
 - 2026-04-05: Implemented WI-4 by adding `packages/contracts/src/interactiveRequest.ts`, exporting the new interactive request schemas from the contracts index with a root-level alias for the new `UserInputQuestion` helper to avoid colliding with the existing provider-runtime export, and adding discriminated-union decode coverage for all payload and resolution variants.
+- 2026-04-05: Implemented WI-5 by extracting shared provider/model schemas into `packages/contracts/src/providerSchemas.ts`, adding the additive workflow/channel/request command schemas plus `ForgeCommand` to `packages/contracts/src/orchestration.ts`, preserving the legacy `OrchestrationCommand` runtime surface for existing engine exhaustiveness, and adding round-trip coverage for every new command schema.
 
 ## Review Log
 

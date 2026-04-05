@@ -3,8 +3,14 @@ import { it } from "@effect/vitest";
 import { Effect, Schema } from "effect";
 
 import {
+  ChannelCloseCommand,
+  ChannelConcludeCommand,
+  ChannelCreateCommand,
+  ChannelPostMessageCommand,
+  ChannelReadMessagesCommand,
   DEFAULT_PROVIDER_INTERACTION_MODE,
   DEFAULT_RUNTIME_MODE,
+  ForgeCommand,
   OrchestrationCommand,
   OrchestrationEvent,
   OrchestrationGetTurnDiffInput,
@@ -14,7 +20,27 @@ import {
   OrchestrationProposedPlan,
   OrchestrationSession,
   ProjectCreateCommand,
+  RequestMarkStaleCommand,
+  RequestOpenCommand,
+  RequestResolveCommand,
+  ThreadAddDependencyCommand,
+  ThreadAddLinkCommand,
+  ThreadBootstrapCompletedCommand,
+  ThreadBootstrapFailedCommand,
+  ThreadBootstrapSkippedCommand,
+  ThreadBootstrapStartedCommand,
+  ThreadCompletePhaseCommand,
+  ThreadCorrectCommand,
+  ThreadEditPhaseOutputCommand,
+  ThreadFailPhaseCommand,
   ThreadMetaUpdatedPayload,
+  ThreadPromoteCommand,
+  ThreadQualityCheckCompleteCommand,
+  ThreadQualityCheckStartCommand,
+  ThreadRemoveDependencyCommand,
+  ThreadRemoveLinkCommand,
+  ThreadSkipPhaseCommand,
+  ThreadStartPhaseCommand,
   ThreadTurnStartCommand,
   ThreadCreatedPayload,
   ThreadTurnDiff,
@@ -34,9 +60,37 @@ const decodeOrchestrationLatestTurn = Schema.decodeUnknownEffect(OrchestrationLa
 const decodeOrchestrationProposedPlan = Schema.decodeUnknownEffect(OrchestrationProposedPlan);
 const decodeOrchestrationSession = Schema.decodeUnknownEffect(OrchestrationSession);
 const decodeThreadCreatedPayload = Schema.decodeUnknownEffect(ThreadCreatedPayload);
+const decodeForgeCommand = Schema.decodeUnknownEffect(ForgeCommand);
 const decodeOrchestrationCommand = Schema.decodeUnknownEffect(OrchestrationCommand);
 const decodeOrchestrationEvent = Schema.decodeUnknownEffect(OrchestrationEvent);
 const decodeThreadMetaUpdatedPayload = Schema.decodeUnknownEffect(ThreadMetaUpdatedPayload);
+
+const decode = <S extends Schema.Top>(
+  schema: S,
+  input: unknown,
+): Effect.Effect<Schema.Schema.Type<S>, Schema.SchemaError, never> =>
+  Schema.decodeUnknownEffect(schema as never)(input) as Effect.Effect<
+    Schema.Schema.Type<S>,
+    Schema.SchemaError,
+    never
+  >;
+
+const encode = <S extends Schema.Top>(
+  schema: S,
+  input: Schema.Schema.Type<S>,
+): Effect.Effect<unknown, Schema.SchemaError, never> =>
+  Schema.encodeEffect(schema as never)(input as never) as Effect.Effect<
+    unknown,
+    Schema.SchemaError,
+    never
+  >;
+
+const roundTrip = <S extends Schema.Top>(schema: S, input: unknown) =>
+  Effect.gen(function* () {
+    const parsed = yield* decode(schema, input);
+    const encoded = yield* encode(schema, parsed);
+    return { parsed, encoded };
+  });
 
 it.effect("parses turn diff input when fromTurnCount <= toTurnCount", () =>
   Effect.gen(function* () {
@@ -473,5 +527,569 @@ it.effect("preserves proposed plan implementation metadata when present", () =>
     });
     assert.strictEqual(parsed.implementedAt, "2026-01-02T00:00:00.000Z");
     assert.strictEqual(parsed.implementationThreadId, "thread-2");
+  }),
+);
+
+it.effect("round-trips additive workflow, channel, and request commands through ForgeCommand", () =>
+  Effect.gen(function* () {
+    const cases = [
+      {
+        schema: ThreadCorrectCommand,
+        input: {
+          type: "thread.correct",
+          commandId: " cmd-correct-1 ",
+          threadId: " thread-1 ",
+          content: "Please address the failing lint errors.",
+          createdAt: "2026-01-01T00:00:00.000Z",
+        },
+        expected: {
+          type: "thread.correct",
+          commandId: "cmd-correct-1",
+          threadId: "thread-1",
+          content: "Please address the failing lint errors.",
+          createdAt: "2026-01-01T00:00:00.000Z",
+        },
+      },
+      {
+        schema: ThreadStartPhaseCommand,
+        input: {
+          type: "thread.start-phase",
+          commandId: "cmd-start-phase-1",
+          threadId: "thread-1",
+          phaseId: " phase-1 ",
+          phaseName: " Implement ",
+          phaseType: "single-agent",
+          iteration: 1,
+          createdAt: "2026-01-01T00:00:00.000Z",
+        },
+        expected: {
+          type: "thread.start-phase",
+          commandId: "cmd-start-phase-1",
+          threadId: "thread-1",
+          phaseId: "phase-1",
+          phaseName: "Implement",
+          phaseType: "single-agent",
+          iteration: 1,
+          createdAt: "2026-01-01T00:00:00.000Z",
+        },
+      },
+      {
+        schema: ThreadCompletePhaseCommand,
+        input: {
+          type: "thread.complete-phase",
+          commandId: "cmd-complete-phase-1",
+          threadId: "thread-1",
+          phaseRunId: " phase-run-1 ",
+          outputs: [
+            {
+              key: " output ",
+              content: "Summary",
+              sourceType: " agent ",
+            },
+          ],
+          gateResult: {
+            status: "passed",
+            evaluatedAt: "2026-01-01T00:05:00.000Z",
+          },
+          createdAt: "2026-01-01T00:06:00.000Z",
+        },
+        expected: {
+          type: "thread.complete-phase",
+          commandId: "cmd-complete-phase-1",
+          threadId: "thread-1",
+          phaseRunId: "phase-run-1",
+          outputs: [
+            {
+              key: "output",
+              content: "Summary",
+              sourceType: "agent",
+            },
+          ],
+          gateResult: {
+            status: "passed",
+            evaluatedAt: "2026-01-01T00:05:00.000Z",
+          },
+          createdAt: "2026-01-01T00:06:00.000Z",
+        },
+      },
+      {
+        schema: ThreadFailPhaseCommand,
+        input: {
+          type: "thread.fail-phase",
+          commandId: "cmd-fail-phase-1",
+          threadId: "thread-1",
+          phaseRunId: " phase-run-1 ",
+          error: "Compile failed",
+          createdAt: "2026-01-01T00:06:00.000Z",
+        },
+        expected: {
+          type: "thread.fail-phase",
+          commandId: "cmd-fail-phase-1",
+          threadId: "thread-1",
+          phaseRunId: "phase-run-1",
+          error: "Compile failed",
+          createdAt: "2026-01-01T00:06:00.000Z",
+        },
+      },
+      {
+        schema: ThreadSkipPhaseCommand,
+        input: {
+          type: "thread.skip-phase",
+          commandId: "cmd-skip-phase-1",
+          threadId: "thread-1",
+          phaseRunId: " phase-run-1 ",
+          createdAt: "2026-01-01T00:06:00.000Z",
+        },
+        expected: {
+          type: "thread.skip-phase",
+          commandId: "cmd-skip-phase-1",
+          threadId: "thread-1",
+          phaseRunId: "phase-run-1",
+          createdAt: "2026-01-01T00:06:00.000Z",
+        },
+      },
+      {
+        schema: ThreadEditPhaseOutputCommand,
+        input: {
+          type: "thread.edit-phase-output",
+          commandId: "cmd-edit-output-1",
+          threadId: "thread-1",
+          phaseRunId: " phase-run-1 ",
+          outputKey: " output ",
+          content: "Edited output",
+          createdAt: "2026-01-01T00:07:00.000Z",
+        },
+        expected: {
+          type: "thread.edit-phase-output",
+          commandId: "cmd-edit-output-1",
+          threadId: "thread-1",
+          phaseRunId: "phase-run-1",
+          outputKey: "output",
+          content: "Edited output",
+          createdAt: "2026-01-01T00:07:00.000Z",
+        },
+      },
+      {
+        schema: ThreadQualityCheckStartCommand,
+        input: {
+          type: "thread.quality-check-start",
+          commandId: "cmd-quality-start-1",
+          threadId: "thread-1",
+          phaseRunId: " phase-run-1 ",
+          checks: [
+            {
+              check: " lint ",
+              required: true,
+            },
+          ],
+          createdAt: "2026-01-01T00:08:00.000Z",
+        },
+        expected: {
+          type: "thread.quality-check-start",
+          commandId: "cmd-quality-start-1",
+          threadId: "thread-1",
+          phaseRunId: "phase-run-1",
+          checks: [
+            {
+              check: "lint",
+              required: true,
+            },
+          ],
+          createdAt: "2026-01-01T00:08:00.000Z",
+        },
+      },
+      {
+        schema: ThreadQualityCheckCompleteCommand,
+        input: {
+          type: "thread.quality-check-complete",
+          commandId: "cmd-quality-complete-1",
+          threadId: "thread-1",
+          phaseRunId: " phase-run-1 ",
+          results: [
+            {
+              check: " test ",
+              passed: false,
+              output: "1 failing test",
+            },
+          ],
+          createdAt: "2026-01-01T00:09:00.000Z",
+        },
+        expected: {
+          type: "thread.quality-check-complete",
+          commandId: "cmd-quality-complete-1",
+          threadId: "thread-1",
+          phaseRunId: "phase-run-1",
+          results: [
+            {
+              check: "test",
+              passed: false,
+              output: "1 failing test",
+            },
+          ],
+          createdAt: "2026-01-01T00:09:00.000Z",
+        },
+      },
+      {
+        schema: ThreadBootstrapStartedCommand,
+        input: {
+          type: "thread.bootstrap-started",
+          commandId: "cmd-bootstrap-started-1",
+          threadId: "thread-1",
+          createdAt: "2026-01-01T00:10:00.000Z",
+        },
+        expected: {
+          type: "thread.bootstrap-started",
+          commandId: "cmd-bootstrap-started-1",
+          threadId: "thread-1",
+          createdAt: "2026-01-01T00:10:00.000Z",
+        },
+      },
+      {
+        schema: ThreadBootstrapCompletedCommand,
+        input: {
+          type: "thread.bootstrap-completed",
+          commandId: "cmd-bootstrap-completed-1",
+          threadId: "thread-1",
+          createdAt: "2026-01-01T00:11:00.000Z",
+        },
+        expected: {
+          type: "thread.bootstrap-completed",
+          commandId: "cmd-bootstrap-completed-1",
+          threadId: "thread-1",
+          createdAt: "2026-01-01T00:11:00.000Z",
+        },
+      },
+      {
+        schema: ThreadBootstrapFailedCommand,
+        input: {
+          type: "thread.bootstrap-failed",
+          commandId: "cmd-bootstrap-failed-1",
+          threadId: "thread-1",
+          error: "Install failed",
+          stdout: "npm error output",
+          command: " bun install ",
+          createdAt: "2026-01-01T00:12:00.000Z",
+        },
+        expected: {
+          type: "thread.bootstrap-failed",
+          commandId: "cmd-bootstrap-failed-1",
+          threadId: "thread-1",
+          error: "Install failed",
+          stdout: "npm error output",
+          command: "bun install",
+          createdAt: "2026-01-01T00:12:00.000Z",
+        },
+      },
+      {
+        schema: ThreadBootstrapSkippedCommand,
+        input: {
+          type: "thread.bootstrap-skipped",
+          commandId: "cmd-bootstrap-skipped-1",
+          threadId: "thread-1",
+          createdAt: "2026-01-01T00:13:00.000Z",
+        },
+        expected: {
+          type: "thread.bootstrap-skipped",
+          commandId: "cmd-bootstrap-skipped-1",
+          threadId: "thread-1",
+          createdAt: "2026-01-01T00:13:00.000Z",
+        },
+      },
+      {
+        schema: ThreadAddLinkCommand,
+        input: {
+          type: "thread.add-link",
+          commandId: "cmd-add-link-1",
+          threadId: "thread-1",
+          linkId: " link-1 ",
+          linkType: "related",
+          externalId: " GH-123 ",
+          externalUrl: " https://example.com/issues/123 ",
+          createdAt: "2026-01-01T00:14:00.000Z",
+        },
+        expected: {
+          type: "thread.add-link",
+          commandId: "cmd-add-link-1",
+          threadId: "thread-1",
+          linkId: "link-1",
+          linkType: "related",
+          externalId: "GH-123",
+          externalUrl: "https://example.com/issues/123",
+          createdAt: "2026-01-01T00:14:00.000Z",
+        },
+      },
+      {
+        schema: ThreadRemoveLinkCommand,
+        input: {
+          type: "thread.remove-link",
+          commandId: "cmd-remove-link-1",
+          threadId: "thread-1",
+          linkId: " link-1 ",
+          createdAt: "2026-01-01T00:15:00.000Z",
+        },
+        expected: {
+          type: "thread.remove-link",
+          commandId: "cmd-remove-link-1",
+          threadId: "thread-1",
+          linkId: "link-1",
+          createdAt: "2026-01-01T00:15:00.000Z",
+        },
+      },
+      {
+        schema: ThreadPromoteCommand,
+        input: {
+          type: "thread.promote",
+          commandId: "cmd-promote-1",
+          sourceThreadId: "thread-1",
+          targetThreadId: "thread-2",
+          targetWorkflowId: " workflow-1 ",
+          title: " Workflow Session ",
+          description: "Promote this chat into a workflow.",
+          createdAt: "2026-01-01T00:16:00.000Z",
+        },
+        expected: {
+          type: "thread.promote",
+          commandId: "cmd-promote-1",
+          sourceThreadId: "thread-1",
+          targetThreadId: "thread-2",
+          targetWorkflowId: "workflow-1",
+          title: "Workflow Session",
+          description: "Promote this chat into a workflow.",
+          createdAt: "2026-01-01T00:16:00.000Z",
+        },
+      },
+      {
+        schema: ThreadAddDependencyCommand,
+        input: {
+          type: "thread.add-dependency",
+          commandId: "cmd-add-dependency-1",
+          threadId: "thread-1",
+          dependsOnThreadId: " thread-2 ",
+          createdAt: "2026-01-01T00:17:00.000Z",
+        },
+        expected: {
+          type: "thread.add-dependency",
+          commandId: "cmd-add-dependency-1",
+          threadId: "thread-1",
+          dependsOnThreadId: "thread-2",
+          createdAt: "2026-01-01T00:17:00.000Z",
+        },
+      },
+      {
+        schema: ThreadRemoveDependencyCommand,
+        input: {
+          type: "thread.remove-dependency",
+          commandId: "cmd-remove-dependency-1",
+          threadId: "thread-1",
+          dependsOnThreadId: " thread-2 ",
+          createdAt: "2026-01-01T00:18:00.000Z",
+        },
+        expected: {
+          type: "thread.remove-dependency",
+          commandId: "cmd-remove-dependency-1",
+          threadId: "thread-1",
+          dependsOnThreadId: "thread-2",
+          createdAt: "2026-01-01T00:18:00.000Z",
+        },
+      },
+      {
+        schema: ChannelCreateCommand,
+        input: {
+          type: "channel.create",
+          commandId: "cmd-channel-create-1",
+          channelId: " channel-1 ",
+          threadId: "thread-1",
+          channelType: "guidance",
+          phaseRunId: " phase-run-1 ",
+          createdAt: "2026-01-01T00:19:00.000Z",
+        },
+        expected: {
+          type: "channel.create",
+          commandId: "cmd-channel-create-1",
+          channelId: "channel-1",
+          threadId: "thread-1",
+          channelType: "guidance",
+          phaseRunId: "phase-run-1",
+          createdAt: "2026-01-01T00:19:00.000Z",
+        },
+      },
+      {
+        schema: ChannelPostMessageCommand,
+        input: {
+          type: "channel.post-message",
+          commandId: "cmd-channel-post-1",
+          channelId: " channel-1 ",
+          messageId: " message-1 ",
+          fromType: "agent",
+          fromId: " thread-2 ",
+          fromRole: " advocate ",
+          content: "Here is the first review note.",
+          createdAt: "2026-01-01T00:20:00.000Z",
+        },
+        expected: {
+          type: "channel.post-message",
+          commandId: "cmd-channel-post-1",
+          channelId: "channel-1",
+          messageId: "message-1",
+          fromType: "agent",
+          fromId: "thread-2",
+          fromRole: "advocate",
+          content: "Here is the first review note.",
+          createdAt: "2026-01-01T00:20:00.000Z",
+        },
+      },
+      {
+        schema: ChannelReadMessagesCommand,
+        input: {
+          type: "channel.read-messages",
+          commandId: "cmd-channel-read-1",
+          channelId: " channel-1 ",
+          threadId: " thread-2 ",
+          upToSequence: 4,
+          createdAt: "2026-01-01T00:21:00.000Z",
+        },
+        expected: {
+          type: "channel.read-messages",
+          commandId: "cmd-channel-read-1",
+          channelId: "channel-1",
+          threadId: "thread-2",
+          upToSequence: 4,
+          createdAt: "2026-01-01T00:21:00.000Z",
+        },
+      },
+      {
+        schema: ChannelConcludeCommand,
+        input: {
+          type: "channel.conclude",
+          commandId: "cmd-channel-conclude-1",
+          channelId: " channel-1 ",
+          threadId: " thread-2 ",
+          summary: "Consensus reached on the plan.",
+          createdAt: "2026-01-01T00:22:00.000Z",
+        },
+        expected: {
+          type: "channel.conclude",
+          commandId: "cmd-channel-conclude-1",
+          channelId: "channel-1",
+          threadId: "thread-2",
+          summary: "Consensus reached on the plan.",
+          createdAt: "2026-01-01T00:22:00.000Z",
+        },
+      },
+      {
+        schema: ChannelCloseCommand,
+        input: {
+          type: "channel.close",
+          commandId: "cmd-channel-close-1",
+          channelId: " channel-1 ",
+          createdAt: "2026-01-01T00:23:00.000Z",
+        },
+        expected: {
+          type: "channel.close",
+          commandId: "cmd-channel-close-1",
+          channelId: "channel-1",
+          createdAt: "2026-01-01T00:23:00.000Z",
+        },
+      },
+      {
+        schema: RequestOpenCommand,
+        input: {
+          type: "request.open",
+          commandId: "cmd-request-open-1",
+          requestId: " request-1 ",
+          threadId: "thread-1",
+          childThreadId: " thread-2 ",
+          phaseRunId: " phase-run-1 ",
+          requestType: "gate",
+          payload: {
+            type: "gate",
+            gateType: " human-approval ",
+            phaseRunId: " phase-run-1 ",
+            phaseOutput: "Ready for review",
+          },
+          createdAt: "2026-01-01T00:24:00.000Z",
+        },
+        expected: {
+          type: "request.open",
+          commandId: "cmd-request-open-1",
+          requestId: "request-1",
+          threadId: "thread-1",
+          childThreadId: "thread-2",
+          phaseRunId: "phase-run-1",
+          requestType: "gate",
+          payload: {
+            type: "gate",
+            gateType: "human-approval",
+            phaseRunId: "phase-run-1",
+            phaseOutput: "Ready for review",
+          },
+          createdAt: "2026-01-01T00:24:00.000Z",
+        },
+      },
+      {
+        schema: RequestResolveCommand,
+        input: {
+          type: "request.resolve",
+          commandId: "cmd-request-resolve-1",
+          requestId: " request-1 ",
+          resolvedWith: {
+            decision: "approve",
+          },
+          createdAt: "2026-01-01T00:25:00.000Z",
+        },
+        expected: {
+          type: "request.resolve",
+          commandId: "cmd-request-resolve-1",
+          requestId: "request-1",
+          resolvedWith: {
+            decision: "approve",
+          },
+          createdAt: "2026-01-01T00:25:00.000Z",
+        },
+      },
+      {
+        schema: RequestMarkStaleCommand,
+        input: {
+          type: "request.mark-stale",
+          commandId: "cmd-request-stale-1",
+          requestId: " request-1 ",
+          reason: "Superseded by a newer review request.",
+          createdAt: "2026-01-01T00:26:00.000Z",
+        },
+        expected: {
+          type: "request.mark-stale",
+          commandId: "cmd-request-stale-1",
+          requestId: "request-1",
+          reason: "Superseded by a newer review request.",
+          createdAt: "2026-01-01T00:26:00.000Z",
+        },
+      },
+    ];
+
+    for (const testCase of cases) {
+      const { parsed, encoded } = yield* roundTrip(testCase.schema, testCase.input);
+      const unionParsed = yield* decodeForgeCommand(testCase.input);
+
+      assert.deepStrictEqual(parsed, testCase.expected);
+      assert.deepStrictEqual(encoded, testCase.expected);
+      assert.deepStrictEqual(unionParsed, testCase.expected);
+    }
+  }),
+);
+
+it.effect("rejects thread.add-link when no linked thread or external id is provided", () =>
+  Effect.gen(function* () {
+    const result = yield* Effect.exit(
+      roundTrip(ThreadAddLinkCommand, {
+        type: "thread.add-link",
+        commandId: "cmd-add-link-invalid-1",
+        threadId: "thread-1",
+        linkId: "link-1",
+        linkType: "related",
+        createdAt: "2026-01-01T00:30:00.000Z",
+      }),
+    );
+
+    assert.strictEqual(result._tag, "Failure");
   }),
 );

@@ -1,19 +1,36 @@
 import { Option, Schema, SchemaIssue, Struct } from "effect";
-import { ClaudeModelOptions, CodexModelOptions } from "./model";
 import {
   ApprovalRequestId,
+  ChannelId,
+  ChannelMessageId,
   CheckpointRef,
   CommandId,
   EventId,
+  InteractiveRequestId,
   IsoDateTime,
+  LinkId,
   MessageId,
   NonNegativeInt,
+  PhaseRunId,
+  PositiveInt,
   ProjectId,
   ProviderItemId,
   ThreadId,
   TrimmedNonEmptyString,
   TurnId,
+  WorkflowId,
+  WorkflowPhaseId,
 } from "./baseSchemas";
+import { ChannelParticipantType, ChannelType } from "./channel";
+import {
+  InteractiveRequestPayload,
+  InteractiveRequestResolution,
+  InteractiveRequestType,
+} from "./interactiveRequest";
+import { ModelSelection, ProviderApprovalDecision } from "./providerSchemas";
+import { GateResult, PhaseType, QualityCheckReference, QualityCheckResult } from "./workflow";
+
+export * from "./providerSchemas";
 
 export const ORCHESTRATION_WS_METHODS = {
   getSnapshot: "orchestration.getSnapshot",
@@ -22,41 +39,6 @@ export const ORCHESTRATION_WS_METHODS = {
   getFullThreadDiff: "orchestration.getFullThreadDiff",
   replayEvents: "orchestration.replayEvents",
 } as const;
-
-export const ProviderKind = Schema.Literals(["codex", "claudeAgent"]);
-export type ProviderKind = typeof ProviderKind.Type;
-export const ProviderApprovalPolicy = Schema.Literals([
-  "untrusted",
-  "on-failure",
-  "on-request",
-  "never",
-]);
-export type ProviderApprovalPolicy = typeof ProviderApprovalPolicy.Type;
-export const ProviderSandboxMode = Schema.Literals([
-  "read-only",
-  "workspace-write",
-  "danger-full-access",
-]);
-export type ProviderSandboxMode = typeof ProviderSandboxMode.Type;
-
-export const DEFAULT_PROVIDER_KIND: ProviderKind = "codex";
-
-export const CodexModelSelection = Schema.Struct({
-  provider: Schema.Literal("codex"),
-  model: TrimmedNonEmptyString,
-  options: Schema.optionalKey(CodexModelOptions),
-});
-export type CodexModelSelection = typeof CodexModelSelection.Type;
-
-export const ClaudeModelSelection = Schema.Struct({
-  provider: Schema.Literal("claudeAgent"),
-  model: TrimmedNonEmptyString,
-  options: Schema.optionalKey(ClaudeModelOptions),
-});
-export type ClaudeModelSelection = typeof ClaudeModelSelection.Type;
-
-export const ModelSelection = Schema.Union([CodexModelSelection, ClaudeModelSelection]);
-export type ModelSelection = typeof ModelSelection.Type;
 
 export const RuntimeMode = Schema.Literals(["approval-required", "full-access"]);
 export type RuntimeMode = typeof RuntimeMode.Type;
@@ -68,13 +50,6 @@ export const ProviderRequestKind = Schema.Literals(["command", "file-read", "fil
 export type ProviderRequestKind = typeof ProviderRequestKind.Type;
 export const AssistantDeliveryMode = Schema.Literals(["buffered", "streaming"]);
 export type AssistantDeliveryMode = typeof AssistantDeliveryMode.Type;
-export const ProviderApprovalDecision = Schema.Literals([
-  "accept",
-  "acceptForSession",
-  "decline",
-  "cancel",
-]);
-export type ProviderApprovalDecision = typeof ProviderApprovalDecision.Type;
 export const ProviderUserInputAnswers = Schema.Record(Schema.String, Schema.Unknown);
 export type ProviderUserInputAnswers = typeof ProviderUserInputAnswers.Type;
 
@@ -463,6 +438,285 @@ const ThreadSessionStopCommand = Schema.Struct({
   createdAt: IsoDateTime,
 });
 
+export const PhaseOutputEntry = Schema.Struct({
+  key: TrimmedNonEmptyString,
+  content: Schema.String,
+  sourceType: TrimmedNonEmptyString,
+});
+export type PhaseOutputEntry = typeof PhaseOutputEntry.Type;
+
+export const LinkType = Schema.Literals([
+  "pr",
+  "issue",
+  "ci-run",
+  "promoted-from",
+  "promoted-to",
+  "related",
+]);
+export type LinkType = typeof LinkType.Type;
+
+export const ThreadCorrectCommand = Schema.Struct({
+  type: Schema.Literal("thread.correct"),
+  commandId: CommandId,
+  threadId: ThreadId,
+  content: Schema.String,
+  createdAt: IsoDateTime,
+});
+export type ThreadCorrectCommand = typeof ThreadCorrectCommand.Type;
+
+export const ThreadStartPhaseCommand = Schema.Struct({
+  type: Schema.Literal("thread.start-phase"),
+  commandId: CommandId,
+  threadId: ThreadId,
+  phaseId: WorkflowPhaseId,
+  phaseName: TrimmedNonEmptyString,
+  phaseType: PhaseType,
+  iteration: PositiveInt,
+  createdAt: IsoDateTime,
+});
+export type ThreadStartPhaseCommand = typeof ThreadStartPhaseCommand.Type;
+
+export const ThreadCompletePhaseCommand = Schema.Struct({
+  type: Schema.Literal("thread.complete-phase"),
+  commandId: CommandId,
+  threadId: ThreadId,
+  phaseRunId: PhaseRunId,
+  outputs: Schema.optional(Schema.Array(PhaseOutputEntry)),
+  gateResult: Schema.optional(GateResult),
+  createdAt: IsoDateTime,
+});
+export type ThreadCompletePhaseCommand = typeof ThreadCompletePhaseCommand.Type;
+
+export const ThreadFailPhaseCommand = Schema.Struct({
+  type: Schema.Literal("thread.fail-phase"),
+  commandId: CommandId,
+  threadId: ThreadId,
+  phaseRunId: PhaseRunId,
+  error: Schema.String,
+  createdAt: IsoDateTime,
+});
+export type ThreadFailPhaseCommand = typeof ThreadFailPhaseCommand.Type;
+
+export const ThreadSkipPhaseCommand = Schema.Struct({
+  type: Schema.Literal("thread.skip-phase"),
+  commandId: CommandId,
+  threadId: ThreadId,
+  phaseRunId: PhaseRunId,
+  createdAt: IsoDateTime,
+});
+export type ThreadSkipPhaseCommand = typeof ThreadSkipPhaseCommand.Type;
+
+export const ThreadEditPhaseOutputCommand = Schema.Struct({
+  type: Schema.Literal("thread.edit-phase-output"),
+  commandId: CommandId,
+  threadId: ThreadId,
+  phaseRunId: PhaseRunId,
+  outputKey: TrimmedNonEmptyString,
+  content: Schema.String,
+  createdAt: IsoDateTime,
+});
+export type ThreadEditPhaseOutputCommand = typeof ThreadEditPhaseOutputCommand.Type;
+
+export const ThreadQualityCheckStartCommand = Schema.Struct({
+  type: Schema.Literal("thread.quality-check-start"),
+  commandId: CommandId,
+  threadId: ThreadId,
+  phaseRunId: PhaseRunId,
+  checks: Schema.Array(QualityCheckReference),
+  createdAt: IsoDateTime,
+});
+export type ThreadQualityCheckStartCommand = typeof ThreadQualityCheckStartCommand.Type;
+
+export const ThreadQualityCheckCompleteCommand = Schema.Struct({
+  type: Schema.Literal("thread.quality-check-complete"),
+  commandId: CommandId,
+  threadId: ThreadId,
+  phaseRunId: PhaseRunId,
+  results: Schema.Array(QualityCheckResult),
+  createdAt: IsoDateTime,
+});
+export type ThreadQualityCheckCompleteCommand = typeof ThreadQualityCheckCompleteCommand.Type;
+
+export const ThreadBootstrapStartedCommand = Schema.Struct({
+  type: Schema.Literal("thread.bootstrap-started"),
+  commandId: CommandId,
+  threadId: ThreadId,
+  createdAt: IsoDateTime,
+});
+export type ThreadBootstrapStartedCommand = typeof ThreadBootstrapStartedCommand.Type;
+
+export const ThreadBootstrapCompletedCommand = Schema.Struct({
+  type: Schema.Literal("thread.bootstrap-completed"),
+  commandId: CommandId,
+  threadId: ThreadId,
+  createdAt: IsoDateTime,
+});
+export type ThreadBootstrapCompletedCommand = typeof ThreadBootstrapCompletedCommand.Type;
+
+export const ThreadBootstrapFailedCommand = Schema.Struct({
+  type: Schema.Literal("thread.bootstrap-failed"),
+  commandId: CommandId,
+  threadId: ThreadId,
+  error: Schema.String,
+  stdout: Schema.String,
+  command: TrimmedNonEmptyString,
+  createdAt: IsoDateTime,
+});
+export type ThreadBootstrapFailedCommand = typeof ThreadBootstrapFailedCommand.Type;
+
+export const ThreadBootstrapSkippedCommand = Schema.Struct({
+  type: Schema.Literal("thread.bootstrap-skipped"),
+  commandId: CommandId,
+  threadId: ThreadId,
+  createdAt: IsoDateTime,
+});
+export type ThreadBootstrapSkippedCommand = typeof ThreadBootstrapSkippedCommand.Type;
+
+export const ThreadAddLinkCommand = Schema.Struct({
+  type: Schema.Literal("thread.add-link"),
+  commandId: CommandId,
+  threadId: ThreadId,
+  linkId: LinkId,
+  linkType: LinkType,
+  linkedThreadId: Schema.optional(ThreadId),
+  externalId: Schema.optional(TrimmedNonEmptyString),
+  externalUrl: Schema.optional(TrimmedNonEmptyString),
+  createdAt: IsoDateTime,
+}).check(
+  Schema.makeFilter(
+    (input) =>
+      input.linkedThreadId !== undefined ||
+      input.externalId !== undefined ||
+      new SchemaIssue.InvalidValue(Option.some(input), {
+        message: "thread.add-link requires linkedThreadId or externalId",
+      }),
+    { identifier: "ThreadAddLinkCommand" },
+  ),
+);
+export type ThreadAddLinkCommand = typeof ThreadAddLinkCommand.Type;
+
+export const ThreadRemoveLinkCommand = Schema.Struct({
+  type: Schema.Literal("thread.remove-link"),
+  commandId: CommandId,
+  threadId: ThreadId,
+  linkId: LinkId,
+  createdAt: IsoDateTime,
+});
+export type ThreadRemoveLinkCommand = typeof ThreadRemoveLinkCommand.Type;
+
+export const ThreadPromoteCommand = Schema.Struct({
+  type: Schema.Literal("thread.promote"),
+  commandId: CommandId,
+  sourceThreadId: ThreadId,
+  targetThreadId: ThreadId,
+  targetWorkflowId: WorkflowId,
+  title: Schema.optional(TrimmedNonEmptyString),
+  description: Schema.optional(Schema.String),
+  createdAt: IsoDateTime,
+});
+export type ThreadPromoteCommand = typeof ThreadPromoteCommand.Type;
+
+export const ThreadAddDependencyCommand = Schema.Struct({
+  type: Schema.Literal("thread.add-dependency"),
+  commandId: CommandId,
+  threadId: ThreadId,
+  dependsOnThreadId: ThreadId,
+  createdAt: IsoDateTime,
+});
+export type ThreadAddDependencyCommand = typeof ThreadAddDependencyCommand.Type;
+
+export const ThreadRemoveDependencyCommand = Schema.Struct({
+  type: Schema.Literal("thread.remove-dependency"),
+  commandId: CommandId,
+  threadId: ThreadId,
+  dependsOnThreadId: ThreadId,
+  createdAt: IsoDateTime,
+});
+export type ThreadRemoveDependencyCommand = typeof ThreadRemoveDependencyCommand.Type;
+
+export const ChannelCreateCommand = Schema.Struct({
+  type: Schema.Literal("channel.create"),
+  commandId: CommandId,
+  channelId: ChannelId,
+  threadId: ThreadId,
+  channelType: ChannelType,
+  phaseRunId: Schema.optional(PhaseRunId),
+  createdAt: IsoDateTime,
+});
+export type ChannelCreateCommand = typeof ChannelCreateCommand.Type;
+
+export const ChannelPostMessageCommand = Schema.Struct({
+  type: Schema.Literal("channel.post-message"),
+  commandId: CommandId,
+  channelId: ChannelId,
+  messageId: ChannelMessageId,
+  fromType: ChannelParticipantType,
+  fromId: TrimmedNonEmptyString,
+  fromRole: Schema.optional(TrimmedNonEmptyString),
+  content: Schema.String,
+  createdAt: IsoDateTime,
+});
+export type ChannelPostMessageCommand = typeof ChannelPostMessageCommand.Type;
+
+export const ChannelReadMessagesCommand = Schema.Struct({
+  type: Schema.Literal("channel.read-messages"),
+  commandId: CommandId,
+  channelId: ChannelId,
+  threadId: ThreadId,
+  upToSequence: NonNegativeInt,
+  createdAt: IsoDateTime,
+});
+export type ChannelReadMessagesCommand = typeof ChannelReadMessagesCommand.Type;
+
+export const ChannelConcludeCommand = Schema.Struct({
+  type: Schema.Literal("channel.conclude"),
+  commandId: CommandId,
+  channelId: ChannelId,
+  threadId: ThreadId,
+  summary: Schema.String,
+  createdAt: IsoDateTime,
+});
+export type ChannelConcludeCommand = typeof ChannelConcludeCommand.Type;
+
+export const ChannelCloseCommand = Schema.Struct({
+  type: Schema.Literal("channel.close"),
+  commandId: CommandId,
+  channelId: ChannelId,
+  createdAt: IsoDateTime,
+});
+export type ChannelCloseCommand = typeof ChannelCloseCommand.Type;
+
+export const RequestOpenCommand = Schema.Struct({
+  type: Schema.Literal("request.open"),
+  commandId: CommandId,
+  requestId: InteractiveRequestId,
+  threadId: ThreadId,
+  childThreadId: Schema.optional(ThreadId),
+  phaseRunId: Schema.optional(PhaseRunId),
+  requestType: InteractiveRequestType,
+  payload: InteractiveRequestPayload,
+  createdAt: IsoDateTime,
+});
+export type RequestOpenCommand = typeof RequestOpenCommand.Type;
+
+export const RequestResolveCommand = Schema.Struct({
+  type: Schema.Literal("request.resolve"),
+  commandId: CommandId,
+  requestId: InteractiveRequestId,
+  resolvedWith: InteractiveRequestResolution,
+  createdAt: IsoDateTime,
+});
+export type RequestResolveCommand = typeof RequestResolveCommand.Type;
+
+export const RequestMarkStaleCommand = Schema.Struct({
+  type: Schema.Literal("request.mark-stale"),
+  commandId: CommandId,
+  requestId: InteractiveRequestId,
+  reason: Schema.String,
+  createdAt: IsoDateTime,
+});
+export type RequestMarkStaleCommand = typeof RequestMarkStaleCommand.Type;
+
 const DispatchableClientOrchestrationCommand = Schema.Union([
   ProjectCreateCommand,
   ProjectMetaUpdateCommand,
@@ -579,6 +833,45 @@ const InternalOrchestrationCommand = Schema.Union([
   ThreadRevertCompleteCommand,
 ]);
 export type InternalOrchestrationCommand = typeof InternalOrchestrationCommand.Type;
+
+const ForgeDispatchableClientOrchestrationCommand = Schema.Union([
+  DispatchableClientOrchestrationCommand,
+  ThreadCorrectCommand,
+  ThreadAddLinkCommand,
+  ThreadRemoveLinkCommand,
+  ThreadPromoteCommand,
+  ThreadAddDependencyCommand,
+  ThreadRemoveDependencyCommand,
+  ChannelPostMessageCommand,
+  ChannelReadMessagesCommand,
+  RequestResolveCommand,
+]);
+
+const ForgeInternalOrchestrationCommand = Schema.Union([
+  InternalOrchestrationCommand,
+  ThreadStartPhaseCommand,
+  ThreadCompletePhaseCommand,
+  ThreadFailPhaseCommand,
+  ThreadSkipPhaseCommand,
+  ThreadEditPhaseOutputCommand,
+  ThreadQualityCheckStartCommand,
+  ThreadQualityCheckCompleteCommand,
+  ThreadBootstrapStartedCommand,
+  ThreadBootstrapCompletedCommand,
+  ThreadBootstrapFailedCommand,
+  ThreadBootstrapSkippedCommand,
+  ChannelCreateCommand,
+  ChannelConcludeCommand,
+  ChannelCloseCommand,
+  RequestOpenCommand,
+  RequestMarkStaleCommand,
+]);
+
+export const ForgeCommand = Schema.Union([
+  ForgeDispatchableClientOrchestrationCommand,
+  ForgeInternalOrchestrationCommand,
+]);
+export type ForgeCommand = typeof ForgeCommand.Type;
 
 export const OrchestrationCommand = Schema.Union([
   DispatchableClientOrchestrationCommand,

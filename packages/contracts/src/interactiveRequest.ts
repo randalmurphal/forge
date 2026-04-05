@@ -6,7 +6,7 @@ import {
   ThreadId,
   TrimmedNonEmptyString,
 } from "./baseSchemas";
-import { ProviderApprovalDecision } from "./orchestration";
+import { ProviderApprovalDecision } from "./providerSchemas";
 import { QualityCheckResult } from "./workflow";
 
 export const InteractiveRequestType = Schema.Literals([
