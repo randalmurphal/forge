@@ -9,7 +9,7 @@
  *
  * @module OrchestrationEventStore
  */
-import { OrchestrationEvent } from "@t3tools/contracts";
+import { ForgeEvent } from "@t3tools/contracts";
 import { ServiceMap } from "effect";
 import type { Effect, Stream } from "effect";
 
@@ -28,8 +28,8 @@ export interface OrchestrationEventStoreShape {
    * Actor kind is inferred from command/metadata before persistence.
    */
   readonly append: (
-    event: Omit<OrchestrationEvent, "sequence">,
-  ) => Effect.Effect<OrchestrationEvent, OrchestrationEventStoreError>;
+    event: Omit<ForgeEvent, "sequence">,
+  ) => Effect.Effect<ForgeEvent, OrchestrationEventStoreError>;
 
   /**
    * Replay events after the provided sequence.
@@ -43,14 +43,14 @@ export interface OrchestrationEventStoreShape {
   readonly readFromSequence: (
     sequenceExclusive: number,
     limit?: number,
-  ) => Stream.Stream<OrchestrationEvent, OrchestrationEventStoreError>;
+  ) => Stream.Stream<ForgeEvent, OrchestrationEventStoreError>;
 
   /**
    * Read all events from the beginning of the stream.
    *
    * @returns Stream containing all stored events.
    */
-  readonly readAll: () => Stream.Stream<OrchestrationEvent, OrchestrationEventStoreError>;
+  readonly readAll: () => Stream.Stream<ForgeEvent, OrchestrationEventStoreError>;
 }
 
 /**

@@ -1,13 +1,15 @@
 import {
+  ChannelId,
   CommandId,
   EventId,
+  ForgeAggregateKind,
+  ForgeEvent,
+  ForgeEventType,
   IsoDateTime,
+  InteractiveRequestId,
   NonNegativeInt,
   OrchestrationActorKind,
-  OrchestrationAggregateKind,
-  OrchestrationEvent,
   OrchestrationEventMetadata,
-  OrchestrationEventType,
   ProjectId,
   ThreadId,
 } from "@t3tools/contracts";
@@ -25,15 +27,15 @@ import {
   type OrchestrationEventStoreShape,
 } from "../Services/OrchestrationEventStore.ts";
 
-const decodeEvent = Schema.decodeUnknownEffect(OrchestrationEvent);
+const decodeEvent = Schema.decodeUnknownEffect(ForgeEvent);
 const UnknownFromJsonString = Schema.fromJsonString(Schema.Unknown);
 const EventMetadataFromJsonString = Schema.fromJsonString(OrchestrationEventMetadata);
 
 const AppendEventRequestSchema = Schema.Struct({
   eventId: EventId,
-  aggregateKind: OrchestrationAggregateKind,
-  streamId: Schema.Union([ProjectId, ThreadId]),
-  type: OrchestrationEventType,
+  aggregateKind: ForgeAggregateKind,
+  streamId: Schema.Union([ProjectId, ThreadId, ChannelId, InteractiveRequestId]),
+  type: ForgeEventType,
   causationEventId: Schema.NullOr(EventId),
   correlationId: Schema.NullOr(CommandId),
   actorKind: OrchestrationActorKind,
@@ -46,9 +48,9 @@ const AppendEventRequestSchema = Schema.Struct({
 const OrchestrationEventPersistedRowSchema = Schema.Struct({
   sequence: NonNegativeInt,
   eventId: EventId,
-  type: OrchestrationEventType,
-  aggregateKind: OrchestrationAggregateKind,
-  aggregateId: Schema.Union([ProjectId, ThreadId]),
+  type: ForgeEventType,
+  aggregateKind: ForgeAggregateKind,
+  aggregateId: Schema.Union([ProjectId, ThreadId, ChannelId, InteractiveRequestId]),
   occurredAt: IsoDateTime,
   commandId: Schema.NullOr(CommandId),
   causationEventId: Schema.NullOr(EventId),
@@ -65,7 +67,7 @@ const DEFAULT_READ_FROM_SEQUENCE_LIMIT = 1_000;
 const READ_PAGE_SIZE = 500;
 
 function inferActorKind(
-  event: Omit<OrchestrationEvent, "sequence">,
+  event: Omit<ForgeEvent, "sequence">,
 ): Schema.Schema.Type<typeof OrchestrationActorKind> {
   if (event.commandId !== null && event.commandId.startsWith("provider:")) {
     return "provider";
@@ -216,7 +218,7 @@ const makeEventStore = Effect.gen(function* () {
     const readPage = (
       cursor: number,
       remaining: number,
-    ): Stream.Stream<OrchestrationEvent, OrchestrationEventStoreError> =>
+    ): Stream.Stream<ForgeEvent, OrchestrationEventStoreError> =>
       Stream.fromEffect(
         readEventRowsFromSequence({
           sequenceExclusive: cursor,

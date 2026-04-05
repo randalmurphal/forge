@@ -1,10 +1,14 @@
 import type {
+  ChannelId,
+  ForgeCommand,
+  ForgeEvent,
+  InteractiveRequestId,
+  OrchestrationCommand,
   OrchestrationEvent,
   OrchestrationReadModel,
   ProjectId,
   ThreadId,
 } from "@t3tools/contracts";
-import { OrchestrationCommand } from "@t3tools/contracts";
 import {
   Cause,
   Deferred,
@@ -50,9 +54,9 @@ interface CommandEnvelope {
   startedAtMs: number;
 }
 
-function commandToAggregateRef(command: OrchestrationCommand): {
-  readonly aggregateKind: "project" | "thread";
-  readonly aggregateId: ProjectId | ThreadId;
+function commandToAggregateRef(command: OrchestrationCommand | ForgeCommand): {
+  readonly aggregateKind: "project" | "thread" | "channel" | "request";
+  readonly aggregateId: ProjectId | ThreadId | ChannelId | InteractiveRequestId;
 } {
   switch (command.type) {
     case "project.create":
@@ -62,10 +66,26 @@ function commandToAggregateRef(command: OrchestrationCommand): {
         aggregateKind: "project",
         aggregateId: command.projectId,
       };
+    case "channel.create":
+    case "channel.post-message":
+    case "channel.read-messages":
+    case "channel.conclude":
+    case "channel.close":
+      return {
+        aggregateKind: "channel",
+        aggregateId: command.channelId,
+      };
+    case "request.open":
+    case "request.resolve":
+    case "request.mark-stale":
+      return {
+        aggregateKind: "request",
+        aggregateId: command.requestId,
+      };
     default:
       return {
         aggregateKind: "thread",
-        aggregateId: command.threadId,
+        aggregateId: (command as { readonly threadId: ThreadId }).threadId,
       };
   }
 }
@@ -93,7 +113,7 @@ const makeOrchestrationEngine = Effect.gen(function* () {
     const reconcileReadModelAfterDispatchFailure = Effect.gen(function* () {
       const persistedEvents = yield* Stream.runCollect(
         eventStore.readFromSequence(dispatchStartSequence),
-      ).pipe(Effect.map((chunk): OrchestrationEvent[] => Array.from(chunk)));
+      ).pipe(Effect.map((chunk): ForgeEvent[] => Array.from(chunk)));
       if (persistedEvents.length === 0) {
         return;
       }
@@ -105,7 +125,7 @@ const makeOrchestrationEngine = Effect.gen(function* () {
       readModel = nextReadModel;
 
       for (const persistedEvent of persistedEvents) {
-        yield* PubSub.publish(eventPubSub, persistedEvent);
+        yield* PubSub.publish(eventPubSub, persistedEvent as unknown as OrchestrationEvent);
       }
     });
 
@@ -141,7 +161,7 @@ const makeOrchestrationEngine = Effect.gen(function* () {
         const committedCommand = yield* sql
           .withTransaction(
             Effect.gen(function* () {
-              const committedEvents: OrchestrationEvent[] = [];
+              const committedEvents: ForgeEvent[] = [];
               let nextReadModel = readModel;
 
               for (const nextEvent of eventBases) {
@@ -186,7 +206,7 @@ const makeOrchestrationEngine = Effect.gen(function* () {
 
         readModel = committedCommand.nextReadModel;
         for (const [index, event] of committedCommand.committedEvents.entries()) {
-          yield* PubSub.publish(eventPubSub, event);
+          yield* PubSub.publish(eventPubSub, event as unknown as OrchestrationEvent);
           if (index === 0) {
             yield* Metric.update(
               Metric.withAttributes(
@@ -282,7 +302,9 @@ const makeOrchestrationEngine = Effect.gen(function* () {
     Effect.sync((): OrchestrationReadModel => readModel);
 
   const readEvents: OrchestrationEngineShape["readEvents"] = (fromSequenceExclusive) =>
-    eventStore.readFromSequence(fromSequenceExclusive);
+    eventStore.readFromSequence(fromSequenceExclusive) as unknown as ReturnType<
+      OrchestrationEngineShape["readEvents"]
+    >;
 
   const dispatch: OrchestrationEngineShape["dispatch"] = (command) =>
     Effect.gen(function* () {
@@ -299,7 +321,9 @@ const makeOrchestrationEngine = Effect.gen(function* () {
     // consumers (wsServer, ProviderRuntimeIngestion, CheckpointReactor, etc.)
     // each independently receive all domain events.
     get streamDomainEvents(): OrchestrationEngineShape["streamDomainEvents"] {
-      return Stream.fromPubSub(eventPubSub);
+      return Stream.fromPubSub(
+        eventPubSub,
+      ) as unknown as OrchestrationEngineShape["streamDomainEvents"];
     },
   } satisfies OrchestrationEngineShape;
 });
