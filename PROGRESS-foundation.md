@@ -10,6 +10,7 @@
 - New contract domains should live in dedicated files and be exported from `packages/contracts/src/index.ts` rather than extending unrelated schema modules.
 - When additive command schemas outpace runtime support, keep the existing `OrchestrationCommand` and client RPC command unions stable and stage the expanded surface behind `ForgeCommand` until decider/engine handling is added.
 - Persistence repository tests that share an `it.layer(...)` suite can observe rows created by earlier tests; scope assertions to the rows under test or use a fresh layer when isolation matters.
+- Multi-repository persistence tests that must share one SQLite database should merge the repository live layers first and provide `SqlitePersistenceMemory` once to the merged layer; independently pre-providing the in-memory layer risks separate databases.
 
 ## Known Issues
 
@@ -33,6 +34,7 @@
 - WI-10: Database migrations -- phase outputs and other tables
 - WI-11: Projection repositories -- workflows
 - WI-12: Projection repositories -- phase runs
+- WI-13: Projection repositories -- channels and messages
 
 ## Iteration Log
 
@@ -48,6 +50,7 @@
 - 2026-04-05: Implemented WI-10 by adding migration `023_PhaseOutputTables` for `phase_outputs`, `session_synthesis`, `session_dependencies`, `session_links`, `phase_run_provenance`, `phase_run_outcomes`, `project_knowledge`, and `attention_signals`, registering it in the migration loader, adding an in-memory migration test that verifies the new tables plus their required indexes and partial unique indexes, and confirming `bun fmt`, `bun lint`, `bun typecheck`, and `bun run test` all pass with the migration in place.
 - 2026-04-05: Implemented WI-11 by adding `ProjectionWorkflows` service and layer for CRUD access to the `workflows` table with typed `phases_json` decoding and user-workflow precedence in `queryByName`, adding in-memory CRUD coverage for `queryAll`, `queryById`, `queryByName`, `upsert`, and `delete`, and confirming `bun fmt`, `bun lint`, `bun typecheck`, and `bun run test` all pass.
 - 2026-04-05: Implemented WI-12 by adding `ProjectionPhaseRuns` service and layer for persisted phase-run CRUD/status updates with typed JSON decoding for gate results, quality-check results, and deliberation state, adding in-memory repository coverage for `queryById`, `queryByThreadId`, `upsert`, and `updateStatus`, and confirming `bun fmt`, `bun lint`, `bun typecheck`, and `bun run test` all pass.
+- 2026-04-05: Implemented WI-13 by adding `ProjectionChannels`, `ProjectionChannelMessages`, and `ProjectionChannelReads` services and layers for channel creation/status updates, forward-paginated channel message reads, unread counts backed by `channel_reads`, and cursor upserts; added in-memory repository coverage for channel CRUD, message pagination/unread counts, and read cursor persistence; and confirmed `bun fmt`, `bun lint`, `bun typecheck`, and `bun run test` all pass.
 
 ## Review Log
 
