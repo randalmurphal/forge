@@ -855,6 +855,35 @@ export const ThreadBootstrapSkippedCommand = Schema.Struct({
 });
 export type ThreadBootstrapSkippedCommand = typeof ThreadBootstrapSkippedCommand.Type;
 
+export const SessionSendTurnCommand = Schema.Struct({
+  type: Schema.Literal("thread.send-turn"),
+  commandId: CommandId,
+  threadId: ThreadId,
+  content: Schema.String,
+  attachments: Schema.optional(Schema.Array(Schema.Unknown)),
+  createdAt: IsoDateTime,
+});
+export type SessionSendTurnCommand = typeof SessionSendTurnCommand.Type;
+
+export const SessionRestartTurnCommand = Schema.Struct({
+  type: Schema.Literal("thread.restart-turn"),
+  commandId: CommandId,
+  threadId: ThreadId,
+  createdAt: IsoDateTime,
+});
+export type SessionRestartTurnCommand = typeof SessionRestartTurnCommand.Type;
+
+export const SessionSendMessageCommand = Schema.Struct({
+  type: Schema.Literal("thread.send-message"),
+  commandId: CommandId,
+  threadId: ThreadId,
+  messageId: MessageId,
+  role: TrimmedNonEmptyString,
+  content: Schema.String,
+  createdAt: IsoDateTime,
+});
+export type SessionSendMessageCommand = typeof SessionSendMessageCommand.Type;
+
 export const ThreadAddLinkCommand = Schema.Struct({
   type: Schema.Literal("thread.add-link"),
   commandId: CommandId,
@@ -1125,6 +1154,8 @@ const ForgeDispatchableClientOrchestrationCommand = Schema.Union([
   SessionCancelCommand,
   SessionRestartCommand,
   SessionMetaUpdateCommand,
+  SessionSendTurnCommand,
+  SessionRestartTurnCommand,
   ThreadCorrectCommand,
   ThreadAddLinkCommand,
   ThreadRemoveLinkCommand,
@@ -1139,6 +1170,7 @@ const ForgeDispatchableClientOrchestrationCommand = Schema.Union([
 const ForgeInternalOrchestrationCommand = Schema.Union([
   InternalOrchestrationCommand,
   SessionRecoverCommand,
+  SessionSendMessageCommand,
   ThreadStartPhaseCommand,
   ThreadCompletePhaseCommand,
   ThreadFailPhaseCommand,

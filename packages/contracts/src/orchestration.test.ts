@@ -50,8 +50,11 @@ import {
   SessionPauseCommand,
   SessionRecoverCommand,
   SessionRestartCommand,
+  SessionRestartTurnCommand,
   SessionRestartedPayload,
   SessionResumeCommand,
+  SessionSendMessageCommand,
+  SessionSendTurnCommand,
   SessionStatusChangedPayload,
   ThreadAddDependencyCommand,
   ThreadAddLinkCommand,
@@ -1313,6 +1316,87 @@ it.effect("rejects thread.add-link when no linked thread or external id is provi
     );
 
     assert.strictEqual(result._tag, "Failure");
+  }),
+);
+
+it.effect("round-trips the spec-defined leaf-session turn commands through ForgeCommand", () =>
+  Effect.gen(function* () {
+    const cases = [
+      {
+        schema: SessionSendTurnCommand,
+        input: {
+          type: "thread.send-turn",
+          commandId: " cmd-send-turn-1 ",
+          threadId: " thread-1 ",
+          content: "Please continue with the implementation.",
+          attachments: [
+            {
+              type: "image",
+              name: "diagram.png",
+            },
+          ],
+          createdAt: "2026-01-01T00:27:00.000Z",
+        },
+        expected: {
+          type: "thread.send-turn",
+          commandId: "cmd-send-turn-1",
+          threadId: "thread-1",
+          content: "Please continue with the implementation.",
+          attachments: [
+            {
+              type: "image",
+              name: "diagram.png",
+            },
+          ],
+          createdAt: "2026-01-01T00:27:00.000Z",
+        },
+      },
+      {
+        schema: SessionRestartTurnCommand,
+        input: {
+          type: "thread.restart-turn",
+          commandId: " cmd-restart-turn-1 ",
+          threadId: " thread-1 ",
+          createdAt: "2026-01-01T00:28:00.000Z",
+        },
+        expected: {
+          type: "thread.restart-turn",
+          commandId: "cmd-restart-turn-1",
+          threadId: "thread-1",
+          createdAt: "2026-01-01T00:28:00.000Z",
+        },
+      },
+      {
+        schema: SessionSendMessageCommand,
+        input: {
+          type: "thread.send-message",
+          commandId: " cmd-send-message-1 ",
+          threadId: " thread-1 ",
+          messageId: " message-1 ",
+          role: " assistant ",
+          content: "Partial output from the provider.",
+          createdAt: "2026-01-01T00:29:00.000Z",
+        },
+        expected: {
+          type: "thread.send-message",
+          commandId: "cmd-send-message-1",
+          threadId: "thread-1",
+          messageId: "message-1",
+          role: "assistant",
+          content: "Partial output from the provider.",
+          createdAt: "2026-01-01T00:29:00.000Z",
+        },
+      },
+    ] as const;
+
+    for (const testCase of cases) {
+      const { parsed, encoded } = yield* roundTrip(testCase.schema, testCase.input);
+      const unionParsed = yield* decodeForgeCommand(testCase.input);
+
+      assert.deepStrictEqual(parsed, testCase.expected);
+      assert.deepStrictEqual(encoded, testCase.expected);
+      assert.deepStrictEqual(unionParsed, testCase.expected);
+    }
   }),
 );
 
