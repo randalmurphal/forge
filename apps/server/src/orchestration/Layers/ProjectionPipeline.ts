@@ -100,6 +100,35 @@ const materializeAttachmentsForProjection = Effect.fn("materializeAttachmentsFor
     Effect.succeed(input.attachments.length === 0 ? [] : input.attachments),
 );
 
+type ThreadMessageSentEvent = Extract<ForgeEvent, { type: "thread.message-sent" }>;
+
+function threadMessageText(payload: ThreadMessageSentEvent["payload"]): string {
+  return "text" in payload ? payload.text : payload.content;
+}
+
+function threadMessageAttachments(
+  payload: ThreadMessageSentEvent["payload"],
+): ReadonlyArray<ChatAttachment> | undefined {
+  return "attachments" in payload ? payload.attachments : undefined;
+}
+
+function threadMessageUpdatedAt(payload: ThreadMessageSentEvent["payload"]): string {
+  return "updatedAt" in payload ? payload.updatedAt : payload.createdAt;
+}
+
+function toProjectionMessageRole(
+  role: ThreadMessageSentEvent["payload"]["role"],
+): ProjectionThreadMessage["role"] | null {
+  switch (role) {
+    case "user":
+    case "assistant":
+    case "system":
+      return role;
+    default:
+      return null;
+  }
+}
+
 function extractActivityRequestId(payload: unknown): ApprovalRequestId | null {
   if (typeof payload !== "object" || payload === null) {
     return null;
@@ -1359,38 +1388,44 @@ const makeOrchestrationProjectionPipeline = Effect.fn("makeOrchestrationProjecti
     )(function* (event, attachmentSideEffects) {
       switch (event.type) {
         case "thread.message-sent": {
+          const role = toProjectionMessageRole(event.payload.role);
+          if (role === null) {
+            return;
+          }
           const existingMessage = yield* projectionThreadMessageRepository.getByMessageId({
             messageId: event.payload.messageId,
           });
           const previousMessage = Option.getOrUndefined(existingMessage);
           const nextText = Option.match(existingMessage, {
-            onNone: () => event.payload.text,
+            onNone: () => threadMessageText(event.payload),
             onSome: (message) => {
               if (event.payload.streaming) {
-                return `${message.text}${event.payload.text}`;
+                return `${message.text}${threadMessageText(event.payload)}`;
               }
-              if (event.payload.text.length === 0) {
+              const currentText = threadMessageText(event.payload);
+              if (currentText.length === 0) {
                 return message.text;
               }
-              return event.payload.text;
+              return currentText;
             },
           });
+          const payloadAttachments = threadMessageAttachments(event.payload);
           const nextAttachments =
-            event.payload.attachments !== undefined
+            payloadAttachments !== undefined
               ? yield* materializeAttachmentsForProjection({
-                  attachments: event.payload.attachments,
+                  attachments: payloadAttachments,
                 })
               : previousMessage?.attachments;
           yield* projectionThreadMessageRepository.upsert({
             messageId: event.payload.messageId,
             threadId: event.payload.threadId,
             turnId: event.payload.turnId,
-            role: event.payload.role,
+            role,
             text: nextText,
             ...(nextAttachments !== undefined ? { attachments: [...nextAttachments] } : {}),
             isStreaming: event.payload.streaming,
             createdAt: previousMessage?.createdAt ?? event.payload.createdAt,
-            updatedAt: event.payload.updatedAt,
+            updatedAt: threadMessageUpdatedAt(event.payload),
           });
           return;
         }
@@ -1669,7 +1704,7 @@ const makeOrchestrationProjectionPipeline = Effect.fn("makeOrchestrationProjecti
                     : "completed",
               completedAt: event.payload.streaming
                 ? existingTurn.value.completedAt
-                : (existingTurn.value.completedAt ?? event.payload.updatedAt),
+                : (existingTurn.value.completedAt ?? threadMessageUpdatedAt(event.payload)),
               startedAt: existingTurn.value.startedAt ?? event.payload.createdAt,
               requestedAt: existingTurn.value.requestedAt ?? event.payload.createdAt,
             });
@@ -1685,7 +1720,7 @@ const makeOrchestrationProjectionPipeline = Effect.fn("makeOrchestrationProjecti
             state: event.payload.streaming ? "running" : "completed",
             requestedAt: event.payload.createdAt,
             startedAt: event.payload.createdAt,
-            completedAt: event.payload.streaming ? null : event.payload.updatedAt,
+            completedAt: event.payload.streaming ? null : threadMessageUpdatedAt(event.payload),
             checkpointTurnCount: null,
             checkpointRef: null,
             checkpointStatus: null,

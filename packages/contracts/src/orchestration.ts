@@ -1366,6 +1366,44 @@ export const SessionRestartedPayload = Schema.Struct({
 });
 export type SessionRestartedPayload = typeof SessionRestartedPayload.Type;
 
+export const SessionTurnRequestedPayload = Schema.Struct({
+  threadId: ThreadId,
+  content: Schema.String,
+  createdAt: IsoDateTime,
+});
+export type SessionTurnRequestedPayload = typeof SessionTurnRequestedPayload.Type;
+
+export const SessionTurnStartedPayload = Schema.Struct({
+  threadId: ThreadId,
+  turnId: TurnId,
+  startedAt: IsoDateTime,
+});
+export type SessionTurnStartedPayload = typeof SessionTurnStartedPayload.Type;
+
+export const SessionTurnCompletedPayload = Schema.Struct({
+  threadId: ThreadId,
+  turnId: TurnId,
+  completedAt: IsoDateTime,
+});
+export type SessionTurnCompletedPayload = typeof SessionTurnCompletedPayload.Type;
+
+export const SessionTurnRestartedPayload = Schema.Struct({
+  threadId: ThreadId,
+  restartedAt: IsoDateTime,
+});
+export type SessionTurnRestartedPayload = typeof SessionTurnRestartedPayload.Type;
+
+export const SessionMessageSentPayload = Schema.Struct({
+  threadId: ThreadId,
+  messageId: MessageId,
+  role: TrimmedNonEmptyString,
+  content: Schema.String,
+  turnId: Schema.NullOr(TurnId),
+  streaming: Schema.Boolean,
+  createdAt: IsoDateTime,
+});
+export type SessionMessageSentPayload = typeof SessionMessageSentPayload.Type;
+
 export const ThreadRuntimeModeSetPayload = Schema.Struct({
   threadId: ThreadId,
   runtimeMode: RuntimeMode,
@@ -1623,6 +1661,10 @@ export const ForgeEventType = Schema.Union([
     "thread.bootstrap-completed",
     "thread.bootstrap-failed",
     "thread.bootstrap-skipped",
+    "thread.turn-requested",
+    "thread.turn-started",
+    "thread.turn-completed",
+    "thread.turn-restarted",
     "thread.link-added",
     "thread.link-removed",
     "thread.restarted",
@@ -1931,6 +1973,31 @@ export const ForgeEvent = Schema.Union([
     ...ForgeEventBaseFields,
     type: Schema.Literal("thread.restarted"),
     payload: SessionRestartedPayload,
+  }),
+  Schema.Struct({
+    ...ForgeEventBaseFields,
+    type: Schema.Literal("thread.turn-requested"),
+    payload: SessionTurnRequestedPayload,
+  }),
+  Schema.Struct({
+    ...ForgeEventBaseFields,
+    type: Schema.Literal("thread.turn-started"),
+    payload: SessionTurnStartedPayload,
+  }),
+  Schema.Struct({
+    ...ForgeEventBaseFields,
+    type: Schema.Literal("thread.turn-completed"),
+    payload: SessionTurnCompletedPayload,
+  }),
+  Schema.Struct({
+    ...ForgeEventBaseFields,
+    type: Schema.Literal("thread.turn-restarted"),
+    payload: SessionTurnRestartedPayload,
+  }),
+  Schema.Struct({
+    ...ForgeEventBaseFields,
+    type: Schema.Literal("thread.message-sent"),
+    payload: SessionMessageSentPayload,
   }),
   Schema.Struct({
     ...ForgeEventBaseFields,
