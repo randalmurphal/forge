@@ -525,6 +525,287 @@ it.layer(BaseTestLayer)("OrchestrationProjectionPipeline", (it) => {
       ]);
     }),
   );
+
+  it.effect("persists additive lifecycle updates for outputs, channels, and stale requests", () =>
+    Effect.gen(function* () {
+      const projectionPipeline = yield* OrchestrationProjectionPipeline;
+      const eventStore = yield* OrchestrationEventStore;
+      const sql = yield* SqlClient.SqlClient;
+      const createdAt = "2026-04-05T16:00:00.000Z";
+      const phaseStartedAt = "2026-04-05T16:01:00.000Z";
+      const phaseCompletedAt = "2026-04-05T16:02:00.000Z";
+      const outputEditedAt = "2026-04-05T16:03:00.000Z";
+      const channelCreatedAt = "2026-04-05T16:04:00.000Z";
+      const channelConcludedAt = "2026-04-05T16:05:00.000Z";
+      const channelClosedAt = "2026-04-05T16:06:00.000Z";
+      const requestOpenedAt = "2026-04-05T16:07:00.000Z";
+      const requestStaleAt = "2026-04-05T16:08:00.000Z";
+
+      const savedProjectCreated = yield* eventStore.append({
+        type: "project.created",
+        eventId: EventId.makeUnsafe("evt-lifecycle-project"),
+        aggregateKind: "project",
+        aggregateId: ProjectId.makeUnsafe("project-lifecycle"),
+        occurredAt: createdAt,
+        commandId: CommandId.makeUnsafe("cmd-lifecycle-project"),
+        causationEventId: null,
+        correlationId: CommandId.makeUnsafe("cmd-lifecycle-project"),
+        metadata: {},
+        payload: {
+          projectId: ProjectId.makeUnsafe("project-lifecycle"),
+          title: "Lifecycle project",
+          workspaceRoot: "/tmp/lifecycle-project",
+          defaultModelSelection: null,
+          scripts: [],
+          createdAt,
+          updatedAt: createdAt,
+        },
+      });
+      yield* projectionPipeline.projectEvent(savedProjectCreated);
+
+      const savedThreadCreated = yield* eventStore.append({
+        type: "thread.created",
+        eventId: EventId.makeUnsafe("evt-lifecycle-thread"),
+        aggregateKind: "thread",
+        aggregateId: ThreadId.makeUnsafe("thread-lifecycle"),
+        occurredAt: createdAt,
+        commandId: CommandId.makeUnsafe("cmd-lifecycle-thread"),
+        causationEventId: null,
+        correlationId: CommandId.makeUnsafe("cmd-lifecycle-thread"),
+        metadata: {},
+        payload: {
+          threadId: ThreadId.makeUnsafe("thread-lifecycle"),
+          projectId: ProjectId.makeUnsafe("project-lifecycle"),
+          title: "Lifecycle thread",
+          modelSelection: {
+            provider: "codex",
+            model: "gpt-5-codex",
+          },
+          runtimeMode: "full-access",
+          branch: null,
+          worktreePath: null,
+          createdAt,
+          updatedAt: createdAt,
+        },
+      });
+      yield* projectionPipeline.projectEvent(savedThreadCreated);
+
+      yield* sql`
+        UPDATE projection_threads
+        SET workflow_id = 'workflow-lifecycle'
+        WHERE thread_id = 'thread-lifecycle'
+      `;
+
+      yield* projectionPipeline.projectEvent(
+        makeForgeEvent({
+          sequence: 3,
+          type: "thread.phase-started",
+          aggregateKind: "thread",
+          aggregateId: "thread-lifecycle",
+          occurredAt: phaseStartedAt,
+          commandId: "cmd-lifecycle-phase-started",
+          payload: {
+            threadId: "thread-lifecycle",
+            phaseRunId: "phase-run-lifecycle",
+            phaseId: "phase-review",
+            phaseName: "Review",
+            phaseType: "single-agent",
+            iteration: 1,
+            startedAt: phaseStartedAt,
+          },
+        }),
+      );
+
+      yield* projectionPipeline.projectEvent(
+        makeForgeEvent({
+          sequence: 4,
+          type: "thread.phase-completed",
+          aggregateKind: "thread",
+          aggregateId: "thread-lifecycle",
+          occurredAt: phaseCompletedAt,
+          commandId: "cmd-lifecycle-phase-completed",
+          payload: {
+            threadId: "thread-lifecycle",
+            phaseRunId: "phase-run-lifecycle",
+            outputs: [
+              {
+                key: "summary",
+                content: "Initial summary",
+                sourceType: "agent",
+              },
+            ],
+            completedAt: phaseCompletedAt,
+          },
+        }),
+      );
+
+      yield* projectionPipeline.projectEvent(
+        makeForgeEvent({
+          sequence: 5,
+          type: "thread.phase-output-edited",
+          aggregateKind: "thread",
+          aggregateId: "thread-lifecycle",
+          occurredAt: outputEditedAt,
+          commandId: "cmd-lifecycle-output-edited",
+          payload: {
+            threadId: "thread-lifecycle",
+            phaseRunId: "phase-run-lifecycle",
+            outputKey: "summary",
+            newContent: "Edited summary",
+            editedBy: "human",
+            editedAt: outputEditedAt,
+          },
+        }),
+      );
+
+      yield* projectionPipeline.projectEvent(
+        makeForgeEvent({
+          sequence: 6,
+          type: "channel.created",
+          aggregateKind: "thread",
+          aggregateId: "thread-lifecycle",
+          occurredAt: channelCreatedAt,
+          commandId: "cmd-lifecycle-channel-created",
+          payload: {
+            channelId: "channel-lifecycle",
+            threadId: "thread-lifecycle",
+            channelType: "review",
+            phaseRunId: "phase-run-lifecycle",
+            createdAt: channelCreatedAt,
+          },
+        }),
+      );
+
+      yield* projectionPipeline.projectEvent(
+        makeForgeEvent({
+          sequence: 7,
+          type: "channel.concluded",
+          aggregateKind: "thread",
+          aggregateId: "thread-lifecycle",
+          occurredAt: channelConcludedAt,
+          commandId: "cmd-lifecycle-channel-concluded",
+          payload: {
+            channelId: "channel-lifecycle",
+            threadId: "thread-lifecycle",
+            conclusion: "Consensus reached",
+            concludedAt: channelConcludedAt,
+          },
+        }),
+      );
+
+      yield* projectionPipeline.projectEvent(
+        makeForgeEvent({
+          sequence: 8,
+          type: "channel.closed",
+          aggregateKind: "thread",
+          aggregateId: "thread-lifecycle",
+          occurredAt: channelClosedAt,
+          commandId: "cmd-lifecycle-channel-closed",
+          payload: {
+            channelId: "channel-lifecycle",
+            threadId: "thread-lifecycle",
+            closedAt: channelClosedAt,
+          },
+        }),
+      );
+
+      yield* projectionPipeline.projectEvent(
+        makeForgeEvent({
+          sequence: 9,
+          type: "request.opened",
+          aggregateKind: "thread",
+          aggregateId: "thread-lifecycle",
+          occurredAt: requestOpenedAt,
+          commandId: "cmd-lifecycle-request-opened",
+          payload: {
+            requestId: "request-lifecycle",
+            threadId: "thread-lifecycle",
+            childThreadId: null,
+            phaseRunId: "phase-run-lifecycle",
+            requestType: "bootstrap-failed",
+            payload: {
+              type: "bootstrap-failed",
+              error: "bootstrap.sh exited 1",
+              stdout: "bootstrap output",
+              command: "bun run bootstrap",
+            },
+            createdAt: requestOpenedAt,
+          },
+        }),
+      );
+
+      yield* projectionPipeline.projectEvent(
+        makeForgeEvent({
+          sequence: 10,
+          type: "request.stale",
+          aggregateKind: "thread",
+          aggregateId: "thread-lifecycle",
+          occurredAt: requestStaleAt,
+          commandId: "cmd-lifecycle-request-stale",
+          payload: {
+            requestId: "request-lifecycle",
+            reason: "phase advanced",
+            markedAt: requestStaleAt,
+          },
+        }),
+      );
+
+      const phaseOutputRows = yield* sql<{
+        readonly content: string;
+        readonly sourceType: string;
+        readonly updatedAt: string;
+      }>`
+        SELECT
+          content,
+          source_type AS "sourceType",
+          updated_at AS "updatedAt"
+        FROM phase_outputs
+        WHERE phase_run_id = 'phase-run-lifecycle'
+          AND output_key = 'summary'
+      `;
+      assert.deepEqual(phaseOutputRows, [
+        {
+          content: "Edited summary",
+          sourceType: "agent",
+          updatedAt: outputEditedAt,
+        },
+      ]);
+
+      const channelRows = yield* sql<{
+        readonly status: string;
+        readonly updatedAt: string;
+      }>`
+        SELECT
+          status,
+          updated_at AS "updatedAt"
+        FROM channels
+        WHERE channel_id = 'channel-lifecycle'
+      `;
+      assert.deepEqual(channelRows, [
+        {
+          status: "closed",
+          updatedAt: channelClosedAt,
+        },
+      ]);
+
+      const requestRows = yield* sql<{
+        readonly status: string;
+        readonly staleReason: string | null;
+      }>`
+        SELECT
+          status,
+          stale_reason AS "staleReason"
+        FROM interactive_requests
+        WHERE request_id = 'request-lifecycle'
+      `;
+      assert.deepEqual(requestRows, [
+        {
+          status: "stale",
+          staleReason: "phase advanced",
+        },
+      ]);
+    }),
+  );
 });
 
 it.layer(Layer.fresh(makeProjectionPipelinePrefixedTestLayer("t3-base-")))(
