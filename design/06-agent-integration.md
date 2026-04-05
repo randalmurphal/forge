@@ -13,6 +13,7 @@ In the sessions-first model, everything is a session. Child sessions replace wha
 The `@anthropic-ai/claude-agent-sdk` provides programmatic control over Claude Code sessions. t3-code already uses this.
 
 **What the SDK gives us:**
+
 - Start a session with system prompt, tools, context
 - Send turns (user messages) and receive streaming responses
 - Intercept tool calls (approve, modify, or handle them ourselves)
@@ -20,6 +21,7 @@ The `@anthropic-ai/claude-agent-sdk` provides programmatic control over Claude C
 - Track token usage
 
 **What forge adds on top:**
+
 - Phase-specific system prompts (implement, review, deliberation role prompts)
 - Channel tool injection (read_channel, post_to_channel tools for multi-agent)
 - Correction injection (human guidance appears as high-priority context on next turn)
@@ -27,6 +29,7 @@ The `@anthropic-ai/claude-agent-sdk` provides programmatic control over Claude C
 - Child session persistence (resume from transcript on restart)
 
 **How correction injection works with Claude:**
+
 ```typescript
 // When human posts a correction to the guidance channel:
 async injectCorrection(childSession: ClaudeSession, correction: string): Promise<void> {
@@ -47,12 +50,14 @@ The correction appears as a high-priority message that the agent sees before con
 Codex runs as a separate process (`codex app-server`), communicating via JSON-RPC over stdio. t3-code wraps this in `CodexAppServerManager`.
 
 **What the subprocess gives us:**
+
 - Session create/resume
 - Turn submission
 - Event streaming (tool calls, file changes, reasoning)
 - Approval request/response
 
 **What forge adds:**
+
 - Same phase-specific prompts
 - Correction injection (via turn submission with correction context)
 - Quality gate integration
@@ -60,6 +65,7 @@ Codex runs as a separate process (`codex app-server`), communicating via JSON-RP
 
 **Codex channel participation challenge:**
 Codex doesn't have the same tool injection flexibility as Claude SDK. Options:
+
 1. **File-based channels**: Child session reads/writes a known file path. Forge watches the file.
 2. **Turn injection**: Forge injects channel messages as user turns between child session work.
 3. **Codex tool API**: If Codex supports custom tools, use the same pattern as Claude.
@@ -75,7 +81,8 @@ When an agent participates in a deliberation, it needs tools to interact with th
 const channelTools = [
   {
     name: "post_to_channel",
-    description: "Post a message to the shared deliberation channel. Other agents and the human can see this.",
+    description:
+      "Post a message to the shared deliberation channel. Other agents and the human can see this.",
     parameters: {
       type: "object",
       properties: {
@@ -91,7 +98,8 @@ const channelTools = [
   },
   {
     name: "propose_conclusion",
-    description: "Propose that the deliberation has reached a conclusion. The other participant must agree for the deliberation to end.",
+    description:
+      "Propose that the deliberation has reached a conclusion. The other participant must agree for the deliberation to end.",
     parameters: {
       type: "object",
       properties: {
@@ -100,16 +108,18 @@ const channelTools = [
       required: ["summary"],
     },
   },
-]
+];
 ```
 
 When the child session calls `post_to_channel`, forge intercepts the tool call:
+
 1. Persists the message to the channel in SQLite
 2. Returns success to the calling child session
 3. Notifies the other child session(s) that new messages are available
 4. Pushes the message to the frontend via WebSocket
 
 When the child session calls `read_channel`, forge:
+
 1. Queries messages after the child session's read cursor position. Returns them as the tool result. **Does NOT advance the cursor.** The cursor advances implicitly when the child session posts (on `channel.message-posted` event) or proposes conclusion (on `channel.conclusion-proposed` event). For Codex, the cursor advances at injection time. This makes `read_channel` idempotent. See [11-channel-tool-contract.md](./11-channel-tool-contract.md) for the canonical read-cursor invariant.
 
 This is the HerdingLlamas pattern, but managed by forge instead of by CLI commands.
@@ -122,13 +132,14 @@ Each workflow phase has a prompt template. Variables are substituted at runtime.
 
 ```typescript
 interface PromptTemplate {
-  system: string               // role, constraints, methodology
-  initial: string              // first user message to kick off the phase
-  variables: string[]          // what gets substituted: {{SESSION_DESCRIPTION}}, {{PREVIOUS_FINDINGS}}, etc.
+  system: string; // role, constraints, methodology
+  initial: string; // first user message to kick off the phase
+  variables: string[]; // what gets substituted: {{SESSION_DESCRIPTION}}, {{PREVIOUS_FINDINGS}}, etc.
 }
 ```
 
 **Variable sources:**
+
 - `{{SESSION_DESCRIPTION}}` - from the session
 - `{{SESSION_TITLE}}` - from session title
 - `{{PREVIOUS_FINDINGS}}` - from previous phase's channel/output
@@ -146,24 +157,26 @@ async function buildIterationContext(sessionId: SessionId, phaseRuns: PhaseRun[]
   const sections = [];
   for (const [i, run] of phaseRuns.entries()) {
     const output = await db.query(
-      'SELECT content FROM phase_outputs WHERE phase_run_id = ? AND output_key = ?',
-      run.id, 'output'
+      "SELECT content FROM phase_outputs WHERE phase_run_id = ? AND output_key = ?",
+      run.id,
+      "output",
     );
     const corrections = await db.query(
-      'SELECT content FROM phase_outputs WHERE phase_run_id = ? AND output_key = ?',
-      run.id, 'corrections'
+      "SELECT content FROM phase_outputs WHERE phase_run_id = ? AND output_key = ?",
+      run.id,
+      "corrections",
     );
     const qualityChecks = run.quality_checks_json ? JSON.parse(run.quality_checks_json) : [];
-    
+
     sections.push(`## Iteration ${i + 1}
 ### What was attempted
-${output?.content || 'No output recorded'}
+${output?.content || "No output recorded"}
 ### Quality check results
-${qualityChecks.map((q: any) => `- ${q.name}: ${q.passed ? 'PASS' : 'FAIL'} ${q.output || ''}`).join('\n')}
+${qualityChecks.map((q: any) => `- ${q.name}: ${q.passed ? "PASS" : "FAIL"} ${q.output || ""}`).join("\n")}
 ### Corrections received
-${corrections?.content || 'None'}`);
+${corrections?.content || "None"}`);
   }
-  return sections.join('\n---\n');
+  return sections.join("\n---\n");
 }
 ```
 
@@ -226,12 +239,14 @@ If the app crashes or restarts mid-session:
 ### Provider Recovery Matrix
 
 **Claude (Agent SDK):**
+
 - **Resume method**: Pass stored session ID as `resume` parameter on `query()`. Works if server-side session is still alive (empirically observed ~1 hour TTL; NOT officially documented and may change). The fallback (context summary) is the normative recovery path. Resume is an optimization — the system must be correct when resume fails.
 - **Fallback**: Start fresh child session with context summary (session description + iteration context + last N transcript entries + pending corrections). Not full transcript replay — too expensive for long sessions.
 - **What's lost on crash**: In-flight streaming response, pending tool call results, ephemeral state not captured in tool calls/files.
 - **User-visible degradation**: "Child session interrupted. Resuming with context summary. Recent work may be repeated."
 
 **Codex (app-server subprocess):**
+
 - **Resume method**: Restart subprocess, call `thread/resume` with stored thread ID from the child session's `resume_cursor_json`. Thread conversation history is server-managed by Codex.
 - **Fallback**: If thread doesn't exist (Codex state lost), start fresh with context summary.
 - **What's lost on crash**: In-flight turn response, unsent tool call results.
@@ -239,18 +254,18 @@ If the app crashes or restarts mid-session:
 
 ## Provider Capability Matrix
 
-| Capability | Claude (Agent SDK) | Codex (app-server) | Forge integration |
-|-----------|-------------------|-------------------|-------------------|
-| User questions | AskUserQuestion tool with structured questions (header, question, options, multiSelect) | item/tool/requestUserInput | interactive_request (type: user-input). Structured question format carries forward. |
-| Model switch | In-session via setModel() | Per-turn override (becomes default for later turns) | Allow per-turn model override. No session restart needed. |
-| Subagents | task.started/progress/completed events, synthetic turns for background responses | collabAgentToolCall, parent/child thread tracking | v1: passthrough (surface in transcript as nested activity). v2: map to forge child session model. |
-| Session resume | Session ID parameter on query() (~1hr server-side TTL) | thread/resume by thread ID | Resume cursor stored in sessions.resume_cursor_json |
-| Rollback | N/A (context summary is the fallback) | thread/rollback by turn count | Primary mechanism for Codex checkpoint revert |
-| Collaboration mode | N/A | plan/default with per-mode developer_instructions | Maps to interaction mode per workflow phase |
-| Approval policy | canUseTool callback with PermissionResult | approvalPolicy: untrusted/on-failure/on-request/never | Mapped from session.runtime_mode (supervised -> on-request, autonomous -> never) |
-| Sandbox mode | No native sandbox (enforced via canUseTool approval/deny) | sandbox: read-only/workspace-write/danger-full-access | Mapped from phase config sandboxMode |
-| acceptForSession | In-memory via updatedPermissions in canUseTool return | N/A | Ephemeral. Dies with provider child session. Not persisted. |
-| File change diffs | N/A | turn/diff/updated, fileChange items with diffs | Consumed by CheckpointReactor for checkpoint creation |
+| Capability         | Claude (Agent SDK)                                                                      | Codex (app-server)                                    | Forge integration                                                                                 |
+| ------------------ | --------------------------------------------------------------------------------------- | ----------------------------------------------------- | ------------------------------------------------------------------------------------------------- |
+| User questions     | AskUserQuestion tool with structured questions (header, question, options, multiSelect) | item/tool/requestUserInput                            | interactive_request (type: user-input). Structured question format carries forward.               |
+| Model switch       | In-session via setModel()                                                               | Per-turn override (becomes default for later turns)   | Allow per-turn model override. No session restart needed.                                         |
+| Subagents          | task.started/progress/completed events, synthetic turns for background responses        | collabAgentToolCall, parent/child thread tracking     | v1: passthrough (surface in transcript as nested activity). v2: map to forge child session model. |
+| Session resume     | Session ID parameter on query() (~1hr server-side TTL)                                  | thread/resume by thread ID                            | Resume cursor stored in sessions.resume_cursor_json                                               |
+| Rollback           | N/A (context summary is the fallback)                                                   | thread/rollback by turn count                         | Primary mechanism for Codex checkpoint revert                                                     |
+| Collaboration mode | N/A                                                                                     | plan/default with per-mode developer_instructions     | Maps to interaction mode per workflow phase                                                       |
+| Approval policy    | canUseTool callback with PermissionResult                                               | approvalPolicy: untrusted/on-failure/on-request/never | Mapped from session.runtime_mode (supervised -> on-request, autonomous -> never)                  |
+| Sandbox mode       | No native sandbox (enforced via canUseTool approval/deny)                               | sandbox: read-only/workspace-write/danger-full-access | Mapped from phase config sandboxMode                                                              |
+| acceptForSession   | In-memory via updatedPermissions in canUseTool return                                   | N/A                                                   | Ephemeral. Dies with provider child session. Not persisted.                                       |
+| File change diffs  | N/A                                                                                     | turn/diff/updated, fileChange items with diffs        | Consumed by CheckpointReactor for checkpoint creation                                             |
 
 | Structured approvals | 9 CanonicalRequestTypes (file_read, file_change, command_execution, etc.) | Request methods per type | interactive_request.payload includes requestType for typed UI |
 
@@ -263,7 +278,9 @@ v2: Map provider subagents to forge's child session model. A subagent becomes a 
 ## Challenges
 
 ### Tool Call Interception Boundaries
+
 Forge needs to intercept some tool calls (channel tools) but let others through (file edits, command execution). The interception logic needs to be:
+
 - Fast (agent is waiting for the tool result)
 - Reliable (don't accidentally swallow a tool call)
 - Transparent (the agent doesn't know its tool calls are being intercepted)
@@ -272,20 +289,26 @@ For Claude SDK: the approval mechanism naturally provides this. Forge can approv
 For Codex: approval requests come via JSON-RPC events. Same pattern, different protocol.
 
 ### Reliability in Using Channel Tools
+
 Agents sometimes ignore tools or use them incorrectly. For deliberation to work, child sessions MUST use channel tools. Strategies:
+
 - Strong system prompts that emphasize tool usage
 - Nudge mechanism: if child session hasn't posted in N turns, inject a reminder
 - Timeout: if child session goes silent for too long, assume it's stuck and notify human
 
 ### Provider capability differences
+
 Claude and Codex have different capabilities:
+
 - Claude: better at long reasoning, better tool following
 - Codex: faster, different tool model, may handle code changes differently
 
 For multi-agent deliberation, provider differences can be a feature (different perspectives) or a bug (different reliability). Need to test which combinations work well.
 
 ### Token Budget Management
+
 Long-running child sessions burn tokens. Build loops with multiple iterations can get expensive. Need:
+
 - Token usage tracking per child session, per phase, per session
 - Budget limits (configurable per session or workflow)
 - Warning when approaching budget
@@ -294,7 +317,9 @@ Long-running child sessions burn tokens. Build loops with multiple iterations ca
 t3-code tracks token usage. Forge inherits and extends with budget controls.
 
 ### Workspace Isolation
+
 Each session should run in an isolated git worktree. This prevents:
+
 - Child sessions in different sessions stepping on each other's changes
 - Merge conflicts during parallel execution
 - Lost work if a session fails

@@ -17,6 +17,7 @@ There is no "task" layer between the user and the work. You start a session. The
 ### User-Facing vs Internal
 
 The three session types (agent, workflow, chat) are INTERNAL implementation types. The user never selects a "type." They start a session and optionally pick a workflow. The system determines the type:
+
 - No workflow selected → type: "agent" (direct chat)
 - Workflow selected that has phases → type: "workflow"
 - Workflow selected that is a deliberation pattern → type: "chat"
@@ -31,48 +32,49 @@ Everything in forge is a session. A standalone chat with Claude is a session. A 
 
 ```typescript
 interface Session {
-  id: SessionId
-  projectId: ProjectId
-  parentSessionId: SessionId | null   // NULL for top-level, FK for children
-  phaseRunId: PhaseRunId | null       // which phase this child belongs to (workflow children)
-  type: "agent" | "workflow" | "chat"
-  title: string
-  description: string
-  status: SessionStatus
+  id: SessionId;
+  projectId: ProjectId;
+  parentSessionId: SessionId | null; // NULL for top-level, FK for children
+  phaseRunId: PhaseRunId | null; // which phase this child belongs to (workflow children)
+  type: "agent" | "workflow" | "chat";
+  title: string;
+  description: string;
+  status: SessionStatus;
   // Role (for child sessions in multi-agent phases or deliberation)
-  role: string | null                  // "scrutinizer", "advocate", etc.
+  role: string | null; // "scrutinizer", "advocate", etc.
   // Provider (for leaf sessions that interact with a provider)
-  provider: string | null              // "claude" | "codex" — NULL for container sessions
-  model: ModelSelection | null
+  provider: string | null; // "claude" | "codex" — NULL for container sessions
+  model: ModelSelection | null;
   // Workspace
-  branch: string | null
-  worktreePath: string | null
-  runtimeMode: "supervised" | "autonomous"
-  bootstrapStatus: string | null
+  branch: string | null;
+  worktreePath: string | null;
+  runtimeMode: "supervised" | "autonomous";
+  bootstrapStatus: string | null;
   // Workflow (for type: workflow)
-  workflowId: string | null
-  workflowSnapshot: string | null
-  currentPhaseId: string | null
+  workflowId: string | null;
+  workflowSnapshot: string | null;
+  currentPhaseId: string | null;
   // Chat (for type: chat)
-  patternId: string | null
+  patternId: string | null;
   // Metadata
-  metadata: Record<string, unknown>
-  createdAt: string
-  updatedAt: string
-  archivedAt: string | null
+  metadata: Record<string, unknown>;
+  createdAt: string;
+  updatedAt: string;
+  archivedAt: string | null;
 }
 
 type SessionStatus =
-  | "created"          // defined but not started
-  | "running"          // actively working
-  | "needs-attention"  // gate, approval, correction needed, error
-  | "paused"           // human paused
-  | "completed"        // done
-  | "failed"           // unrecoverable
-  | "cancelled"        // user stopped
+  | "created" // defined but not started
+  | "running" // actively working
+  | "needs-attention" // gate, approval, correction needed, error
+  | "paused" // human paused
+  | "completed" // done
+  | "failed" // unrecoverable
+  | "cancelled"; // user stopped
 ```
 
 **Session hierarchy:**
+
 - **Standalone agent session**: top-level, no parent, no children. type="agent", provider set. This IS the t3-code thread.
 - **Workflow session**: top-level container. type="workflow", provider NULL. Children are the phase sessions.
   - **Phase child session**: parent is the workflow session. type="agent", provider set, phaseRunId set, role may be set. Full chat UI.
@@ -101,6 +103,7 @@ Agent Session (leaf)
 An agent session has NO phases, NO workflow, NO channels. It's a direct conversation. The compose input, approval buttons, diff viewer, terminal drawer — all stay exactly as they are in t3-code.
 
 For agent sessions (both standalone and child), the existing t3-code projection tables carry forward with session-scoped naming:
+
 - `projection_session_messages` (was `projection_thread_messages`)
 - `projection_session_activities` (was `projection_thread_activities`)
 - `projection_session_state` (was `projection_thread_sessions`)
@@ -189,6 +192,7 @@ Workflow Session (container)
 ```
 
 The main panel for a workflow session shows:
+
 - Phase progress bar at top (which phase, which iteration)
 - Current child session output (streaming, same renderer as agent sessions)
 - Gate results, quality check output (inline between phases)
@@ -216,18 +220,18 @@ For chat sessions, deliberation_state_json is stored directly on the sessions ta
 
 They're gone. Here's the mapping:
 
-| Previous concept | Sessions-first equivalent |
-|-----------------|--------------------------|
-| Task | Session (type depends on what you're doing) |
-| Task.workflowId | Session.workflowId (only for workflow sessions) |
-| Task.status | Session.status |
-| Task.worktreePath | Session.worktreePath |
-| Phase runs | Phase runs within workflow sessions |
+| Previous concept               | Sessions-first equivalent                                                |
+| ------------------------------ | ------------------------------------------------------------------------ |
+| Task                           | Session (type depends on what you're doing)                              |
+| Task.workflowId                | Session.workflowId (only for workflow sessions)                          |
+| Task.status                    | Session.status                                                           |
+| Task.worktreePath              | Session.worktreePath                                                     |
+| Phase runs                     | Phase runs within workflow sessions                                      |
 | Provider sessions within tasks | Child sessions within phases (workflow) or direct provider state (agent) |
-| Guidance channel on task | Guidance channel on workflow session |
-| Scratch task for chat | Chat session (no scratch indirection needed) |
-| Task dependencies | Session dependencies (via session_dependencies table) |
-| Task groups | Session groups (optional, lightweight) |
+| Guidance channel on task       | Guidance channel on workflow session                                     |
+| Scratch task for chat          | Chat session (no scratch indirection needed)                             |
+| Task dependencies              | Session dependencies (via session_dependencies table)                    |
+| Task groups                    | Session groups (optional, lightweight)                                   |
 
 ### What Happened to "Initiatives"
 
@@ -361,6 +365,7 @@ CREATE UNIQUE INDEX idx_workflows_name_builtin ON workflows(name, built_in);
 ```
 
 **Workflow invariants:**
+
 - Phase names MUST be unique within a workflow. Validated at creation/load time.
 - Workflows are IMMUTABLE once a session starts. Modifying a workflow definition does not affect running sessions.
 - On session creation, `workflow_snapshot_json` is written to the session record capturing the workflow's `phases_json` at that point in time. This makes the binding durable across workflow updates.
@@ -368,6 +373,7 @@ CREATE UNIQUE INDEX idx_workflows_name_builtin ON workflows(name, built_in);
 ### Workflow Repository Contract
 
 V1 uses DB-only after materialization:
+
 1. Built-in workflows ship as YAML files bundled with the app
 2. On startup, engine reads all YAML files and UPSERTS into `workflows` table with `built_in = 1`
 3. User-created workflows are inserted directly with `built_in = 0`
@@ -656,35 +662,35 @@ For multi-agent phases: two child sessions in the same phase run share the paren
 
 Not all tables are event-sourced projections. Forge uses a hybrid model where some tables are rebuilt from events and others are directly managed.
 
-| Table | Ownership | Rebuilt from events? | Direct writes? | Notes |
-|-------|-----------|---------------------|----------------|-------|
-| `orchestration_events` | Event store | N/A (IS the source) | Append-only | Source of truth for all event-sourced state |
-| `projects` | Event-sourced projection | Yes | No | Rebuilt from project.* events |
-| `sessions` | Hybrid | Yes (status, phase progression from events) | Yes (resume_cursor_json, runtime_payload_json, transcript_archived by adapters/jobs) | Projector handles lifecycle events. Provider adapters direct-write resume state. Archival job direct-writes transcript_archived. completed_at set by projector from session.completed events. |
-| `phase_runs` | Hybrid | Yes | Yes (deliberation_state_json only) | Projector builds from session.phase-* events. deliberation_state_json is direct-written by the deliberation engine and by recovery. On event replay, it is reconstructed from channel/session events. |
-| `channels` | Event-sourced projection | Yes | No | Rebuilt from channel.* events |
-| `channel_messages` | Event-sourced projection | Yes | No | Rebuilt from channel.message-posted events |
-| `channel_reads` | Hybrid | Partially | Yes | Projector updates on message-posted/conclusion-proposed; engine writes directly for Codex injection. Keyed by (channel_id, session_id) where session_id is the participating child session. |
-| `interactive_requests` | Hybrid | Yes for creation | Yes | Recovery marks stale directly; resolution may be event-driven or direct |
-| `tool_call_results` | Direct (cache) | No | Yes | Idempotency cache, not derived from events |
-| `transcript_entries` | Direct (append-only log) | No | Yes | Written by provider adapters during leaf session execution |
-| `checkpoint_refs` | Hybrid | Partially (from checkpoint events) | Yes | placeholder -> captured status update by CheckpointReactor |
-| `checkpoint_diff_blobs` | Direct (cache) | No | Yes | Computed by CheckpointReactor, not derived from events |
-| `phase_outputs` | Event-sourced projection | Yes | No | Materialized by projector from session.phase-completed event payload |
-| `workflows` | Direct (config) | No | Yes | Materialized from YAML on startup, user-created via UI |
-| `session_dependencies` | Event-sourced projection | Yes | No | Rebuilt from session.dependency-* events |
-| `session_groups` | Direct | No | Yes | Lightweight grouping, not event-sourced |
-| `session_group_members` | Direct | No | Yes | Lightweight grouping, not event-sourced |
-| `session_links` | Event-sourced | Yes | No | Links are domain state. Written via session.link-added/removed events. |
-| `phase_run_provenance` | Direct (analytics) | No | Yes | Written at phase start |
-| `phase_run_outcomes` | Direct (analytics) | No | Yes | Written at phase completion |
-| `project_knowledge` | Direct | No | Yes | Knowledge base, not event-sourced |
-| `session_synthesis` | Event-sourced projection | Yes | No | Materialized by projector from session.synthesis-completed event payload |
-| `attention_signals` | Direct | No | Yes | Attention system |
-| `projection_session_messages` | Event-sourced projection | Yes | No | Leaf session messages, rebuilt from session.message-sent events |
-| `projection_session_activities` | Event-sourced projection | Yes | No | Leaf session activities, rebuilt from session lifecycle events |
-| `projection_session_state` | Event-sourced projection | Yes | No | Leaf session provider state |
-| `projection_turns` | Event-sourced projection | Yes | No | Agent session turn tracking |
+| Table                           | Ownership                | Rebuilt from events?                        | Direct writes?                                                                       | Notes                                                                                                                                                                                                  |
+| ------------------------------- | ------------------------ | ------------------------------------------- | ------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `orchestration_events`          | Event store              | N/A (IS the source)                         | Append-only                                                                          | Source of truth for all event-sourced state                                                                                                                                                            |
+| `projects`                      | Event-sourced projection | Yes                                         | No                                                                                   | Rebuilt from project.\* events                                                                                                                                                                         |
+| `sessions`                      | Hybrid                   | Yes (status, phase progression from events) | Yes (resume_cursor_json, runtime_payload_json, transcript_archived by adapters/jobs) | Projector handles lifecycle events. Provider adapters direct-write resume state. Archival job direct-writes transcript_archived. completed_at set by projector from session.completed events.          |
+| `phase_runs`                    | Hybrid                   | Yes                                         | Yes (deliberation_state_json only)                                                   | Projector builds from session.phase-\* events. deliberation_state_json is direct-written by the deliberation engine and by recovery. On event replay, it is reconstructed from channel/session events. |
+| `channels`                      | Event-sourced projection | Yes                                         | No                                                                                   | Rebuilt from channel.\* events                                                                                                                                                                         |
+| `channel_messages`              | Event-sourced projection | Yes                                         | No                                                                                   | Rebuilt from channel.message-posted events                                                                                                                                                             |
+| `channel_reads`                 | Hybrid                   | Partially                                   | Yes                                                                                  | Projector updates on message-posted/conclusion-proposed; engine writes directly for Codex injection. Keyed by (channel_id, session_id) where session_id is the participating child session.            |
+| `interactive_requests`          | Hybrid                   | Yes for creation                            | Yes                                                                                  | Recovery marks stale directly; resolution may be event-driven or direct                                                                                                                                |
+| `tool_call_results`             | Direct (cache)           | No                                          | Yes                                                                                  | Idempotency cache, not derived from events                                                                                                                                                             |
+| `transcript_entries`            | Direct (append-only log) | No                                          | Yes                                                                                  | Written by provider adapters during leaf session execution                                                                                                                                             |
+| `checkpoint_refs`               | Hybrid                   | Partially (from checkpoint events)          | Yes                                                                                  | placeholder -> captured status update by CheckpointReactor                                                                                                                                             |
+| `checkpoint_diff_blobs`         | Direct (cache)           | No                                          | Yes                                                                                  | Computed by CheckpointReactor, not derived from events                                                                                                                                                 |
+| `phase_outputs`                 | Event-sourced projection | Yes                                         | No                                                                                   | Materialized by projector from session.phase-completed event payload                                                                                                                                   |
+| `workflows`                     | Direct (config)          | No                                          | Yes                                                                                  | Materialized from YAML on startup, user-created via UI                                                                                                                                                 |
+| `session_dependencies`          | Event-sourced projection | Yes                                         | No                                                                                   | Rebuilt from session.dependency-\* events                                                                                                                                                              |
+| `session_groups`                | Direct                   | No                                          | Yes                                                                                  | Lightweight grouping, not event-sourced                                                                                                                                                                |
+| `session_group_members`         | Direct                   | No                                          | Yes                                                                                  | Lightweight grouping, not event-sourced                                                                                                                                                                |
+| `session_links`                 | Event-sourced            | Yes                                         | No                                                                                   | Links are domain state. Written via session.link-added/removed events.                                                                                                                                 |
+| `phase_run_provenance`          | Direct (analytics)       | No                                          | Yes                                                                                  | Written at phase start                                                                                                                                                                                 |
+| `phase_run_outcomes`            | Direct (analytics)       | No                                          | Yes                                                                                  | Written at phase completion                                                                                                                                                                            |
+| `project_knowledge`             | Direct                   | No                                          | Yes                                                                                  | Knowledge base, not event-sourced                                                                                                                                                                      |
+| `session_synthesis`             | Event-sourced projection | Yes                                         | No                                                                                   | Materialized by projector from session.synthesis-completed event payload                                                                                                                               |
+| `attention_signals`             | Direct                   | No                                          | Yes                                                                                  | Attention system                                                                                                                                                                                       |
+| `projection_session_messages`   | Event-sourced projection | Yes                                         | No                                                                                   | Leaf session messages, rebuilt from session.message-sent events                                                                                                                                        |
+| `projection_session_activities` | Event-sourced projection | Yes                                         | No                                                                                   | Leaf session activities, rebuilt from session lifecycle events                                                                                                                                         |
+| `projection_session_state`      | Event-sourced projection | Yes                                         | No                                                                                   | Leaf session provider state                                                                                                                                                                            |
+| `projection_turns`              | Event-sourced projection | Yes                                         | No                                                                                   | Agent session turn tracking                                                                                                                                                                            |
 
 **Implementation rule:** Event-sourced tables MUST only be written by the projector (except for hybrid tables' documented direct-write paths). Direct tables are written by the component that owns them. On startup, event-sourced tables are rebuilt from the event store; direct tables persist across restarts.
 
@@ -696,13 +702,13 @@ Commands are state transitions only. The decider emits events; the engine persis
 
 All long-running work is launched by background reactors that subscribe to domain events:
 
-| Trigger event | Reactor | Action | Completion event |
-|--------------|---------|--------|-----------------|
-| session.created (with workflow/bootstrap) | BootstrapReactor | Runs worktree bootstrap script | session.bootstrap-completed / session.bootstrap-failed |
-| session.turn-requested | ProviderCommandReactor | Starts the child session's provider turn via SDK/subprocess | session.turn-completed (via ProviderRuntimeIngestion) |
-| session.quality-check-started | QualityCheckReactor | Runs quality check commands | session.quality-check-completed |
-| session.phase-started (automated) | AutomatedPhaseReactor | Runs scripts | session.phase-completed |
-| channel.concluded | SynthesisReactor | Runs synthesis for chat sessions | session.synthesis-completed |
+| Trigger event                             | Reactor                | Action                                                      | Completion event                                       |
+| ----------------------------------------- | ---------------------- | ----------------------------------------------------------- | ------------------------------------------------------ |
+| session.created (with workflow/bootstrap) | BootstrapReactor       | Runs worktree bootstrap script                              | session.bootstrap-completed / session.bootstrap-failed |
+| session.turn-requested                    | ProviderCommandReactor | Starts the child session's provider turn via SDK/subprocess | session.turn-completed (via ProviderRuntimeIngestion)  |
+| session.quality-check-started             | QualityCheckReactor    | Runs quality check commands                                 | session.quality-check-completed                        |
+| session.phase-started (automated)         | AutomatedPhaseReactor  | Runs scripts                                                | session.phase-completed                                |
+| channel.concluded                         | SynthesisReactor       | Runs synthesis for chat sessions                            | session.synthesis-completed                            |
 
 The workflow engine (doc 04) describes LOGICAL flow. Each step is an event->react->event cycle, not a synchronous procedure. "Spawn one child session, wait for completion" means: emit session.turn-requested, then the ProviderCommandReactor starts the child session's provider turn asynchronously, and session.turn-completed arrives later as a new event.
 
@@ -723,13 +729,13 @@ This eliminates the hybrid-write atomicity problem. No transaction coordination 
 
 Every reactor-emitted completion command uses a DETERMINISTIC commandId derived from a stable work item identity:
 
-| Reactor | commandId derivation | Prevents |
-|---------|---------------------|----------|
-| BootstrapReactor | `bootstrap:{sessionId}:{attempt}` | Duplicate bootstrap completion after restart |
-| ProviderCommandReactor | `turn:{sessionId}:{turnCorrelationId}` | Duplicate turn completion (sessionId is the leaf session) |
-| QualityCheckReactor | `qc:{phaseRunId}:{checkKey}` | Duplicate quality check results |
-| AutomatedPhaseReactor | `auto-phase:{phaseRunId}` | Duplicate automated phase completion |
-| SynthesisReactor | `synthesis:{sessionId}` | Duplicate synthesis |
+| Reactor                 | commandId derivation                         | Prevents                                                                        |
+| ----------------------- | -------------------------------------------- | ------------------------------------------------------------------------------- |
+| BootstrapReactor        | `bootstrap:{sessionId}:{attempt}`            | Duplicate bootstrap completion after restart                                    |
+| ProviderCommandReactor  | `turn:{sessionId}:{turnCorrelationId}`       | Duplicate turn completion (sessionId is the leaf session)                       |
+| QualityCheckReactor     | `qc:{phaseRunId}:{checkKey}`                 | Duplicate quality check results                                                 |
+| AutomatedPhaseReactor   | `auto-phase:{phaseRunId}`                    | Duplicate automated phase completion                                            |
+| SynthesisReactor        | `synthesis:{sessionId}`                      | Duplicate synthesis                                                             |
 | Codex conclusion parser | `conclusion:{sessionId}:{turnCorrelationId}` | Duplicate conclusion from Codex response replay (sessionId is the leaf session) |
 
 The engine's existing command receipt system checks these deterministic IDs. If a receipt already exists for a commandId, the command is a no-op. This makes all reactor completions retry-safe across daemon restarts.
@@ -758,16 +764,16 @@ Direct-write + event-append pairs MUST use a single SQLite transaction to preven
 
 ### Crash-Window Behavior Per Hybrid Table
 
-| Table | Crash window | Behavior | Severity |
-|-------|-------------|----------|----------|
-| phase_outputs | Event-derived (projector writes from event payload) | Standard event-sourced | Safe |
-| interactive_requests | Resolution direct-write | Transaction with event | Safe |
-| transcript_entries | Ahead of event stream | Extra entries are harmless | Acceptable degradation |
-| channel_reads | Codex cursor ahead of events | Duplicate injection on recovery | Acceptable degradation |
-| phase_runs.deliberation_state_json | Direct-write by engine | Reconstructed from channel/session events | Acceptable degradation |
-| sessions (resume_cursor_json, runtime_payload_json) | Direct-write by provider adapter on leaf sessions | Resume cursor is used for recovery — correct behavior. Stale payload is harmless. | Safe |
-| sessions (transcript_archived) | Set by archival job on leaf sessions | Archival job MUST set transcript_archived=1 BEFORE deleting transcript rows (same transaction). If flag set but rows not deleted: brief duplicate storage, acceptable. If rows deleted but flag not set: data appears missing — prevented by transaction ordering. | Safe with tx ordering |
-| checkpoint_refs | Placeholder→captured status update | Re-capture on recovery produces duplicate. Use INSERT OR REPLACE for idempotent checkpoint writes. | Safe with INSERT OR REPLACE |
+| Table                                               | Crash window                                        | Behavior                                                                                                                                                                                                                                                           | Severity                    |
+| --------------------------------------------------- | --------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | --------------------------- |
+| phase_outputs                                       | Event-derived (projector writes from event payload) | Standard event-sourced                                                                                                                                                                                                                                             | Safe                        |
+| interactive_requests                                | Resolution direct-write                             | Transaction with event                                                                                                                                                                                                                                             | Safe                        |
+| transcript_entries                                  | Ahead of event stream                               | Extra entries are harmless                                                                                                                                                                                                                                         | Acceptable degradation      |
+| channel_reads                                       | Codex cursor ahead of events                        | Duplicate injection on recovery                                                                                                                                                                                                                                    | Acceptable degradation      |
+| phase_runs.deliberation_state_json                  | Direct-write by engine                              | Reconstructed from channel/session events                                                                                                                                                                                                                          | Acceptable degradation      |
+| sessions (resume_cursor_json, runtime_payload_json) | Direct-write by provider adapter on leaf sessions   | Resume cursor is used for recovery — correct behavior. Stale payload is harmless.                                                                                                                                                                                  | Safe                        |
+| sessions (transcript_archived)                      | Set by archival job on leaf sessions                | Archival job MUST set transcript_archived=1 BEFORE deleting transcript rows (same transaction). If flag set but rows not deleted: brief duplicate storage, acceptable. If rows deleted but flag not set: data appears missing — prevented by transaction ordering. | Safe with tx ordering       |
+| checkpoint_refs                                     | Placeholder→captured status update                  | Re-capture on recovery produces duplicate. Use INSERT OR REPLACE for idempotent checkpoint writes.                                                                                                                                                                 | Safe with INSERT OR REPLACE |
 
 Note: sessions.completed_at is set by the projector from session.completed events. It is NOT a direct write — it was incorrectly classified. The projector reads the event timestamp and sets completed_at.
 
@@ -775,25 +781,25 @@ Note: sessions.completed_at is set by the projector from session.completed event
 
 The phase runner (a reactor) dispatches a completion command carrying output content in the payload. The decider validates and emits the completion event. The projector extracts output content from the event and writes to phase_outputs. This is standard event-sourced projection — phase_outputs is rebuilt from events on replay.
 
-| Phase Type | output_key | Content | Source |
-|-----------|-----------|---------|--------|
-| `single-agent` | `output` | Final assistant message from the child session | Last assistant transcript_entry |
-| `single-agent` | `corrections` | JSON array of guidance channel messages received during this phase run | channel_messages where channel.type = 'guidance' |
-| `multi-agent` | `channel` | Formatted channel transcript (all messages) | channel_messages for the phase's deliberation channel |
-| `multi-agent` | `synthesis` | Synthesis session's final output (if synthesis sub-phase exists) | Last assistant transcript_entry from synthesis child session |
-| `multi-agent` (no channel) | `output:{role}` | Final assistant message from each child session | Last assistant transcript_entry per child session, keyed by role |
-| `automated` | `output` | Quality check results as JSON | Collected from check execution |
-| `human` | `output` | Human's approval message or correction text | From resolved interactive_request |
+| Phase Type                 | output_key      | Content                                                                | Source                                                           |
+| -------------------------- | --------------- | ---------------------------------------------------------------------- | ---------------------------------------------------------------- |
+| `single-agent`             | `output`        | Final assistant message from the child session                         | Last assistant transcript_entry                                  |
+| `single-agent`             | `corrections`   | JSON array of guidance channel messages received during this phase run | channel_messages where channel.type = 'guidance'                 |
+| `multi-agent`              | `channel`       | Formatted channel transcript (all messages)                            | channel_messages for the phase's deliberation channel            |
+| `multi-agent`              | `synthesis`     | Synthesis session's final output (if synthesis sub-phase exists)       | Last assistant transcript_entry from synthesis child session     |
+| `multi-agent` (no channel) | `output:{role}` | Final assistant message from each child session                        | Last assistant transcript_entry per child session, keyed by role |
+| `automated`                | `output`        | Quality check results as JSON                                          | Collected from check execution                                   |
+| `human`                    | `output`        | Human's approval message or correction text                            | From resolved interactive_request                                |
 
 `buildIterationContext()` reads from `phase_outputs` (keyed by phase_run_id + output_key) and guidance channel messages, NOT from non-existent `run.summary` or `run.corrections` fields.
 
 ### Output Modes
 
-| Mode | When used | What's stored in phase_outputs | What renders in timeline |
-|------|-----------|-------------------------------|------------------------|
-| Schema | Agent definition has output schema | Full JSON in content, output_key='output' | summary field rendered as markdown |
-| Channel | Deliberation phase with channel | Formatted channel transcript, output_key='channel' | Channel messages rendered as chat |
-| Conversation | Default, no schema or channel | Agent's final message, output_key='output' | Message rendered as markdown |
+| Mode         | When used                          | What's stored in phase_outputs                     | What renders in timeline           |
+| ------------ | ---------------------------------- | -------------------------------------------------- | ---------------------------------- |
+| Schema       | Agent definition has output schema | Full JSON in content, output_key='output'          | summary field rendered as markdown |
+| Channel      | Deliberation phase with channel    | Formatted channel transcript, output_key='channel' | Channel messages rendered as chat  |
+| Conversation | Default, no schema or channel      | Agent's final message, output_key='output'         | Message rendered as markdown       |
 
 Quality check results between phases are stored separately in phase_runs.quality_checks_json and rendered inline in the workflow timeline.
 
@@ -826,7 +832,7 @@ Workflow phases declare `inputFrom` references that bind to the `phase_outputs` 
 ```typescript
 interface InputFromReference {
   phaseName: string;
-  target: string;   // 'channel' | 'synthesis' | 'output' | 'output:{role}'
+  target: string; // 'channel' | 'synthesis' | 'output' | 'output:{role}'
 }
 
 async function resolveInputFrom(ref: InputFromReference, sessionId: SessionId): Promise<string> {
@@ -836,7 +842,9 @@ async function resolveInputFrom(ref: InputFromReference, sessionId: SessionId): 
      WHERE pr.session_id = ? AND pr.phase_name = ? AND po.output_key = ?
      AND pr.status = 'completed'
      ORDER BY pr.iteration DESC LIMIT 1`,
-    sessionId, ref.phaseName, ref.target
+    sessionId,
+    ref.phaseName,
+    ref.target,
   );
   if (!output) throw new Error(`No output '${ref.target}' from phase '${ref.phaseName}'`);
   return output.content;
@@ -857,6 +865,7 @@ User-facing APIs use two distinct operations for posting to channels:
 - `channel.post-message { channelId, fromType, fromId, content }` — Direct channel post. Used when the human intervenes in a specific deliberation channel. The frontend knows the channelId from the deliberation view state.
 
 CLI mapping:
+
 - `forge correct <session-id> 'message'` -> session.correct
 - `forge intervene <channel-id> 'message'` -> channel.post-message
 
@@ -864,24 +873,25 @@ CLI mapping:
 
 The socket API is the public contract for CLI and app clients. Each socket method maps to one or more decider commands with parameter enrichment:
 
-| Socket Method | Enrichment | Decider Command |
-|--------------|------------|-----------------|
-| `session.create({ title, type, workflow?, projectPath })` | Generate sessionId, resolve projectId from path, resolve default model | `session.create { sessionId, projectId, sessionType, title, description, workflowId?, model? }` |
-| `session.correct({ sessionId, content })` | Resolve guidance channelId for this session | `session.correct { sessionId, content }` → engine resolves to `channel.post-message { channelId, ... }` |
-| `session.pause({ sessionId })` | None | `session.pause { sessionId }` |
-| `session.resume({ sessionId })` | None | `session.resume { sessionId }` |
-| `session.cancel({ sessionId })` | None | `session.cancel { sessionId }` |
-| `gate.approve({ sessionId, phaseRunId })` | Resolve requestId | `request.resolve { requestId, resolvedWith: { decision: 'approve' } }` |
-| `gate.reject({ sessionId, phaseRunId, reason })` | Resolve requestId | `request.resolve { requestId, resolvedWith: { decision: 'reject', reason } }` |
-| `request.resolve({ requestId, resolvedWith })` | None | `request.resolve { requestId, resolvedWith }` |
-| `session.getTranscript({ sessionId, limit?, offset? })` | None | Direct DB query (not a command) — works for any leaf session |
-| `session.getChildren({ sessionId })` | None | Direct DB query (not a command) — returns child sessions |
-| `channel.getMessages({ channelId, limit?, offset? })` | None | Direct DB query (not a command) |
-| `channel.intervene({ channelId, content })` | None | `channel.post-message { channelId, fromType: 'human', content }` |
-| `session.sendTurn({ sessionId, content, attachments? })` | None — sessionId IS the leaf session | `session.send-turn { sessionId, content, attachments? }` |
-| `phaseOutput.update({ phaseRunId, outputKey, content })` | None | `session.edit-phase-output { sessionId, phaseRunId, outputKey, content }` |
+| Socket Method                                             | Enrichment                                                             | Decider Command                                                                                         |
+| --------------------------------------------------------- | ---------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------- |
+| `session.create({ title, type, workflow?, projectPath })` | Generate sessionId, resolve projectId from path, resolve default model | `session.create { sessionId, projectId, sessionType, title, description, workflowId?, model? }`         |
+| `session.correct({ sessionId, content })`                 | Resolve guidance channelId for this session                            | `session.correct { sessionId, content }` → engine resolves to `channel.post-message { channelId, ... }` |
+| `session.pause({ sessionId })`                            | None                                                                   | `session.pause { sessionId }`                                                                           |
+| `session.resume({ sessionId })`                           | None                                                                   | `session.resume { sessionId }`                                                                          |
+| `session.cancel({ sessionId })`                           | None                                                                   | `session.cancel { sessionId }`                                                                          |
+| `gate.approve({ sessionId, phaseRunId })`                 | Resolve requestId                                                      | `request.resolve { requestId, resolvedWith: { decision: 'approve' } }`                                  |
+| `gate.reject({ sessionId, phaseRunId, reason })`          | Resolve requestId                                                      | `request.resolve { requestId, resolvedWith: { decision: 'reject', reason } }`                           |
+| `request.resolve({ requestId, resolvedWith })`            | None                                                                   | `request.resolve { requestId, resolvedWith }`                                                           |
+| `session.getTranscript({ sessionId, limit?, offset? })`   | None                                                                   | Direct DB query (not a command) — works for any leaf session                                            |
+| `session.getChildren({ sessionId })`                      | None                                                                   | Direct DB query (not a command) — returns child sessions                                                |
+| `channel.getMessages({ channelId, limit?, offset? })`     | None                                                                   | Direct DB query (not a command)                                                                         |
+| `channel.intervene({ channelId, content })`               | None                                                                   | `channel.post-message { channelId, fromType: 'human', content }`                                        |
+| `session.sendTurn({ sessionId, content, attachments? })`  | None — sessionId IS the leaf session                                   | `session.send-turn { sessionId, content, attachments? }`                                                |
+| `phaseOutput.update({ phaseRunId, outputKey, content })`  | None                                                                   | `session.edit-phase-output { sessionId, phaseRunId, outputKey, content }`                               |
 
 CLI commands map to socket methods:
+
 - `forge create ...` → `session.create`
 - `forge correct <id> 'msg'` → `session.correct`
 - `forge answer <request-id> --input '...'` → `request.resolve`
@@ -914,17 +924,17 @@ No separate "Tasks" and "Chats" sections. They're all sessions, differentiated b
 
 ## What Changes from Previous Design
 
-| Aspect | Previous (task-centric) | New (sessions-first) |
-|--------|------------------------|---------------------|
-| Primary entity | Task (contains sessions) | Session (IS the entity) |
-| Sidebar shows | Tasks and Chats separately | Sessions (all types together) |
-| Agent conversations | Task -> single session | Agent session (direct, like t3-code thread) |
-| Workflows | Task with workflow -> phase runs -> sessions | Workflow session -> phase runs -> child sessions |
-| Deliberations | Chat = scratch task + __scratch__ workflow | Chat session (no indirection) |
-| t3-code UI | Adapted to task model | Kept largely intact for agent sessions |
-| Promotion (chat -> implement) | Create new task, archive scratch | Create new workflow session, link to chat session |
-| Dependencies | task_dependencies | session_dependencies |
-| Event aggregate | "task" | "session" |
+| Aspect                        | Previous (task-centric)                      | New (sessions-first)                              |
+| ----------------------------- | -------------------------------------------- | ------------------------------------------------- |
+| Primary entity                | Task (contains sessions)                     | Session (IS the entity)                           |
+| Sidebar shows                 | Tasks and Chats separately                   | Sessions (all types together)                     |
+| Agent conversations           | Task -> single session                       | Agent session (direct, like t3-code thread)       |
+| Workflows                     | Task with workflow -> phase runs -> sessions | Workflow session -> phase runs -> child sessions  |
+| Deliberations                 | Chat = scratch task + **scratch** workflow   | Chat session (no indirection)                     |
+| t3-code UI                    | Adapted to task model                        | Kept largely intact for agent sessions            |
+| Promotion (chat -> implement) | Create new task, archive scratch             | Create new workflow session, link to chat session |
+| Dependencies                  | task_dependencies                            | session_dependencies                              |
+| Event aggregate               | "task"                                       | "session"                                         |
 
 ## What Stays the Same
 
@@ -945,7 +955,7 @@ These features are DESIGNED in the docs but require NEW implementation — they 
 - **Desktop lifecycle change**: App close → daemon continues (currently: app close → backend killed)
 - **OS notifications**: terminal-notifier (macOS), notify-send (Linux) — no notification code exists today
 - **Protocol handler**: forge:// deep links, Electron setAsDefaultProtocolClient
-- **Product identity**: ~/.forge, com.forgetools.forge, FORGE_* env vars (currently: ~/.t3, com.t3tools.t3code, T3CODE_*)
+- **Product identity**: ~/.forge, com.forgetools.forge, FORGE*\* env vars (currently: ~/.t3, com.t3tools.t3code, T3CODE*\*)
 - **Worktree bootstrap** (server-side): Currently runs client-side in ChatView.tsx
 
 ## Event Types
@@ -1005,12 +1015,12 @@ type ForgeEventType =
   | "session.quality-check-started"
   | "session.quality-check-completed"
   // Corrections
-  | "session.correction-queued"      // human posted correction, waiting for next turn
-  | "session.correction-delivered"   // correction injected into provider context on turn start
+  | "session.correction-queued" // human posted correction, waiting for next turn
+  | "session.correction-delivered" // correction injected into provider context on turn start
   // Checkpoints
   | "session.checkpoint-captured"
   | "session.checkpoint-diff-completed"
-  | "session.checkpoint-reverted"
+  | "session.checkpoint-reverted";
 ```
 
 Bootstrap events drive the sessions projector to update bootstrap_status. session.bootstrap-skipped is emitted when a bootstrap-failed interactive request is resolved with action='skip'. The BootstrapReactor watches request.resolved events for bootstrap-failed requests and dispatches the appropriate bootstrap completion event.
@@ -1092,9 +1102,40 @@ The decider function signature: `function decide(command: ForgeCommands, readMod
 ```typescript
 interface ForgeReadModel {
   snapshotSequence: number;
-  projects: Array<{ projectId: string; title: string; workspaceRoot: string; defaultModel?: ModelSelection }>;
-  sessions: Array<{ sessionId: string; projectId: string; parentSessionId?: string; phaseRunId?: string; type: string; title: string; status: SessionStatus; provider?: string; role?: string; workflowId?: string; currentPhaseId?: string; runtimeMode: string; branch?: string; worktreePath?: string; model?: ModelSelection; archivedAt?: string }>;
-  phaseRuns: Array<{ phaseRunId: string; sessionId: string; phaseId: string; phaseName: string; phaseType: string; iteration: number; status: string; workflowId: string }>;
+  projects: Array<{
+    projectId: string;
+    title: string;
+    workspaceRoot: string;
+    defaultModel?: ModelSelection;
+  }>;
+  sessions: Array<{
+    sessionId: string;
+    projectId: string;
+    parentSessionId?: string;
+    phaseRunId?: string;
+    type: string;
+    title: string;
+    status: SessionStatus;
+    provider?: string;
+    role?: string;
+    workflowId?: string;
+    currentPhaseId?: string;
+    runtimeMode: string;
+    branch?: string;
+    worktreePath?: string;
+    model?: ModelSelection;
+    archivedAt?: string;
+  }>;
+  phaseRuns: Array<{
+    phaseRunId: string;
+    sessionId: string;
+    phaseId: string;
+    phaseName: string;
+    phaseType: string;
+    iteration: number;
+    status: string;
+    workflowId: string;
+  }>;
   channels: Array<{ channelId: string; sessionId: string; type: string; status: string }>;
   pendingRequests: Array<{ requestId: string; sessionId: string; type: string; status: string }>;
   updatedAt: string;
@@ -1118,6 +1159,7 @@ Revert is per-session but ONLY allowed for the current (latest writing) leaf ses
 This matches t3-code's behavior where one thread = one session, so there was never a second writer to conflict with. In forge, the constraint is: revert is available within the currently active phase's child session(s). Once a phase completes and the next phase's child session writes, the previous phase's checkpoints are historical only.
 
 ### What gets trimmed on revert (within the constraint above)
+
 1. Transcript entries after the target turn (from transcript_entries)
 2. Checkpoint refs after the target turn (git refs deleted)
 3. Phase outputs written after the target turn (if phase was completing)
@@ -1125,10 +1167,12 @@ This matches t3-code's behavior where one thread = one session, so there was nev
 5. Provider state rolled back (Codex: thread/rollback; Claude: new session with truncated context)
 
 ### Provider state rollback
+
 - **Codex**: Use `thread/rollback` with the target turn count. This is the primary mechanism — Codex manages its own conversation history server-side.
 - **Claude**: Start a new session with conversation history truncated to the target turn. The SDK's `resume` parameter may help if the server-side session is still alive; otherwise, replay truncated transcript as context.
 
 ### Multi-agent revert
+
 If a deliberation phase is reverted, both child sessions roll back to the target turn count. Channel messages posted after that point are soft-deleted (marked with `deleted_at`, not physically removed — preserves event log integrity).
 
 **Note:** Multi-agent revert (rolling back both child sessions in a deliberation) is deferred to v2. For v1, revert is only available for the latest writing child session in single-agent phases. Chat sessions and multi-agent workflow phases do not support revert — their channel transcripts are append-only.
@@ -1136,7 +1180,9 @@ If a deliberation phase is reverted, both child sessions roll back to the target
 ## Provider Approval Contract
 
 ### Session-level autonomy
+
 `sessions.runtime_mode`: `supervised` | `autonomous` (default: autonomous). For child sessions, inherited from the parent session unless overridden by phase config.
+
 - Supervised: provider enters approval-required mode. All tool calls require human approval.
 - Autonomous: provider runs full-access. No approval prompts.
 
@@ -1162,14 +1208,18 @@ If a deliberation phase is reverted, both child sessions roll back to the target
 ```
 
 ### Provider mapping (internal)
+
 Each ProviderAdapter maps session.runtime_mode to provider-specific policy:
+
 - Claude supervised -> approval-required (canUseTool callback prompts). autonomous -> full-access (allow all).
 - Codex supervised -> `{ approvalPolicy: 'on-request', sandbox: 'workspace-write' }`. autonomous -> `{ approvalPolicy: 'never', sandbox: 'danger-full-access' }`.
 
 ### acceptForSession durability
+
 Ephemeral. Lives in provider's in-memory session state. NOT persisted to SQLite. On session restart (crash recovery, daemon restart), all session-scoped permissions are lost. The leaf session will re-request approval. UI shows: 'Session permissions were reset — you may see repeat approval requests.'
 
 ### v2 extension points
+
 - Per-project approval policy overrides (expose ProviderApprovalPolicy in project config)
 - Per-project sandbox mode overrides (expose ProviderSandboxMode in project config)
 - Per-phase runtime_mode (e.g., review=supervised, implement=autonomous)
@@ -1179,11 +1229,13 @@ Ephemeral. Lives in provider's in-memory session state. NOT persisted to SQLite.
 The `bootstrap-failed` interactive request supports three resolution actions:
 
 resolvedWith payloads:
+
 - Retry: `{ action: 'retry' }` → BootstrapReactor re-runs the bootstrap script → emits session.bootstrap-completed or session.bootstrap-failed
 - Skip: `{ action: 'skip' }` → BootstrapReactor emits session.bootstrap-skipped → session proceeds without bootstrap (quality checks may fail)
 - Fail: `{ action: 'fail' }` → Engine dispatches session.fail → session status becomes 'failed'
 
 CLI mapping:
+
 - `forge bootstrap-retry <session-id>` → find pending bootstrap-failed request for this session → `request.resolve { requestId, resolvedWith: { action: 'retry' } }`
 - `forge bootstrap-skip <session-id>` → same lookup → `request.resolve { requestId, resolvedWith: { action: 'skip' } }`
 - `forge cancel <session-id>` covers the fail case (cancels the entire session)
@@ -1219,9 +1271,9 @@ async function recoverInteractiveRequests(db: Database): Promise<void> {
         // Provider callback is gone (in-memory only). Mark stale, restart turn.
         await db.run(
           "UPDATE interactive_requests SET status = 'stale', stale_reason = 'session restarted after crash' WHERE request_id = ?",
-          req.request_id
+          req.request_id,
         );
-        await engine.dispatch({ type: 'session.restart-turn', sessionId: req.child_session_id! });
+        await engine.dispatch({ type: "session.restart-turn", sessionId: req.child_session_id! });
         break;
 
       case "gate":
@@ -1240,6 +1292,7 @@ async function recoverInteractiveRequests(db: Database): Promise<void> {
 ## Per-Phase Sandbox Mode
 
 Workflow phases can specify a `sandboxMode` that controls what tools the child session's provider can use:
+
 - `read-only`: Agent can read files, search, browse — but cannot write files or run commands. Used for review/deliberation phases.
 - `workspace-write`: Agent can read and write files in the worktree, run commands. Used for implementation phases. (Default)
 - `danger-full-access`: No restrictions. Used sparingly.
@@ -1247,12 +1300,14 @@ Workflow phases can specify a `sandboxMode` that controls what tools the child s
 For multi-agent phases without channels (parallel independent review), `sandboxMode` defaults to `read-only`. This prevents two parallel child sessions from making conflicting file edits in the shared worktree.
 
 The provider adapter maps sandboxMode to provider-native enforcement:
+
 - Claude: `canUseTool` callback denies write tools when `read-only`
 - Codex: `sandbox: 'read-only'` on session config
 
 ### Codex Collaboration Mode Mapping
 
 Codex sessions require a collaboration mode (`plan` | `default`). Derived from workflow phase config:
+
 - Phases can set `codexMode: 'plan' | 'default'` explicitly in config
 - If not specified: default is `'default'`
 - Deliberation/review phases that focus on analysis (not code writing) may benefit from `plan` mode
@@ -1301,6 +1356,7 @@ A branch is Forge-claimed if and only if a session row has that branch AND `work
 ### Branch Availability Check
 
 Before creating a worktree with a user-specified or PR branch:
+
 1. Query sessions table for active claims on that branch -> error with session ID
 2. Query `git worktree list` for existing worktrees on that branch:
    a. Forge-managed path (under `~/.forge/worktrees/`) -> orphan, suggest cleanup
@@ -1340,6 +1396,7 @@ This job also cleans orphaned worktrees (worktrees under ~/.forge/worktrees/ not
 Bootstrap runs SERVER-SIDE as an implicit pre-step before any child sessions spawn. It is not a workflow phase — it's infrastructure that every session requires.
 
 **Bootstrap sequence:**
+
 1. Engine creates git worktree: `git worktree add ~/.forge/worktrees/{session_id} -b forge/{session_id}`
 2. Engine looks up project's bootstrap command (from project config `runOnWorktreeCreate` or `.forge/config.json`)
 3. Engine runs bootstrap command in the worktree (e.g., `npm install`, `bun install`)
@@ -1354,6 +1411,7 @@ The existing t3-code `ProjectScript.runOnWorktreeCreate` mechanism moves from we
 ### Workflow Completion Actions
 
 Workflows can configure post-completion git operations via on_completion in the workflow definition:
+
 - auto_commit: boolean — commit all changes in the worktree
 - auto_push: boolean — push the branch to remote
 - create_pr: boolean — create a PR with AI-generated title/description
@@ -1375,6 +1433,7 @@ If not configured, the session shows uncommitted changes and the user uses the s
 ### Multi-Session Admission
 
 Phases requiring N child sessions reserve N slots atomically:
+
 - If N slots available: reserve all N, start child sessions
 - If fewer than N slots available: phase_run stays `pending`
 - Single-session phases behind a waiting multi-session phase CAN consume individual freed slots. FIFO applies at the phase_run level, but a phase_run that needs N slots yields to the next phase_run that CAN start with available slots. This prevents capacity deadlock.
@@ -1382,11 +1441,13 @@ Phases requiring N child sessions reserve N slots atomically:
 ### Workload Admission (beyond provider sessions)
 
 Provider leaf sessions are NOT the only expensive work. The daemon also runs:
+
 - Worktree bootstrap scripts (`npm install`, `bun install`) — heavy CPU/disk/network
 - Quality check commands (test suites, linters, typecheckers) — heavy CPU
 - Git operations (worktree creation, checkpoint capture) — moderate I/O
 
 **v1 policy:**
+
 - `maxConcurrentBootstraps`: default 2. Bootstraps queue FIFO beyond this limit.
 - `maxConcurrentQualityChecks`: default 2. Quality checks queue FIFO.
 - Git operations: serialized per-session (no global limit needed — they're fast).
@@ -1432,11 +1493,13 @@ Retention: active leaf session transcripts are fully loaded. Completed leaf sess
 ### Transcript Archival Retrieval
 
 After the archival period (default 30 days), transcript entries are moved from SQLite to compressed files:
+
 - Archive path: `~/.forge/archives/{session_id}/transcript.jsonl.gz`
 - Format: gzipped JSON Lines (one transcript_entry JSON object per line)
 - Metadata stays in SQLite: `sessions` table retains the session record with token usage and status
 
 `session.getTranscript()` retrieval logic:
+
 1. Check `sessions.transcript_archived` flag
 2. If transcript_archived = 0: query SQLite `transcript_entries` table (normal path)
 3. If transcript_archived = 1: read from archive file at `~/.forge/archives/{session_id}/transcript.jsonl.gz`
@@ -1445,6 +1508,7 @@ After the archival period (default 30 days), transcript entries are moved from S
 6. Pagination works on both sources (offset/limit applied after decompression for archived transcripts)
 
 Archive files are created by a periodic cleanup job (configurable interval, default daily). The job:
+
 1. Finds leaf sessions where `completed_at` is older than the archival threshold
 2. Exports transcript_entries to gzipped JSONL
 3. Deletes the SQLite rows
@@ -1484,7 +1548,9 @@ function createChannelMcpServer(engine: OrchestrationEngine, session: Session, c
             content: message,
           });
 
-          const result = { content: [{ type: "text" as const, text: `Posted message ${messageId}` }] };
+          const result = {
+            content: [{ type: "text" as const, text: `Posted message ${messageId}` }],
+          };
           await engine.cacheToolCallResult(session.provider, session.id, key, result);
           return result;
         },
@@ -1503,18 +1569,24 @@ function createChannelMcpServer(engine: OrchestrationEngine, session: Session, c
           // or on next post_to_channel (implicit ack).
 
           return {
-            content: [{
-              type: "text" as const,
-              text: messages.length === 0
-                ? "No new messages."
-                : messages.map(m => `[${m.fromRole || m.fromType}]: ${m.content}`).join("\n\n"),
-            }],
+            content: [
+              {
+                type: "text" as const,
+                text:
+                  messages.length === 0
+                    ? "No new messages."
+                    : messages
+                        .map((m) => `[${m.fromRole || m.fromType}]: ${m.content}`)
+                        .join("\n\n"),
+              },
+            ],
           };
         },
       },
       {
         name: "propose_conclusion",
-        description: "Propose that the deliberation has reached a conclusion. Both participants must propose for it to end.",
+        description:
+          "Propose that the deliberation has reached a conclusion. Both participants must propose for it to end.",
         schema: { summary: z.string().describe("Your summary of the conclusion reached") },
         async handler({ summary }) {
           // Content-hash idempotency
@@ -1530,7 +1602,14 @@ function createChannelMcpServer(engine: OrchestrationEngine, session: Session, c
             summary,
           });
 
-          const result = { content: [{ type: "text" as const, text: "Conclusion proposed. Waiting for other participant(s)." }] };
+          const result = {
+            content: [
+              {
+                type: "text" as const,
+                text: "Conclusion proposed. Waiting for other participant(s).",
+              },
+            ],
+          };
           await engine.cacheToolCallResult(session.provider, session.id, key, result);
           return result;
         },
@@ -1548,13 +1627,13 @@ Codex cannot host MCP tools. For v1, channel participation works via turn inject
 // Between Codex turns for a child session, inject new channel messages as a user message
 function buildChannelInjectionTurn(messages: ChannelMessage[]): string {
   if (messages.length === 0) return "";
-  const formatted = messages
-    .map(m => `[${m.fromRole || m.fromType}]: ${m.content}`)
-    .join("\n\n");
-  return `[CHANNEL UPDATE - New messages from other participants]\n\n${formatted}\n\n` +
+  const formatted = messages.map((m) => `[${m.fromRole || m.fromType}]: ${m.content}`).join("\n\n");
+  return (
+    `[CHANNEL UPDATE - New messages from other participants]\n\n${formatted}\n\n` +
     `Respond to these messages. When you want to post a response, write your response ` +
     `clearly. When you think the discussion has reached a conclusion, say "PROPOSE CONCLUSION" ` +
-    `followed by your summary.`;
+    `followed by your summary.`
+  );
 }
 
 // Engine parses Codex response for channel posts and conclusion signals
@@ -1639,45 +1718,50 @@ Returns compact metadata — NO transcripts, NO full channel histories:
 
 ```typescript
 interface ForgeSnapshot {
-  snapshotSequence: number;       // for delta subscription
-  projects: ProjectSummary[];     // id, title, workspaceRoot
-  sessions: SessionSummary[];     // id, projectId, parentSessionId, phaseRunId, type, title, status, provider, role, bootstrapStatus, workflowId, currentPhaseId, branch, createdAt, updatedAt, archivedAt — client builds tree from parentSessionId
-  activePhaseRuns: PhaseRunSummary[];  // id, sessionId, phaseName, phaseType, status, iteration — only current/active
-  pendingRequestCounts: Record<SessionId, number>;  // badge counts for needs-attention
+  snapshotSequence: number; // for delta subscription
+  projects: ProjectSummary[]; // id, title, workspaceRoot
+  sessions: SessionSummary[]; // id, projectId, parentSessionId, phaseRunId, type, title, status, provider, role, bootstrapStatus, workflowId, currentPhaseId, branch, createdAt, updatedAt, archivedAt — client builds tree from parentSessionId
+  activePhaseRuns: PhaseRunSummary[]; // id, sessionId, phaseName, phaseType, status, iteration — only current/active
+  pendingRequestCounts: Record<SessionId, number>; // badge counts for needs-attention
 }
 ```
 
 ### Lazy-Loaded by RPC (on user navigation)
 
-| Data | RPC | When loaded |
-|------|-----|-------------|
-| Transcript entries | `session.getTranscript({ sessionId, limit?, offset? })` | User opens a leaf session's chat view |
-| Child sessions | `session.getChildren({ sessionId })` | User expands a collapsed container session in the tree |
-| Channel messages | `channel.getMessages({ channelId, limit?, offset? })` | User opens deliberation view |
-| Historical phase runs | `session.getPhaseRuns({ sessionId })` | User expands session history (returns phase run summaries including associated child session IDs and channel IDs per phase, enabling navigation to historical phases) |
-| Phase outputs | `session.getPhaseOutput({ phaseRunId, outputKey })` | Workflow resolution or user request |
-| Quality check details | `session.getQualityChecks({ phaseRunId })` | User expands gate results |
-| Session channels | `session.getChannels({ sessionId })` | User opens a session detail |
-| Deliberation state | `phaseRun.getDeliberationState({ phaseRunId })` | Rendering deliberation view |
-| Chat synthesis | `session.getSynthesis({ sessionId })` | After chat conclusion |
+| Data                  | RPC                                                     | When loaded                                                                                                                                                           |
+| --------------------- | ------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Transcript entries    | `session.getTranscript({ sessionId, limit?, offset? })` | User opens a leaf session's chat view                                                                                                                                 |
+| Child sessions        | `session.getChildren({ sessionId })`                    | User expands a collapsed container session in the tree                                                                                                                |
+| Channel messages      | `channel.getMessages({ channelId, limit?, offset? })`   | User opens deliberation view                                                                                                                                          |
+| Historical phase runs | `session.getPhaseRuns({ sessionId })`                   | User expands session history (returns phase run summaries including associated child session IDs and channel IDs per phase, enabling navigation to historical phases) |
+| Phase outputs         | `session.getPhaseOutput({ phaseRunId, outputKey })`     | Workflow resolution or user request                                                                                                                                   |
+| Quality check details | `session.getQualityChecks({ phaseRunId })`              | User expands gate results                                                                                                                                             |
+| Session channels      | `session.getChannels({ sessionId })`                    | User opens a session detail                                                                                                                                           |
+| Deliberation state    | `phaseRun.getDeliberationState({ phaseRunId })`         | Rendering deliberation view                                                                                                                                           |
+| Chat synthesis        | `session.getSynthesis({ sessionId })`                   | After chat conclusion                                                                                                                                                 |
 
 ### Push Event Channels (deltas after snapshot)
 
-| Channel | Payload | Purpose |
-|---------|---------|---------|
-| `session.event` | Session lifecycle changes (status, phase transition) — applies to all sessions | Update sidebar badges, update child session views |
-| `channel.message` | New channel messages | Update deliberation view |
-| `request.event` | Interactive request changes | Update attention badges, show approval UI |
-| `notification.event` | Attention-needed signals | Trigger OS notifications |
-| `session.synthesis` | Synthesis generated for chat session | Update chat session view |
-| `session.bootstrap` | Bootstrap stdout/stderr, progress, completion | Stream bootstrap logs to UI |
-| `session.correction` | Correction queued/delivered status | Update correction UI state |
+| Channel              | Payload                                                                        | Purpose                                           |
+| -------------------- | ------------------------------------------------------------------------------ | ------------------------------------------------- |
+| `session.event`      | Session lifecycle changes (status, phase transition) — applies to all sessions | Update sidebar badges, update child session views |
+| `channel.message`    | New channel messages                                                           | Update deliberation view                          |
+| `request.event`      | Interactive request changes                                                    | Update attention badges, show approval UI         |
+| `notification.event` | Attention-needed signals                                                       | Trigger OS notifications                          |
+| `session.synthesis`  | Synthesis generated for chat session                                           | Update chat session view                          |
+| `session.bootstrap`  | Bootstrap stdout/stderr, progress, completion                                  | Stream bootstrap logs to UI                       |
+| `session.correction` | Correction queued/delivered status                                             | Update correction UI state                        |
 
 ```typescript
 type SessionBootstrapEvent =
-  | { type: 'session.bootstrap-started'; sessionId: SessionId }
-  | { type: 'session.bootstrap-output'; sessionId: SessionId; stream: 'stdout' | 'stderr'; data: string }
-  | { type: 'session.bootstrap-completed'; sessionId: SessionId; success: boolean; error?: string }
+  | { type: "session.bootstrap-started"; sessionId: SessionId }
+  | {
+      type: "session.bootstrap-output";
+      sessionId: SessionId;
+      stream: "stdout" | "stderr";
+      data: string;
+    }
+  | { type: "session.bootstrap-completed"; sessionId: SessionId; success: boolean; error?: string };
 ```
 
 Bootstrap events are ephemeral push events (not event-sourced). On failure, the bootstrap error summary is persisted in the `interactive_requests.payload_json` for the `bootstrap-failed` request — this survives reconnect. Live stdout streaming is best-effort and lost on disconnect.
@@ -1785,6 +1869,7 @@ For most workflows this is the right call — users think in terms of "I started
 ## Migration from t3-code
 
 The thread-to-session mapping is almost 1:1:
+
 - Thread.id -> Session.id (type: "agent")
 - Thread.title -> Session.title
 - Thread.modelSelection -> Session.model_json

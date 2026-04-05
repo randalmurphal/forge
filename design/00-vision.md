@@ -34,6 +34,7 @@ orc's Go daemon may survive for headless/background orchestration, or its concep
 ## Who It's For
 
 A developer who uses AI coding agents daily and wants to:
+
 - Kick off work and get notified when it needs attention
 - Correct agents mid-session without losing context
 - Run structured workflows (plan review, implementation with quality gates, multi-agent code review)
@@ -43,21 +44,27 @@ A developer who uses AI coding agents daily and wants to:
 ## Design Principles
 
 ### Agent-first, terminal-second
+
 The primary interface is agent session management. Terminal tabs exist for manual work but aren't the core product. The UI is organized around sessions and workflows, not terminal sessions.
 
 ### Fire-and-forget by default
+
 Start a session, walk away. The system notifies you when it needs attention (gate approval, correction needed, session complete). The default state is autonomous execution, not supervised execution.
 
 ### Correction over restart
+
 When an agent drifts, you post a correction. The agent incorporates it on its next iteration. You don't kill the session and lose context. Corrections are first-class, persisted, and visible in the session history.
 
 ### Workflows are composable patterns, not rigid pipelines
+
 A workflow is a sequence of phases with gates between them. Phases can be: single-agent implementation, two-agent deliberation, automated quality checks, human review. They compose freely.
 
 ### One language, one stack
+
 TypeScript throughout. Server, client, contracts, daemon. Shared types, shared tooling, no cross-language friction. AI agents can work on any part of the codebase without context-switching.
 
 ### Simple over clever
+
 Plain async/await over Effect.js. Constructor injection over framework DI. Discriminated unions over typed error channels. The patterns should be obvious to any TypeScript developer and to AI agents writing the code.
 
 ## What Success Looks Like

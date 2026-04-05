@@ -88,8 +88,8 @@ export type PhaseRunStatus = typeof PhaseRunStatus.Type;
 
 ```typescript
 export const QualityCheckReference = Schema.Struct({
-  check: TrimmedNonEmptyString,    // key into project quality check config (e.g., "test", "lint")
-  required: Schema.Boolean,         // if false, failure is advisory only
+  check: TrimmedNonEmptyString, // key into project quality check config (e.g., "test", "lint")
+  required: Schema.Boolean, // if false, failure is advisory only
 });
 export type QualityCheckReference = typeof QualityCheckReference.Type;
 
@@ -175,9 +175,7 @@ export const AgentDefinition = Schema.Struct({
   // Prompt template ID (resolved via prompt template system) or inline text.
   // If value matches a known template name, it's resolved as a template.
   // Otherwise treated as inline system prompt text.
-  output: AgentOutputConfig.pipe(
-    Schema.withDecodingDefault(() => DEFAULT_AGENT_OUTPUT_CONFIG),
-  ),
+  output: AgentOutputConfig.pipe(Schema.withDecodingDefault(() => DEFAULT_AGENT_OUTPUT_CONFIG)),
   model: Schema.optional(ModelSelection),
   // Override per-agent. If omitted, inherits from session model.
 });
@@ -188,14 +186,14 @@ export type AgentDefinition = typeof AgentDefinition.Type;
 
 ```typescript
 export const DeliberationParticipant = Schema.Struct({
-  role: TrimmedNonEmptyString,       // "advocate", "interrogator", "scrutinizer", etc.
+  role: TrimmedNonEmptyString, // "advocate", "interrogator", "scrutinizer", etc.
   agent: AgentDefinition,
 });
 export type DeliberationParticipant = typeof DeliberationParticipant.Type;
 
 export const DeliberationConfig = Schema.Struct({
   participants: Schema.Array(DeliberationParticipant).check(
-    Schema.isMinLength(2),           // deliberation requires at least 2 participants
+    Schema.isMinLength(2), // deliberation requires at least 2 participants
   ),
   maxTurns: PositiveInt.pipe(Schema.withDecodingDefault(() => 20 as any)),
 });
@@ -237,7 +235,7 @@ promoted-from.channel            follows session_link to source chat session
 ```typescript
 export const WorkflowPhase = Schema.Struct({
   id: WorkflowPhaseId,
-  name: TrimmedNonEmptyString,        // unique within workflow, used in inputFrom references
+  name: TrimmedNonEmptyString, // unique within workflow, used in inputFrom references
   type: PhaseType,
   agent: Schema.optional(AgentDefinition),
   // Required for single-agent phases. Omitted for multi-agent (use deliberation),
@@ -283,6 +281,7 @@ export type WorkflowDefinition = typeof WorkflowDefinition.Type;
 ```
 
 **Workflow invariants:**
+
 - Phase names MUST be unique within a workflow. Validated at creation/load time, not by the schema.
 - Workflows are IMMUTABLE once a session starts. `workflow_snapshot_json` on the session captures the definition at creation time.
 - `builtIn = true` workflows are materialized from YAML on startup. User workflows have `builtIn = false`.
@@ -356,7 +355,7 @@ export type ChannelMessage = typeof ChannelMessage.Type;
 ```typescript
 export const Channel = Schema.Struct({
   id: ChannelId,
-  threadId: ThreadId,            // the parent/container session that owns this channel
+  threadId: ThreadId, // the parent/container session that owns this channel
   phaseRunId: Schema.optional(TrimmedNonEmptyString),
   // Set for deliberation channels scoped to a phase run. NULL for guidance channels.
   type: ChannelType,
@@ -375,16 +374,12 @@ Stored on `phase_runs.deliberation_state_json` (for workflow multi-agent phases)
 export const DeliberationStrategy = Schema.Literals(["ping-pong"]);
 export type DeliberationStrategy = typeof DeliberationStrategy.Type;
 
-export const InjectionStatus = Schema.Literals([
-  "injected",
-  "response-received",
-  "persisted",
-]);
+export const InjectionStatus = Schema.Literals(["injected", "response-received", "persisted"]);
 export type InjectionStatus = typeof InjectionStatus.Type;
 
 export const InjectionState = Schema.Struct({
-  sessionId: ThreadId,                // the child session being injected into
-  injectedAtSequence: NonNegativeInt,  // channel sequence at time of injection
+  sessionId: ThreadId, // the child session being injected into
+  injectedAtSequence: NonNegativeInt, // channel sequence at time of injection
   turnCorrelationId: Schema.optional(TrimmedNonEmptyString),
   status: InjectionStatus,
 });
@@ -469,7 +464,7 @@ export const ApprovalRequestPayload = Schema.Struct({
   type: Schema.Literal("approval"),
   requestType: TrimmedNonEmptyString,
   // e.g., "file_change_approval", "file_read_approval", "command_execution_approval"
-  detail: Schema.String,              // human-readable tool summary
+  detail: Schema.String, // human-readable tool summary
   toolName: TrimmedNonEmptyString,
   toolInput: Schema.Record(Schema.String, Schema.Unknown),
   suggestions: Schema.optional(Schema.Array(Schema.String)),
@@ -514,7 +509,7 @@ export type UserInputRequestResolution = typeof UserInputRequestResolution.Type;
 ```typescript
 export const GateRequestPayload = Schema.Struct({
   type: Schema.Literal("gate"),
-  gateType: TrimmedNonEmptyString,    // "human-approval" | "quality-checks" (for display)
+  gateType: TrimmedNonEmptyString, // "human-approval" | "quality-checks" (for display)
   phaseRunId: PhaseRunId,
   phaseOutput: Schema.optional(Schema.String),
   qualityCheckResults: Schema.optional(Schema.Array(QualityCheckResult)),
@@ -590,7 +585,7 @@ export type InteractiveRequestResolution = typeof InteractiveRequestResolution.T
 ```typescript
 export const InteractiveRequest = Schema.Struct({
   id: InteractiveRequestId,
-  threadId: ThreadId,                  // top-level or leaf session
+  threadId: ThreadId, // top-level or leaf session
   childThreadId: Schema.optional(ThreadId),
   // The leaf session, if applicable. NULL for session-level requests (gate, bootstrap).
   phaseRunId: Schema.optional(PhaseRunId),
@@ -733,11 +728,15 @@ const SessionCompletePhaseCommand = Schema.Struct({
   commandId: CommandId,
   threadId: ThreadId,
   phaseRunId: PhaseRunId,
-  outputs: Schema.optional(Schema.Array(Schema.Struct({
-    key: TrimmedNonEmptyString,      // "output", "channel", "synthesis", "output:{role}", "corrections"
-    content: Schema.String,
-    sourceType: TrimmedNonEmptyString, // "agent", "channel", "synthesis", "quality-check", "human"
-  }))),
+  outputs: Schema.optional(
+    Schema.Array(
+      Schema.Struct({
+        key: TrimmedNonEmptyString, // "output", "channel", "synthesis", "output:{role}", "corrections"
+        content: Schema.String,
+        sourceType: TrimmedNonEmptyString, // "agent", "channel", "synthesis", "quality-check", "human"
+      }),
+    ),
+  ),
   gateResult: Schema.optional(GateResult),
   createdAt: IsoDateTime,
 });
@@ -833,7 +832,7 @@ const SessionBootstrapSkippedCommand = Schema.Struct({
 const SessionSendTurnCommand = Schema.Struct({
   type: Schema.Literal("thread.send-turn"),
   commandId: CommandId,
-  threadId: ThreadId,                 // the leaf session
+  threadId: ThreadId, // the leaf session
   content: Schema.String,
   attachments: Schema.optional(Schema.Array(Schema.Unknown)),
   // v2: typed attachments. v1: accepted but ignored.
@@ -843,14 +842,14 @@ const SessionSendTurnCommand = Schema.Struct({
 const SessionRestartTurnCommand = Schema.Struct({
   type: Schema.Literal("thread.restart-turn"),
   commandId: CommandId,
-  threadId: ThreadId,                 // the leaf session
+  threadId: ThreadId, // the leaf session
   createdAt: IsoDateTime,
 });
 
 const SessionSendMessageCommand = Schema.Struct({
   type: Schema.Literal("thread.send-message"),
   commandId: CommandId,
-  threadId: ThreadId,                 // the leaf session
+  threadId: ThreadId, // the leaf session
   messageId: MessageId,
   role: TrimmedNonEmptyString,
   content: Schema.String,
@@ -938,7 +937,7 @@ const ChannelCreateCommand = Schema.Struct({
   type: Schema.Literal("channel.create"),
   commandId: CommandId,
   channelId: ChannelId,
-  threadId: ThreadId,                 // the parent/container session
+  threadId: ThreadId, // the parent/container session
   channelType: ChannelType,
   phaseRunId: Schema.optional(PhaseRunId),
   createdAt: IsoDateTime,
@@ -960,7 +959,7 @@ const ChannelReadMessagesCommand = Schema.Struct({
   type: Schema.Literal("channel.read-messages"),
   commandId: CommandId,
   channelId: ChannelId,
-  threadId: ThreadId,                 // the participating child session
+  threadId: ThreadId, // the participating child session
   upToSequence: NonNegativeInt,
   createdAt: IsoDateTime,
 });
@@ -969,7 +968,7 @@ const ChannelConcludeCommand = Schema.Struct({
   type: Schema.Literal("channel.conclude"),
   commandId: CommandId,
   channelId: ChannelId,
-  threadId: ThreadId,                 // the participating child session proposing conclusion
+  threadId: ThreadId, // the participating child session proposing conclusion
   summary: Schema.String,
   createdAt: IsoDateTime,
 });
@@ -1469,12 +1468,14 @@ export const SessionCheckpointDiffCompletedPayload = Schema.Struct({
   fromTurnCount: NonNegativeInt,
   toTurnCount: NonNegativeInt,
   diff: Schema.String,
-  files: Schema.Array(Schema.Struct({
-    path: TrimmedNonEmptyString,
-    kind: TrimmedNonEmptyString,
-    additions: NonNegativeInt,
-    deletions: NonNegativeInt,
-  })),
+  files: Schema.Array(
+    Schema.Struct({
+      path: TrimmedNonEmptyString,
+      kind: TrimmedNonEmptyString,
+      additions: NonNegativeInt,
+      deletions: NonNegativeInt,
+    }),
+  ),
   completedAt: IsoDateTime,
 });
 
@@ -1513,68 +1514,268 @@ const ForgeEventBaseFields = {
 
 export const ForgeEvent = Schema.Union([
   // Project
-  Schema.Struct({ ...ForgeEventBaseFields, type: Schema.Literal("project.created"), payload: ProjectCreatedPayload }),
-  Schema.Struct({ ...ForgeEventBaseFields, type: Schema.Literal("project.meta-updated"), payload: ProjectMetaUpdatedPayload }),
-  Schema.Struct({ ...ForgeEventBaseFields, type: Schema.Literal("project.deleted"), payload: ProjectDeletedPayload }),
+  Schema.Struct({
+    ...ForgeEventBaseFields,
+    type: Schema.Literal("project.created"),
+    payload: ProjectCreatedPayload,
+  }),
+  Schema.Struct({
+    ...ForgeEventBaseFields,
+    type: Schema.Literal("project.meta-updated"),
+    payload: ProjectMetaUpdatedPayload,
+  }),
+  Schema.Struct({
+    ...ForgeEventBaseFields,
+    type: Schema.Literal("project.deleted"),
+    payload: ProjectDeletedPayload,
+  }),
   // Thread lifecycle
-  Schema.Struct({ ...ForgeEventBaseFields, type: Schema.Literal("thread.created"), payload: SessionCreatedPayload }),
-  Schema.Struct({ ...ForgeEventBaseFields, type: Schema.Literal("thread.meta-updated"), payload: SessionMetaUpdatedPayload }),
-  Schema.Struct({ ...ForgeEventBaseFields, type: Schema.Literal("thread.status-changed"), payload: SessionStatusChangedPayload }),
-  Schema.Struct({ ...ForgeEventBaseFields, type: Schema.Literal("thread.completed"), payload: SessionCompletedPayload }),
-  Schema.Struct({ ...ForgeEventBaseFields, type: Schema.Literal("thread.failed"), payload: SessionFailedPayload }),
-  Schema.Struct({ ...ForgeEventBaseFields, type: Schema.Literal("thread.cancelled"), payload: SessionCancelledPayload }),
-  Schema.Struct({ ...ForgeEventBaseFields, type: Schema.Literal("thread.archived"), payload: SessionArchivedPayload }),
-  Schema.Struct({ ...ForgeEventBaseFields, type: Schema.Literal("thread.unarchived"), payload: SessionUnarchivedPayload }),
-  Schema.Struct({ ...ForgeEventBaseFields, type: Schema.Literal("thread.restarted"), payload: SessionRestartedPayload }),
+  Schema.Struct({
+    ...ForgeEventBaseFields,
+    type: Schema.Literal("thread.created"),
+    payload: SessionCreatedPayload,
+  }),
+  Schema.Struct({
+    ...ForgeEventBaseFields,
+    type: Schema.Literal("thread.meta-updated"),
+    payload: SessionMetaUpdatedPayload,
+  }),
+  Schema.Struct({
+    ...ForgeEventBaseFields,
+    type: Schema.Literal("thread.status-changed"),
+    payload: SessionStatusChangedPayload,
+  }),
+  Schema.Struct({
+    ...ForgeEventBaseFields,
+    type: Schema.Literal("thread.completed"),
+    payload: SessionCompletedPayload,
+  }),
+  Schema.Struct({
+    ...ForgeEventBaseFields,
+    type: Schema.Literal("thread.failed"),
+    payload: SessionFailedPayload,
+  }),
+  Schema.Struct({
+    ...ForgeEventBaseFields,
+    type: Schema.Literal("thread.cancelled"),
+    payload: SessionCancelledPayload,
+  }),
+  Schema.Struct({
+    ...ForgeEventBaseFields,
+    type: Schema.Literal("thread.archived"),
+    payload: SessionArchivedPayload,
+  }),
+  Schema.Struct({
+    ...ForgeEventBaseFields,
+    type: Schema.Literal("thread.unarchived"),
+    payload: SessionUnarchivedPayload,
+  }),
+  Schema.Struct({
+    ...ForgeEventBaseFields,
+    type: Schema.Literal("thread.restarted"),
+    payload: SessionRestartedPayload,
+  }),
   // Bootstrap
-  Schema.Struct({ ...ForgeEventBaseFields, type: Schema.Literal("thread.bootstrap-queued"), payload: SessionBootstrapQueuedPayload }),
-  Schema.Struct({ ...ForgeEventBaseFields, type: Schema.Literal("thread.bootstrap-started"), payload: SessionBootstrapStartedPayload }),
-  Schema.Struct({ ...ForgeEventBaseFields, type: Schema.Literal("thread.bootstrap-completed"), payload: SessionBootstrapCompletedPayload }),
-  Schema.Struct({ ...ForgeEventBaseFields, type: Schema.Literal("thread.bootstrap-failed"), payload: SessionBootstrapFailedPayload }),
-  Schema.Struct({ ...ForgeEventBaseFields, type: Schema.Literal("thread.bootstrap-skipped"), payload: SessionBootstrapSkippedPayload }),
+  Schema.Struct({
+    ...ForgeEventBaseFields,
+    type: Schema.Literal("thread.bootstrap-queued"),
+    payload: SessionBootstrapQueuedPayload,
+  }),
+  Schema.Struct({
+    ...ForgeEventBaseFields,
+    type: Schema.Literal("thread.bootstrap-started"),
+    payload: SessionBootstrapStartedPayload,
+  }),
+  Schema.Struct({
+    ...ForgeEventBaseFields,
+    type: Schema.Literal("thread.bootstrap-completed"),
+    payload: SessionBootstrapCompletedPayload,
+  }),
+  Schema.Struct({
+    ...ForgeEventBaseFields,
+    type: Schema.Literal("thread.bootstrap-failed"),
+    payload: SessionBootstrapFailedPayload,
+  }),
+  Schema.Struct({
+    ...ForgeEventBaseFields,
+    type: Schema.Literal("thread.bootstrap-skipped"),
+    payload: SessionBootstrapSkippedPayload,
+  }),
   // Phase
-  Schema.Struct({ ...ForgeEventBaseFields, type: Schema.Literal("thread.phase-started"), payload: SessionPhaseStartedPayload }),
-  Schema.Struct({ ...ForgeEventBaseFields, type: Schema.Literal("thread.phase-completed"), payload: SessionPhaseCompletedPayload }),
-  Schema.Struct({ ...ForgeEventBaseFields, type: Schema.Literal("thread.phase-failed"), payload: SessionPhaseFailedPayload }),
-  Schema.Struct({ ...ForgeEventBaseFields, type: Schema.Literal("thread.phase-skipped"), payload: SessionPhaseSkippedPayload }),
-  Schema.Struct({ ...ForgeEventBaseFields, type: Schema.Literal("thread.phase-output-edited"), payload: SessionPhaseOutputEditedPayload }),
+  Schema.Struct({
+    ...ForgeEventBaseFields,
+    type: Schema.Literal("thread.phase-started"),
+    payload: SessionPhaseStartedPayload,
+  }),
+  Schema.Struct({
+    ...ForgeEventBaseFields,
+    type: Schema.Literal("thread.phase-completed"),
+    payload: SessionPhaseCompletedPayload,
+  }),
+  Schema.Struct({
+    ...ForgeEventBaseFields,
+    type: Schema.Literal("thread.phase-failed"),
+    payload: SessionPhaseFailedPayload,
+  }),
+  Schema.Struct({
+    ...ForgeEventBaseFields,
+    type: Schema.Literal("thread.phase-skipped"),
+    payload: SessionPhaseSkippedPayload,
+  }),
+  Schema.Struct({
+    ...ForgeEventBaseFields,
+    type: Schema.Literal("thread.phase-output-edited"),
+    payload: SessionPhaseOutputEditedPayload,
+  }),
   // Quality checks
-  Schema.Struct({ ...ForgeEventBaseFields, type: Schema.Literal("thread.quality-check-started"), payload: SessionQualityCheckStartedPayload }),
-  Schema.Struct({ ...ForgeEventBaseFields, type: Schema.Literal("thread.quality-check-completed"), payload: SessionQualityCheckCompletedPayload }),
+  Schema.Struct({
+    ...ForgeEventBaseFields,
+    type: Schema.Literal("thread.quality-check-started"),
+    payload: SessionQualityCheckStartedPayload,
+  }),
+  Schema.Struct({
+    ...ForgeEventBaseFields,
+    type: Schema.Literal("thread.quality-check-completed"),
+    payload: SessionQualityCheckCompletedPayload,
+  }),
   // Corrections
-  Schema.Struct({ ...ForgeEventBaseFields, type: Schema.Literal("thread.correction-queued"), payload: SessionCorrectionQueuedPayload }),
-  Schema.Struct({ ...ForgeEventBaseFields, type: Schema.Literal("thread.correction-delivered"), payload: SessionCorrectionDeliveredPayload }),
+  Schema.Struct({
+    ...ForgeEventBaseFields,
+    type: Schema.Literal("thread.correction-queued"),
+    payload: SessionCorrectionQueuedPayload,
+  }),
+  Schema.Struct({
+    ...ForgeEventBaseFields,
+    type: Schema.Literal("thread.correction-delivered"),
+    payload: SessionCorrectionDeliveredPayload,
+  }),
   // Turns
-  Schema.Struct({ ...ForgeEventBaseFields, type: Schema.Literal("thread.turn-requested"), payload: SessionTurnRequestedPayload }),
-  Schema.Struct({ ...ForgeEventBaseFields, type: Schema.Literal("thread.turn-started"), payload: SessionTurnStartedPayload }),
-  Schema.Struct({ ...ForgeEventBaseFields, type: Schema.Literal("thread.turn-completed"), payload: SessionTurnCompletedPayload }),
-  Schema.Struct({ ...ForgeEventBaseFields, type: Schema.Literal("thread.turn-restarted"), payload: SessionTurnRestartedPayload }),
-  Schema.Struct({ ...ForgeEventBaseFields, type: Schema.Literal("thread.message-sent"), payload: SessionMessageSentPayload }),
+  Schema.Struct({
+    ...ForgeEventBaseFields,
+    type: Schema.Literal("thread.turn-requested"),
+    payload: SessionTurnRequestedPayload,
+  }),
+  Schema.Struct({
+    ...ForgeEventBaseFields,
+    type: Schema.Literal("thread.turn-started"),
+    payload: SessionTurnStartedPayload,
+  }),
+  Schema.Struct({
+    ...ForgeEventBaseFields,
+    type: Schema.Literal("thread.turn-completed"),
+    payload: SessionTurnCompletedPayload,
+  }),
+  Schema.Struct({
+    ...ForgeEventBaseFields,
+    type: Schema.Literal("thread.turn-restarted"),
+    payload: SessionTurnRestartedPayload,
+  }),
+  Schema.Struct({
+    ...ForgeEventBaseFields,
+    type: Schema.Literal("thread.message-sent"),
+    payload: SessionMessageSentPayload,
+  }),
   // Links
-  Schema.Struct({ ...ForgeEventBaseFields, type: Schema.Literal("thread.link-added"), payload: SessionLinkAddedPayload }),
-  Schema.Struct({ ...ForgeEventBaseFields, type: Schema.Literal("thread.link-removed"), payload: SessionLinkRemovedPayload }),
-  Schema.Struct({ ...ForgeEventBaseFields, type: Schema.Literal("thread.promoted"), payload: SessionPromotedPayload }),
+  Schema.Struct({
+    ...ForgeEventBaseFields,
+    type: Schema.Literal("thread.link-added"),
+    payload: SessionLinkAddedPayload,
+  }),
+  Schema.Struct({
+    ...ForgeEventBaseFields,
+    type: Schema.Literal("thread.link-removed"),
+    payload: SessionLinkRemovedPayload,
+  }),
+  Schema.Struct({
+    ...ForgeEventBaseFields,
+    type: Schema.Literal("thread.promoted"),
+    payload: SessionPromotedPayload,
+  }),
   // Dependencies
-  Schema.Struct({ ...ForgeEventBaseFields, type: Schema.Literal("thread.dependency-added"), payload: SessionDependencyAddedPayload }),
-  Schema.Struct({ ...ForgeEventBaseFields, type: Schema.Literal("thread.dependency-removed"), payload: SessionDependencyRemovedPayload }),
-  Schema.Struct({ ...ForgeEventBaseFields, type: Schema.Literal("thread.dependencies-satisfied"), payload: SessionDependenciesSatisfiedPayload }),
+  Schema.Struct({
+    ...ForgeEventBaseFields,
+    type: Schema.Literal("thread.dependency-added"),
+    payload: SessionDependencyAddedPayload,
+  }),
+  Schema.Struct({
+    ...ForgeEventBaseFields,
+    type: Schema.Literal("thread.dependency-removed"),
+    payload: SessionDependencyRemovedPayload,
+  }),
+  Schema.Struct({
+    ...ForgeEventBaseFields,
+    type: Schema.Literal("thread.dependencies-satisfied"),
+    payload: SessionDependenciesSatisfiedPayload,
+  }),
   // Synthesis
-  Schema.Struct({ ...ForgeEventBaseFields, type: Schema.Literal("thread.synthesis-completed"), payload: SessionSynthesisCompletedPayload }),
+  Schema.Struct({
+    ...ForgeEventBaseFields,
+    type: Schema.Literal("thread.synthesis-completed"),
+    payload: SessionSynthesisCompletedPayload,
+  }),
   // Checkpoints
-  Schema.Struct({ ...ForgeEventBaseFields, type: Schema.Literal("thread.checkpoint-captured"), payload: SessionCheckpointCapturedPayload }),
-  Schema.Struct({ ...ForgeEventBaseFields, type: Schema.Literal("thread.checkpoint-diff-completed"), payload: SessionCheckpointDiffCompletedPayload }),
-  Schema.Struct({ ...ForgeEventBaseFields, type: Schema.Literal("thread.checkpoint-reverted"), payload: SessionCheckpointRevertedPayload }),
+  Schema.Struct({
+    ...ForgeEventBaseFields,
+    type: Schema.Literal("thread.checkpoint-captured"),
+    payload: SessionCheckpointCapturedPayload,
+  }),
+  Schema.Struct({
+    ...ForgeEventBaseFields,
+    type: Schema.Literal("thread.checkpoint-diff-completed"),
+    payload: SessionCheckpointDiffCompletedPayload,
+  }),
+  Schema.Struct({
+    ...ForgeEventBaseFields,
+    type: Schema.Literal("thread.checkpoint-reverted"),
+    payload: SessionCheckpointRevertedPayload,
+  }),
   // Channels
-  Schema.Struct({ ...ForgeEventBaseFields, type: Schema.Literal("channel.created"), payload: ChannelCreatedPayload }),
-  Schema.Struct({ ...ForgeEventBaseFields, type: Schema.Literal("channel.message-posted"), payload: ChannelMessagePostedPayload }),
-  Schema.Struct({ ...ForgeEventBaseFields, type: Schema.Literal("channel.messages-read"), payload: ChannelMessagesReadPayload }),
-  Schema.Struct({ ...ForgeEventBaseFields, type: Schema.Literal("channel.conclusion-proposed"), payload: ChannelConclusionProposedPayload }),
-  Schema.Struct({ ...ForgeEventBaseFields, type: Schema.Literal("channel.concluded"), payload: ChannelConcludedPayload }),
-  Schema.Struct({ ...ForgeEventBaseFields, type: Schema.Literal("channel.closed"), payload: ChannelClosedPayload }),
+  Schema.Struct({
+    ...ForgeEventBaseFields,
+    type: Schema.Literal("channel.created"),
+    payload: ChannelCreatedPayload,
+  }),
+  Schema.Struct({
+    ...ForgeEventBaseFields,
+    type: Schema.Literal("channel.message-posted"),
+    payload: ChannelMessagePostedPayload,
+  }),
+  Schema.Struct({
+    ...ForgeEventBaseFields,
+    type: Schema.Literal("channel.messages-read"),
+    payload: ChannelMessagesReadPayload,
+  }),
+  Schema.Struct({
+    ...ForgeEventBaseFields,
+    type: Schema.Literal("channel.conclusion-proposed"),
+    payload: ChannelConclusionProposedPayload,
+  }),
+  Schema.Struct({
+    ...ForgeEventBaseFields,
+    type: Schema.Literal("channel.concluded"),
+    payload: ChannelConcludedPayload,
+  }),
+  Schema.Struct({
+    ...ForgeEventBaseFields,
+    type: Schema.Literal("channel.closed"),
+    payload: ChannelClosedPayload,
+  }),
   // Interactive requests
-  Schema.Struct({ ...ForgeEventBaseFields, type: Schema.Literal("request.opened"), payload: RequestOpenedPayload }),
-  Schema.Struct({ ...ForgeEventBaseFields, type: Schema.Literal("request.resolved"), payload: RequestResolvedPayload }),
-  Schema.Struct({ ...ForgeEventBaseFields, type: Schema.Literal("request.stale"), payload: RequestStalePayload }),
+  Schema.Struct({
+    ...ForgeEventBaseFields,
+    type: Schema.Literal("request.opened"),
+    payload: RequestOpenedPayload,
+  }),
+  Schema.Struct({
+    ...ForgeEventBaseFields,
+    type: Schema.Literal("request.resolved"),
+    payload: RequestResolvedPayload,
+  }),
+  Schema.Struct({
+    ...ForgeEventBaseFields,
+    type: Schema.Literal("request.stale"),
+    payload: RequestStalePayload,
+  }),
 ]);
 export type ForgeEvent = typeof ForgeEvent.Type;
 ```
@@ -1656,7 +1857,7 @@ export const WorkflowBootstrapEvent = Schema.Struct({
   channel: Schema.Literal("workflow.bootstrap"),
   threadId: ThreadId,
   event: Schema.Literals(["started", "output", "completed", "failed", "skipped"]),
-  data: Schema.optional(Schema.String),    // stdout chunk for "output" event
+  data: Schema.optional(Schema.String), // stdout chunk for "output" event
   error: Schema.optional(Schema.String),
   timestamp: IsoDateTime,
 });
@@ -1699,9 +1900,9 @@ export const ChannelConclusionEvent = Schema.Struct({
   channel: Schema.Literal("channel.conclusion"),
   channelId: ChannelId,
   threadId: ThreadId,
-  sessionId: ThreadId,            // the participant proposing conclusion
+  sessionId: ThreadId, // the participant proposing conclusion
   summary: Schema.String,
-  allProposed: Schema.Boolean,    // true when all participants have proposed
+  allProposed: Schema.Boolean, // true when all participants have proposed
   timestamp: IsoDateTime,
 });
 export type ChannelConclusionEvent = typeof ChannelConclusionEvent.Type;
@@ -1742,71 +1943,83 @@ export type SessionStatus = typeof SessionStatus.Type;
 
 export const ForgeReadModel = Schema.Struct({
   snapshotSequence: NonNegativeInt,
-  projects: Schema.Array(Schema.Struct({
-    projectId: ProjectId,
-    title: TrimmedNonEmptyString,
-    workspaceRoot: TrimmedNonEmptyString,
-    defaultModel: Schema.NullOr(ModelSelection),
-    scripts: Schema.Array(ProjectScript),
-    createdAt: IsoDateTime,
-    updatedAt: IsoDateTime,
-    deletedAt: Schema.NullOr(IsoDateTime),
-  })),
-  sessions: Schema.Array(Schema.Struct({
-    threadId: ThreadId,
-    projectId: ProjectId,
-    parentThreadId: Schema.NullOr(ThreadId),
-    phaseRunId: Schema.NullOr(PhaseRunId),
-    sessionType: Schema.Literals(["agent", "workflow", "chat"]),
-    title: TrimmedNonEmptyString,
-    description: Schema.String,
-    status: SessionStatus,
-    role: Schema.NullOr(TrimmedNonEmptyString),
-    provider: Schema.NullOr(ProviderKind),
-    model: Schema.NullOr(ModelSelection),
-    runtimeMode: RuntimeMode,
-    workflowId: Schema.NullOr(WorkflowId),
-    currentPhaseId: Schema.NullOr(WorkflowPhaseId),
-    patternId: Schema.NullOr(TrimmedNonEmptyString),
-    branch: Schema.NullOr(TrimmedNonEmptyString),
-    worktreePath: Schema.NullOr(TrimmedNonEmptyString),
-    bootstrapStatus: Schema.NullOr(TrimmedNonEmptyString),
-    childThreadIds: Schema.Array(ThreadId),
-    createdAt: IsoDateTime,
-    updatedAt: IsoDateTime,
-    archivedAt: Schema.NullOr(IsoDateTime),
-  })),
-  phaseRuns: Schema.Array(Schema.Struct({
-    phaseRunId: PhaseRunId,
-    threadId: ThreadId,
-    workflowId: WorkflowId,
-    phaseId: WorkflowPhaseId,
-    phaseName: TrimmedNonEmptyString,
-    phaseType: PhaseType,
-    iteration: PositiveInt,
-    status: PhaseRunStatus,
-    startedAt: Schema.NullOr(IsoDateTime),
-    completedAt: Schema.NullOr(IsoDateTime),
-  })),
-  channels: Schema.Array(Schema.Struct({
-    channelId: ChannelId,
-    threadId: ThreadId,
-    channelType: ChannelType,
-    status: ChannelStatus,
-  })),
-  pendingRequests: Schema.Array(Schema.Struct({
-    requestId: InteractiveRequestId,
-    threadId: ThreadId,
-    childThreadId: Schema.NullOr(ThreadId),
-    requestType: InteractiveRequestType,
-    status: InteractiveRequestStatus,
-  })),
-  workflows: Schema.Array(Schema.Struct({
-    workflowId: WorkflowId,
-    name: TrimmedNonEmptyString,
-    description: Schema.String,
-    builtIn: Schema.Boolean,
-  })),
+  projects: Schema.Array(
+    Schema.Struct({
+      projectId: ProjectId,
+      title: TrimmedNonEmptyString,
+      workspaceRoot: TrimmedNonEmptyString,
+      defaultModel: Schema.NullOr(ModelSelection),
+      scripts: Schema.Array(ProjectScript),
+      createdAt: IsoDateTime,
+      updatedAt: IsoDateTime,
+      deletedAt: Schema.NullOr(IsoDateTime),
+    }),
+  ),
+  sessions: Schema.Array(
+    Schema.Struct({
+      threadId: ThreadId,
+      projectId: ProjectId,
+      parentThreadId: Schema.NullOr(ThreadId),
+      phaseRunId: Schema.NullOr(PhaseRunId),
+      sessionType: Schema.Literals(["agent", "workflow", "chat"]),
+      title: TrimmedNonEmptyString,
+      description: Schema.String,
+      status: SessionStatus,
+      role: Schema.NullOr(TrimmedNonEmptyString),
+      provider: Schema.NullOr(ProviderKind),
+      model: Schema.NullOr(ModelSelection),
+      runtimeMode: RuntimeMode,
+      workflowId: Schema.NullOr(WorkflowId),
+      currentPhaseId: Schema.NullOr(WorkflowPhaseId),
+      patternId: Schema.NullOr(TrimmedNonEmptyString),
+      branch: Schema.NullOr(TrimmedNonEmptyString),
+      worktreePath: Schema.NullOr(TrimmedNonEmptyString),
+      bootstrapStatus: Schema.NullOr(TrimmedNonEmptyString),
+      childThreadIds: Schema.Array(ThreadId),
+      createdAt: IsoDateTime,
+      updatedAt: IsoDateTime,
+      archivedAt: Schema.NullOr(IsoDateTime),
+    }),
+  ),
+  phaseRuns: Schema.Array(
+    Schema.Struct({
+      phaseRunId: PhaseRunId,
+      threadId: ThreadId,
+      workflowId: WorkflowId,
+      phaseId: WorkflowPhaseId,
+      phaseName: TrimmedNonEmptyString,
+      phaseType: PhaseType,
+      iteration: PositiveInt,
+      status: PhaseRunStatus,
+      startedAt: Schema.NullOr(IsoDateTime),
+      completedAt: Schema.NullOr(IsoDateTime),
+    }),
+  ),
+  channels: Schema.Array(
+    Schema.Struct({
+      channelId: ChannelId,
+      threadId: ThreadId,
+      channelType: ChannelType,
+      status: ChannelStatus,
+    }),
+  ),
+  pendingRequests: Schema.Array(
+    Schema.Struct({
+      requestId: InteractiveRequestId,
+      threadId: ThreadId,
+      childThreadId: Schema.NullOr(ThreadId),
+      requestType: InteractiveRequestType,
+      status: InteractiveRequestStatus,
+    }),
+  ),
+  workflows: Schema.Array(
+    Schema.Struct({
+      workflowId: WorkflowId,
+      name: TrimmedNonEmptyString,
+      description: Schema.String,
+      builtIn: Schema.Boolean,
+    }),
+  ),
   updatedAt: IsoDateTime,
 });
 export type ForgeReadModel = typeof ForgeReadModel.Type;
@@ -1820,54 +2033,64 @@ The client snapshot is a subset of the server read model, projected for UI rende
 export const ForgeClientSnapshot = Schema.Struct({
   snapshotSequence: NonNegativeInt,
   projects: Schema.Array(OrchestrationProject),
-  sessions: Schema.Array(Schema.Struct({
-    threadId: ThreadId,
-    projectId: ProjectId,
-    parentThreadId: Schema.NullOr(ThreadId),
-    sessionType: Schema.Literals(["agent", "workflow", "chat"]),
-    title: TrimmedNonEmptyString,
-    status: SessionStatus,
-    role: Schema.NullOr(TrimmedNonEmptyString),
-    provider: Schema.NullOr(ProviderKind),
-    model: Schema.NullOr(ModelSelection),
-    runtimeMode: RuntimeMode,
-    workflowId: Schema.NullOr(WorkflowId),
-    currentPhaseId: Schema.NullOr(WorkflowPhaseId),
-    patternId: Schema.NullOr(TrimmedNonEmptyString),
-    branch: Schema.NullOr(TrimmedNonEmptyString),
-    bootstrapStatus: Schema.NullOr(TrimmedNonEmptyString),
-    childThreadIds: Schema.Array(ThreadId),
-    createdAt: IsoDateTime,
-    updatedAt: IsoDateTime,
-    archivedAt: Schema.NullOr(IsoDateTime),
-  })),
-  phaseRuns: Schema.Array(Schema.Struct({
-    phaseRunId: PhaseRunId,
-    threadId: ThreadId,
-    phaseName: TrimmedNonEmptyString,
-    phaseType: PhaseType,
-    iteration: PositiveInt,
-    status: PhaseRunStatus,
-  })),
-  channels: Schema.Array(Schema.Struct({
-    channelId: ChannelId,
-    threadId: ThreadId,
-    channelType: ChannelType,
-    status: ChannelStatus,
-    phaseRunId: Schema.NullOr(PhaseRunId),
-  })),
-  pendingRequests: Schema.Array(Schema.Struct({
-    requestId: InteractiveRequestId,
-    threadId: ThreadId,
-    requestType: InteractiveRequestType,
-    status: InteractiveRequestStatus,
-  })),
-  workflows: Schema.Array(Schema.Struct({
-    workflowId: WorkflowId,
-    name: TrimmedNonEmptyString,
-    description: Schema.String,
-    builtIn: Schema.Boolean,
-  })),
+  sessions: Schema.Array(
+    Schema.Struct({
+      threadId: ThreadId,
+      projectId: ProjectId,
+      parentThreadId: Schema.NullOr(ThreadId),
+      sessionType: Schema.Literals(["agent", "workflow", "chat"]),
+      title: TrimmedNonEmptyString,
+      status: SessionStatus,
+      role: Schema.NullOr(TrimmedNonEmptyString),
+      provider: Schema.NullOr(ProviderKind),
+      model: Schema.NullOr(ModelSelection),
+      runtimeMode: RuntimeMode,
+      workflowId: Schema.NullOr(WorkflowId),
+      currentPhaseId: Schema.NullOr(WorkflowPhaseId),
+      patternId: Schema.NullOr(TrimmedNonEmptyString),
+      branch: Schema.NullOr(TrimmedNonEmptyString),
+      bootstrapStatus: Schema.NullOr(TrimmedNonEmptyString),
+      childThreadIds: Schema.Array(ThreadId),
+      createdAt: IsoDateTime,
+      updatedAt: IsoDateTime,
+      archivedAt: Schema.NullOr(IsoDateTime),
+    }),
+  ),
+  phaseRuns: Schema.Array(
+    Schema.Struct({
+      phaseRunId: PhaseRunId,
+      threadId: ThreadId,
+      phaseName: TrimmedNonEmptyString,
+      phaseType: PhaseType,
+      iteration: PositiveInt,
+      status: PhaseRunStatus,
+    }),
+  ),
+  channels: Schema.Array(
+    Schema.Struct({
+      channelId: ChannelId,
+      threadId: ThreadId,
+      channelType: ChannelType,
+      status: ChannelStatus,
+      phaseRunId: Schema.NullOr(PhaseRunId),
+    }),
+  ),
+  pendingRequests: Schema.Array(
+    Schema.Struct({
+      requestId: InteractiveRequestId,
+      threadId: ThreadId,
+      requestType: InteractiveRequestType,
+      status: InteractiveRequestStatus,
+    }),
+  ),
+  workflows: Schema.Array(
+    Schema.Struct({
+      workflowId: WorkflowId,
+      name: TrimmedNonEmptyString,
+      description: Schema.String,
+      builtIn: Schema.Boolean,
+    }),
+  ),
   updatedAt: IsoDateTime,
 });
 export type ForgeClientSnapshot = typeof ForgeClientSnapshot.Type;
@@ -1885,7 +2108,7 @@ Project-level configuration for quality checks and bootstrap.
 // Resolution: project > global (first match wins per key)
 
 export const QualityCheckConfig = Schema.Struct({
-  command: TrimmedNonEmptyString,      // shell command to execute
+  command: TrimmedNonEmptyString, // shell command to execute
   timeout: NonNegativeInt.pipe(Schema.withDecodingDefault(() => 300000 as any)),
   // ms, default 5 minutes
   required: Schema.Boolean.pipe(Schema.withDecodingDefault(() => true)),
@@ -1894,7 +2117,7 @@ export const QualityCheckConfig = Schema.Struct({
 export type QualityCheckConfig = typeof QualityCheckConfig.Type;
 
 export const BootstrapConfig = Schema.Struct({
-  command: TrimmedNonEmptyString,      // e.g., "npm install", "bun install"
+  command: TrimmedNonEmptyString, // e.g., "npm install", "bun install"
   timeout: NonNegativeInt.pipe(Schema.withDecodingDefault(() => 300000 as any)),
   // ms, default 5 minutes
 });
@@ -1933,9 +2156,9 @@ Prompt templates are YAML files with simple `{{VAR}}` placeholder syntax.
 
 ```typescript
 export const PromptTemplate = Schema.Struct({
-  name: TrimmedNonEmptyString,         // unique identifier, matches filename
+  name: TrimmedNonEmptyString, // unique identifier, matches filename
   description: Schema.String,
-  system: Schema.String,               // system prompt text with {{VAR}} placeholders
+  system: Schema.String, // system prompt text with {{VAR}} placeholders
   initial: Schema.optional(Schema.String),
   // Optional initial user message to kick off the phase.
 });
@@ -1954,12 +2177,12 @@ First match wins. No merging.
 
 Engine-injected, always available in every prompt template:
 
-| Placeholder | Source | Description |
-|-------------|--------|-------------|
-| `{{DESCRIPTION}}` | User input | Session description from the user |
-| `{{PREVIOUS_OUTPUT}}` | Phase output system | Previous phase's output (summary for schema, transcript for channel, message for conversation) |
-| `{{ITERATION_CONTEXT}}` | Phase output + guidance channel | On retry: quality check failures, previous corrections, error messages |
-| `{{INPUT}}` | `inputFrom` (simple form) | Resolved input from a referenced phase output |
+| Placeholder             | Source                          | Description                                                                                    |
+| ----------------------- | ------------------------------- | ---------------------------------------------------------------------------------------------- |
+| `{{DESCRIPTION}}`       | User input                      | Session description from the user                                                              |
+| `{{PREVIOUS_OUTPUT}}`   | Phase output system             | Previous phase's output (summary for schema, transcript for channel, message for conversation) |
+| `{{ITERATION_CONTEXT}}` | Phase output + guidance channel | On retry: quality check failures, previous corrections, error messages                         |
+| `{{INPUT}}`             | `inputFrom` (simple form)       | Resolved input from a referenced phase output                                                  |
 
 For `inputFrom` object form, each key becomes a placeholder: `inputFrom: { PLAN: "plan-review.channel" }` creates `{{PLAN}}`.
 
@@ -2016,13 +2239,13 @@ promoted-from.channel              Promotion: follows session_link to source cha
 
 ### Output Key Dictionary
 
-| Key | Source | When produced |
-|-----|--------|---------------|
-| `output` | Last assistant transcript entry from child session | Single-agent phases, automated phases |
-| `channel` | Formatted channel transcript (all messages) | Multi-agent phases with deliberation channel |
-| `synthesis` | Synthesis child session's final output | Multi-agent phases with synthesis sub-phase |
-| `output:{role}` | Last assistant transcript entry from role's child session | Multi-agent phases without channel |
-| `corrections` | JSON array of guidance channel messages during phase run | Any phase with corrections |
+| Key             | Source                                                    | When produced                                |
+| --------------- | --------------------------------------------------------- | -------------------------------------------- |
+| `output`        | Last assistant transcript entry from child session        | Single-agent phases, automated phases        |
+| `channel`       | Formatted channel transcript (all messages)               | Multi-agent phases with deliberation channel |
+| `synthesis`     | Synthesis child session's final output                    | Multi-agent phases with synthesis sub-phase  |
+| `output:{role}` | Last assistant transcript entry from role's child session | Multi-agent phases without channel           |
+| `corrections`   | JSON array of guidance channel messages during phase run  | Any phase with corrections                   |
 
 ### Resolution Algorithm
 
@@ -2050,15 +2273,15 @@ LIMIT 1
 
 ## 12. Session Creation Defaults
 
-| Field | Default | Override |
-|-------|---------|----------|
-| `model` | `project.defaultModel` if set, else first available provider's default model | Explicit in create command |
-| `runtimeMode` | `"full-access"` (existing default) | Explicit in create command |
-| `branch` | `"forge/{threadId}"` (auto-generated, unique by construction) | `branchOverride` in create command |
-| `worktreePath` | `~/.forge/worktrees/{threadId}/` for sessions that need worktrees | Not overridable |
-| `bootstrapStatus` | `null` for agent sessions without worktree; `"queued"` for sessions that will bootstrap | Derived from `requiresWorktree` + project bootstrap config |
-| `sessionType` | `"agent"` if no workflow selected | Derived: workflow with phases -> `"workflow"`, deliberation pattern -> `"chat"` |
-| `provider` | Resolved from `ModelSelection.provider` for leaf sessions; `null` for container sessions | Explicit in create command |
+| Field             | Default                                                                                  | Override                                                                        |
+| ----------------- | ---------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------- |
+| `model`           | `project.defaultModel` if set, else first available provider's default model             | Explicit in create command                                                      |
+| `runtimeMode`     | `"full-access"` (existing default)                                                       | Explicit in create command                                                      |
+| `branch`          | `"forge/{threadId}"` (auto-generated, unique by construction)                            | `branchOverride` in create command                                              |
+| `worktreePath`    | `~/.forge/worktrees/{threadId}/` for sessions that need worktrees                        | Not overridable                                                                 |
+| `bootstrapStatus` | `null` for agent sessions without worktree; `"queued"` for sessions that will bootstrap  | Derived from `requiresWorktree` + project bootstrap config                      |
+| `sessionType`     | `"agent"` if no workflow selected                                                        | Derived: workflow with phases -> `"workflow"`, deliberation pattern -> `"chat"` |
+| `provider`        | Resolved from `ModelSelection.provider` for leaf sessions; `null` for container sessions | Explicit in create command                                                      |
 
 ### Session Type Derivation
 
@@ -2091,14 +2314,14 @@ If no project selected: resolve from cwd (existing behavior via `serverRuntimeSt
 
 Deterministic IDs for idempotent reactor completion commands.
 
-| Reactor | commandId pattern | Example |
-|---------|-------------------|---------|
-| BootstrapReactor | `bootstrap:{threadId}:{attempt}` | `bootstrap:abc123:1` |
-| ProviderCommandReactor | `turn:{threadId}:{turnCorrelationId}` | `turn:abc123:corr456` |
-| QualityCheckReactor | `qc:{phaseRunId}:{checkKey}` | `qc:pr789:test` |
-| AutomatedPhaseReactor | `auto-phase:{phaseRunId}` | `auto-phase:pr789` |
-| SynthesisReactor | `synthesis:{threadId}` | `synthesis:abc123` |
-| CodexConclusionParser | `conclusion:{threadId}:{turnCorrelationId}` | `conclusion:abc123:corr456` |
+| Reactor                | commandId pattern                           | Example                     |
+| ---------------------- | ------------------------------------------- | --------------------------- |
+| BootstrapReactor       | `bootstrap:{threadId}:{attempt}`            | `bootstrap:abc123:1`        |
+| ProviderCommandReactor | `turn:{threadId}:{turnCorrelationId}`       | `turn:abc123:corr456`       |
+| QualityCheckReactor    | `qc:{phaseRunId}:{checkKey}`                | `qc:pr789:test`             |
+| AutomatedPhaseReactor  | `auto-phase:{phaseRunId}`                   | `auto-phase:pr789`          |
+| SynthesisReactor       | `synthesis:{threadId}`                      | `synthesis:abc123`          |
+| CodexConclusionParser  | `conclusion:{threadId}:{turnCorrelationId}` | `conclusion:abc123:corr456` |
 
 The engine's existing command receipt system deduplicates on commandId. Retry-safe across daemon restarts.
 
@@ -2149,26 +2372,26 @@ export const FORGE_WS_METHODS = {
 
 ### Socket Method to Command Mapping
 
-| Socket Method | Enrichment | Command |
-|--------------|------------|---------|
-| `thread.create` | Generate threadId, resolve projectId from path, resolve default model | `thread.create { ... }` |
-| `thread.correct` | Resolve guidance channelId for this session | `thread.correct` -> engine resolves to `channel.post-message` |
-| `thread.sendTurn` | None (threadId IS the leaf session) | `thread.send-turn { ... }` |
-| `gate.approve` | Resolve requestId from threadId + phaseRunId | `request.resolve { requestId, resolvedWith: { decision: "approve" } }` |
-| `gate.reject` | Resolve requestId from threadId + phaseRunId | `request.resolve { requestId, resolvedWith: { decision: "reject", correction? } }` |
-| `request.resolve` | None | `request.resolve { ... }` |
-| `channel.intervene` | None | `channel.post-message { channelId, fromType: "human", ... }` |
-| `phaseOutput.update` | None | `thread.edit-phase-output { ... }` |
+| Socket Method        | Enrichment                                                            | Command                                                                            |
+| -------------------- | --------------------------------------------------------------------- | ---------------------------------------------------------------------------------- |
+| `thread.create`      | Generate threadId, resolve projectId from path, resolve default model | `thread.create { ... }`                                                            |
+| `thread.correct`     | Resolve guidance channelId for this session                           | `thread.correct` -> engine resolves to `channel.post-message`                      |
+| `thread.sendTurn`    | None (threadId IS the leaf session)                                   | `thread.send-turn { ... }`                                                         |
+| `gate.approve`       | Resolve requestId from threadId + phaseRunId                          | `request.resolve { requestId, resolvedWith: { decision: "approve" } }`             |
+| `gate.reject`        | Resolve requestId from threadId + phaseRunId                          | `request.resolve { requestId, resolvedWith: { decision: "reject", correction? } }` |
+| `request.resolve`    | None                                                                  | `request.resolve { ... }`                                                          |
+| `channel.intervene`  | None                                                                  | `channel.post-message { channelId, fromType: "human", ... }`                       |
+| `phaseOutput.update` | None                                                                  | `thread.edit-phase-output { ... }`                                                 |
 
 ### Query Methods (direct DB, not commands)
 
-| Socket Method | Returns |
-|--------------|---------|
+| Socket Method          | Returns                                         |
+| ---------------------- | ----------------------------------------------- |
 | `thread.getTranscript` | `{ entries: TranscriptEntry[], total: number }` |
-| `thread.getChildren` | `{ children: SessionSummary[] }` |
-| `channel.getMessages` | `{ messages: ChannelMessage[], total: number }` |
-| `workflow.list` | `{ workflows: WorkflowSummary[] }` |
-| `workflow.get` | `{ workflow: WorkflowDefinition }` |
+| `thread.getChildren`   | `{ children: SessionSummary[] }`                |
+| `channel.getMessages`  | `{ messages: ChannelMessage[], total: number }` |
+| `workflow.list`        | `{ workflows: WorkflowSummary[] }`              |
+| `workflow.get`         | `{ workflow: WorkflowDefinition }`              |
 
 ---
 

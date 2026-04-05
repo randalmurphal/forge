@@ -11,10 +11,13 @@ Fire-and-forget requires a process that outlives the UI.
 The forge backend (Node.js process) can run in two modes:
 
 ### App mode (default)
+
 Electron spawns the backend. Backend serves WebSocket to Electron's renderer. When Electron closes, backend stops.
 
 ### Daemon mode
+
 Backend runs independently as a background process. No Electron. Communicates via:
+
 - **Socket API**: JSON-RPC over Unix domain socket for CLI tools and the app
 - **OS notifications**: Platform-native for attention-needed events
 - **App reconnection**: When Electron opens, it discovers the running daemon and connects
@@ -73,6 +76,7 @@ User runs `forge daemon start`:
 The daemon is ALWAYS a separate process. There is no "detach from Electron" — the daemon either exists independently or it doesn't.
 
 **App mode (no daemon running):**
+
 1. User opens Electron app
 2. App checks for running daemon (flock/PID/ping) — none found
 3. App spawns daemon as a DETACHED background process (not a child)
@@ -80,17 +84,20 @@ The daemon is ALWAYS a separate process. There is no "detach from Electron" — 
 5. On app quit: daemon continues running (it was never a child)
 
 **App mode (daemon already running):**
+
 1. User opens Electron app
 2. App discovers running daemon via daemon.json
 3. App connects to daemon via WebSocket
 4. On app quit: daemon continues running
 
 **Daemon-only mode (CLI start):**
+
 1. `forge daemon start` spawns the daemon process
 2. CLI tools connect via Unix socket
 3. App can connect later
 
 This eliminates the "detach" transition entirely. The daemon is either running or it isn't. The app never owns the daemon's lifecycle — it's a client, not a parent. This prevents:
+
 - Race conditions during detach
 - Double-backend scenarios
 - stdout/log routing ambiguity
@@ -103,6 +110,7 @@ This eliminates the "detach" transition entirely. The daemon is either running o
 Only one forge daemon may own ~/.forge/forge.sock at a time.
 
 **Discovery algorithm on startup:**
+
 1. Acquire exclusive flock on `~/.forge/forge.lock`
 2. Check if `~/.forge/forge.pid` exists
 3. If PID exists and process alive: try `daemon.ping` on socket
@@ -147,34 +155,39 @@ The socket API is the contract between daemon, CLI, and app. JSON-RPC over Unix 
 
 interface SocketAPI {
   // Health
-  "daemon.ping": () => { status: "ok"; uptime: number }
-  "daemon.stop": () => void
+  "daemon.ping": () => { status: "ok"; uptime: number };
+  "daemon.stop": () => void;
 
   // Sessions (see doc 13 Socket API → Command Mapping for full enrichment)
-  "session.list": () => Session[]
-  "session.get": (params: { sessionId: string }) => Session
-  "session.create": (params: { title: string; type: string; workflow?: string; projectPath: string }) => Session
-  "session.pause": (params: { sessionId: string }) => void
-  "session.resume": (params: { sessionId: string }) => void
-  "session.cancel": (params: { sessionId: string }) => void
+  "session.list": () => Session[];
+  "session.get": (params: { sessionId: string }) => Session;
+  "session.create": (params: {
+    title: string;
+    type: string;
+    workflow?: string;
+    projectPath: string;
+  }) => Session;
+  "session.pause": (params: { sessionId: string }) => void;
+  "session.resume": (params: { sessionId: string }) => void;
+  "session.cancel": (params: { sessionId: string }) => void;
 
   // Corrections and channel interaction
-  "session.correct": (params: { sessionId: string; content: string }) => void
-  "channel.intervene": (params: { channelId: string; content: string }) => void
+  "session.correct": (params: { sessionId: string; content: string }) => void;
+  "channel.intervene": (params: { channelId: string; content: string }) => void;
 
   // Gates
-  "gate.approve": (params: { sessionId: string; phaseRunId: string }) => void
-  "gate.reject": (params: { sessionId: string; phaseRunId: string; reason?: string }) => void
+  "gate.approve": (params: { sessionId: string; phaseRunId: string }) => void;
+  "gate.reject": (params: { sessionId: string; phaseRunId: string; reason?: string }) => void;
 
   // Interactive requests
-  "request.resolve": (params: { requestId: string; resolution: Record<string, unknown> }) => void
+  "request.resolve": (params: { requestId: string; resolution: Record<string, unknown> }) => void;
 
   // Events (subscription)
-  "events.subscribe": (params: { filter?: EventFilter }) => AsyncIterable<ForgeEvent>
+  "events.subscribe": (params: { filter?: EventFilter }) => AsyncIterable<ForgeEvent>;
 
   // Child sessions
-  "session.getChildren": (params: { sessionId: string }) => Session[]
-  "session.getTranscript": (params: { sessionId: string; limit?: number }) => TranscriptEntry[]
+  "session.getChildren": (params: { sessionId: string }) => Session[];
+  "session.getTranscript": (params: { sessionId: string; limit?: number }) => TranscriptEntry[];
 }
 ```
 
@@ -218,6 +231,7 @@ The CLI is a thin client over the socket API. Every CLI command maps to one or m
 Notifications MUST use argv-based process spawning (execFile/spawn with argument arrays), NOT shell string interpolation. User-derived content (session titles, error messages) can contain quotes, backticks, dollar signs, and newlines that would break shell commands.
 
 Platform probing order:
+
 1. macOS: check for `terminal-notifier` in PATH -> `osascript` fallback
 2. Linux: check for `notify-send` in PATH
 3. If no notifier found: log warning, in-app badge/toast only
@@ -230,7 +244,7 @@ All implementations use argv arrays. Never pass user content through a shell.
 
 ```typescript
 interface NotificationDispatcher {
-  send(notification: ForgeNotification): Promise<void>
+  send(notification: ForgeNotification): Promise<void>;
 }
 
 // macOS
@@ -238,16 +252,17 @@ class MacOSNotificationDispatcher implements NotificationDispatcher {
   async send(n: ForgeNotification): Promise<void> {
     // Option 1: terminal-notifier (if installed)
     // Option 2: osascript via execFile with argv array (NOT shell interpolation)
-    await execFile('osascript', [
-      '-e', `display notification ${JSON.stringify(n.body)} with title ${JSON.stringify(n.title)} subtitle ${JSON.stringify(n.subtitle)}`
-    ])
+    await execFile("osascript", [
+      "-e",
+      `display notification ${JSON.stringify(n.body)} with title ${JSON.stringify(n.title)} subtitle ${JSON.stringify(n.subtitle)}`,
+    ]);
   }
 }
 
 // Linux
 class LinuxNotificationDispatcher implements NotificationDispatcher {
   async send(n: ForgeNotification): Promise<void> {
-    await execFile('notify-send', [n.title, n.body, '--icon=forge'])
+    await execFile("notify-send", [n.title, n.body, "--icon=forge"]);
   }
 }
 ```
@@ -256,18 +271,20 @@ v1: macOS + Linux only. The Electron app on Windows uses in-app notifications on
 
 ### What triggers notifications
 
-| Event | Notification? | Default |
-|-------|--------------|---------|
-| Session needs attention (gate, error) | Yes | On |
-| Session completed | Yes | On |
-| Deliberation concluded | Yes | On |
-| Phase transition | Optional | Off |
-| Agent posted to channel | Optional | Off |
-| Token budget warning | Yes | On |
-| Daemon started/stopped | Optional | Off |
+| Event                                 | Notification? | Default |
+| ------------------------------------- | ------------- | ------- |
+| Session needs attention (gate, error) | Yes           | On      |
+| Session completed                     | Yes           | On      |
+| Deliberation concluded                | Yes           | On      |
+| Phase transition                      | Optional      | Off     |
+| Agent posted to channel               | Optional      | Off     |
+| Token budget warning                  | Yes           | On      |
+| Daemon started/stopped                | Optional      | Off     |
 
 ### Click-to-focus
+
 When a notification is clicked, it should open forge app and navigate to the relevant session. Implementation:
+
 - macOS: use `terminal-notifier -execute "forge open <session-id>"` or URL scheme `forge://session/<session-id>`
 - Linux: notification action with `forge open <session-id>` command
 - URL scheme registration in Electron for `forge://` protocol
@@ -275,26 +292,33 @@ When a notification is clicked, it should open forge app and navigate to the rel
 ## Challenges
 
 ### Provider session persistence across daemon restarts
+
 If the daemon crashes, Claude SDK child sessions are lost (in-memory). Codex child sessions may survive (subprocess). Recovery:
+
 - Transcript is in SQLite. Can replay as context for a new child session.
 - But replaying a long transcript is expensive (tokens, time).
 - Alternative: checkpoint child session state periodically (serialize the key context, not every message).
 - Need clear recovery semantics: "child session was interrupted, resuming from last checkpoint with context summary."
 
 ### Resource management
+
 A daemon running multiple child sessions consumes:
+
 - Memory: Claude SDK sessions, Codex subprocesses, SQLite connections
 - CPU: minimal (mostly waiting on I/O)
 - Network: LLM API calls
 - Disk: transcript storage, git worktrees
 
 Need resource limits:
+
 - Max concurrent child sessions (configurable, default 3?)
 - Max total memory (monitor and warn)
 - Disk cleanup for completed session worktrees
 
 ### App-daemon handoff
+
 When the app connects to a running daemon, it needs to hydrate state:
+
 1. Fetch all sessions and their current state
 2. Subscribe to event stream
 3. Replay any events that happened while app was disconnected
@@ -303,14 +327,18 @@ When the app connects to a running daemon, it needs to hydrate state:
 This is similar to t3-code's `server.welcome` pattern but more complex because the daemon may have processed many events while the app was away. Need efficient state transfer (snapshot + delta), not full event replay.
 
 ### Multiple app instances
+
 What if the user opens forge on two monitors? Or opens the app while the CLI is also connected?
+
 - Multiple readers are fine (all see the same state).
 - Multiple writers need conflict resolution (two corrections at the same time).
 - Simplest: last-write-wins for corrections, serialize gate approvals.
 - For v1: support one app + one CLI, but design the socket API for multiple clients.
 
 ### Daemon discovery
+
 The app needs to find the daemon. Options:
+
 - Well-known socket path (`~/.forge/forge.sock`)
 - PID file (`~/.forge/forge.pid`)
 - Socket + PID: check PID file exists, process is alive, socket responds to ping

@@ -48,6 +48,7 @@ Forge is a desktop application with an optional headless daemon mode. The applic
 ### Frontend (apps/web)
 
 React + Zustand. Communicates with backend exclusively via WebSocket (typed JSON-RPC requests + push events). Owns:
+
 - All rendering and interaction
 - Client-side state derived from server push events
 - No direct provider/agent communication
@@ -58,6 +59,7 @@ The frontend is a view. It renders what the backend tells it and sends user acti
 ### Backend (apps/server)
 
 Node.js process. Owns:
+
 - **Session lifecycle**: create, assign workflow, track phase progression, persist state
 - **Workflow engine**: phase execution, gate evaluation, channel management
 - **Provider agents**: Claude Agent SDK, Codex subprocess management
@@ -69,6 +71,7 @@ Node.js process. Owns:
 ### Desktop (apps/desktop)
 
 Electron shell. Minimal. Owns:
+
 - Spawning the backend server process
 - Hosting the React app in a BrowserWindow
 - Native OS integration (notifications, file dialogs, system tray)
@@ -77,6 +80,7 @@ Electron shell. Minimal. Owns:
 ### Contracts (packages/contracts)
 
 Shared TypeScript types and schemas. No runtime logic. Defines:
+
 - Session, workflow, phase, channel, agent types
 - WebSocket protocol (requests, push events, channels)
 - Provider event schemas
@@ -85,6 +89,7 @@ Shared TypeScript types and schemas. No runtime logic. Defines:
 ### Daemon Mode
 
 Same backend binary, no Electron. Runs as a background process. Communicates via:
+
 - Socket API (same JSON-RPC protocol as internal WebSocket)
 - OS notifications (via platform-native APIs: terminal-notifier on macOS, notify-send on Linux)
 - On Electron app open, daemon hands off state seamlessly
@@ -96,6 +101,7 @@ See [07-daemon-mode.md](./07-daemon-mode.md) for details.
 ### Frontend <-> Backend: WebSocket
 
 Typed protocol inheriting t3-code's pattern:
+
 - **Requests**: `{ id, method, params }` -> `{ id, result }` or `{ id, error }`
 - **Push events**: `{ channel, sequence, data }` with monotonic ordering
 
@@ -109,6 +115,7 @@ Push event channels are defined in [13-sessions-first-redesign.md](./13-sessions
 ### Backend <-> External Tools: Socket API
 
 Unix domain socket with JSON-RPC protocol. Enables:
+
 - CLI commands (`forge status`, `forge correct <session-id> "message"`)
 - Script integration (CI triggers, monitoring)
 - orc daemon coordination (if daemon mode uses a separate process)
@@ -152,29 +159,33 @@ User starts deliberation workflow on a session
 
 Forge extends t3-code's existing thread infrastructure. The thread model stays, Effect.js stays. New features are additive.
 
-| Aspect | t3-code | Forge (additive) |
-|--------|---------|-------------------|
-| Primary unit | Thread (conversation) | Thread stays as-is; "session" is the user-facing term. Workflows, channels, child threads are new capabilities built on top. |
-| Orchestration | Event-sourced thread lifecycle | Same event sourcing, extended with workflow lifecycle (phases, gates, loops) |
-| Provider interactions | One per thread | One per thread (agent sessions) or many child threads per phase (workflow sessions) |
-| Multi-agent | Not supported | First-class (deliberation, review) via child threads and channels |
-| Human interaction | Chat messages before/after turns | Corrections mid-session, gate approvals (new features) |
-| Background execution | None (requires app open) | Daemon mode with OS notifications (new feature) |
-| DI framework | Effect.js | Effect.js stays — new services are Effect Layers following existing patterns |
-| State management | Thread-centric Zustand | Extended with workflow/channel state alongside existing thread state |
+| Aspect                | t3-code                          | Forge (additive)                                                                                                             |
+| --------------------- | -------------------------------- | ---------------------------------------------------------------------------------------------------------------------------- |
+| Primary unit          | Thread (conversation)            | Thread stays as-is; "session" is the user-facing term. Workflows, channels, child threads are new capabilities built on top. |
+| Orchestration         | Event-sourced thread lifecycle   | Same event sourcing, extended with workflow lifecycle (phases, gates, loops)                                                 |
+| Provider interactions | One per thread                   | One per thread (agent sessions) or many child threads per phase (workflow sessions)                                          |
+| Multi-agent           | Not supported                    | First-class (deliberation, review) via child threads and channels                                                            |
+| Human interaction     | Chat messages before/after turns | Corrections mid-session, gate approvals (new features)                                                                       |
+| Background execution  | None (requires app open)         | Daemon mode with OS notifications (new feature)                                                                              |
+| DI framework          | Effect.js                        | Effect.js stays — new services are Effect Layers following existing patterns                                                 |
+| State management      | Thread-centric Zustand           | Extended with workflow/channel state alongside existing thread state                                                         |
 
 ## Challenges
 
 ### Effect.js integration
+
 Effect.js stays. New workflow, channel, and deliberation services are written as Effect Layers following existing patterns (services as Layers, commands through OrchestrationEngine dispatch, event handling through projectors, background work through reactors). See [03-effect-removal.md](./03-effect-removal.md) for the decision and approach.
 
 ### Event sourcing extensions
+
 t3-code's event sourcing uses Effect's Queue, Stream, and Layer primitives. The decider/projector pattern is pure and stays as-is. New event types (workflow phases, channels, deliberation) extend the existing aggregate. The runtime (OrchestrationEngine) remains Effect-native.
 
 ### Provider adapter statefulness
+
 Claude and Codex adapters maintain complex in-memory state (turn state, pending approvals, prompt queues). This state needs to survive provider crashes and app restarts. t3-code partially handles this via event replay, but gaps exist. Forge needs robust session recovery.
 
 ### WebSocket protocol evolution
+
 t3-code's push channels are thread-centric. Forge needs session-centric and channel-centric push events. The protocol needs to evolve while maintaining the typed decode/validate pattern at boundaries.
 
 ## Resolved Decisions

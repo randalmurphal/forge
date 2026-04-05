@@ -24,10 +24,13 @@ feature/
 ```
 
 **Interface definition:**
+
 ```typescript
 export interface WorkflowEngineShape {
   readonly startPhase: (input: StartPhaseInput) => Effect.Effect<void, WorkflowEngineError>;
-  readonly evaluateGate: (input: EvaluateGateInput) => Effect.Effect<GateResult, WorkflowEngineError>;
+  readonly evaluateGate: (
+    input: EvaluateGateInput,
+  ) => Effect.Effect<GateResult, WorkflowEngineError>;
 }
 
 export class WorkflowEngine extends ServiceMap.Service<WorkflowEngine, WorkflowEngineShape>()(
@@ -36,6 +39,7 @@ export class WorkflowEngine extends ServiceMap.Service<WorkflowEngine, WorkflowE
 ```
 
 **Implementation:**
+
 ```typescript
 const makeWorkflowEngine = Effect.gen(function* () {
   const engine = yield* OrchestrationEngine;
@@ -209,6 +213,7 @@ apps/web/src/
 
 **1.1 — Thread extensions migration**
 Add columns to thread projection tables:
+
 - parent_thread_id (nullable FK to threads)
 - phase_run_id (nullable FK to phase_runs)
 - workflow_id (nullable FK to workflows)
@@ -235,6 +240,7 @@ Create phase_outputs table (phase_run_id, output_key, content, source_type, sour
 
 **1.6 — Extend orchestration contracts**
 Add new command types and event types to packages/contracts/src/orchestration.ts:
+
 - Workflow commands: thread.start-phase, thread.complete-phase, thread.fail-phase
 - Channel commands: channel.create, channel.post-message, channel.conclude
 - Phase output events: thread.phase-output-written
@@ -289,7 +295,7 @@ Extend Sidebar.tsx to support parent/child thread hierarchy. Expandable containe
 Add workflow dropdown to the thread creation flow. List available workflows (built-in + project + user). "None" = plain agent chat (default, existing behavior). Selecting a workflow sets workflow_id on the thread.
 
 **4.3 — Workflow timeline view**
-New component for viewing workflow thread output. Shows phase outputs rendered by type (schema summary, channel conversation, plain text). Quality check results between phases. Gate approval UI inline. Route: _workflow.$threadId.tsx.
+New component for viewing workflow thread output. Shows phase outputs rendered by type (schema summary, channel conversation, plain text). Quality check results between phases. Gate approval UI inline. Route: \_workflow.$threadId.tsx.
 
 **4.4 — Channel view**
 New component for viewing deliberation conversations. Messages color-coded by role. Turn counter. Intervene button (post to channel). View individual participant's full transcript by clicking their name. Split view option (participant transcripts flanking channel).
@@ -318,7 +324,7 @@ OS-native notifications via argv-based process spawning (no shell interpolation)
 App discovers running daemon on startup. Connects via WebSocket. On quit, daemon continues running. System tray icon for daemon status. requestSingleInstanceLock. setAsDefaultProtocolClient('forge').
 
 **5.5 — Product identity**
-~/.forge base directory, forge:// protocol, com.forgetools.forge app ID, FORGE_* env vars. State isolation from ~/.t3. Applied as a single rename pass.
+~/.forge base directory, forge:// protocol, com.forgetools.forge app ID, FORGE\_\* env vars. State isolation from ~/.t3. Applied as a single rename pass.
 
 ## Task Dependencies
 
@@ -328,7 +334,7 @@ App discovers running daemon on startup. Connects via WebSocket. On quit, daemon
 1.2 ─┘            2.4 ─────┘
                   2.5 ──────┘
 1.6 ──── 2.6 ──── 2.7
-         
+
 1.4 ──── 3.1 ──── 3.2
                    3.3
          3.4 (needs 3.1)

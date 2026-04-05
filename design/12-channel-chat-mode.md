@@ -44,10 +44,10 @@ const session = await engine.dispatch({
   type: "session.create",
   sessionId: newId(),
   projectId: currentProject.id,
-  type: "chat",                    // internal type, determined by the workflow
+  type: "chat", // internal type, determined by the workflow
   title: `Deliberation: ${question.substring(0, 60)}`,
   status: "running",
-  patternId: "interrogate",        // or debate, explore, etc.
+  patternId: "interrogate", // or debate, explore, etc.
 });
 // Engine then creates two child sessions directly under the session
 // (no phase_run — child sessions belong to the session for chat type),
@@ -55,6 +55,7 @@ const session = await engine.dispatch({
 ```
 
 The session schema from doc 13 directly supports this:
+
 - `session.type = "chat"` (internal, set automatically when a deliberation workflow is selected)
 - `session.pattern_id` identifies the deliberation pattern
 - Two child sessions belong directly to the parent session (`parent_session_id` set, `phase_run_id` is NULL for deliberation sessions)
@@ -74,6 +75,7 @@ Promotion creates a NEW session — it does not mutate the deliberation session:
 6. The first phase's prompt includes `{{PREVIOUS_FINDINGS}}` resolved from the deliberation session's channel content via the session_link
 
 The workflow for the new session references the promotion content:
+
 ```yaml
 inputFrom:
   PREVIOUS_FINDINGS: promoted-from.channel
@@ -113,6 +115,7 @@ Sessions with deliberation workflows show the deliberation status (turn count, w
 Identical to the deliberation view in workspace mode. Child session messages color-coded by role, turn counter, intervene button, end button. Each child session is independently viewable — clicking one in the sidebar tree opens its individual chat view.
 
 Additional controls for deliberation sessions:
+
 - **"Create session"** button — promotes the deliberation findings into a new session with a different workflow
 - **"Summary"** button — runs a synthesis agent on the channel transcript (like `herd summary`)
 - **"Export"** — saves the channel transcript as markdown
@@ -147,7 +150,7 @@ interface ChatPattern {
   roles: [RoleConfig, RoleConfig];
   defaultMaxTurns: number;
   synthesisPrompt: string;
-  requiresWorkdir: boolean;       // code-review needs a repo
+  requiresWorkdir: boolean; // code-review needs a repo
   requiresInput: "question" | "plan" | "code" | "prompt";
 }
 
@@ -198,15 +201,19 @@ forge chat refine-prompt ./prompts/implement.md --target claude
 ## Challenges
 
 ### Discoverability of deliberation workflows
+
 Users need to discover that deliberation patterns exist in the workflow picker. The dropdown should make it clear: some workflows are implementation patterns (build-loop, plan-then-implement), others are thinking patterns (interrogate, debate, explore). Grouping or labeling within the dropdown helps.
 
 **Resolution:** The workflow picker groups workflows by category. Deliberation workflows have a brief description (e.g., "Systematically probe a plan for gaps"). The default "(none)" option is clear: direct chat, no orchestration. The promotion path ("create session from this") bridges from deliberation to implementation.
 
 ### Child session lifecycle for deliberation sessions
+
 Deliberation sessions create two child sessions directly (no phase_run). When the deliberation concludes, child sessions complete. When the user dismisses the session, it is archived (not deleted — transcript is preserved). The deliberation_state is stored on the session's channel or in the session's metadata_json.
 
 ### Pattern prompt maintenance
+
 The role prompts (advocate, interrogator, connector, critic, etc.) are the engine of behavior control. They need to be:
+
 - Shared between standalone deliberation workflows and workflow deliberation phases
 - Versioned (so improvements to prompts benefit all contexts)
 - Customizable (advanced users might want to tweak prompts)

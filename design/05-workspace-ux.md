@@ -5,15 +5,19 @@
 The workspace should feel like mission control, not a chat app. You're overseeing multiple sessions, each at different stages, and you need to quickly assess: what's running, what needs me, what's done.
 
 ### Glanceable status
+
 The sidebar tells you everything at a glance without clicking into anything. Session name, current phase, status badge, time since last activity. If something needs attention, it's visually obvious (not buried in a menu).
 
 ### Keyboard-first
+
 Every action is reachable by keyboard. Navigate sessions with j/k, open session with Enter, post correction with c, approve gate with a. Mouse works too, but power users should never need it.
 
 ### Minimal chrome
+
 No tab bars, breadcrumbs, or nested navigation. The workspace is flat: sidebar on the left, main content on the right. The main content changes based on what's selected. That's it.
 
 ### Progressive disclosure
+
 The default view shows what matters: session status, current agent output, correction input. Details (full transcript, token usage, git diff, quality check logs) are one keypress away but not cluttering the default view.
 
 ## Layout
@@ -62,6 +66,7 @@ The sidebar shows all sessions in one list. Sessions with workflows are expandab
 Clicking any leaf (child) session in the tree opens the same chat view component. Clicking a container session (workflow or chat) opens the orchestration/channel view.
 
 **Status indicators:**
+
 - `●` green = running, child session actively working
 - `◉` yellow = needs attention (gate waiting, correction needed, error)
 - `◌` blue = deliberation in progress (two child sessions)
@@ -74,11 +79,13 @@ Clicking any leaf (child) session in the tree opens the same chat view component
 **Filtering:** Toggle to show/hide completed sessions. Search by title. Filter by project.
 
 ### Quick actions from sidebar
+
 - Hover/select a session: shows phase progress bar (workflow sessions) or conversation status (no-workflow sessions)
 - Right-click / keyboard shortcut: pause, resume, cancel, restart
 - Notification badge: count of unread items (corrections, gate results)
 
 ### Terminal tabs at bottom
+
 Below the session list, a separate section for terminal sessions. These are independent of sessions - just scratch terminals for manual work.
 
 ## Main Panel: Session View
@@ -117,18 +124,22 @@ For agent sessions and single-agent workflow phases (implement, review):
 ```
 
 Key elements:
+
 - **Phase header**: which phase, which iteration, provider info, cost
 - **Session output**: streaming, collapsible tool calls, inline diffs
 - **Correction history**: visible inline so you see what you already told the agent
 - **Input bar**: always visible at the bottom for corrections
 
 ### Collapsible sections
+
 - Tool calls: show the tool name and a summary, expand for full input/output
 - Diffs: show filename and change summary, expand for full diff
 - Long outputs: truncate with "show more"
 
 ### Status transitions visible
+
 When a gate triggers, it appears inline:
+
 ```
 ──── Gate: quality-check ────
 ✓ tests passed (42/42)
@@ -144,6 +155,7 @@ When a gate triggers, it appears inline:
 ### Phase Output Viewer
 
 When a phase completes and produces output (plan, synthesis, review findings), the main panel shows:
+
 - Markdown rendering for plan/synthesis/review outputs
 - Editable text area (user can refine before feeding to next phase)
 - Action buttons: 'Feed to next phase' / 'Create session from this' / 'Export as markdown'
@@ -163,12 +175,12 @@ When viewing a top-level workflow session (the container, not a child), the main
 
 ```
 ─── Implement (completed) ───────────────────
-Refactored auth middleware to use secure token 
+Refactored auth middleware to use secure token
 storage. 3 files changed, 4 tests added.
 
 ─── Quality Checks ──────────────────────────
 ✓ lint — passed
-✓ typecheck — passed  
+✓ typecheck — passed
 ✗ test — 1 failed
   FAIL auth.test.ts:47
   Expected: 200, Received: 401
@@ -176,8 +188,8 @@ storage. 3 files changed, 4 tests added.
 → Retrying Implement (attempt 2/5)
 
 ─── Implement (attempt 2, completed) ────────
-Fixed the test failure. The API endpoint was 
-returning 401 because the middleware wasn't 
+Fixed the test failure. The API endpoint was
+returning 401 because the middleware wasn't
 passing the token to the downstream service.
 
 ─── Quality Checks ──────────────────────────
@@ -232,6 +244,7 @@ For multi-agent phases:
 ```
 
 Key elements:
+
 - **Child session messages color-coded by role** (like HerdingLlamas TUI)
 - **Turn counter**: how far through the deliberation
 - **Research footnotes**: when agents cite sources, show inline
@@ -241,6 +254,7 @@ Key elements:
 ### Split Deliberation View
 
 Since each deliberation participant is a full session, the UI can offer a three-pane split:
+
 - Left: First participant's internal session (full chat view — tool calls, reasoning, research)
 - Center: Channel conversation (the exchange between participants)
 - Right: Second participant's internal session
@@ -248,6 +262,7 @@ Since each deliberation participant is a full session, the UI can offer a three-
 This gives forensic visibility into WHY each participant posted what they did. The channel shows the conversation; the side panes show the work behind each message. Toggle between split view and channel-only view with a keyboard shortcut.
 
 ### Side-by-side option
+
 For code review deliberation, option to show the two agents' independent reviews side by side before cross-examination begins:
 
 ```
@@ -319,11 +334,13 @@ Show "Setting up Phase N+1..." with bootstrap output streaming. Once bootstrap c
 ## Notifications
 
 ### In-app notifications
+
 - Yellow badge on session in sidebar
 - Toast notification (non-blocking, auto-dismiss after 5s)
 - Sound (optional, configurable)
 
 ### OS notifications (via Electron)
+
 - Native macOS/Linux/Windows notifications
 - Click notification -> forge focuses and navigates to the session
 - Configurable: which events trigger OS notifications
@@ -331,6 +348,7 @@ Show "Setting up Phase N+1..." with bootstrap output streaming. Once bootstrap c
   - Optional: every phase transition, every agent message
 
 ### Notification settings
+
 ```
 Notify me when:
   [x] A session needs my attention (gate, error, correction needed)
@@ -347,27 +365,29 @@ Notification method:
 
 ## Keyboard Shortcuts
 
-| Key | Action |
-|-----|--------|
-| `j/k` | Navigate session list |
-| `Enter` | Open selected session |
-| `Esc` | Back to session list |
-| `c` | Focus correction input |
-| `a` | Approve gate (when gate view active) |
-| `r` | Reject / retry gate |
-| `t` | Toggle terminal panel |
-| `n` | New session |
-| `p` | Pause/resume selected session |
-| `d` | Toggle details panel (token usage, full transcript) |
-| `Cmd+1-9` | Jump to session by position |
-| `Cmd+Shift+N` | New terminal tab |
+| Key           | Action                                              |
+| ------------- | --------------------------------------------------- |
+| `j/k`         | Navigate session list                               |
+| `Enter`       | Open selected session                               |
+| `Esc`         | Back to session list                                |
+| `c`           | Focus correction input                              |
+| `a`           | Approve gate (when gate view active)                |
+| `r`           | Reject / retry gate                                 |
+| `t`           | Toggle terminal panel                               |
+| `n`           | New session                                         |
+| `p`           | Pause/resume selected session                       |
+| `d`           | Toggle details panel (token usage, full transcript) |
+| `Cmd+1-9`     | Jump to session by position                         |
+| `Cmd+Shift+N` | New terminal tab                                    |
 
 ## Challenges
 
 ### Information density vs. clarity
+
 Sessions produce a LOT of output. Tool calls, file reads, diffs, reasoning, test output. Showing everything is overwhelming. Hiding too much makes it hard to debug when something goes wrong. The collapsible section approach helps but needs careful defaults.
 
 **Proposed defaults:**
+
 - Tool calls: collapsed, show tool name + one-line summary
 - Diffs: collapsed, show filename + stats (+/- lines)
 - Test output: collapsed, show pass/fail count
@@ -375,7 +395,9 @@ Sessions produce a LOT of output. Tool calls, file reads, diffs, reasoning, test
 - Corrections: always visible, highlighted
 
 ### Streaming UX
+
 Session output streams token by token. The UI needs to:
+
 - Scroll smoothly (not jump)
 - Not re-render the entire conversation on each token
 - Handle tool calls that appear mid-stream
@@ -384,7 +406,9 @@ Session output streams token by token. The UI needs to:
 t3-code already handles this for the conversation view. We inherit that.
 
 ### Multi-session overview
+
 When you have 5+ sessions running, the sidebar needs to convey status without requiring you to read each entry carefully. The color-coded status dots help, but we might also need:
+
 - A dashboard/summary view (all sessions at a glance)
 - Grouped by project
 - Timeline view (when did each session start, where is it now)
@@ -392,7 +416,9 @@ When you have 5+ sessions running, the sidebar needs to convey status without re
 This is a v2 feature, not v1. For v1, the sidebar with status dots is sufficient for 3-10 sessions.
 
 ### Responsive to different workflows
+
 The main panel needs to render differently based on phase type:
+
 - Single-agent: conversation view
 - Multi-agent: channel view (like a chat between agents)
 - Automated: quality check results
@@ -457,12 +483,14 @@ Each phase is a card in a vertical list. The [⋮] handle allows reordering via 
 **Prompt:** Dropdown of available prompt templates (bundled + project + personal overrides). Or "custom" to write inline.
 
 **After:** What happens when this phase completes:
+
 - **auto-continue** — proceed to next phase immediately
 - **run quality checks** — run the project's configured checks, proceed if passing. Results display in the workflow timeline between phases. On failure, the failure output is passed to the retried phase as `{{ITERATION_CONTEXT}}`.
 - **human approval** — pause and wait for the user to approve/reject
 - **done** — this is the last phase, session completes
 
 **On fail:** What to do if the "After" condition fails:
+
 - **retry this phase** — re-run this phase with context from the failure (max retries configurable)
 - **go back to: [phase]** — jump back to an earlier phase
 - **stop** — mark the session as failed, notify user
@@ -506,36 +534,36 @@ Access the workflow list via sidebar menu or settings. The workflow editor is a 
 
 4. **Session Creation Flow** (RESOLVED):
 
-    ### Session Creation
+   ### Session Creation
 
-    One entry point: **+ New session**
+   One entry point: **+ New session**
 
-    The creation flow:
-    1. Text input: describe what you want to do (title/description)
-    2. Workflow picker: dropdown showing available workflows. Options include:
-       - **(none)** — direct chat with an agent (default, = t3-code behavior)
-       - **build-loop** — implement with quality checks, retry until passing
-       - **plan-then-implement** — deliberate on plan, then implement
-       - **code-review** — dual-perspective review with cross-examination
-       - **interrogate** — systematically probe a plan for gaps
-       - **debate** — argue both sides of a question
-       - **explore** — lateral thinking with reality-checking
-       - **refine-prompt** — systematic prompt evaluation and improvement
-       - Plus any project-specific or user-created workflows
-    3. Model picker: which provider/model to use (sticky per project)
-    4. Optional: branch override, project selection if multi-project
+   The creation flow:
+   1. Text input: describe what you want to do (title/description)
+   2. Workflow picker: dropdown showing available workflows. Options include:
+      - **(none)** — direct chat with an agent (default, = t3-code behavior)
+      - **build-loop** — implement with quality checks, retry until passing
+      - **plan-then-implement** — deliberate on plan, then implement
+      - **code-review** — dual-perspective review with cross-examination
+      - **interrogate** — systematically probe a plan for gaps
+      - **debate** — argue both sides of a question
+      - **explore** — lateral thinking with reality-checking
+      - **refine-prompt** — systematic prompt evaluation and improvement
+      - Plus any project-specific or user-created workflows
+   3. Model picker: which provider/model to use (sticky per project)
+   4. Optional: branch override, project selection if multi-project
 
-    That's it. No "session type" selector. The workflow choice determines everything — whether there are phases, whether there are child sessions, what the output looks like. "No workflow" = agent session = t3-code chat. A deliberation workflow = two child sessions with a channel. A build-loop = phases with quality gates.
+   That's it. No "session type" selector. The workflow choice determines everything — whether there are phases, whether there are child sessions, what the output looks like. "No workflow" = agent session = t3-code chat. A deliberation workflow = two child sessions with a channel. A build-loop = phases with quality gates.
 
-    The sidebar shows ALL sessions in one list. Workflow sessions are expandable to show child sessions (phases, deliberation participants). Sessions without a workflow look exactly like t3-code threads. The sidebar follows t3-code's existing patterns for managing many sessions, old sessions, archiving, etc.
+   The sidebar shows ALL sessions in one list. Workflow sessions are expandable to show child sessions (phases, deliberation participants). Sessions without a workflow look exactly like t3-code threads. The sidebar follows t3-code's existing patterns for managing many sessions, old sessions, archiving, etc.
 
-    **On submit**: Dispatch `session.create`, transition to 'Bootstrapping' view (for sessions that require a worktree) or directly to session view (for workflows with requiresWorkdir=false).
-    **Bootstrapping**: Show streamed stdout from bootstrap script (via `session.bootstrap` push channel). Progress indicator. On failure: show error + Retry/Skip/Cancel buttons (mapped to `bootstrap-failed` interactive_request resolution).
-    **Ready**: Bootstrap complete, first workflow phase starts (workflow sessions) or agent starts (no-workflow sessions). Transition to session view.
+   **On submit**: Dispatch `session.create`, transition to 'Bootstrapping' view (for sessions that require a worktree) or directly to session view (for workflows with requiresWorkdir=false).
+   **Bootstrapping**: Show streamed stdout from bootstrap script (via `session.bootstrap` push channel). Progress indicator. On failure: show error + Retry/Skip/Cancel buttons (mapped to `bootstrap-failed` interactive_request resolution).
+   **Ready**: Bootstrap complete, first workflow phase starts (workflow sessions) or agent starts (no-workflow sessions). Transition to session view.
 
-    Per doc 13, ALL sessions that require a worktree go through server-side bootstrap. Sessions create a worktree from project HEAD and run bootstrap before the agent starts. Sessions with requiresWorkdir=false skip worktree creation.
+   Per doc 13, ALL sessions that require a worktree go through server-side bootstrap. Sessions create a worktree from project HEAD and run bootstrap before the agent starts. Sessions with requiresWorkdir=false skip worktree creation.
 
-    Draft persistence: per-project, stored in localStorage (adapted from t3-code's composerDraftStore). Sticky model selection carries between session creations.
+   Draft persistence: per-project, stored in localStorage (adapted from t3-code's composerDraftStore). Sticky model selection carries between session creations.
 
 5. **Diff viewer**: Inline in the session view, or a dedicated panel? t3-code has a DiffPanel. Worth keeping. But when do you show it - automatically when files change, or on user request?
 

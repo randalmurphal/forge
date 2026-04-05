@@ -74,11 +74,11 @@ const runtime = createQuery({ prompt, options: queryOptions });
 
 Three tools, matching the `propose_conclusion`-based termination model:
 
-| Tool | Purpose | Side effects |
-|------|---------|-------------|
-| `post_to_channel` | Post a message visible to other participants | Persists message, advances sequence, notifies others |
-| `read_channel` | Read unread messages | None (read is pure query, cursor advances on child session's next post) |
-| `propose_conclusion` | Signal that this child session thinks discussion is complete | Records proposal, checks if all child sessions agree |
+| Tool                 | Purpose                                                      | Side effects                                                            |
+| -------------------- | ------------------------------------------------------------ | ----------------------------------------------------------------------- |
+| `post_to_channel`    | Post a message visible to other participants                 | Persists message, advances sequence, notifies others                    |
+| `read_channel`       | Read unread messages                                         | None (read is pure query, cursor advances on child session's next post) |
+| `propose_conclusion` | Signal that this child session thinks discussion is complete | Records proposal, checks if all child sessions agree                    |
 
 ### Idempotency
 
@@ -89,9 +89,14 @@ The idempotency key is a deterministic hash of the child session, tool, argument
 ```typescript
 import { createHash } from "crypto";
 
-function idempotencyKey(sessionId: string, toolName: string, args: unknown, channelSeq: number): string {
+function idempotencyKey(
+  sessionId: string,
+  toolName: string,
+  args: unknown,
+  channelSeq: number,
+): string {
   const input = `${sessionId}:${toolName}:${JSON.stringify(args)}:${channelSeq}`;
-  return createHash('sha256').update(input).digest('hex');
+  return createHash("sha256").update(input).digest("hex");
 }
 ```
 
@@ -112,6 +117,7 @@ async handler({ message }) {
 ```
 
 **`read_channel` idempotency**: Read does not advance the cursor. The cursor advances implicitly when the child session posts (the engine sets `last_read_sequence` to the current max when processing a post). This means:
+
 - Replayed `read_channel` with same cursor → same messages → idempotent
 - No separate ack needed
 - No double-advance risk
@@ -123,6 +129,7 @@ async handler({ message }) {
 Channel MCP tools are listed in `allowedTools` so they execute without user approval prompts. This is correct — channel tools are forge's own domain. The `canUseTool` callback still fires for all OTHER tools not in `allowedTools`.
 
 This means:
+
 - Channel tools execute immediately — no approval latency for deliberation flow
 - Error handling and observability must be in the tool handler itself (no approval callback to hook into)
 - Non-channel tools (file edits, command execution, etc.) still go through normal approval
@@ -150,15 +157,15 @@ Codex can't receive custom tools. Instead, the engine manages channel communicat
 
 ```typescript
 function formatChannelInjection(messages: ChannelMessage[]): string {
-  const header = "═══ CHANNEL UPDATE ═══\n" +
+  const header =
+    "═══ CHANNEL UPDATE ═══\n" +
     "New messages from other participants in the shared deliberation channel.\n" +
     "Read them carefully, then respond.\n\n";
 
-  const body = messages
-    .map(m => `── ${m.fromRole || m.fromType} ──\n${m.content}`)
-    .join("\n\n");
+  const body = messages.map((m) => `── ${m.fromRole || m.fromType} ──\n${m.content}`).join("\n\n");
 
-  const footer = "\n\n═══ END CHANNEL UPDATE ═══\n\n" +
+  const footer =
+    "\n\n═══ END CHANNEL UPDATE ═══\n\n" +
     "Instructions:\n" +
     "- Respond to the messages above with your analysis.\n" +
     "- Your entire response will be posted to the channel.\n" +
@@ -210,11 +217,13 @@ Codex supports `turn/steer` for mid-turn message injection, which could provide 
 ### Implicit Read Cursor
 
 For Codex, the engine manages the read cursor entirely. When injecting messages, the engine:
+
 1. Queries messages after the child session's `last_read_sequence`
 2. Injects them as a turn
 3. Advances the cursor to the latest message sequence
 
 The cursor advance happens at injection time, not at response time. This is safe because:
+
 - The engine controls when injection happens
 - The Codex child session can't independently read the channel
 - If the daemon crashes after injection but before response, the cursor is already advanced, and the response is lost — but the engine detects the orphaned turn and re-injects on recovery
@@ -290,25 +299,25 @@ interface DeliberationState {
   maxTurns: number;
 
   // Conclusion tracking
-  conclusionProposals: Record<SessionId, string>;  // sessionId (child) → summary
+  conclusionProposals: Record<SessionId, string>; // sessionId (child) → summary
   concluded: boolean;
 
   // Liveness tracking
-  lastPostTimestamp: Record<SessionId, string>;       // ISO datetime
+  lastPostTimestamp: Record<SessionId, string>; // ISO datetime
   nudgeCount: Record<SessionId, number>;
-  maxNudges: number;                                 // default 3
-  stallTimeoutMs: number;                            // default 120000 (2 min)
+  maxNudges: number; // default 3
+  stallTimeoutMs: number; // default 120000 (2 min)
 
   // Recovery
-  phase: "deliberating";  // ping-pong turn-taking within a channeled phase
+  phase: "deliberating"; // ping-pong turn-taking within a channeled phase
 
   // Codex injection tracking (see "Orphaned Turn Detection")
   injectionState?: {
     sessionId: SessionId;
     injectedAtSequence: number;
     turnCorrelationId?: string;
-    status: 'injected' | 'response-received' | 'persisted';
-  }
+    status: "injected" | "response-received" | "persisted";
+  };
 }
 ```
 
@@ -319,7 +328,8 @@ async function recoverDeliberation(phaseRun: PhaseRun, state: DeliberationState)
   // 1. Check which child sessions are alive
   const childSessions = await db.query(
     "SELECT * FROM sessions WHERE parent_session_id = ? AND phase_run_id = ?",
-    phaseRun.session_id, phaseRun.id
+    phaseRun.session_id,
+    phaseRun.id,
   );
 
   for (const child of childSessions) {
@@ -331,7 +341,7 @@ async function recoverDeliberation(phaseRun: PhaseRun, state: DeliberationState)
 
   // 2. Determine whose turn it is
   if (state.currentSpeaker) {
-    const speaker = childSessions.find(s => s.session_id === state.currentSpeaker);
+    const speaker = childSessions.find((s) => s.session_id === state.currentSpeaker);
     if (speaker && speaker.status === "active") {
       // Speaker is alive but may have stalled. Check last post time.
       const lastPost = state.lastPostTimestamp[state.currentSpeaker];
@@ -339,7 +349,8 @@ async function recoverDeliberation(phaseRun: PhaseRun, state: DeliberationState)
         // Stalled. Send nudge if under limit.
         if ((state.nudgeCount[state.currentSpeaker] || 0) < state.maxNudges) {
           await nudgeChildSession(speaker);
-          state.nudgeCount[state.currentSpeaker] = (state.nudgeCount[state.currentSpeaker] || 0) + 1;
+          state.nudgeCount[state.currentSpeaker] =
+            (state.nudgeCount[state.currentSpeaker] || 0) + 1;
         } else {
           // Max nudges exceeded. Force conclusion or notify human.
           await notifyHuman(phaseRun.session_id, "Child session stalled during deliberation");
@@ -352,7 +363,8 @@ async function recoverDeliberation(phaseRun: PhaseRun, state: DeliberationState)
   // 3. Persist updated state
   await db.run(
     "UPDATE phase_runs SET deliberation_state_json = ? WHERE phase_run_id = ?",
-    JSON.stringify(state), phaseRun.id
+    JSON.stringify(state),
+    phaseRun.id,
   );
 }
 ```
@@ -364,6 +376,7 @@ Claude Agent SDK does not support host-initiated message injection into a runnin
 This means: if a Claude child session stalls during deliberation (stops calling `read_channel` or `post_to_channel`), the engine CANNOT nudge it directly. The nudge only takes effect when the Claude child session next calls `read_channel` — the response includes any pending nudge text.
 
 **Consequence for deliberation:** If Claude stops calling channel tools entirely (the agent decides to do local work instead of engaging), the engine has no way to interrupt it. The only recourse is:
+
 1. Wait for the agent to naturally call a channel tool
 2. Wait for max turns / timeout
 3. Human intervention (pause the child session or cancel the session)
@@ -394,35 +407,48 @@ The guidance channel has one participant (human) posting, and one or more child 
 Commands and events use distinct tense to prevent naming collisions. Commands are imperative (what to do), events are past-tense (what happened).
 
 **InteractiveRequest commands** (imperative):
+
 ```typescript
 type InteractiveRequestCommands =
-  | { type: "request.open"; requestId: RequestId; sessionId: SessionId; childSessionId?: SessionId; requestType: InteractiveRequestType; payload: unknown }
+  | {
+      type: "request.open";
+      requestId: RequestId;
+      sessionId: SessionId;
+      childSessionId?: SessionId;
+      requestType: InteractiveRequestType;
+      payload: unknown;
+    }
   | { type: "request.resolve"; requestId: RequestId; resolvedWith: unknown }
-  | { type: "request.mark-stale"; requestId: RequestId; reason: string }
+  | { type: "request.mark-stale"; requestId: RequestId; reason: string };
 ```
 
 **InteractiveRequest events** (past-tense):
+
 ```typescript
 type InteractiveRequestEvents =
-  | { type: "request.opened"; requestId: RequestId; sessionId: SessionId; requestType: InteractiveRequestType }
+  | {
+      type: "request.opened";
+      requestId: RequestId;
+      sessionId: SessionId;
+      requestType: InteractiveRequestType;
+    }
   | { type: "request.resolved"; requestId: RequestId }
-  | { type: "request.stale"; requestId: RequestId; reason: string }
+  | { type: "request.stale"; requestId: RequestId; reason: string };
 ```
 
 This pattern applies to all command/event pairs in the system. Commands express intent; events record outcomes. If a command type string reads as past-tense, it's wrong — rename it to imperative.
-
 
 ## Open Questions (Resolved)
 
 These were open in earlier docs and are now resolved:
 
-| Question | Resolution |
-|----------|-----------|
-| How does a child session "read" a channel? | Claude: MCP tool. Codex: turn injection. |
-| What triggers cursor advancement? | Implicit on next post (Claude) or at injection time (Codex). |
-| How do we ensure idempotency on replay? | SDK handles replay from conversation history; defense-in-depth via content-hash keys in `tool_call_results`. |
-| Does the engine parse free text? | Only for Codex `PROPOSE_CONCLUSION` prefix — deterministic, not heuristic. Deliberation gating is tool-call-based. |
-| Where is deliberation state stored? | `phase_runs.deliberation_state_json` in SQLite. |
+| Question                                   | Resolution                                                                                                         |
+| ------------------------------------------ | ------------------------------------------------------------------------------------------------------------------ |
+| How does a child session "read" a channel? | Claude: MCP tool. Codex: turn injection.                                                                           |
+| What triggers cursor advancement?          | Implicit on next post (Claude) or at injection time (Codex).                                                       |
+| How do we ensure idempotency on replay?    | SDK handles replay from conversation history; defense-in-depth via content-hash keys in `tool_call_results`.       |
+| Does the engine parse free text?           | Only for Codex `PROPOSE_CONCLUSION` prefix — deterministic, not heuristic. Deliberation gating is tool-call-based. |
+| Where is deliberation state stored?        | `phase_runs.deliberation_state_json` in SQLite.                                                                    |
 
 ## Related Documents
 

@@ -11,6 +11,7 @@ The cost of removing Effect (rewriting ~200 service files, reimplementing 5 crit
 New features (workflow engine, channels, deliberation, session tree, workflow editor) are additive. They can be written as Effect services that plug into the existing composition root, following the patterns already established in the codebase. Where existing code needs modification (e.g., extending the decider/projector for the session aggregate), refactor those specific files — don't rewrite the stack.
 
 The existing patterns to follow:
+
 - Services as Effect Layers with dependency injection
 - Commands through the OrchestrationEngine's dispatch
 - Event handling through the projector

@@ -13,6 +13,7 @@ This document covers how HerdingLlamas' multi-agent patterns translate into forg
 **Purpose:** Exhaustively validate a plan before implementation.
 
 **Roles:**
+
 - **Advocate**: Reads the plan deeply, builds the strongest evidence-based defense, proactively surfaces gaps found during deep read
 - **Interrogator**: Works through a structured checklist (assumptions, data flow, boundaries, failure modes, state, dependencies, operations, performance, sequencing, ambiguity), cannot conclude until every dimension is addressed
 
@@ -25,10 +26,12 @@ This document covers how HerdingLlamas' multi-agent patterns translate into forg
 **Purpose:** Dual-perspective review of code changes.
 
 **Roles:**
+
 - **Scrutinizer**: Works from the diff outward. Reads changed code, traces into callers/dependencies. Reviews for correctness, safety, edge cases, failure modes.
 - **Defender**: Works from the system inward. Reads tests and callers first. Reviews for architectural fit, design intent, maintainability, integration, backwards compatibility.
 
 **Sequencing:** Three phases within the deliberation:
+
 1. Independent review (both agents review separately, post findings)
 2. Cross-examination (each responds to the other's findings)
 3. Convergence (resolve contested items)
@@ -40,6 +43,7 @@ This document covers how HerdingLlamas' multi-agent patterns translate into forg
 **Purpose:** Find non-obvious connections and structural parallels from unrelated domains.
 
 **Roles:**
+
 - **Connector**: Searches ONLY unrelated domains (biology, economics, game theory). Explicitly forbidden from researching the topic directly.
 - **Critic**: Researches the topic directly, stress-tests analogies against reality, designs "what would it take to build" for novel ideas.
 
@@ -52,6 +56,7 @@ This document covers how HerdingLlamas' multi-agent patterns translate into forg
 **Purpose:** Systematically improve a prompt against prompt engineering principles.
 
 **Roles:**
+
 - **Evaluator**: Assesses against 10 dimensions (clarity, specificity, structure, framing, role definition, context efficiency, constraint completeness, technique fit, redundancy, rationale)
 - **Refiner**: Defends intentional choices, proposes exact before/after text replacements
 
@@ -85,18 +90,22 @@ The engine manages the deliberation lifecycle:
 ### Turn-Taking Strategies
 
 **Ping-pong (default for v1):**
+
 ```
 A posts -> B reads and responds -> A reads and responds -> ...
 ```
+
 Simple, predictable, easy to render in UI. The engine waits for one child session to post before nudging the other.
 
 **Parallel-then-respond (for code review):**
 This pattern is now expressed as separate workflow phases rather than as a sub-state within the deliberation engine. Independent review is one multi-agent phase (no channel, `sandboxMode: read-only`), cross-examination is a second multi-agent phase (with channel). See doc 04's code-review workflow. The deliberation engine does NOT manage this sequencing internally.
 
 **Free-form (stretch goal):**
+
 ```
 Either child session can post at any time. The engine just delivers messages.
 ```
+
 Most natural but hardest to render cleanly and hardest to ensure both child sessions participate equally.
 
 ### Synthesis
@@ -123,6 +132,7 @@ Role prompts are the engine of behavior control. They need to:
 6. **Prevent premature convergence** - explicitly tell agents to push back, not agree to be polite
 
 **Example structure (interrogator role prompt):**
+
 ```
 You are the Interrogator. Your job is to systematically probe the proposed plan
 for gaps, unstated assumptions, and failure modes. You are NOT trying to be
@@ -162,23 +172,29 @@ helpful or supportive. You are trying to find every way this plan could fail.
 **Role enforcement is not v1.** Detecting "interrogator is agreeing too easily" requires sentiment analysis that would be unreliable. Trust the role prompts and let the human monitor.
 
 ### Agent compliance with role constraints
+
 The primary mechanism is the system prompt. For the interrogator pattern, the prompt embeds the 10-dimension checklist and explicitly says "do NOT propose conclusion until all dimensions are addressed." This works well enough in practice (HerdingLlamas proves it). When it fails, the human sees it in the channel view and can intervene.
 
 ### Cost management
+
 Deliberation is expensive. Two child sessions, multiple turns each, full tool access. A 20-turn deliberation could easily cost $10-20 in API calls.
+
 - Default max turns: 20 (configurable per workflow)
 - Token budget per deliberation (configurable)
 - Early termination if both agents agree quickly
 - Show running cost in the UI
 
 ### When to deliberate vs. when to just implement
+
 Not every session needs two child sessions arguing. Deliberation is valuable for:
+
 - Plans before complex implementations
 - Code reviews of significant changes
 - Design decisions with multiple valid approaches
 - Anything where you'd want a second opinion
 
 It's overkill for:
+
 - Trivial bug fixes
 - Straightforward implementations
 - Tasks where the approach is obvious
@@ -186,7 +202,9 @@ It's overkill for:
 The workflow template determines when deliberation happens. The user picks the workflow when creating a session. Standalone deliberations use chat sessions (type: "chat"), which are first-class — no indirection needed.
 
 ### Deliberation quality varies by provider combination
+
 Some provider combinations produce better deliberation than others:
+
 - Claude vs. Claude: good reasoning but may converge too quickly (same training)
 - Claude vs. Codex: different perspectives, different strengths, good tension
 - Same provider, different models: potential sweet spot (same tool interface, different reasoning)
@@ -194,7 +212,9 @@ Some provider combinations produce better deliberation than others:
 Need to experiment and document which combinations work best for each pattern.
 
 ### Channel message format
+
 Should channel messages be plain text, or structured? Options:
+
 - **Plain text**: Simplest. Agents post natural language. Human reads it.
 - **Structured**: Agents post JSON with fields like `dimension`, `finding`, `severity`, `evidence`. Engine can track coverage.
 - **Hybrid**: Plain text with optional metadata that the engine parses.

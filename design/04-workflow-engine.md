@@ -14,12 +14,12 @@ A phase is a discrete step in a workflow. It has a type, a configuration, and a 
 
 **Phase types:**
 
-| Type | What happens | Example |
-|------|-------------|---------|
-| `single-agent` | One agent runs with a prompt | Implement a feature |
-| `multi-agent` | Two+ agents, optionally with a shared channel | Deliberate on a plan; parallel independent review |
-| `automated` | Run a script or quality check, no agent | Run tests, lint, typecheck |
-| `human` | Wait for human input or approval | Review implementation |
+| Type           | What happens                                  | Example                                           |
+| -------------- | --------------------------------------------- | ------------------------------------------------- |
+| `single-agent` | One agent runs with a prompt                  | Implement a feature                               |
+| `multi-agent`  | Two+ agents, optionally with a shared channel | Deliberate on a plan; parallel independent review |
+| `automated`    | Run a script or quality check, no agent       | Run tests, lint, typecheck                        |
+| `human`        | Wait for human input or approval              | Review implementation                             |
 
 ### Gates
 
@@ -27,31 +27,31 @@ A gate sits between phases. It decides: continue, retry, pause for human, or fai
 
 ```typescript
 interface Gate {
-  type: "auto" | "human" | "quality-check"
+  type: "auto" | "human" | "quality-check";
 
   // For auto gates: proceed if all conditions met
-  autoConditions?: AutoCondition[]
+  autoConditions?: AutoCondition[];
 
   // For quality-check gates: run checks, continue if all pass
-  qualityChecks?: QualityCheck[]
+  qualityChecks?: QualityCheck[];
 
   // What to do on failure
   // Defaults: `auto` gates default onFailure: 'fail'. `quality-check` gates default onFailure: 'retry'. `human` gates default onFailure: 'pause'.
-  onFailure: "retry" | "pause" | "fail"
+  onFailure: "retry" | "pause" | "fail";
 
   // If retry: which phase to loop back to
-  retryFromPhase?: PhaseId
-  maxRetries?: number
+  retryFromPhase?: PhaseId;
+  maxRetries?: number;
 }
 
 type AutoCondition =
-  | { type: "session-completed" }     // all agents in this phase have finished their work
-  | { type: "channel-concluded" }     // multi-agent reached agreement
-  | { type: "script-passed"; script: string }
+  | { type: "session-completed" } // all agents in this phase have finished their work
+  | { type: "channel-concluded" } // multi-agent reached agreement
+  | { type: "script-passed"; script: string };
 
 interface QualityCheckReference {
-  check: string       // key into project quality check config
-  required: boolean
+  check: string; // key into project quality check config
+  required: boolean;
 }
 ```
 
@@ -61,10 +61,10 @@ Some phases repeat. A build loop runs implement -> review -> fix -> review -> fi
 
 ```typescript
 interface LoopConfig {
-  maxIterations: number
-  loopBackToPhase: PhaseId
-  exitCondition: "gate-pass" | "human-approve" | "max-iterations"
-  accumulateContext: boolean    // carry forward review findings across iterations
+  maxIterations: number;
+  loopBackToPhase: PhaseId;
+  exitCondition: "gate-pass" | "human-approve" | "max-iterations";
+  accumulateContext: boolean; // carry forward review findings across iterations
 }
 ```
 
@@ -77,6 +77,7 @@ Each phase's agent definition specifies what it produces. There are three output
 **Schema output** — for phases where an agent does work and needs to report structured results. The output schema is enforced by the provider (Claude/Codex structured output). The schema MUST include a `summary: string` field — this is what renders in the workflow timeline. Other fields are structured data available to downstream phases via `{{PREVIOUS_OUTPUT}}`.
 
 Example agent definition with schema output:
+
 ```yaml
 agent: implement
   prompt: implement-template
@@ -94,11 +95,13 @@ agent: implement
 **Conversation output** — default when no schema is specified. The output is the agent's final message or the conversation itself. Used for simple phases where structured data isn't needed.
 
 The agent definition is:
+
 - **Prompt** — system prompt template with engine-injected placeholders (`{{DESCRIPTION}}`, `{{PREVIOUS_OUTPUT}}`, `{{ITERATION_CONTEXT}}`)
 - **Output** — schema (with enforced JSON shape), channel (deliberation), or conversation (default)
 - **Model** — which provider/model (can be overridden per phase in the workflow)
 
 Prompts are written directly. No custom variable system — if you want the prompt to mention TypeScript, write "TypeScript" in the prompt. The three built-in placeholders cover runtime context:
+
 - `{{DESCRIPTION}}` — what the user typed when starting the session
 - `{{PREVIOUS_OUTPUT}}` — the output from the previous phase (rendered summary for schema outputs, channel transcript for deliberation, last message for conversation)
 - `{{ITERATION_CONTEXT}}` — on retry: what failed last time (quality check output, error messages, human corrections)
@@ -116,7 +119,7 @@ name: implement
 phases:
   - name: implement
     type: single-agent
-    provider: auto                    # use default provider
+    provider: auto # use default provider
     gate:
       type: auto
       autoConditions:
@@ -185,7 +188,7 @@ phases:
         provider: claude
         prompt: advocate
       - role: interrogator
-        provider: codex       # or claude with different config
+        provider: codex # or claude with different config
         prompt: interrogator
     channel: deliberation
     gate:
@@ -198,7 +201,7 @@ phases:
     type: single-agent
     provider: auto
     prompt: synthesize-deliberation
-    inputFrom: deliberate.channel     # feed channel transcript as input
+    inputFrom: deliberate.channel # feed channel transcript as input
     gate:
       type: human
 ```
@@ -221,14 +224,14 @@ phases:
         prompt: plan-interrogator
     channel: deliberation
     gate:
-      type: human                    # human approves plan
+      type: human # human approves plan
       onFailure: retry
 
   - name: implement
     type: single-agent
     provider: auto
     prompt: implement
-    inputFrom: plan-review.channel    # approved plan feeds implementation (plan-review is a deliberation phase producing channel output)
+    inputFrom: plan-review.channel # approved plan feeds implementation (plan-review is a deliberation phase producing channel output)
     gate:
       type: quality-check
       qualityChecks:
@@ -311,9 +314,9 @@ phases:
   - name: implement
     type: single-agent
     config:
-      maxTurns: 150          # default varies by workflow
-      checkpointInterval: 5   # checkpoint every N turns (0 = only at completion)
-      turnTimeoutMs: 600000   # 10 minutes per turn
+      maxTurns: 150 # default varies by workflow
+      checkpointInterval: 5 # checkpoint every N turns (0 = only at completion)
+      turnTimeoutMs: 600000 # 10 minutes per turn
       sessionPersistence: true # persist session for resume
     gate:
       type: quality-check
@@ -338,6 +341,7 @@ On startup, the engine reads all YAML sources and upserts into the workflows tab
 ### Creating Workflows
 
 The workflow editor (see doc 05) provides a list-based UI for defining phases. Each phase specifies:
+
 - **What runs:** single agent with a model/prompt, or deliberation with two models/prompts and roles
 - **What happens after:** auto-continue, quality checks, human approval, or done
 - **What happens on failure:** retry, go back to an earlier phase, or stop
@@ -361,7 +365,7 @@ Git operations happen after the workflow completes, not as a workflow phase. Whe
 on_completion:
   auto_commit: true
   auto_push: true
-  create_pr: true           # AI-generated title/description
+  create_pr: true # AI-generated title/description
 ```
 
 These run after the last phase completes successfully. If not configured, the user manually commits/pushes/creates PRs using the same UI controls t3-code provides.
@@ -431,11 +435,11 @@ Across loop iterations, the engine builds a context summary:
 
 ```typescript
 interface IterationContext {
-  iteration: number
-  previousFindings: string[]       // what review found last time
-  previousCorrections: string[]    // what human corrected
-  qualityCheckResults: QualityCheckResult[]  // what passed/failed
-  accumulatedPatterns: string[]    // recurring issues
+  iteration: number;
+  previousFindings: string[]; // what review found last time
+  previousCorrections: string[]; // what human corrected
+  qualityCheckResults: QualityCheckResult[]; // what passed/failed
+  accumulatedPatterns: string[]; // recurring issues
 }
 ```
 
@@ -447,35 +451,35 @@ Phase prompts use `{{VARIABLE_NAME}}` placeholders that the engine resolves befo
 
 ### Source Types (v1)
 
-| Source | Description | Example |
-|--------|------------|---------|
-| `static` | Hardcoded value in workflow definition | `{{MAX_RETRIES}}` = "3" |
-| `env` | Environment variable | `{{NODE_ENV}}` from process.env |
-| `builtin` | Engine-computed from session/phase/agent context | `{{SESSION_DESCRIPTION}}`, `{{ITERATION}}` |
+| Source         | Description                                             | Example                                       |
+| -------------- | ------------------------------------------------------- | --------------------------------------------- |
+| `static`       | Hardcoded value in workflow definition                  | `{{MAX_RETRIES}}` = "3"                       |
+| `env`          | Environment variable                                    | `{{NODE_ENV}}` from process.env               |
+| `builtin`      | Engine-computed from session/phase/agent context        | `{{SESSION_DESCRIPTION}}`, `{{ITERATION}}`    |
 | `phase_output` | Resolved from a previous phase's output via `inputFrom` | `{{SPEC_CONTENT}}` from plan-review.synthesis |
 
 v2 extension points: `script` (execute shell command), `api` (HTTP endpoint), `prompt_fragment` (reusable prompt snippets from ~/.forge/prompts/fragments/).
 
 ### Built-In Variables
 
-| Variable | Source | Value |
-|----------|--------|-------|
-| `SESSION_ID` | session | Session identifier |
-| `SESSION_TITLE` | session | Session title |
-| `SESSION_DESCRIPTION` | session | Session description (from metadata) |
-| `PROJECT_PATH` | session | Project workspace root |
-| `WORKING_DIR` | session | Worktree path (or project root if no worktree) |
-| `BRANCH` | session | Current git branch |
-| `PHASE_NAME` | phase_run | Current phase name |
-| `PHASE_TYPE` | phase_run | Current phase type |
-| `ITERATION` | phase_run | Current loop iteration (1-based) |
-| `MAX_ITERATIONS` | workflow phase config | Maximum loop iterations |
-| `RETRY_REASON` | gate_result | Why the previous iteration failed |
-| `RETRY_FEEDBACK` | gate_result + corrections | Gate failure details + human corrections |
-| `QUALITY_CHECK_RESULTS` | gate_result | Formatted quality check output from previous gate |
-| `ITERATION_CONTEXT` | accumulated | Built from previous phase_runs' outputs and corrections |
-| `PREVIOUS_FINDINGS` | phase_output | Resolved inputFrom content |
-| `CORRECTION_HISTORY` | guidance channel | All corrections posted by human for this session |
+| Variable                | Source                    | Value                                                   |
+| ----------------------- | ------------------------- | ------------------------------------------------------- |
+| `SESSION_ID`            | session                   | Session identifier                                      |
+| `SESSION_TITLE`         | session                   | Session title                                           |
+| `SESSION_DESCRIPTION`   | session                   | Session description (from metadata)                     |
+| `PROJECT_PATH`          | session                   | Project workspace root                                  |
+| `WORKING_DIR`           | session                   | Worktree path (or project root if no worktree)          |
+| `BRANCH`                | session                   | Current git branch                                      |
+| `PHASE_NAME`            | phase_run                 | Current phase name                                      |
+| `PHASE_TYPE`            | phase_run                 | Current phase type                                      |
+| `ITERATION`             | phase_run                 | Current loop iteration (1-based)                        |
+| `MAX_ITERATIONS`        | workflow phase config     | Maximum loop iterations                                 |
+| `RETRY_REASON`          | gate_result               | Why the previous iteration failed                       |
+| `RETRY_FEEDBACK`        | gate_result + corrections | Gate failure details + human corrections                |
+| `QUALITY_CHECK_RESULTS` | gate_result               | Formatted quality check output from previous gate       |
+| `ITERATION_CONTEXT`     | accumulated               | Built from previous phase_runs' outputs and corrections |
+| `PREVIOUS_FINDINGS`     | phase_output              | Resolved inputFrom content                              |
+| `CORRECTION_HISTORY`    | guidance channel          | All corrections posted by human for this session        |
 
 ### Resolution Order
 
@@ -505,7 +509,9 @@ When `inputFrom` is a simple string (not a map), the resolved content binds to t
 ## Challenges
 
 ### Channel tool design
+
 Child sessions need tools to interact with channels. These tools must be:
+
 - Reliable (agents actually use them, not just ignore them)
 - Injected into the child session's tool set dynamically (not all sessions need channel tools)
 - Intercepted by the backend (tool calls go to forge, not to the filesystem)
@@ -514,7 +520,9 @@ For Claude Agent SDK: custom tools are supported. The SDK allows defining tools 
 For Codex: tool interception is less straightforward. May need to use file-based communication (agent writes to a known path, forge watches it) or Codex's API for injecting tools.
 
 ### Turn-taking coordination for multi-agent
+
 Two child sessions running simultaneously can create race conditions. Who goes first? What if both post at the same time? Options:
+
 1. **Strict turn-taking**: Agent A posts, waits. Agent B reads, posts, waits. Ping-pong.
 2. **Event-driven**: Either agent can post anytime. The other gets notified of new messages.
 3. **Phase-based**: Both research independently (no channel), then cross-examine (channel opens).
@@ -522,7 +530,9 @@ Two child sessions running simultaneously can create race conditions. Who goes f
 HerdingLlamas uses event-driven with nudges. This works but requires careful timing. Strict turn-taking is simpler and may be better for a v1.
 
 ### Quality check reliability
+
 Quality checks run shell commands. These can:
+
 - Take a long time (full test suite)
 - Be flaky (intermittent failures)
 - Require specific environment (node version, dependencies)
@@ -531,7 +541,9 @@ Quality checks run shell commands. These can:
 Need to handle: timeouts, retries for flaky tests, clear error reporting that distinguishes "your code is broken" from "the test environment is broken."
 
 ### Workflow definition UX
+
 Users will want to create custom workflows. The YAML format is powerful but error-prone. Options:
+
 - YAML files with validation (developer-friendly, version-controllable)
 - UI form builder (accessible but limited)
 - Template customization (pick a built-in workflow, adjust parameters)
@@ -539,7 +551,9 @@ Users will want to create custom workflows. The YAML format is powerful but erro
 Start with built-in workflows + template customization. Add YAML for power users. UI builder is a stretch goal.
 
 ### Phase prompt management
+
 Each phase needs a prompt. Where do prompts live?
+
 - Embedded in workflow YAML (simple, self-contained)
 - Separate prompt files referenced by workflow (reusable, easier to edit)
 - Generated dynamically from session context (most flexible, hardest to debug)
