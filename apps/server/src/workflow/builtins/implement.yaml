@@ -1,0 +1,18 @@
+id: workflow-built-in-implement
+name: implement
+description: Single-agent implementation workflow for straightforward changes.
+builtIn: true
+createdAt: "2026-04-05T00:00:00.000Z"
+updatedAt: "2026-04-05T00:00:00.000Z"
+phases:
+  - id: phase-built-in-implement
+    name: implement
+    type: single-agent
+    agent:
+      prompt: implement
+      output:
+        type: conversation
+    gate:
+      after: done
+      onFail: stop
+      maxRetries: 0

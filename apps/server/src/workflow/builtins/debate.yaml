@@ -1,0 +1,39 @@
+id: workflow-built-in-debate
+name: debate
+description: Structured two-agent debate that surfaces objections before a synthesis pass.
+builtIn: true
+createdAt: "2026-04-05T00:00:00.000Z"
+updatedAt: "2026-04-05T00:00:00.000Z"
+phases:
+  - id: phase-built-in-debate
+    name: debate
+    type: multi-agent
+    deliberation:
+      participants:
+        - role: advocate
+          agent:
+            prompt: advocate
+            output:
+              type: channel
+        - role: critic
+          agent:
+            prompt: critic
+            output:
+              type: channel
+      maxTurns: 20
+    gate:
+      after: auto-continue
+      onFail: stop
+      maxRetries: 0
+  - id: phase-built-in-debate-synthesize
+    name: synthesize
+    type: single-agent
+    agent:
+      prompt: synthesize
+      output:
+        type: conversation
+    inputFrom: debate.channel
+    gate:
+      after: human-approval
+      onFail: retry
+      maxRetries: 3

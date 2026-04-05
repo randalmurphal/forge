@@ -1,6 +1,6 @@
 # Engine Loop -- Progress Tracker
 
-## Status: NOT STARTED
+## Status: IN PROGRESS
 
 ## Codebase Patterns
 
@@ -20,10 +20,12 @@
 ## Completed Work Items
 
 - `WI-1: WorkflowRegistry service`
+- `WI-2: Built-in workflow YAML definitions`
 
 ## Iteration Log
 
 - `2026-04-05`: Implemented `WorkflowRegistry` with startup built-in YAML loading, DB materialization through `ProjectionWorkflowRepository`, query APIs, typed workflow registry errors, and coverage for materialization/precedence/missing workflows. Also fixed workflow projection persistence to preserve `onCompletion` via a new forward migration `025_WorkflowOnCompletion`.
+- `2026-04-05`: Added the eight built-in workflow YAML definitions under `apps/server/src/workflow/builtins/` and validation coverage that parses every bundled workflow against `WorkflowDefinition`.
 
 ## Review Log
 

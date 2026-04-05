@@ -1,0 +1,51 @@
+id: workflow-built-in-build-loop
+name: build-loop
+description: Implement, run quality checks, review, and finalize before handoff.
+builtIn: true
+createdAt: "2026-04-05T00:00:00.000Z"
+updatedAt: "2026-04-05T00:00:00.000Z"
+phases:
+  - id: phase-built-in-build-loop-implement
+    name: implement
+    type: single-agent
+    agent:
+      prompt: implement
+      output:
+        type: conversation
+    gate:
+      after: quality-checks
+      qualityChecks:
+        - check: test
+          required: true
+        - check: lint
+          required: true
+        - check: typecheck
+          required: true
+      onFail: retry
+      maxRetries: 5
+  - id: phase-built-in-build-loop-review
+    name: review
+    type: single-agent
+    agent:
+      prompt: review
+      output:
+        type: conversation
+    gate:
+      after: human-approval
+      onFail: go-back-to
+      retryPhase: implement
+      maxRetries: 5
+  - id: phase-built-in-build-loop-finalize
+    name: finalize
+    type: automated
+    qualityChecks:
+      - check: test
+        required: true
+      - check: lint
+        required: true
+      - check: typecheck
+        required: true
+    gate:
+      after: quality-checks
+      onFail: stop
+      maxRetries: 0

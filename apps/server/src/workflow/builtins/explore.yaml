@@ -1,0 +1,39 @@
+id: workflow-built-in-explore
+name: explore
+description: Lateral-thinking exploration with a connector and critic, then synthesis.
+builtIn: true
+createdAt: "2026-04-05T00:00:00.000Z"
+updatedAt: "2026-04-05T00:00:00.000Z"
+phases:
+  - id: phase-built-in-explore
+    name: explore
+    type: multi-agent
+    deliberation:
+      participants:
+        - role: connector
+          agent:
+            prompt: connector
+            output:
+              type: channel
+        - role: critic
+          agent:
+            prompt: critic
+            output:
+              type: channel
+      maxTurns: 20
+    gate:
+      after: auto-continue
+      onFail: stop
+      maxRetries: 0
+  - id: phase-built-in-explore-synthesize
+    name: synthesize
+    type: single-agent
+    agent:
+      prompt: synthesize
+      output:
+        type: conversation
+    inputFrom: explore.channel
+    gate:
+      after: human-approval
+      onFail: retry
+      maxRetries: 3
