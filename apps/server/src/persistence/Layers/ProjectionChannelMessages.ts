@@ -2,7 +2,7 @@ import { Effect, Layer, Schema, Struct } from "effect";
 import * as SqlClient from "effect/unstable/sql/SqlClient";
 import * as SqlSchema from "effect/unstable/sql/SqlSchema";
 
-import { toPersistenceSqlError } from "../Errors.ts";
+import { toPersistenceSqlError, toPersistenceSqlOrDecodeError } from "../Errors.ts";
 import {
   GetProjectionChannelUnreadCountInput,
   ProjectionChannelMessage,
@@ -121,7 +121,10 @@ const makeProjectionChannelMessageRepository = Effect.gen(function* () {
   const queryByChannelId: ProjectionChannelMessageRepositoryShape["queryByChannelId"] = (input) =>
     queryProjectionChannelMessageRowsByChannelId(input).pipe(
       Effect.mapError(
-        toPersistenceSqlError("ProjectionChannelMessageRepository.queryByChannelId:query"),
+        toPersistenceSqlOrDecodeError(
+          "ProjectionChannelMessageRepository.queryByChannelId:query",
+          "ProjectionChannelMessageRepository.queryByChannelId:decodeRows",
+        ),
       ),
     );
 

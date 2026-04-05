@@ -1,7 +1,9 @@
 import { WorkflowId, WorkflowPhaseId } from "@t3tools/contracts";
 import { assert, it } from "@effect/vitest";
-import { Effect, Layer, Option } from "effect";
+import { Effect, Layer, Option, Schema } from "effect";
+import * as SqlClient from "effect/unstable/sql/SqlClient";
 
+import { PersistenceDecodeError } from "../Errors.ts";
 import { ProjectionWorkflowRepository } from "../Services/ProjectionWorkflows.ts";
 import { ProjectionWorkflowRepositoryLive } from "./ProjectionWorkflows.ts";
 import { SqlitePersistenceMemory } from "./Sqlite.ts";
@@ -180,6 +182,47 @@ layer("ProjectionWorkflowRepository", (it) => {
         workflowId: WorkflowId.makeUnsafe("workflow-alpha"),
       });
       assert.deepStrictEqual(Option.getOrNull(deletedWorkflow), null);
+    }),
+  );
+
+  it.effect("fails with PersistenceDecodeError when stored phases json is invalid", () =>
+    Effect.gen(function* () {
+      const repository = yield* ProjectionWorkflowRepository;
+      const sql = yield* SqlClient.SqlClient;
+
+      yield* sql`
+        INSERT INTO workflows (
+          workflow_id,
+          name,
+          description,
+          phases_json,
+          built_in,
+          created_at,
+          updated_at
+        )
+        VALUES (
+          ${WorkflowId.makeUnsafe("workflow-invalid-json")},
+          ${"invalid-json"},
+          ${"Broken workflow row"},
+          ${"{"},
+          ${1},
+          ${"2026-04-05T18:00:00.000Z"},
+          ${"2026-04-05T18:00:00.000Z"}
+        )
+      `;
+
+      const result = yield* Effect.result(
+        repository.queryById({
+          workflowId: WorkflowId.makeUnsafe("workflow-invalid-json"),
+        }),
+      );
+      assert.equal(result._tag, "Failure");
+      if (result._tag === "Failure") {
+        assert.ok(Schema.is(PersistenceDecodeError)(result.failure));
+        assert.ok(
+          result.failure.operation.includes("ProjectionWorkflowRepository.queryById:decodeRow"),
+        );
+      }
     }),
   );
 });

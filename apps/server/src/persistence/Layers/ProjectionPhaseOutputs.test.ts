@@ -1,7 +1,9 @@
 import { PhaseRunId } from "@t3tools/contracts";
 import { assert, it } from "@effect/vitest";
-import { Effect, Layer, Option } from "effect";
+import { Effect, Layer, Option, Schema } from "effect";
+import * as SqlClient from "effect/unstable/sql/SqlClient";
 
+import { PersistenceDecodeError } from "../Errors.ts";
 import { ProjectionPhaseOutputRepository } from "../Services/ProjectionPhaseOutputs.ts";
 import { ProjectionPhaseOutputRepositoryLive } from "./ProjectionPhaseOutputs.ts";
 import { SqlitePersistenceMemory } from "./Sqlite.ts";
@@ -131,6 +133,51 @@ layer("ProjectionPhaseOutputRepository", (it) => {
         createdAt: "2026-04-05T15:10:00.000Z",
         updatedAt: "2026-04-05T15:12:00.000Z",
       });
+    }),
+  );
+
+  it.effect("fails with PersistenceDecodeError when stored metadata json is invalid", () =>
+    Effect.gen(function* () {
+      const repository = yield* ProjectionPhaseOutputRepository;
+      const sql = yield* SqlClient.SqlClient;
+      const phaseRunId = PhaseRunId.makeUnsafe("phase-run-invalid-json");
+
+      yield* sql`
+        INSERT INTO phase_outputs (
+          phase_run_id,
+          output_key,
+          content,
+          source_type,
+          source_id,
+          metadata_json,
+          created_at,
+          updated_at
+        )
+        VALUES (
+          ${phaseRunId},
+          ${"output"},
+          ${"Broken phase output"},
+          ${"conversation"},
+          ${"thread-child-invalid"},
+          ${"{"},
+          ${"2026-04-05T18:30:00.000Z"},
+          ${"2026-04-05T18:30:00.000Z"}
+        )
+      `;
+
+      const result = yield* Effect.result(
+        repository.queryByKey({
+          phaseRunId,
+          outputKey: "output",
+        }),
+      );
+      assert.equal(result._tag, "Failure");
+      if (result._tag === "Failure") {
+        assert.ok(Schema.is(PersistenceDecodeError)(result.failure));
+        assert.ok(
+          result.failure.operation.includes("ProjectionPhaseOutputRepository.queryByKey:decodeRow"),
+        );
+      }
     }),
   );
 });

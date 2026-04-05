@@ -1,7 +1,9 @@
 import { PhaseRunId, ThreadId, WorkflowId, WorkflowPhaseId } from "@t3tools/contracts";
 import { assert, it } from "@effect/vitest";
-import { Effect, Layer, Option } from "effect";
+import { Effect, Layer, Option, Schema } from "effect";
+import * as SqlClient from "effect/unstable/sql/SqlClient";
 
+import { PersistenceDecodeError } from "../Errors.ts";
 import { ProjectionPhaseRunRepository } from "../Services/ProjectionPhaseRuns.ts";
 import { SqlitePersistenceMemory } from "./Sqlite.ts";
 import { ProjectionPhaseRunRepositoryLive } from "./ProjectionPhaseRuns.ts";
@@ -217,6 +219,61 @@ layer("ProjectionPhaseRunRepository", (it) => {
         startedAt: "2026-04-05T13:05:00.000Z",
         completedAt: "2026-04-05T13:20:00.000Z",
       });
+    }),
+  );
+
+  it.effect("fails with PersistenceDecodeError when stored gate result json is invalid", () =>
+    Effect.gen(function* () {
+      const repository = yield* ProjectionPhaseRunRepository;
+      const sql = yield* SqlClient.SqlClient;
+
+      yield* sql`
+        INSERT INTO phase_runs (
+          phase_run_id,
+          thread_id,
+          workflow_id,
+          phase_id,
+          phase_name,
+          phase_type,
+          sandbox_mode,
+          iteration,
+          status,
+          gate_result_json,
+          quality_checks_json,
+          deliberation_state_json,
+          started_at,
+          completed_at
+        )
+        VALUES (
+          ${PhaseRunId.makeUnsafe("phase-run-invalid-json")},
+          ${ThreadId.makeUnsafe("thread-invalid-json")},
+          ${WorkflowId.makeUnsafe("workflow-invalid-json")},
+          ${WorkflowPhaseId.makeUnsafe("phase-invalid-json")},
+          ${"review"},
+          ${"single-agent"},
+          ${"workspace-write"},
+          ${1},
+          ${"failed"},
+          ${"{"},
+          ${null},
+          ${null},
+          ${"2026-04-05T18:10:00.000Z"},
+          ${null}
+        )
+      `;
+
+      const result = yield* Effect.result(
+        repository.queryById({
+          phaseRunId: PhaseRunId.makeUnsafe("phase-run-invalid-json"),
+        }),
+      );
+      assert.equal(result._tag, "Failure");
+      if (result._tag === "Failure") {
+        assert.ok(Schema.is(PersistenceDecodeError)(result.failure));
+        assert.ok(
+          result.failure.operation.includes("ProjectionPhaseRunRepository.queryById:decodeRow"),
+        );
+      }
     }),
   );
 });

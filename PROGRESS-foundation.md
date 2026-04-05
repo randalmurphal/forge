@@ -21,6 +21,7 @@
 (Issues moved here after being fixed and committed.)
 
 - 2026-04-05: Spec compliance gap in the additive channel surface: `channel.read-messages` was defined in contracts, but the decider did not emit the matching `channel.messages-read` event and the projection pipeline never updated `channel_reads`, leaving the read-cursor path unreachable despite the schema and table existing.
+- 2026-04-05: Error handling gap in the new JSON-backed foundation projection repositories: malformed stored JSON in workflow, phase-run, phase-output, channel-message, and interactive-request projections was being surfaced as `PersistenceSqlError` instead of the existing `PersistenceDecodeError`, which would have obscured corruption/shape regressions during projection reads.
 
 ## Completed Work Items
 
@@ -79,3 +80,4 @@
 (Entries added during review phase.)
 
 - 2026-04-05: Swept `Spec Compliance` and fixed the missing `channel.read-messages` flow by adding the `channel.messages-read` event contract/payload, extending the decider to emit it with same-project validation, teaching the projector to accept it, wiring a dedicated `channel_reads` projector into `ProjectionPipeline`, and adding contract/decider/projector/pipeline coverage. Verified with `bun fmt`, `bun lint`, `bun typecheck`, and `bun run test`.
+- 2026-04-05: Swept `Error Handling` and restored decode-vs-SQL error classification across the new JSON-backed foundation projection repositories by adding a shared `toPersistenceSqlOrDecodeError` helper, routing workflow/phase-run/phase-output/channel-message/interactive-request read paths through it, and adding malformed-JSON regression coverage for each repository. Verified with `bun fmt`, `bun lint`, `bun typecheck`, and `bun run test`.

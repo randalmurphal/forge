@@ -1,7 +1,9 @@
 import { InteractiveRequestId, PhaseRunId, ThreadId } from "@t3tools/contracts";
 import { assert, it } from "@effect/vitest";
-import { Effect, Layer, Option } from "effect";
+import { Effect, Layer, Option, Schema } from "effect";
+import * as SqlClient from "effect/unstable/sql/SqlClient";
 
+import { PersistenceDecodeError } from "../Errors.ts";
 import { ProjectionInteractiveRequestRepository } from "../Services/ProjectionInteractiveRequests.ts";
 import { ProjectionInteractiveRequestRepositoryLive } from "./ProjectionInteractiveRequests.ts";
 import { SqlitePersistenceMemory } from "./Sqlite.ts";
@@ -275,6 +277,57 @@ layer("ProjectionInteractiveRequestRepository", (it) => {
         relevantPendingAfterStale.map((request) => request.requestId),
         [InteractiveRequestId.makeUnsafe("request-correction")],
       );
+    }),
+  );
+
+  it.effect("fails with PersistenceDecodeError when stored payload json is invalid", () =>
+    Effect.gen(function* () {
+      const repository = yield* ProjectionInteractiveRequestRepository;
+      const sql = yield* SqlClient.SqlClient;
+
+      yield* sql`
+        INSERT INTO interactive_requests (
+          request_id,
+          thread_id,
+          child_thread_id,
+          phase_run_id,
+          type,
+          status,
+          payload_json,
+          resolved_with_json,
+          created_at,
+          resolved_at,
+          stale_reason
+        )
+        VALUES (
+          ${InteractiveRequestId.makeUnsafe("request-invalid-json")},
+          ${ThreadId.makeUnsafe("thread-invalid-json")},
+          ${null},
+          ${null},
+          ${"approval"},
+          ${"pending"},
+          ${"{"},
+          ${null},
+          ${"2026-04-05T18:20:00.000Z"},
+          ${null},
+          ${null}
+        )
+      `;
+
+      const result = yield* Effect.result(
+        repository.queryById({
+          requestId: InteractiveRequestId.makeUnsafe("request-invalid-json"),
+        }),
+      );
+      assert.equal(result._tag, "Failure");
+      if (result._tag === "Failure") {
+        assert.ok(Schema.is(PersistenceDecodeError)(result.failure));
+        assert.ok(
+          result.failure.operation.includes(
+            "ProjectionInteractiveRequestRepository.queryById:decodeRow",
+          ),
+        );
+      }
     }),
   );
 });

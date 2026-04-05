@@ -3,7 +3,7 @@ import { Effect, Layer, Schema, Struct } from "effect";
 import * as SqlClient from "effect/unstable/sql/SqlClient";
 import * as SqlSchema from "effect/unstable/sql/SqlSchema";
 
-import { toPersistenceSqlError } from "../Errors.ts";
+import { toPersistenceSqlError, toPersistenceSqlOrDecodeError } from "../Errors.ts";
 import {
   MarkProjectionInteractiveRequestStaleInput,
   ProjectionInteractiveRequest,
@@ -188,21 +188,30 @@ const makeProjectionInteractiveRequestRepository = Effect.gen(function* () {
   const queryById: ProjectionInteractiveRequestRepositoryShape["queryById"] = (input) =>
     queryProjectionInteractiveRequestByIdRow(input).pipe(
       Effect.mapError(
-        toPersistenceSqlError("ProjectionInteractiveRequestRepository.queryById:query"),
+        toPersistenceSqlOrDecodeError(
+          "ProjectionInteractiveRequestRepository.queryById:query",
+          "ProjectionInteractiveRequestRepository.queryById:decodeRow",
+        ),
       ),
     );
 
   const queryByThreadId: ProjectionInteractiveRequestRepositoryShape["queryByThreadId"] = (input) =>
     queryProjectionInteractiveRequestRowsByThreadId(input).pipe(
       Effect.mapError(
-        toPersistenceSqlError("ProjectionInteractiveRequestRepository.queryByThreadId:query"),
+        toPersistenceSqlOrDecodeError(
+          "ProjectionInteractiveRequestRepository.queryByThreadId:query",
+          "ProjectionInteractiveRequestRepository.queryByThreadId:decodeRows",
+        ),
       ),
     );
 
   const queryPending: ProjectionInteractiveRequestRepositoryShape["queryPending"] = () =>
     queryPendingProjectionInteractiveRequestRows().pipe(
       Effect.mapError(
-        toPersistenceSqlError("ProjectionInteractiveRequestRepository.queryPending:query"),
+        toPersistenceSqlOrDecodeError(
+          "ProjectionInteractiveRequestRepository.queryPending:query",
+          "ProjectionInteractiveRequestRepository.queryPending:decodeRows",
+        ),
       ),
     );
 

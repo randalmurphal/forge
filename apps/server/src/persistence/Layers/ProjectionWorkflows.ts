@@ -3,7 +3,7 @@ import { Effect, Layer, Option, Schema, Struct } from "effect";
 import * as SqlClient from "effect/unstable/sql/SqlClient";
 import * as SqlSchema from "effect/unstable/sql/SqlSchema";
 
-import { toPersistenceSqlError } from "../Errors.ts";
+import { toPersistenceSqlError, toPersistenceSqlOrDecodeError } from "../Errors.ts";
 import {
   DeleteProjectionWorkflowInput,
   ProjectionWorkflow,
@@ -142,19 +142,34 @@ const makeProjectionWorkflowRepository = Effect.gen(function* () {
 
   const queryById: ProjectionWorkflowRepositoryShape["queryById"] = (input) =>
     queryProjectionWorkflowByIdRow(input).pipe(
-      Effect.mapError(toPersistenceSqlError("ProjectionWorkflowRepository.queryById:query")),
+      Effect.mapError(
+        toPersistenceSqlOrDecodeError(
+          "ProjectionWorkflowRepository.queryById:query",
+          "ProjectionWorkflowRepository.queryById:decodeRow",
+        ),
+      ),
       Effect.map(Option.map(toProjectionWorkflow)),
     );
 
   const queryByName: ProjectionWorkflowRepositoryShape["queryByName"] = (input) =>
     queryProjectionWorkflowByNameRow(input).pipe(
-      Effect.mapError(toPersistenceSqlError("ProjectionWorkflowRepository.queryByName:query")),
+      Effect.mapError(
+        toPersistenceSqlOrDecodeError(
+          "ProjectionWorkflowRepository.queryByName:query",
+          "ProjectionWorkflowRepository.queryByName:decodeRow",
+        ),
+      ),
       Effect.map(Option.map(toProjectionWorkflow)),
     );
 
   const queryAll: ProjectionWorkflowRepositoryShape["queryAll"] = () =>
     queryAllProjectionWorkflowRows().pipe(
-      Effect.mapError(toPersistenceSqlError("ProjectionWorkflowRepository.queryAll:query")),
+      Effect.mapError(
+        toPersistenceSqlOrDecodeError(
+          "ProjectionWorkflowRepository.queryAll:query",
+          "ProjectionWorkflowRepository.queryAll:decodeRows",
+        ),
+      ),
       Effect.map((rows) => rows.map(toProjectionWorkflow)),
     );
 

@@ -2,7 +2,7 @@ import { Effect, Layer, Schema, Struct } from "effect";
 import * as SqlClient from "effect/unstable/sql/SqlClient";
 import * as SqlSchema from "effect/unstable/sql/SqlSchema";
 
-import { toPersistenceSqlError } from "../Errors.ts";
+import { toPersistenceSqlError, toPersistenceSqlOrDecodeError } from "../Errors.ts";
 import {
   ProjectionPhaseOutput,
   ProjectionPhaseOutputRepository,
@@ -104,13 +104,21 @@ const makeProjectionPhaseOutputRepository = Effect.gen(function* () {
   const queryByPhaseRunId: ProjectionPhaseOutputRepositoryShape["queryByPhaseRunId"] = (input) =>
     queryProjectionPhaseOutputRowsByPhaseRunId(input).pipe(
       Effect.mapError(
-        toPersistenceSqlError("ProjectionPhaseOutputRepository.queryByPhaseRunId:query"),
+        toPersistenceSqlOrDecodeError(
+          "ProjectionPhaseOutputRepository.queryByPhaseRunId:query",
+          "ProjectionPhaseOutputRepository.queryByPhaseRunId:decodeRows",
+        ),
       ),
     );
 
   const queryByKey: ProjectionPhaseOutputRepositoryShape["queryByKey"] = (input) =>
     queryProjectionPhaseOutputByKeyRow(input).pipe(
-      Effect.mapError(toPersistenceSqlError("ProjectionPhaseOutputRepository.queryByKey:query")),
+      Effect.mapError(
+        toPersistenceSqlOrDecodeError(
+          "ProjectionPhaseOutputRepository.queryByKey:query",
+          "ProjectionPhaseOutputRepository.queryByKey:decodeRow",
+        ),
+      ),
     );
 
   return {

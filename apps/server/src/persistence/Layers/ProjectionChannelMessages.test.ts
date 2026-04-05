@@ -1,7 +1,9 @@
 import { ChannelId, ChannelMessageId, ThreadId } from "@t3tools/contracts";
 import { assert, it } from "@effect/vitest";
-import { Effect, Layer } from "effect";
+import { Effect, Layer, Schema } from "effect";
+import * as SqlClient from "effect/unstable/sql/SqlClient";
 
+import { PersistenceDecodeError } from "../Errors.ts";
 import { ProjectionChannelMessageRepository } from "../Services/ProjectionChannelMessages.ts";
 import { ProjectionChannelReadRepository } from "../Services/ProjectionChannelReads.ts";
 import { ProjectionChannelMessageRepositoryLive } from "./ProjectionChannelMessages.ts";
@@ -124,6 +126,57 @@ layer("ProjectionChannelMessageRepository", (it) => {
         threadId: readerThreadId,
       });
       assert.strictEqual(unreadAfterCursor, 1);
+    }),
+  );
+
+  it.effect("fails with PersistenceDecodeError when stored metadata json is invalid", () =>
+    Effect.gen(function* () {
+      const messages = yield* ProjectionChannelMessageRepository;
+      const sql = yield* SqlClient.SqlClient;
+      const channelId = ChannelId.makeUnsafe("channel-invalid-json");
+
+      yield* sql`
+        INSERT INTO channel_messages (
+          message_id,
+          channel_id,
+          sequence,
+          from_type,
+          from_id,
+          from_role,
+          content,
+          metadata_json,
+          created_at,
+          deleted_at
+        )
+        VALUES (
+          ${ChannelMessageId.makeUnsafe("message-invalid-json")},
+          ${channelId},
+          ${0},
+          ${"system"},
+          ${"system"},
+          ${null},
+          ${"Broken metadata"},
+          ${"{"},
+          ${"2026-04-05T18:40:00.000Z"},
+          ${null}
+        )
+      `;
+
+      const result = yield* Effect.result(
+        messages.queryByChannelId({
+          channelId,
+          limit: 10 as any,
+        }),
+      );
+      assert.equal(result._tag, "Failure");
+      if (result._tag === "Failure") {
+        assert.ok(Schema.is(PersistenceDecodeError)(result.failure));
+        assert.ok(
+          result.failure.operation.includes(
+            "ProjectionChannelMessageRepository.queryByChannelId:decodeRows",
+          ),
+        );
+      }
     }),
   );
 });

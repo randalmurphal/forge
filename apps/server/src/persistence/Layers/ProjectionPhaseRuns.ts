@@ -3,7 +3,7 @@ import { Effect, Layer, Schema, Struct } from "effect";
 import * as SqlClient from "effect/unstable/sql/SqlClient";
 import * as SqlSchema from "effect/unstable/sql/SqlSchema";
 
-import { toPersistenceSqlError } from "../Errors.ts";
+import { toPersistenceSqlError, toPersistenceSqlOrDecodeError } from "../Errors.ts";
 import {
   ProjectionPhaseRun,
   ProjectionPhaseRunRepository,
@@ -199,12 +199,22 @@ const makeProjectionPhaseRunRepository = Effect.gen(function* () {
 
   const queryById: ProjectionPhaseRunRepositoryShape["queryById"] = (input) =>
     queryProjectionPhaseRunByIdRow(input).pipe(
-      Effect.mapError(toPersistenceSqlError("ProjectionPhaseRunRepository.queryById:query")),
+      Effect.mapError(
+        toPersistenceSqlOrDecodeError(
+          "ProjectionPhaseRunRepository.queryById:query",
+          "ProjectionPhaseRunRepository.queryById:decodeRow",
+        ),
+      ),
     );
 
   const queryByThreadId: ProjectionPhaseRunRepositoryShape["queryByThreadId"] = (input) =>
     queryProjectionPhaseRunRowsByThreadId(input).pipe(
-      Effect.mapError(toPersistenceSqlError("ProjectionPhaseRunRepository.queryByThreadId:query")),
+      Effect.mapError(
+        toPersistenceSqlOrDecodeError(
+          "ProjectionPhaseRunRepository.queryByThreadId:query",
+          "ProjectionPhaseRunRepository.queryByThreadId:decodeRows",
+        ),
+      ),
     );
 
   const updateStatus: ProjectionPhaseRunRepositoryShape["updateStatus"] = (input) =>
