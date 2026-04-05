@@ -4,7 +4,7 @@ Formal type definitions for implementation. Every type, every payload, every def
 
 This document uses `@effect/schema`-style definitions following the patterns established in `packages/contracts/src/baseSchemas.ts` and `packages/contracts/src/orchestration.ts`. The `makeEntityId` helper creates branded string types. `Schema.Struct` defines object shapes. `Schema.Union` creates discriminated unions. `Schema.Literals` creates string literal unions.
 
-> **Naming note:** The design docs use "session" as the user-facing concept. In the codebase, this maps to "thread." The types below use the **implementation names** (thread, ThreadId) so they can be copied into code as-is. The mapping: session = thread, sessionId = threadId.
+> **Naming note:** The types below use `thread.*` prefixes for commands/events because the codebase uses threads as the aggregate root. The user-facing term "session" does not appear in command/event names. The mapping: session = thread, sessionId = threadId.
 
 ---
 
@@ -614,10 +614,10 @@ New commands added to the existing command union. Each follows the established p
 ### Session Lifecycle Commands
 
 ```typescript
-// ── Session aggregate commands ───────────────────────────────────────
+// ── Thread aggregate commands ────────────────────────────────────────
 
 const SessionCreateCommand = Schema.Struct({
-  type: Schema.Literal("session.create"),
+  type: Schema.Literal("thread.create"),
   commandId: CommandId,
   threadId: ThreadId,
   projectId: ProjectId,
@@ -640,7 +640,7 @@ const SessionCreateCommand = Schema.Struct({
 });
 
 const SessionCorrectCommand = Schema.Struct({
-  type: Schema.Literal("session.correct"),
+  type: Schema.Literal("thread.correct"),
   commandId: CommandId,
   threadId: ThreadId,
   content: Schema.String,
@@ -650,14 +650,14 @@ const SessionCorrectCommand = Schema.Struct({
 // For standalone agent sessions: becomes next user turn (mapped to session.send-turn).
 
 const SessionPauseCommand = Schema.Struct({
-  type: Schema.Literal("session.pause"),
+  type: Schema.Literal("thread.pause"),
   commandId: CommandId,
   threadId: ThreadId,
   createdAt: IsoDateTime,
 });
 
 const SessionResumeCommand = Schema.Struct({
-  type: Schema.Literal("session.resume"),
+  type: Schema.Literal("thread.resume"),
   commandId: CommandId,
   threadId: ThreadId,
   createdAt: IsoDateTime,
@@ -665,7 +665,7 @@ const SessionResumeCommand = Schema.Struct({
 // Precondition: status = "paused"
 
 const SessionRecoverCommand = Schema.Struct({
-  type: Schema.Literal("session.recover"),
+  type: Schema.Literal("thread.recover"),
   commandId: CommandId,
   threadId: ThreadId,
   createdAt: IsoDateTime,
@@ -673,7 +673,7 @@ const SessionRecoverCommand = Schema.Struct({
 // Precondition: status = "running" (session was active when daemon crashed)
 
 const SessionCancelCommand = Schema.Struct({
-  type: Schema.Literal("session.cancel"),
+  type: Schema.Literal("thread.cancel"),
   commandId: CommandId,
   threadId: ThreadId,
   reason: Schema.optional(Schema.String),
@@ -681,21 +681,21 @@ const SessionCancelCommand = Schema.Struct({
 });
 
 const SessionArchiveCommand = Schema.Struct({
-  type: Schema.Literal("session.archive"),
+  type: Schema.Literal("thread.archive"),
   commandId: CommandId,
   threadId: ThreadId,
   createdAt: IsoDateTime,
 });
 
 const SessionUnarchiveCommand = Schema.Struct({
-  type: Schema.Literal("session.unarchive"),
+  type: Schema.Literal("thread.unarchive"),
   commandId: CommandId,
   threadId: ThreadId,
   createdAt: IsoDateTime,
 });
 
 const SessionRestartCommand = Schema.Struct({
-  type: Schema.Literal("session.restart"),
+  type: Schema.Literal("thread.restart"),
   commandId: CommandId,
   threadId: ThreadId,
   fromPhaseId: Schema.optional(WorkflowPhaseId),
@@ -703,7 +703,7 @@ const SessionRestartCommand = Schema.Struct({
 });
 
 const SessionMetaUpdateCommand = Schema.Struct({
-  type: Schema.Literal("session.meta-update"),
+  type: Schema.Literal("thread.meta-update"),
   commandId: CommandId,
   threadId: ThreadId,
   title: Schema.optional(TrimmedNonEmptyString),
@@ -718,7 +718,7 @@ const SessionMetaUpdateCommand = Schema.Struct({
 
 ```typescript
 const SessionStartPhaseCommand = Schema.Struct({
-  type: Schema.Literal("session.start-phase"),
+  type: Schema.Literal("thread.start-phase"),
   commandId: CommandId,
   threadId: ThreadId,
   phaseId: WorkflowPhaseId,
@@ -729,7 +729,7 @@ const SessionStartPhaseCommand = Schema.Struct({
 });
 
 const SessionCompletePhaseCommand = Schema.Struct({
-  type: Schema.Literal("session.complete-phase"),
+  type: Schema.Literal("thread.complete-phase"),
   commandId: CommandId,
   threadId: ThreadId,
   phaseRunId: PhaseRunId,
@@ -743,7 +743,7 @@ const SessionCompletePhaseCommand = Schema.Struct({
 });
 
 const SessionFailPhaseCommand = Schema.Struct({
-  type: Schema.Literal("session.fail-phase"),
+  type: Schema.Literal("thread.fail-phase"),
   commandId: CommandId,
   threadId: ThreadId,
   phaseRunId: PhaseRunId,
@@ -752,7 +752,7 @@ const SessionFailPhaseCommand = Schema.Struct({
 });
 
 const SessionSkipPhaseCommand = Schema.Struct({
-  type: Schema.Literal("session.skip-phase"),
+  type: Schema.Literal("thread.skip-phase"),
   commandId: CommandId,
   threadId: ThreadId,
   phaseRunId: PhaseRunId,
@@ -760,7 +760,7 @@ const SessionSkipPhaseCommand = Schema.Struct({
 });
 
 const SessionEditPhaseOutputCommand = Schema.Struct({
-  type: Schema.Literal("session.edit-phase-output"),
+  type: Schema.Literal("thread.edit-phase-output"),
   commandId: CommandId,
   threadId: ThreadId,
   phaseRunId: PhaseRunId,
@@ -774,7 +774,7 @@ const SessionEditPhaseOutputCommand = Schema.Struct({
 
 ```typescript
 const SessionQualityCheckStartCommand = Schema.Struct({
-  type: Schema.Literal("session.quality-check-start"),
+  type: Schema.Literal("thread.quality-check-start"),
   commandId: CommandId,
   threadId: ThreadId,
   phaseRunId: PhaseRunId,
@@ -783,7 +783,7 @@ const SessionQualityCheckStartCommand = Schema.Struct({
 });
 
 const SessionQualityCheckCompleteCommand = Schema.Struct({
-  type: Schema.Literal("session.quality-check-complete"),
+  type: Schema.Literal("thread.quality-check-complete"),
   commandId: CommandId,
   threadId: ThreadId,
   phaseRunId: PhaseRunId,
@@ -796,21 +796,21 @@ const SessionQualityCheckCompleteCommand = Schema.Struct({
 
 ```typescript
 const SessionBootstrapStartedCommand = Schema.Struct({
-  type: Schema.Literal("session.bootstrap-started"),
+  type: Schema.Literal("thread.bootstrap-started"),
   commandId: CommandId,
   threadId: ThreadId,
   createdAt: IsoDateTime,
 });
 
 const SessionBootstrapCompletedCommand = Schema.Struct({
-  type: Schema.Literal("session.bootstrap-completed"),
+  type: Schema.Literal("thread.bootstrap-completed"),
   commandId: CommandId,
   threadId: ThreadId,
   createdAt: IsoDateTime,
 });
 
 const SessionBootstrapFailedCommand = Schema.Struct({
-  type: Schema.Literal("session.bootstrap-failed"),
+  type: Schema.Literal("thread.bootstrap-failed"),
   commandId: CommandId,
   threadId: ThreadId,
   error: Schema.String,
@@ -820,7 +820,7 @@ const SessionBootstrapFailedCommand = Schema.Struct({
 });
 
 const SessionBootstrapSkippedCommand = Schema.Struct({
-  type: Schema.Literal("session.bootstrap-skipped"),
+  type: Schema.Literal("thread.bootstrap-skipped"),
   commandId: CommandId,
   threadId: ThreadId,
   createdAt: IsoDateTime,
@@ -831,7 +831,7 @@ const SessionBootstrapSkippedCommand = Schema.Struct({
 
 ```typescript
 const SessionSendTurnCommand = Schema.Struct({
-  type: Schema.Literal("session.send-turn"),
+  type: Schema.Literal("thread.send-turn"),
   commandId: CommandId,
   threadId: ThreadId,                 // the leaf session
   content: Schema.String,
@@ -841,14 +841,14 @@ const SessionSendTurnCommand = Schema.Struct({
 });
 
 const SessionRestartTurnCommand = Schema.Struct({
-  type: Schema.Literal("session.restart-turn"),
+  type: Schema.Literal("thread.restart-turn"),
   commandId: CommandId,
   threadId: ThreadId,                 // the leaf session
   createdAt: IsoDateTime,
 });
 
 const SessionSendMessageCommand = Schema.Struct({
-  type: Schema.Literal("session.send-message"),
+  type: Schema.Literal("thread.send-message"),
   commandId: CommandId,
   threadId: ThreadId,                 // the leaf session
   messageId: MessageId,
@@ -872,7 +872,7 @@ export const LinkType = Schema.Literals([
 export type LinkType = typeof LinkType.Type;
 
 const SessionAddLinkCommand = Schema.Struct({
-  type: Schema.Literal("session.add-link"),
+  type: Schema.Literal("thread.add-link"),
   commandId: CommandId,
   threadId: ThreadId,
   linkId: LinkId,
@@ -885,7 +885,7 @@ const SessionAddLinkCommand = Schema.Struct({
 // Constraint: at least one of linkedThreadId or externalId must be set.
 
 const SessionRemoveLinkCommand = Schema.Struct({
-  type: Schema.Literal("session.remove-link"),
+  type: Schema.Literal("thread.remove-link"),
   commandId: CommandId,
   threadId: ThreadId,
   linkId: LinkId,
@@ -893,7 +893,7 @@ const SessionRemoveLinkCommand = Schema.Struct({
 });
 
 const SessionPromoteCommand = Schema.Struct({
-  type: Schema.Literal("session.promote"),
+  type: Schema.Literal("thread.promote"),
   commandId: CommandId,
   sourceThreadId: ThreadId,
   targetThreadId: ThreadId,
@@ -904,16 +904,16 @@ const SessionPromoteCommand = Schema.Struct({
   createdAt: IsoDateTime,
 });
 // Composite command. Decider emits atomically:
-//   session.created (new workflow session)
-//   session.link-added (promoted-from on new, promoted-to on source)
-//   session.archived (source chat session)
+//   thread.created (new workflow session)
+//   thread.link-added (promoted-from on new, promoted-to on source)
+//   thread.archived (source chat session)
 ```
 
 ### Dependency Commands
 
 ```typescript
 const SessionAddDependencyCommand = Schema.Struct({
-  type: Schema.Literal("session.add-dependency"),
+  type: Schema.Literal("thread.add-dependency"),
   commandId: CommandId,
   threadId: ThreadId,
   dependsOnThreadId: ThreadId,
@@ -921,7 +921,7 @@ const SessionAddDependencyCommand = Schema.Struct({
 });
 
 const SessionRemoveDependencyCommand = Schema.Struct({
-  type: Schema.Literal("session.remove-dependency"),
+  type: Schema.Literal("thread.remove-dependency"),
   commandId: CommandId,
   threadId: ThreadId,
   dependsOnThreadId: ThreadId,
@@ -1070,13 +1070,13 @@ export const ForgeCommand = Schema.Union([
 export type ForgeCommand = typeof ForgeCommand.Type;
 ```
 
-**Client vs. Internal split:** The socket API exposes a subset of these commands. Internal-only commands (e.g., `session.bootstrap-started`, `session.send-message`, `request.mark-stale`) are dispatched by reactors and the engine, not by external clients. The split follows the existing `DispatchableClientOrchestrationCommand` / `InternalOrchestrationCommand` pattern.
+**Client vs. Internal split:** The socket API exposes a subset of these commands. Internal-only commands (e.g., `thread.bootstrap-started`, `thread.send-message`, `request.mark-stale`) are dispatched by reactors and the engine, not by external clients. The split follows the existing `DispatchableClientOrchestrationCommand` / `InternalOrchestrationCommand` pattern.
 
 ---
 
 ## 6. Orchestration Events (packages/contracts/src/orchestration.ts extensions)
 
-Events are the past-tense of commands. Each event carries the `EventBaseFields` and a typed payload. Events use hyphenated names (e.g., `session.phase-started`).
+Events are the past-tense of commands. Each event carries the `EventBaseFields` and a typed payload. Events use hyphenated names (e.g., `thread.phase-started`).
 
 ### Event Type Literals
 
@@ -1086,40 +1086,40 @@ export const ForgeEventType = Schema.Literals([
   "project.created",
   "project.meta-updated",
   "project.deleted",
-  // Session lifecycle
-  "session.created",
-  "session.meta-updated",
-  "session.status-changed",
-  "session.completed",
-  "session.failed",
-  "session.cancelled",
-  "session.archived",
-  "session.unarchived",
-  "session.restarted",
-  "session.dependencies-satisfied",
-  "session.dependency-added",
-  "session.dependency-removed",
-  "session.link-added",
-  "session.link-removed",
-  "session.synthesis-completed",
+  // Thread lifecycle
+  "thread.created",
+  "thread.meta-updated",
+  "thread.status-changed",
+  "thread.completed",
+  "thread.failed",
+  "thread.cancelled",
+  "thread.archived",
+  "thread.unarchived",
+  "thread.restarted",
+  "thread.dependencies-satisfied",
+  "thread.dependency-added",
+  "thread.dependency-removed",
+  "thread.link-added",
+  "thread.link-removed",
+  "thread.synthesis-completed",
   // Bootstrap
-  "session.bootstrap-queued",
-  "session.bootstrap-started",
-  "session.bootstrap-completed",
-  "session.bootstrap-failed",
-  "session.bootstrap-skipped",
+  "thread.bootstrap-queued",
+  "thread.bootstrap-started",
+  "thread.bootstrap-completed",
+  "thread.bootstrap-failed",
+  "thread.bootstrap-skipped",
   // Phase execution
-  "session.phase-started",
-  "session.phase-completed",
-  "session.phase-failed",
-  "session.phase-skipped",
-  "session.phase-output-edited",
+  "thread.phase-started",
+  "thread.phase-completed",
+  "thread.phase-failed",
+  "thread.phase-skipped",
+  "thread.phase-output-edited",
   // Provider turns
-  "session.turn-requested",
-  "session.turn-started",
-  "session.turn-completed",
-  "session.turn-restarted",
-  "session.message-sent",
+  "thread.turn-requested",
+  "thread.turn-started",
+  "thread.turn-completed",
+  "thread.turn-restarted",
+  "thread.message-sent",
   // Channels
   "channel.created",
   "channel.message-posted",
@@ -1132,19 +1132,19 @@ export const ForgeEventType = Schema.Literals([
   "request.resolved",
   "request.stale",
   // Quality checks
-  "session.quality-check-started",
-  "session.quality-check-completed",
+  "thread.quality-check-started",
+  "thread.quality-check-completed",
   // Corrections
-  "session.correction-queued",
-  "session.correction-delivered",
+  "thread.correction-queued",
+  "thread.correction-delivered",
   // Checkpoints
-  "session.checkpoint-captured",
-  "session.checkpoint-diff-completed",
-  "session.checkpoint-reverted",
+  "thread.checkpoint-captured",
+  "thread.checkpoint-diff-completed",
+  "thread.checkpoint-reverted",
 ]);
 export type ForgeEventType = typeof ForgeEventType.Type;
 
-export const ForgeAggregateKind = Schema.Literals(["project", "session", "channel", "request"]);
+export const ForgeAggregateKind = Schema.Literals(["project", "thread", "channel", "request"]);
 export type ForgeAggregateKind = typeof ForgeAggregateKind.Type;
 ```
 
@@ -1516,54 +1516,54 @@ export const ForgeEvent = Schema.Union([
   Schema.Struct({ ...ForgeEventBaseFields, type: Schema.Literal("project.created"), payload: ProjectCreatedPayload }),
   Schema.Struct({ ...ForgeEventBaseFields, type: Schema.Literal("project.meta-updated"), payload: ProjectMetaUpdatedPayload }),
   Schema.Struct({ ...ForgeEventBaseFields, type: Schema.Literal("project.deleted"), payload: ProjectDeletedPayload }),
-  // Session lifecycle
-  Schema.Struct({ ...ForgeEventBaseFields, type: Schema.Literal("session.created"), payload: SessionCreatedPayload }),
-  Schema.Struct({ ...ForgeEventBaseFields, type: Schema.Literal("session.meta-updated"), payload: SessionMetaUpdatedPayload }),
-  Schema.Struct({ ...ForgeEventBaseFields, type: Schema.Literal("session.status-changed"), payload: SessionStatusChangedPayload }),
-  Schema.Struct({ ...ForgeEventBaseFields, type: Schema.Literal("session.completed"), payload: SessionCompletedPayload }),
-  Schema.Struct({ ...ForgeEventBaseFields, type: Schema.Literal("session.failed"), payload: SessionFailedPayload }),
-  Schema.Struct({ ...ForgeEventBaseFields, type: Schema.Literal("session.cancelled"), payload: SessionCancelledPayload }),
-  Schema.Struct({ ...ForgeEventBaseFields, type: Schema.Literal("session.archived"), payload: SessionArchivedPayload }),
-  Schema.Struct({ ...ForgeEventBaseFields, type: Schema.Literal("session.unarchived"), payload: SessionUnarchivedPayload }),
-  Schema.Struct({ ...ForgeEventBaseFields, type: Schema.Literal("session.restarted"), payload: SessionRestartedPayload }),
+  // Thread lifecycle
+  Schema.Struct({ ...ForgeEventBaseFields, type: Schema.Literal("thread.created"), payload: SessionCreatedPayload }),
+  Schema.Struct({ ...ForgeEventBaseFields, type: Schema.Literal("thread.meta-updated"), payload: SessionMetaUpdatedPayload }),
+  Schema.Struct({ ...ForgeEventBaseFields, type: Schema.Literal("thread.status-changed"), payload: SessionStatusChangedPayload }),
+  Schema.Struct({ ...ForgeEventBaseFields, type: Schema.Literal("thread.completed"), payload: SessionCompletedPayload }),
+  Schema.Struct({ ...ForgeEventBaseFields, type: Schema.Literal("thread.failed"), payload: SessionFailedPayload }),
+  Schema.Struct({ ...ForgeEventBaseFields, type: Schema.Literal("thread.cancelled"), payload: SessionCancelledPayload }),
+  Schema.Struct({ ...ForgeEventBaseFields, type: Schema.Literal("thread.archived"), payload: SessionArchivedPayload }),
+  Schema.Struct({ ...ForgeEventBaseFields, type: Schema.Literal("thread.unarchived"), payload: SessionUnarchivedPayload }),
+  Schema.Struct({ ...ForgeEventBaseFields, type: Schema.Literal("thread.restarted"), payload: SessionRestartedPayload }),
   // Bootstrap
-  Schema.Struct({ ...ForgeEventBaseFields, type: Schema.Literal("session.bootstrap-queued"), payload: SessionBootstrapQueuedPayload }),
-  Schema.Struct({ ...ForgeEventBaseFields, type: Schema.Literal("session.bootstrap-started"), payload: SessionBootstrapStartedPayload }),
-  Schema.Struct({ ...ForgeEventBaseFields, type: Schema.Literal("session.bootstrap-completed"), payload: SessionBootstrapCompletedPayload }),
-  Schema.Struct({ ...ForgeEventBaseFields, type: Schema.Literal("session.bootstrap-failed"), payload: SessionBootstrapFailedPayload }),
-  Schema.Struct({ ...ForgeEventBaseFields, type: Schema.Literal("session.bootstrap-skipped"), payload: SessionBootstrapSkippedPayload }),
+  Schema.Struct({ ...ForgeEventBaseFields, type: Schema.Literal("thread.bootstrap-queued"), payload: SessionBootstrapQueuedPayload }),
+  Schema.Struct({ ...ForgeEventBaseFields, type: Schema.Literal("thread.bootstrap-started"), payload: SessionBootstrapStartedPayload }),
+  Schema.Struct({ ...ForgeEventBaseFields, type: Schema.Literal("thread.bootstrap-completed"), payload: SessionBootstrapCompletedPayload }),
+  Schema.Struct({ ...ForgeEventBaseFields, type: Schema.Literal("thread.bootstrap-failed"), payload: SessionBootstrapFailedPayload }),
+  Schema.Struct({ ...ForgeEventBaseFields, type: Schema.Literal("thread.bootstrap-skipped"), payload: SessionBootstrapSkippedPayload }),
   // Phase
-  Schema.Struct({ ...ForgeEventBaseFields, type: Schema.Literal("session.phase-started"), payload: SessionPhaseStartedPayload }),
-  Schema.Struct({ ...ForgeEventBaseFields, type: Schema.Literal("session.phase-completed"), payload: SessionPhaseCompletedPayload }),
-  Schema.Struct({ ...ForgeEventBaseFields, type: Schema.Literal("session.phase-failed"), payload: SessionPhaseFailedPayload }),
-  Schema.Struct({ ...ForgeEventBaseFields, type: Schema.Literal("session.phase-skipped"), payload: SessionPhaseSkippedPayload }),
-  Schema.Struct({ ...ForgeEventBaseFields, type: Schema.Literal("session.phase-output-edited"), payload: SessionPhaseOutputEditedPayload }),
+  Schema.Struct({ ...ForgeEventBaseFields, type: Schema.Literal("thread.phase-started"), payload: SessionPhaseStartedPayload }),
+  Schema.Struct({ ...ForgeEventBaseFields, type: Schema.Literal("thread.phase-completed"), payload: SessionPhaseCompletedPayload }),
+  Schema.Struct({ ...ForgeEventBaseFields, type: Schema.Literal("thread.phase-failed"), payload: SessionPhaseFailedPayload }),
+  Schema.Struct({ ...ForgeEventBaseFields, type: Schema.Literal("thread.phase-skipped"), payload: SessionPhaseSkippedPayload }),
+  Schema.Struct({ ...ForgeEventBaseFields, type: Schema.Literal("thread.phase-output-edited"), payload: SessionPhaseOutputEditedPayload }),
   // Quality checks
-  Schema.Struct({ ...ForgeEventBaseFields, type: Schema.Literal("session.quality-check-started"), payload: SessionQualityCheckStartedPayload }),
-  Schema.Struct({ ...ForgeEventBaseFields, type: Schema.Literal("session.quality-check-completed"), payload: SessionQualityCheckCompletedPayload }),
+  Schema.Struct({ ...ForgeEventBaseFields, type: Schema.Literal("thread.quality-check-started"), payload: SessionQualityCheckStartedPayload }),
+  Schema.Struct({ ...ForgeEventBaseFields, type: Schema.Literal("thread.quality-check-completed"), payload: SessionQualityCheckCompletedPayload }),
   // Corrections
-  Schema.Struct({ ...ForgeEventBaseFields, type: Schema.Literal("session.correction-queued"), payload: SessionCorrectionQueuedPayload }),
-  Schema.Struct({ ...ForgeEventBaseFields, type: Schema.Literal("session.correction-delivered"), payload: SessionCorrectionDeliveredPayload }),
+  Schema.Struct({ ...ForgeEventBaseFields, type: Schema.Literal("thread.correction-queued"), payload: SessionCorrectionQueuedPayload }),
+  Schema.Struct({ ...ForgeEventBaseFields, type: Schema.Literal("thread.correction-delivered"), payload: SessionCorrectionDeliveredPayload }),
   // Turns
-  Schema.Struct({ ...ForgeEventBaseFields, type: Schema.Literal("session.turn-requested"), payload: SessionTurnRequestedPayload }),
-  Schema.Struct({ ...ForgeEventBaseFields, type: Schema.Literal("session.turn-started"), payload: SessionTurnStartedPayload }),
-  Schema.Struct({ ...ForgeEventBaseFields, type: Schema.Literal("session.turn-completed"), payload: SessionTurnCompletedPayload }),
-  Schema.Struct({ ...ForgeEventBaseFields, type: Schema.Literal("session.turn-restarted"), payload: SessionTurnRestartedPayload }),
-  Schema.Struct({ ...ForgeEventBaseFields, type: Schema.Literal("session.message-sent"), payload: SessionMessageSentPayload }),
+  Schema.Struct({ ...ForgeEventBaseFields, type: Schema.Literal("thread.turn-requested"), payload: SessionTurnRequestedPayload }),
+  Schema.Struct({ ...ForgeEventBaseFields, type: Schema.Literal("thread.turn-started"), payload: SessionTurnStartedPayload }),
+  Schema.Struct({ ...ForgeEventBaseFields, type: Schema.Literal("thread.turn-completed"), payload: SessionTurnCompletedPayload }),
+  Schema.Struct({ ...ForgeEventBaseFields, type: Schema.Literal("thread.turn-restarted"), payload: SessionTurnRestartedPayload }),
+  Schema.Struct({ ...ForgeEventBaseFields, type: Schema.Literal("thread.message-sent"), payload: SessionMessageSentPayload }),
   // Links
-  Schema.Struct({ ...ForgeEventBaseFields, type: Schema.Literal("session.link-added"), payload: SessionLinkAddedPayload }),
-  Schema.Struct({ ...ForgeEventBaseFields, type: Schema.Literal("session.link-removed"), payload: SessionLinkRemovedPayload }),
-  Schema.Struct({ ...ForgeEventBaseFields, type: Schema.Literal("session.promoted"), payload: SessionPromotedPayload }),
+  Schema.Struct({ ...ForgeEventBaseFields, type: Schema.Literal("thread.link-added"), payload: SessionLinkAddedPayload }),
+  Schema.Struct({ ...ForgeEventBaseFields, type: Schema.Literal("thread.link-removed"), payload: SessionLinkRemovedPayload }),
+  Schema.Struct({ ...ForgeEventBaseFields, type: Schema.Literal("thread.promoted"), payload: SessionPromotedPayload }),
   // Dependencies
-  Schema.Struct({ ...ForgeEventBaseFields, type: Schema.Literal("session.dependency-added"), payload: SessionDependencyAddedPayload }),
-  Schema.Struct({ ...ForgeEventBaseFields, type: Schema.Literal("session.dependency-removed"), payload: SessionDependencyRemovedPayload }),
-  Schema.Struct({ ...ForgeEventBaseFields, type: Schema.Literal("session.dependencies-satisfied"), payload: SessionDependenciesSatisfiedPayload }),
+  Schema.Struct({ ...ForgeEventBaseFields, type: Schema.Literal("thread.dependency-added"), payload: SessionDependencyAddedPayload }),
+  Schema.Struct({ ...ForgeEventBaseFields, type: Schema.Literal("thread.dependency-removed"), payload: SessionDependencyRemovedPayload }),
+  Schema.Struct({ ...ForgeEventBaseFields, type: Schema.Literal("thread.dependencies-satisfied"), payload: SessionDependenciesSatisfiedPayload }),
   // Synthesis
-  Schema.Struct({ ...ForgeEventBaseFields, type: Schema.Literal("session.synthesis-completed"), payload: SessionSynthesisCompletedPayload }),
+  Schema.Struct({ ...ForgeEventBaseFields, type: Schema.Literal("thread.synthesis-completed"), payload: SessionSynthesisCompletedPayload }),
   // Checkpoints
-  Schema.Struct({ ...ForgeEventBaseFields, type: Schema.Literal("session.checkpoint-captured"), payload: SessionCheckpointCapturedPayload }),
-  Schema.Struct({ ...ForgeEventBaseFields, type: Schema.Literal("session.checkpoint-diff-completed"), payload: SessionCheckpointDiffCompletedPayload }),
-  Schema.Struct({ ...ForgeEventBaseFields, type: Schema.Literal("session.checkpoint-reverted"), payload: SessionCheckpointRevertedPayload }),
+  Schema.Struct({ ...ForgeEventBaseFields, type: Schema.Literal("thread.checkpoint-captured"), payload: SessionCheckpointCapturedPayload }),
+  Schema.Struct({ ...ForgeEventBaseFields, type: Schema.Literal("thread.checkpoint-diff-completed"), payload: SessionCheckpointDiffCompletedPayload }),
+  Schema.Struct({ ...ForgeEventBaseFields, type: Schema.Literal("thread.checkpoint-reverted"), payload: SessionCheckpointRevertedPayload }),
   // Channels
   Schema.Struct({ ...ForgeEventBaseFields, type: Schema.Literal("channel.created"), payload: ChannelCreatedPayload }),
   Schema.Struct({ ...ForgeEventBaseFields, type: Schema.Literal("channel.message-posted"), payload: ChannelMessagePostedPayload }),
@@ -1581,7 +1581,7 @@ export type ForgeEvent = typeof ForgeEvent.Type;
 
 **Missing payloads note:** The following payloads are referenced in the union above but not defined inline to keep the section focused. They follow identical patterns to the ones shown:
 
-- `SessionMetaUpdatedPayload` — same shape as the session.meta-update command fields, plus `updatedAt`
+- `SessionMetaUpdatedPayload` — same shape as the thread.meta-update command fields, plus `updatedAt`
 - `SessionArchivedPayload` — `{ threadId, archivedAt }`
 - `SessionUnarchivedPayload` — `{ threadId, updatedAt }`
 - `SessionRestartedPayload` — `{ threadId, fromPhaseId?, restartedAt }`
@@ -2111,17 +2111,17 @@ Extension of the existing `WS_METHODS` for new session/channel/request operation
 ```typescript
 // Add to WS_METHODS:
 export const FORGE_WS_METHODS = {
-  // Session operations
-  sessionCreate: "session.create",
-  sessionCorrect: "session.correct",
-  sessionPause: "session.pause",
-  sessionResume: "session.resume",
-  sessionCancel: "session.cancel",
-  sessionArchive: "session.archive",
-  sessionUnarchive: "session.unarchive",
-  sessionSendTurn: "session.sendTurn",
-  sessionGetTranscript: "session.getTranscript",
-  sessionGetChildren: "session.getChildren",
+  // Thread operations
+  threadCreate: "thread.create",
+  threadCorrect: "thread.correct",
+  threadPause: "thread.pause",
+  threadResume: "thread.resume",
+  threadCancel: "thread.cancel",
+  threadArchive: "thread.archive",
+  threadUnarchive: "thread.unarchive",
+  threadSendTurn: "thread.sendTurn",
+  threadGetTranscript: "thread.getTranscript",
+  threadGetChildren: "thread.getChildren",
 
   // Gate operations
   gateApprove: "gate.approve",
@@ -2151,21 +2151,21 @@ export const FORGE_WS_METHODS = {
 
 | Socket Method | Enrichment | Command |
 |--------------|------------|---------|
-| `session.create` | Generate threadId, resolve projectId from path, resolve default model | `session.create { ... }` |
-| `session.correct` | Resolve guidance channelId for this session | `session.correct` -> engine resolves to `channel.post-message` |
-| `session.sendTurn` | None (threadId IS the leaf session) | `session.send-turn { ... }` |
+| `thread.create` | Generate threadId, resolve projectId from path, resolve default model | `thread.create { ... }` |
+| `thread.correct` | Resolve guidance channelId for this session | `thread.correct` -> engine resolves to `channel.post-message` |
+| `thread.sendTurn` | None (threadId IS the leaf session) | `thread.send-turn { ... }` |
 | `gate.approve` | Resolve requestId from threadId + phaseRunId | `request.resolve { requestId, resolvedWith: { decision: "approve" } }` |
 | `gate.reject` | Resolve requestId from threadId + phaseRunId | `request.resolve { requestId, resolvedWith: { decision: "reject", correction? } }` |
 | `request.resolve` | None | `request.resolve { ... }` |
 | `channel.intervene` | None | `channel.post-message { channelId, fromType: "human", ... }` |
-| `phaseOutput.update` | None | `session.edit-phase-output { ... }` |
+| `phaseOutput.update` | None | `thread.edit-phase-output { ... }` |
 
 ### Query Methods (direct DB, not commands)
 
 | Socket Method | Returns |
 |--------------|---------|
-| `session.getTranscript` | `{ entries: TranscriptEntry[], total: number }` |
-| `session.getChildren` | `{ children: SessionSummary[] }` |
+| `thread.getTranscript` | `{ entries: TranscriptEntry[], total: number }` |
+| `thread.getChildren` | `{ children: SessionSummary[] }` |
 | `channel.getMessages` | `{ messages: ChannelMessage[], total: number }` |
 | `workflow.list` | `{ workflows: WorkflowSummary[] }` |
 | `workflow.get` | `{ workflow: WorkflowDefinition }` |
