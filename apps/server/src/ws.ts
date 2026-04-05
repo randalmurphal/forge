@@ -1,9 +1,13 @@
 import { Effect, Layer, Option, Queue, Ref, Schema, Stream } from "effect";
 import {
+  type ChannelPushEvent,
+  ForgeEvent,
+  type ForgeEvent as ForgeEventEnvelope,
   type GitActionProgressEvent,
   type GitManagerServiceError,
   OrchestrationDispatchCommandError,
   type OrchestrationEvent,
+  type OrchestrationReadModel,
   OrchestrationGetFullThreadDiffError,
   OrchestrationGetSnapshotError,
   OrchestrationGetTurnDiffError,
@@ -12,6 +16,7 @@ import {
   ProjectWriteFileError,
   OrchestrationReplayEventsError,
   type TerminalEvent,
+  type WorkflowPushEvent,
   WS_METHODS,
   WsRpcGroup,
 } from "@t3tools/contracts";
@@ -41,6 +46,496 @@ import { TerminalManager } from "./terminal/Services/Manager";
 import { WorkspaceEntries } from "./workspace/Services/WorkspaceEntries";
 import { WorkspaceFileSystem } from "./workspace/Services/WorkspaceFileSystem";
 import { WorkspacePathOutsideRootError } from "./workspace/Services/WorkspacePaths";
+
+type OrderedSequenceState<TEvent extends { readonly sequence: number }> = {
+  readonly nextSequence: number;
+  readonly pendingBySequence: Map<number, TEvent>;
+};
+
+type WorkflowPhaseInfo = Extract<WorkflowPushEvent, { channel: "workflow.phase" }>["phaseInfo"];
+type WorkflowGateRequestState = {
+  readonly threadId: Extract<WorkflowPushEvent, { channel: "workflow.gate" }>["threadId"];
+  readonly phaseRunId: Extract<WorkflowPushEvent, { channel: "workflow.gate" }>["phaseRunId"];
+  readonly gateType: "human-approval" | "quality-checks";
+};
+type WorkflowPushStreamState = {
+  readonly phaseRunInfoById: Map<
+    Extract<WorkflowPushEvent, { channel: "workflow.phase" }>["phaseRunId"],
+    {
+      readonly threadId: Extract<WorkflowPushEvent, { channel: "workflow.phase" }>["threadId"];
+      readonly phaseInfo: WorkflowPhaseInfo;
+    }
+  >;
+  readonly gateRequestsById: Map<string, WorkflowGateRequestState>;
+};
+type ChannelPushStreamState = {
+  readonly ownerThreadIdByChannelId: Map<
+    Extract<ChannelPushEvent, { channel: "channel.message" }>["channelId"],
+    Extract<ChannelPushEvent, { channel: "channel.message" }>["threadId"]
+  >;
+};
+
+function flushSequencedEvents<TEvent extends { readonly sequence: number }>(
+  state: OrderedSequenceState<TEvent>,
+  event: TEvent,
+): [Array<TEvent>, OrderedSequenceState<TEvent>] {
+  const { nextSequence, pendingBySequence } = state;
+  if (event.sequence < nextSequence || pendingBySequence.has(event.sequence)) {
+    return [[], state];
+  }
+
+  const updatedPending = new Map(pendingBySequence);
+  updatedPending.set(event.sequence, event);
+
+  const emit: Array<TEvent> = [];
+  let expected = nextSequence;
+  for (;;) {
+    const expectedEvent = updatedPending.get(expected);
+    if (!expectedEvent) {
+      break;
+    }
+    emit.push(expectedEvent);
+    updatedPending.delete(expected);
+    expected += 1;
+  }
+
+  return [
+    emit,
+    {
+      nextSequence: expected,
+      pendingBySequence: updatedPending,
+    },
+  ];
+}
+
+function createWorkflowPushStreamState(snapshot: OrchestrationReadModel): WorkflowPushStreamState {
+  return {
+    phaseRunInfoById: new Map(
+      snapshot.phaseRuns.map((phaseRun) => [
+        phaseRun.phaseRunId,
+        {
+          threadId: phaseRun.threadId,
+          phaseInfo: {
+            phaseId: phaseRun.phaseId,
+            phaseName: phaseRun.phaseName,
+            phaseType: phaseRun.phaseType,
+            iteration: phaseRun.iteration,
+          },
+        },
+      ]),
+    ),
+    gateRequestsById: new Map(),
+  };
+}
+
+function createChannelPushStreamState(snapshot: OrchestrationReadModel): ChannelPushStreamState {
+  return {
+    ownerThreadIdByChannelId: new Map(
+      snapshot.channels.map((channel) => [channel.id, channel.threadId]),
+    ),
+  };
+}
+
+function toForgeEventEnvelope(event: OrchestrationEvent): ForgeEventEnvelope | null {
+  return Schema.is(ForgeEvent)(event as unknown) ? (event as unknown as ForgeEventEnvelope) : null;
+}
+
+function toWorkflowGateType(value: string): "human-approval" | "quality-checks" | null {
+  switch (value) {
+    case "human-approval":
+    case "quality-checks":
+      return value;
+    default:
+      return null;
+  }
+}
+
+function mapWorkflowPushEvents(
+  state: WorkflowPushStreamState,
+  event: ForgeEventEnvelope,
+): {
+  readonly state: WorkflowPushStreamState;
+  readonly emit: Array<WorkflowPushEvent>;
+} {
+  switch (event.type) {
+    case "thread.phase-started": {
+      const phaseInfo: WorkflowPhaseInfo = {
+        phaseId: event.payload.phaseId,
+        phaseName: event.payload.phaseName,
+        phaseType: event.payload.phaseType,
+        iteration: event.payload.iteration,
+      };
+
+      return {
+        state: {
+          ...state,
+          phaseRunInfoById: new Map(state.phaseRunInfoById).set(event.payload.phaseRunId, {
+            threadId: event.payload.threadId,
+            phaseInfo,
+          }),
+        },
+        emit: [
+          {
+            channel: "workflow.phase",
+            threadId: event.payload.threadId,
+            phaseRunId: event.payload.phaseRunId,
+            event: "started",
+            phaseInfo,
+            timestamp: event.payload.startedAt,
+          },
+        ],
+      };
+    }
+    case "thread.phase-completed": {
+      const phaseRun = state.phaseRunInfoById.get(event.payload.phaseRunId);
+      if (!phaseRun) {
+        return { state, emit: [] };
+      }
+
+      return {
+        state,
+        emit: [
+          {
+            channel: "workflow.phase",
+            threadId: phaseRun.threadId,
+            phaseRunId: event.payload.phaseRunId,
+            event: "completed",
+            phaseInfo: phaseRun.phaseInfo,
+            outputs: event.payload.outputs,
+            timestamp: event.payload.completedAt,
+          },
+        ],
+      };
+    }
+    case "thread.phase-failed": {
+      const phaseRun = state.phaseRunInfoById.get(event.payload.phaseRunId);
+      if (!phaseRun) {
+        return { state, emit: [] };
+      }
+
+      return {
+        state,
+        emit: [
+          {
+            channel: "workflow.phase",
+            threadId: phaseRun.threadId,
+            phaseRunId: event.payload.phaseRunId,
+            event: "failed",
+            phaseInfo: phaseRun.phaseInfo,
+            error: event.payload.error,
+            timestamp: event.payload.failedAt,
+          },
+        ],
+      };
+    }
+    case "thread.phase-skipped": {
+      const phaseRun = state.phaseRunInfoById.get(event.payload.phaseRunId);
+      if (!phaseRun) {
+        return { state, emit: [] };
+      }
+
+      return {
+        state,
+        emit: [
+          {
+            channel: "workflow.phase",
+            threadId: phaseRun.threadId,
+            phaseRunId: event.payload.phaseRunId,
+            event: "skipped",
+            phaseInfo: phaseRun.phaseInfo,
+            timestamp: event.payload.skippedAt,
+          },
+        ],
+      };
+    }
+    case "thread.quality-check-started":
+      return {
+        state,
+        emit: [
+          {
+            channel: "workflow.gate",
+            threadId: event.payload.threadId,
+            phaseRunId: event.payload.phaseRunId,
+            gateType: "quality-checks",
+            status: "evaluating",
+            timestamp: event.payload.startedAt,
+          },
+          ...event.payload.checks.map(
+            (check): WorkflowPushEvent => ({
+              channel: "workflow.quality-check",
+              threadId: event.payload.threadId,
+              phaseRunId: event.payload.phaseRunId,
+              checkName: check.check,
+              status: "running",
+              timestamp: event.payload.startedAt,
+            }),
+          ),
+        ],
+      };
+    case "thread.quality-check-completed":
+      return {
+        state,
+        emit: [
+          {
+            channel: "workflow.gate",
+            threadId: event.payload.threadId,
+            phaseRunId: event.payload.phaseRunId,
+            gateType: "quality-checks",
+            status: event.payload.results.every((result) => result.passed) ? "passed" : "failed",
+            timestamp: event.payload.completedAt,
+          },
+          ...event.payload.results.map(
+            (result): WorkflowPushEvent => ({
+              channel: "workflow.quality-check",
+              threadId: event.payload.threadId,
+              phaseRunId: event.payload.phaseRunId,
+              checkName: result.check,
+              status: result.passed ? "passed" : "failed",
+              ...(result.output !== undefined ? { output: result.output } : {}),
+              timestamp: event.payload.completedAt,
+            }),
+          ),
+        ],
+      };
+    case "thread.bootstrap-started":
+      return {
+        state,
+        emit: [
+          {
+            channel: "workflow.bootstrap",
+            threadId: event.payload.threadId,
+            event: "started",
+            timestamp: event.payload.startedAt,
+          },
+        ],
+      };
+    case "thread.bootstrap-completed":
+      return {
+        state,
+        emit: [
+          {
+            channel: "workflow.bootstrap",
+            threadId: event.payload.threadId,
+            event: "completed",
+            timestamp: event.payload.completedAt,
+          },
+        ],
+      };
+    case "thread.bootstrap-failed":
+      return {
+        state,
+        emit: [
+          {
+            channel: "workflow.bootstrap",
+            threadId: event.payload.threadId,
+            event: "failed",
+            data: event.payload.stdout,
+            error: event.payload.error,
+            timestamp: event.payload.failedAt,
+          },
+        ],
+      };
+    case "thread.bootstrap-skipped":
+      return {
+        state,
+        emit: [
+          {
+            channel: "workflow.bootstrap",
+            threadId: event.payload.threadId,
+            event: "skipped",
+            timestamp: event.payload.skippedAt,
+          },
+        ],
+      };
+    case "request.opened": {
+      if (event.payload.payload.type !== "gate") {
+        return { state, emit: [] };
+      }
+
+      const gateType = toWorkflowGateType(event.payload.payload.gateType);
+      if (gateType === null) {
+        return { state, emit: [] };
+      }
+
+      return {
+        state: {
+          ...state,
+          gateRequestsById: new Map(state.gateRequestsById).set(event.payload.requestId, {
+            threadId: event.payload.threadId,
+            phaseRunId: event.payload.payload.phaseRunId,
+            gateType,
+          }),
+        },
+        emit: [
+          {
+            channel: "workflow.gate",
+            threadId: event.payload.threadId,
+            phaseRunId: event.payload.payload.phaseRunId,
+            gateType,
+            status: "waiting-human",
+            requestId: event.payload.requestId,
+            timestamp: event.payload.createdAt,
+          },
+        ],
+      };
+    }
+    case "request.resolved": {
+      const gateRequest = state.gateRequestsById.get(event.payload.requestId);
+      if (!gateRequest) {
+        return { state, emit: [] };
+      }
+
+      const resolvedWith = event.payload.resolvedWith;
+      const nextGateRequestsById = new Map(state.gateRequestsById);
+      nextGateRequestsById.delete(event.payload.requestId);
+
+      if (
+        !("decision" in resolvedWith) ||
+        (resolvedWith.decision !== "approve" && resolvedWith.decision !== "reject")
+      ) {
+        return {
+          state: {
+            ...state,
+            gateRequestsById: nextGateRequestsById,
+          },
+          emit: [],
+        };
+      }
+
+      return {
+        state: {
+          ...state,
+          gateRequestsById: nextGateRequestsById,
+        },
+        emit: [
+          {
+            channel: "workflow.gate",
+            threadId: gateRequest.threadId,
+            phaseRunId: gateRequest.phaseRunId,
+            gateType: gateRequest.gateType,
+            status: resolvedWith.decision === "approve" ? "passed" : "failed",
+            timestamp: event.payload.resolvedAt,
+          },
+        ],
+      };
+    }
+    case "request.stale": {
+      if (!state.gateRequestsById.has(event.payload.requestId)) {
+        return { state, emit: [] };
+      }
+
+      const nextGateRequestsById = new Map(state.gateRequestsById);
+      nextGateRequestsById.delete(event.payload.requestId);
+
+      return {
+        state: {
+          ...state,
+          gateRequestsById: nextGateRequestsById,
+        },
+        emit: [],
+      };
+    }
+    default:
+      return { state, emit: [] };
+  }
+}
+
+function mapChannelPushEvents(
+  state: ChannelPushStreamState,
+  event: ForgeEventEnvelope,
+): {
+  readonly state: ChannelPushStreamState;
+  readonly emit: Array<ChannelPushEvent>;
+} {
+  switch (event.type) {
+    case "channel.created":
+      return {
+        state: {
+          ...state,
+          ownerThreadIdByChannelId: new Map(state.ownerThreadIdByChannelId).set(
+            event.payload.channelId,
+            event.payload.threadId,
+          ),
+        },
+        emit: [],
+      };
+    case "channel.message-posted": {
+      const ownerThreadId = state.ownerThreadIdByChannelId.get(event.payload.channelId);
+      if (!ownerThreadId) {
+        return { state, emit: [] };
+      }
+
+      return {
+        state,
+        emit: [
+          {
+            channel: "channel.message",
+            channelId: event.payload.channelId,
+            threadId: ownerThreadId,
+            message: {
+              id: event.payload.messageId,
+              channelId: event.payload.channelId,
+              sequence: event.payload.sequence,
+              fromType: event.payload.fromType,
+              fromId: event.payload.fromId,
+              ...(event.payload.fromRole !== null ? { fromRole: event.payload.fromRole } : {}),
+              content: event.payload.content,
+              createdAt: event.payload.createdAt,
+            },
+            timestamp: event.payload.createdAt,
+          },
+        ],
+      };
+    }
+    case "channel.conclusion-proposed": {
+      const ownerThreadId = state.ownerThreadIdByChannelId.get(event.payload.channelId);
+      if (!ownerThreadId) {
+        return { state, emit: [] };
+      }
+
+      return {
+        state,
+        emit: [
+          {
+            channel: "channel.conclusion",
+            channelId: event.payload.channelId,
+            threadId: ownerThreadId,
+            sessionId: event.payload.threadId,
+            summary: event.payload.summary,
+            allProposed: false,
+            timestamp: event.payload.proposedAt,
+          },
+        ],
+      };
+    }
+    case "channel.concluded":
+      return {
+        state,
+        emit: [
+          {
+            channel: "channel.status",
+            channelId: event.payload.channelId,
+            status: "concluded",
+            timestamp: event.payload.concludedAt,
+          },
+        ],
+      };
+    case "channel.closed":
+      return {
+        state,
+        emit: [
+          {
+            channel: "channel.status",
+            channelId: event.payload.channelId,
+            status: "closed",
+            timestamp: event.payload.closedAt,
+          },
+        ],
+      };
+    default:
+      return { state, emit: [] };
+  }
+}
 
 const WsRpcLayer = WsRpcGroup.toLayer(
   Effect.gen(function* () {
@@ -235,6 +730,110 @@ const WsRpcLayer = WsRpcGroup.toLayer(
             );
           }),
           { "rpc.aggregate": "orchestration" },
+        ),
+      [WS_METHODS.subscribeWorkflowEvents]: ({ threadId }) =>
+        observeRpcStreamEffect(
+          WS_METHODS.subscribeWorkflowEvents,
+          Effect.gen(function* () {
+            const snapshot = yield* orchestrationEngine.getReadModel();
+            const fromSequenceExclusive = snapshot.snapshotSequence;
+            const replayEvents: Array<ForgeEventEnvelope> = yield* Stream.runCollect(
+              orchestrationEngine.readEvents(fromSequenceExclusive),
+            ).pipe(
+              Effect.map((events) =>
+                Array.from(events).flatMap((event) => {
+                  const forgeEvent = toForgeEventEnvelope(event);
+                  return forgeEvent === null ? [] : [forgeEvent];
+                }),
+              ),
+              Effect.catch(() => Effect.succeed([] as Array<ForgeEventEnvelope>)),
+            );
+            const orderedEvents = Stream.merge(
+              Stream.fromIterable(replayEvents),
+              orchestrationEngine.streamDomainEvents.pipe(
+                Stream.flatMap((event) => {
+                  const forgeEvent = toForgeEventEnvelope(event);
+                  return Stream.fromIterable(forgeEvent === null ? [] : [forgeEvent]);
+                }),
+              ),
+            );
+            const sequenceState = yield* Ref.make<OrderedSequenceState<ForgeEventEnvelope>>({
+              nextSequence: fromSequenceExclusive + 1,
+              pendingBySequence: new Map<number, ForgeEventEnvelope>(),
+            });
+            const workflowState = yield* Ref.make(createWorkflowPushStreamState(snapshot));
+
+            const pushStream = orderedEvents.pipe(
+              Stream.mapEffect((event) =>
+                Ref.modify(sequenceState, (state) => flushSequencedEvents(state, event)),
+              ),
+              Stream.flatMap((events) => Stream.fromIterable(events)),
+              Stream.mapEffect((event) =>
+                Ref.modify(workflowState, (state) => {
+                  const next = mapWorkflowPushEvents(state, event);
+                  return [next.emit, next.state] as const;
+                }),
+              ),
+              Stream.flatMap((events) => Stream.fromIterable(events)),
+            );
+
+            return threadId === undefined
+              ? pushStream
+              : pushStream.pipe(Stream.filter((event) => event.threadId === threadId));
+          }),
+          { "rpc.aggregate": "workflow" },
+        ),
+      [WS_METHODS.subscribeChannelMessages]: ({ channelId }) =>
+        observeRpcStreamEffect(
+          WS_METHODS.subscribeChannelMessages,
+          Effect.gen(function* () {
+            const snapshot = yield* orchestrationEngine.getReadModel();
+            const fromSequenceExclusive = snapshot.snapshotSequence;
+            const replayEvents: Array<ForgeEventEnvelope> = yield* Stream.runCollect(
+              orchestrationEngine.readEvents(fromSequenceExclusive),
+            ).pipe(
+              Effect.map((events) =>
+                Array.from(events).flatMap((event) => {
+                  const forgeEvent = toForgeEventEnvelope(event);
+                  return forgeEvent === null ? [] : [forgeEvent];
+                }),
+              ),
+              Effect.catch(() => Effect.succeed([] as Array<ForgeEventEnvelope>)),
+            );
+            const orderedEvents = Stream.merge(
+              Stream.fromIterable(replayEvents),
+              orchestrationEngine.streamDomainEvents.pipe(
+                Stream.flatMap((event) => {
+                  const forgeEvent = toForgeEventEnvelope(event);
+                  return Stream.fromIterable(forgeEvent === null ? [] : [forgeEvent]);
+                }),
+              ),
+            );
+            const sequenceState = yield* Ref.make<OrderedSequenceState<ForgeEventEnvelope>>({
+              nextSequence: fromSequenceExclusive + 1,
+              pendingBySequence: new Map<number, ForgeEventEnvelope>(),
+            });
+            const channelState = yield* Ref.make(createChannelPushStreamState(snapshot));
+
+            const pushStream = orderedEvents.pipe(
+              Stream.mapEffect((event) =>
+                Ref.modify(sequenceState, (state) => flushSequencedEvents(state, event)),
+              ),
+              Stream.flatMap((events) => Stream.fromIterable(events)),
+              Stream.mapEffect((event) =>
+                Ref.modify(channelState, (state) => {
+                  const next = mapChannelPushEvents(state, event);
+                  return [next.emit, next.state] as const;
+                }),
+              ),
+              Stream.flatMap((events) => Stream.fromIterable(events)),
+            );
+
+            return channelId === undefined
+              ? pushStream
+              : pushStream.pipe(Stream.filter((event) => event.channelId === channelId));
+          }),
+          { "rpc.aggregate": "channel" },
         ),
       [WS_METHODS.serverGetConfig]: (_input) =>
         observeRpcEffect(WS_METHODS.serverGetConfig, loadServerConfig, {

@@ -5,6 +5,7 @@ import { it } from "@effect/vitest";
 import {
   FORGE_WS_METHODS,
   WS_METHODS,
+  WsRpcGroup,
   WsSubscribeChannelMessagesRpc,
   WsSubscribeWorkflowEventsRpc,
 } from "./rpc";
@@ -47,4 +48,11 @@ it("merges Forge websocket methods into the shared websocket registry", () => {
 it("exposes the staged push subscription RPC definitions", () => {
   assert.ok(WsSubscribeWorkflowEventsRpc);
   assert.ok(WsSubscribeChannelMessagesRpc);
+});
+
+it("registers staged push subscriptions in the shared websocket RPC group", () => {
+  const methods = new Set(WsRpcGroup.requests.keys());
+
+  assert.ok(methods.has(WS_METHODS.subscribeWorkflowEvents));
+  assert.ok(methods.has(WS_METHODS.subscribeChannelMessages));
 });

@@ -402,6 +402,8 @@ export const WsRpcGroup = RpcGroup.make(
   WsTerminalRestartRpc,
   WsTerminalCloseRpc,
   WsSubscribeOrchestrationDomainEventsRpc,
+  WsSubscribeWorkflowEventsRpc,
+  WsSubscribeChannelMessagesRpc,
   WsSubscribeTerminalEventsRpc,
   WsSubscribeServerConfigRpc,
   WsSubscribeServerLifecycleRpc,

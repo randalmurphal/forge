@@ -2,17 +2,22 @@ import * as NodeHttpServer from "@effect/platform-node/NodeHttpServer";
 import * as NodeSocket from "@effect/platform-node/NodeSocket";
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import {
+  ChannelId,
+  ChannelMessageId,
   CommandId,
   DEFAULT_SERVER_SETTINGS,
   GitCommandError,
+  InteractiveRequestId,
   KeybindingRule,
   OpenError,
+  PhaseRunId,
   TerminalNotRunningError,
   type OrchestrationEvent,
   ORCHESTRATION_WS_METHODS,
   ProjectId,
   ResolvedKeybindingRule,
   ThreadId,
+  WorkflowPhaseId,
   WS_METHODS,
   WsRpcGroup,
   EditorId,
@@ -1329,6 +1334,293 @@ it.layer(NodeServices.layer)("server router seam", (it) => {
           [2, 3, 4],
         );
       }).pipe(Effect.provide(NodeHttpServer.layerTest)),
+  );
+
+  it.effect("routes websocket rpc subscribeWorkflowEvents with staged event mapping", () =>
+    Effect.gen(function* () {
+      const now = new Date().toISOString();
+      const threadId = ThreadId.makeUnsafe("thread-workflow");
+      const phaseRunId = PhaseRunId.makeUnsafe("phase-run-workflow");
+      const phaseId = WorkflowPhaseId.makeUnsafe("phase-design");
+      const requestId = InteractiveRequestId.makeUnsafe("request-gate");
+      let replayCursor: number | null = null;
+
+      const phaseStartedEvent = {
+        sequence: 2,
+        eventId: "event-2",
+        aggregateKind: "thread",
+        aggregateId: threadId,
+        occurredAt: now,
+        commandId: null,
+        causationEventId: null,
+        correlationId: null,
+        metadata: {},
+        type: "thread.phase-started",
+        payload: {
+          threadId,
+          phaseRunId,
+          phaseId,
+          phaseName: "Design",
+          phaseType: "single-agent",
+          iteration: 1,
+          startedAt: now,
+        },
+      } as unknown as OrchestrationEvent;
+      const gateOpenedEvent = {
+        sequence: 3,
+        eventId: "event-3",
+        aggregateKind: "request",
+        aggregateId: requestId,
+        occurredAt: now,
+        commandId: null,
+        causationEventId: null,
+        correlationId: null,
+        metadata: {},
+        type: "request.opened",
+        payload: {
+          requestId,
+          threadId,
+          childThreadId: null,
+          phaseRunId,
+          requestType: "gate",
+          payload: {
+            type: "gate",
+            gateType: "human-approval",
+            phaseRunId,
+          },
+          createdAt: now,
+        },
+      } as unknown as OrchestrationEvent;
+      const gateResolvedEvent = {
+        sequence: 4,
+        eventId: "event-4",
+        aggregateKind: "request",
+        aggregateId: requestId,
+        occurredAt: now,
+        commandId: null,
+        causationEventId: null,
+        correlationId: null,
+        metadata: {},
+        type: "request.resolved",
+        payload: {
+          requestId,
+          resolvedWith: {
+            decision: "approve",
+          },
+          resolvedAt: now,
+        },
+      } as unknown as OrchestrationEvent;
+
+      yield* buildAppUnderTest({
+        layers: {
+          orchestrationEngine: {
+            getReadModel: () =>
+              Effect.succeed({
+                ...makeDefaultOrchestrationReadModel(),
+                snapshotSequence: 1,
+              }),
+            readEvents: (fromSequenceExclusive) => {
+              replayCursor = fromSequenceExclusive;
+              return Stream.make(phaseStartedEvent, gateOpenedEvent);
+            },
+            streamDomainEvents: Stream.make(gateOpenedEvent, gateResolvedEvent),
+          },
+        },
+      });
+
+      const wsUrl = yield* getWsServerUrl("/ws");
+      const events = yield* Effect.scoped(
+        withWsRpcClient(wsUrl, (client) =>
+          client[WS_METHODS.subscribeWorkflowEvents]({ threadId }).pipe(
+            Stream.take(3),
+            Stream.runCollect,
+          ),
+        ),
+      );
+
+      assert.equal(replayCursor, 1);
+      assert.deepEqual(Array.from(events), [
+        {
+          channel: "workflow.phase",
+          threadId,
+          phaseRunId,
+          event: "started",
+          phaseInfo: {
+            phaseId,
+            phaseName: "Design",
+            phaseType: "single-agent",
+            iteration: 1,
+          },
+          timestamp: now,
+        },
+        {
+          channel: "workflow.gate",
+          threadId,
+          phaseRunId,
+          gateType: "human-approval",
+          status: "waiting-human",
+          requestId,
+          timestamp: now,
+        },
+        {
+          channel: "workflow.gate",
+          threadId,
+          phaseRunId,
+          gateType: "human-approval",
+          status: "passed",
+          timestamp: now,
+        },
+      ]);
+    }).pipe(Effect.provide(NodeHttpServer.layerTest)),
+  );
+
+  it.effect("routes websocket rpc subscribeChannelMessages with staged event mapping", () =>
+    Effect.gen(function* () {
+      const now = new Date().toISOString();
+      const ownerThreadId = ThreadId.makeUnsafe("thread-parent");
+      const participantThreadId = ThreadId.makeUnsafe("thread-child");
+      const channelId = ChannelId.makeUnsafe("channel-review");
+      const messageId = ChannelMessageId.makeUnsafe("channel-message-1");
+      let replayCursor: number | null = null;
+
+      const channelCreatedEvent = {
+        sequence: 2,
+        eventId: "event-2",
+        aggregateKind: "channel",
+        aggregateId: channelId,
+        occurredAt: now,
+        commandId: null,
+        causationEventId: null,
+        correlationId: null,
+        metadata: {},
+        type: "channel.created",
+        payload: {
+          channelId,
+          threadId: ownerThreadId,
+          channelType: "deliberation",
+          phaseRunId: null,
+          createdAt: now,
+        },
+      } as unknown as OrchestrationEvent;
+      const messagePostedEvent = {
+        sequence: 3,
+        eventId: "event-3",
+        aggregateKind: "channel",
+        aggregateId: channelId,
+        occurredAt: now,
+        commandId: null,
+        causationEventId: null,
+        correlationId: null,
+        metadata: {},
+        type: "channel.message-posted",
+        payload: {
+          channelId,
+          messageId,
+          sequence: 1,
+          fromType: "agent",
+          fromId: participantThreadId,
+          fromRole: "reviewer",
+          content: "Please tighten the failure handling.",
+          createdAt: now,
+        },
+      } as unknown as OrchestrationEvent;
+      const conclusionEvent = {
+        sequence: 4,
+        eventId: "event-4",
+        aggregateKind: "channel",
+        aggregateId: channelId,
+        occurredAt: now,
+        commandId: null,
+        causationEventId: null,
+        correlationId: null,
+        metadata: {},
+        type: "channel.conclusion-proposed",
+        payload: {
+          channelId,
+          threadId: participantThreadId,
+          summary: "The patch is ready with one follow-up note.",
+          proposedAt: now,
+        },
+      } as unknown as OrchestrationEvent;
+      const closedEvent = {
+        sequence: 5,
+        eventId: "event-5",
+        aggregateKind: "channel",
+        aggregateId: channelId,
+        occurredAt: now,
+        commandId: null,
+        causationEventId: null,
+        correlationId: null,
+        metadata: {},
+        type: "channel.closed",
+        payload: {
+          channelId,
+          closedAt: now,
+        },
+      } as unknown as OrchestrationEvent;
+
+      yield* buildAppUnderTest({
+        layers: {
+          orchestrationEngine: {
+            getReadModel: () =>
+              Effect.succeed({
+                ...makeDefaultOrchestrationReadModel(),
+                snapshotSequence: 1,
+              }),
+            readEvents: (fromSequenceExclusive) => {
+              replayCursor = fromSequenceExclusive;
+              return Stream.make(channelCreatedEvent, messagePostedEvent);
+            },
+            streamDomainEvents: Stream.make(messagePostedEvent, conclusionEvent, closedEvent),
+          },
+        },
+      });
+
+      const wsUrl = yield* getWsServerUrl("/ws");
+      const events = yield* Effect.scoped(
+        withWsRpcClient(wsUrl, (client) =>
+          client[WS_METHODS.subscribeChannelMessages]({ channelId }).pipe(
+            Stream.take(3),
+            Stream.runCollect,
+          ),
+        ),
+      );
+
+      assert.equal(replayCursor, 1);
+      assert.deepEqual(Array.from(events), [
+        {
+          channel: "channel.message",
+          channelId,
+          threadId: ownerThreadId,
+          message: {
+            id: messageId,
+            channelId,
+            sequence: 1,
+            fromType: "agent",
+            fromId: participantThreadId,
+            fromRole: "reviewer",
+            content: "Please tighten the failure handling.",
+            createdAt: now,
+          },
+          timestamp: now,
+        },
+        {
+          channel: "channel.conclusion",
+          channelId,
+          threadId: ownerThreadId,
+          sessionId: participantThreadId,
+          summary: "The patch is ready with one follow-up note.",
+          allProposed: false,
+          timestamp: now,
+        },
+        {
+          channel: "channel.status",
+          channelId,
+          status: "closed",
+          timestamp: now,
+        },
+      ]);
+    }).pipe(Effect.provide(NodeHttpServer.layerTest)),
   );
 
   it.effect("routes websocket rpc orchestration.getSnapshot errors", () =>
