@@ -1,6 +1,7 @@
 import { Schema, SchemaIssue } from "effect";
 
 import type { ProjectionRepositoryError } from "../persistence/Errors.ts";
+import type { OrchestrationDispatchError } from "../orchestration/Errors.ts";
 
 export class WorkflowRegistryFileError extends Schema.TaggedErrorClass<WorkflowRegistryFileError>()(
   "WorkflowRegistryFileError",
@@ -160,6 +161,74 @@ export class QualityCheckRunnerDecodeError extends Schema.TaggedErrorClass<Quali
   }
 }
 
+export class WorkflowEngineThreadNotFoundError extends Schema.TaggedErrorClass<WorkflowEngineThreadNotFoundError>()(
+  "WorkflowEngineThreadNotFoundError",
+  {
+    threadId: Schema.String,
+  },
+) {
+  override get message(): string {
+    return `Workflow engine could not find thread '${this.threadId}'.`;
+  }
+}
+
+export class WorkflowEngineProjectNotFoundError extends Schema.TaggedErrorClass<WorkflowEngineProjectNotFoundError>()(
+  "WorkflowEngineProjectNotFoundError",
+  {
+    threadId: Schema.String,
+    projectId: Schema.String,
+  },
+) {
+  override get message(): string {
+    return `Workflow engine could not find project '${this.projectId}' for thread '${this.threadId}'.`;
+  }
+}
+
+export class WorkflowEngineWorkflowNotFoundError extends Schema.TaggedErrorClass<WorkflowEngineWorkflowNotFoundError>()(
+  "WorkflowEngineWorkflowNotFoundError",
+  {
+    threadId: Schema.String,
+    workflowId: Schema.optional(Schema.String),
+  },
+) {
+  override get message(): string {
+    const workflowRef =
+      this.workflowId === undefined
+        ? "without a workflow id"
+        : `with workflow '${this.workflowId}'`;
+    return `Workflow engine could not resolve a workflow for thread '${this.threadId}' ${workflowRef}.`;
+  }
+}
+
+export class WorkflowEnginePhaseNotFoundError extends Schema.TaggedErrorClass<WorkflowEnginePhaseNotFoundError>()(
+  "WorkflowEnginePhaseNotFoundError",
+  {
+    workflowId: Schema.String,
+    detail: Schema.String,
+  },
+) {
+  override get message(): string {
+    return `Workflow engine could not resolve a phase in workflow '${this.workflowId}': ${this.detail}`;
+  }
+}
+
+export class WorkflowEnginePhaseRunNotFoundError extends Schema.TaggedErrorClass<WorkflowEnginePhaseRunNotFoundError>()(
+  "WorkflowEnginePhaseRunNotFoundError",
+  {
+    threadId: Schema.String,
+    phaseRunId: Schema.optional(Schema.String),
+    detail: Schema.String,
+  },
+) {
+  override get message(): string {
+    const phaseRunRef =
+      this.phaseRunId === undefined
+        ? "for the current workflow state"
+        : `for phase run '${this.phaseRunId}'`;
+    return `Workflow engine could not resolve phase execution ${phaseRunRef} on thread '${this.threadId}': ${this.detail}`;
+  }
+}
+
 export type WorkflowRegistryError =
   | ProjectionRepositoryError
   | WorkflowRegistryFileError
@@ -178,6 +247,17 @@ export type QualityCheckRunnerError =
   | QualityCheckRunnerFileError
   | QualityCheckRunnerParseError
   | QualityCheckRunnerDecodeError;
+
+export type WorkflowEngineError =
+  | OrchestrationDispatchError
+  | ProjectionRepositoryError
+  | WorkflowRegistryError
+  | QualityCheckRunnerError
+  | WorkflowEngineThreadNotFoundError
+  | WorkflowEngineProjectNotFoundError
+  | WorkflowEngineWorkflowNotFoundError
+  | WorkflowEnginePhaseNotFoundError
+  | WorkflowEnginePhaseRunNotFoundError;
 
 export function toWorkflowRegistryDecodeError(path: string) {
   return (error: Schema.SchemaError): WorkflowRegistryDecodeError =>
