@@ -32,6 +32,7 @@
 - WI-9: Database migrations -- thread extensions
 - WI-10: Database migrations -- phase outputs and other tables
 - WI-11: Projection repositories -- workflows
+- WI-12: Projection repositories -- phase runs
 
 ## Iteration Log
 
@@ -46,6 +47,7 @@
 - 2026-04-05: Implemented WI-9 by adding migration `022_ThreadExtensions` for the new thread projection columns and parent/phase indexes, registering it in the migration loader, adding an in-memory migration test that verifies the new columns plus compatibility with preexisting thread rows, and confirming `bun fmt`, `bun lint`, `bun typecheck`, and `bun run test` all pass with the migration in place.
 - 2026-04-05: Implemented WI-10 by adding migration `023_PhaseOutputTables` for `phase_outputs`, `session_synthesis`, `session_dependencies`, `session_links`, `phase_run_provenance`, `phase_run_outcomes`, `project_knowledge`, and `attention_signals`, registering it in the migration loader, adding an in-memory migration test that verifies the new tables plus their required indexes and partial unique indexes, and confirming `bun fmt`, `bun lint`, `bun typecheck`, and `bun run test` all pass with the migration in place.
 - 2026-04-05: Implemented WI-11 by adding `ProjectionWorkflows` service and layer for CRUD access to the `workflows` table with typed `phases_json` decoding and user-workflow precedence in `queryByName`, adding in-memory CRUD coverage for `queryAll`, `queryById`, `queryByName`, `upsert`, and `delete`, and confirming `bun fmt`, `bun lint`, `bun typecheck`, and `bun run test` all pass.
+- 2026-04-05: Implemented WI-12 by adding `ProjectionPhaseRuns` service and layer for persisted phase-run CRUD/status updates with typed JSON decoding for gate results, quality-check results, and deliberation state, adding in-memory repository coverage for `queryById`, `queryByThreadId`, `upsert`, and `updateStatus`, and confirming `bun fmt`, `bun lint`, `bun typecheck`, and `bun run test` all pass.
 
 ## Review Log
 
