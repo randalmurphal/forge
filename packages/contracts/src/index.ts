@@ -6,6 +6,7 @@ export * from "./providerRuntime";
 export * from "./model";
 export * from "./keybindings";
 export * from "./workflow";
+export * from "./channel";
 export * from "./server";
 export * from "./settings";
 export * from "./git";
