@@ -39,10 +39,8 @@ import {
 import { KeybindingsConfigError } from "./keybindings";
 import {
   ChannelPushEvent,
-  DispatchResult,
-  ForgeClientSnapshot,
-  OrchestrationMessage,
   ClientOrchestrationCommand,
+  DispatchResult,
   OrchestrationEvent,
   OrchestrationGetSnapshotError,
   ORCHESTRATION_WS_METHODS,
@@ -56,6 +54,9 @@ import {
   OrchestrationReplayEventsInput,
   OrchestrationRpcSchemas,
   RuntimeMode,
+  SessionSummary,
+  TranscriptEntry,
+  WorkflowSummary,
   WorkflowPushEvent,
 } from "./orchestration";
 import { InteractiveRequestResolution } from "./interactiveRequest";
@@ -406,7 +407,7 @@ const ForgeThreadGetTranscriptInput = Schema.Struct({
 });
 
 const ForgeThreadGetTranscriptResult = Schema.Struct({
-  entries: Schema.Array(OrchestrationMessage),
+  entries: Schema.Array(TranscriptEntry),
   total: NonNegativeInt,
 });
 
@@ -415,7 +416,7 @@ const ForgeThreadGetChildrenInput = Schema.Struct({
 });
 
 const ForgeThreadGetChildrenResult = Schema.Struct({
-  children: ForgeClientSnapshot.fields.sessions,
+  children: Schema.Array(SessionSummary),
 });
 
 const ForgeGateApproveInput = Schema.Struct({
@@ -459,7 +460,7 @@ const ForgePhaseOutputUpdateInput = Schema.Struct({
 const ForgeWorkflowListInput = Schema.Struct({});
 
 const ForgeWorkflowListResult = Schema.Struct({
-  workflows: ForgeClientSnapshot.fields.workflows,
+  workflows: Schema.Array(WorkflowSummary),
 });
 
 const ForgeWorkflowGetInput = Schema.Struct({

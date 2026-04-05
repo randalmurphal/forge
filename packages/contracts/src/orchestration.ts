@@ -153,6 +153,9 @@ export const OrchestrationMessage = Schema.Struct({
 });
 export type OrchestrationMessage = typeof OrchestrationMessage.Type;
 
+export const TranscriptEntry = OrchestrationMessage;
+export type TranscriptEntry = typeof TranscriptEntry.Type;
+
 export const OrchestrationProposedPlanId = TrimmedNonEmptyString;
 export type OrchestrationProposedPlanId = typeof OrchestrationProposedPlanId.Type;
 
@@ -403,12 +406,13 @@ const ForgeReadModelPendingRequest = Schema.Struct({
   status: InteractiveRequest.fields.status,
 });
 
-const ForgeReadModelWorkflow = Schema.Struct({
+export const WorkflowSummary = Schema.Struct({
   workflowId: WorkflowId,
   name: TrimmedNonEmptyString,
   description: Schema.String,
   builtIn: Schema.Boolean,
 });
+export type WorkflowSummary = typeof WorkflowSummary.Type;
 
 export const ForgeReadModel = Schema.Struct({
   snapshotSequence: NonNegativeInt,
@@ -417,12 +421,12 @@ export const ForgeReadModel = Schema.Struct({
   phaseRuns: Schema.Array(ForgeReadModelPhaseRun),
   channels: Schema.Array(ForgeReadModelChannel),
   pendingRequests: Schema.Array(ForgeReadModelPendingRequest),
-  workflows: Schema.Array(ForgeReadModelWorkflow),
+  workflows: Schema.Array(WorkflowSummary),
   updatedAt: IsoDateTime,
 });
 export type ForgeReadModel = typeof ForgeReadModel.Type;
 
-const ForgeClientSnapshotSession = Schema.Struct({
+export const SessionSummary = Schema.Struct({
   threadId: ThreadId,
   projectId: ProjectId,
   parentThreadId: Schema.NullOr(ThreadId),
@@ -443,6 +447,7 @@ const ForgeClientSnapshotSession = Schema.Struct({
   updatedAt: IsoDateTime,
   archivedAt: Schema.NullOr(IsoDateTime),
 });
+export type SessionSummary = typeof SessionSummary.Type;
 
 const ForgeClientSnapshotPhaseRun = Schema.Struct({
   phaseRunId: PhaseRunId,
@@ -471,11 +476,11 @@ const ForgeClientSnapshotPendingRequest = Schema.Struct({
 export const ForgeClientSnapshot = Schema.Struct({
   snapshotSequence: NonNegativeInt,
   projects: Schema.Array(OrchestrationProject),
-  sessions: Schema.Array(ForgeClientSnapshotSession),
+  sessions: Schema.Array(SessionSummary),
   phaseRuns: Schema.Array(ForgeClientSnapshotPhaseRun),
   channels: Schema.Array(ForgeClientSnapshotChannel),
   pendingRequests: Schema.Array(ForgeClientSnapshotPendingRequest),
-  workflows: Schema.Array(ForgeReadModelWorkflow),
+  workflows: Schema.Array(WorkflowSummary),
   updatedAt: IsoDateTime,
 });
 export type ForgeClientSnapshot = typeof ForgeClientSnapshot.Type;

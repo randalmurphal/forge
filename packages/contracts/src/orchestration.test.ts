@@ -59,6 +59,7 @@ import {
   SessionMessageSentPayload,
   SessionSendMessageCommand,
   SessionSendTurnCommand,
+  SessionSummary,
   SessionStatusChangedPayload,
   SessionTurnCompletedPayload,
   SessionTurnRequestedPayload,
@@ -107,6 +108,8 @@ import {
   ThreadCreatedPayload,
   ThreadTurnDiff,
   ThreadTurnStartRequestedPayload,
+  TranscriptEntry,
+  WorkflowSummary,
   WorkflowBootstrapEvent,
   WorkflowGateEvent,
   WorkflowPhaseEvent,
@@ -2909,6 +2912,117 @@ it.effect("round-trips the spec-defined ForgeClientSnapshot contracts", () =>
     } as const;
 
     const { parsed, encoded } = yield* roundTrip(ForgeClientSnapshot, input);
+
+    assert.deepStrictEqual(parsed, expected);
+    assert.deepStrictEqual(encoded, expected);
+  }),
+);
+
+it.effect("round-trips the spec-defined transcript entry contract", () =>
+  Effect.gen(function* () {
+    const input = {
+      id: "message-1",
+      role: "assistant",
+      text: "Implemented the requested patch.",
+      attachments: [
+        {
+          type: "image",
+          id: "attachment-1",
+          name: "diagram.png",
+          mimeType: "image/png",
+          sizeBytes: 1024,
+        },
+      ],
+      turnId: "turn-1",
+      streaming: false,
+      createdAt: "2026-01-01T03:14:00.000Z",
+      updatedAt: "2026-01-01T03:15:00.000Z",
+    } as const;
+
+    const { parsed, encoded } = yield* roundTrip(TranscriptEntry, input);
+
+    assert.strictEqual(parsed.id, "message-1");
+    assert.strictEqual(parsed.role, "assistant");
+    assert.deepStrictEqual(encoded, input);
+  }),
+);
+
+it.effect("round-trips the spec-defined session summary contract", () =>
+  Effect.gen(function* () {
+    const input = {
+      threadId: " thread-1 ",
+      projectId: " project-1 ",
+      parentThreadId: " parent-thread-1 ",
+      sessionType: "workflow",
+      title: " Foundation Loop ",
+      status: "running",
+      role: " planner ",
+      provider: "codex",
+      model: {
+        provider: "codex",
+        model: " gpt-5.4 ",
+      },
+      runtimeMode: "full-access",
+      workflowId: " workflow-1 ",
+      currentPhaseId: " phase-1 ",
+      patternId: " pattern-1 ",
+      branch: " feature/foundation ",
+      bootstrapStatus: "completed",
+      childThreadIds: [" child-thread-1 "],
+      createdAt: "2026-01-01T03:16:00.000Z",
+      updatedAt: "2026-01-01T03:17:00.000Z",
+      archivedAt: null,
+    } as const;
+
+    const expected = {
+      threadId: "thread-1",
+      projectId: "project-1",
+      parentThreadId: "parent-thread-1",
+      sessionType: "workflow",
+      title: "Foundation Loop",
+      status: "running",
+      role: "planner",
+      provider: "codex",
+      model: {
+        provider: "codex",
+        model: "gpt-5.4",
+      },
+      runtimeMode: "full-access",
+      workflowId: "workflow-1",
+      currentPhaseId: "phase-1",
+      patternId: "pattern-1",
+      branch: "feature/foundation",
+      bootstrapStatus: "completed",
+      childThreadIds: ["child-thread-1"],
+      createdAt: "2026-01-01T03:16:00.000Z",
+      updatedAt: "2026-01-01T03:17:00.000Z",
+      archivedAt: null,
+    } as const;
+
+    const { parsed, encoded } = yield* roundTrip(SessionSummary, input);
+
+    assert.deepStrictEqual(parsed, expected);
+    assert.deepStrictEqual(encoded, expected);
+  }),
+);
+
+it.effect("round-trips the spec-defined workflow summary contract", () =>
+  Effect.gen(function* () {
+    const input = {
+      workflowId: " workflow-1 ",
+      name: " foundation-loop ",
+      description: "Builds Forge foundation contracts and projections.",
+      builtIn: true,
+    } as const;
+
+    const expected = {
+      workflowId: "workflow-1",
+      name: "foundation-loop",
+      description: "Builds Forge foundation contracts and projections.",
+      builtIn: true,
+    } as const;
+
+    const { parsed, encoded } = yield* roundTrip(WorkflowSummary, input);
 
     assert.deepStrictEqual(parsed, expected);
     assert.deepStrictEqual(encoded, expected);
