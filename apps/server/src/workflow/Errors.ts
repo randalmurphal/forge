@@ -120,6 +120,46 @@ export class PromptTemplateNotFoundError extends Schema.TaggedErrorClass<PromptT
   }
 }
 
+export class QualityCheckRunnerFileError extends Schema.TaggedErrorClass<QualityCheckRunnerFileError>()(
+  "QualityCheckRunnerFileError",
+  {
+    path: Schema.String,
+    operation: Schema.String,
+    detail: Schema.String,
+    cause: Schema.optional(Schema.Defect),
+  },
+) {
+  override get message(): string {
+    return `Quality check runner file error in ${this.operation} (${this.path}): ${this.detail}`;
+  }
+}
+
+export class QualityCheckRunnerParseError extends Schema.TaggedErrorClass<QualityCheckRunnerParseError>()(
+  "QualityCheckRunnerParseError",
+  {
+    path: Schema.String,
+    detail: Schema.String,
+    cause: Schema.optional(Schema.Defect),
+  },
+) {
+  override get message(): string {
+    return `Quality check runner parse error (${this.path}): ${this.detail}`;
+  }
+}
+
+export class QualityCheckRunnerDecodeError extends Schema.TaggedErrorClass<QualityCheckRunnerDecodeError>()(
+  "QualityCheckRunnerDecodeError",
+  {
+    path: Schema.String,
+    issue: Schema.String,
+    cause: Schema.optional(Schema.Defect),
+  },
+) {
+  override get message(): string {
+    return `Quality check runner decode error (${this.path}): ${this.issue}`;
+  }
+}
+
 export type WorkflowRegistryError =
   | ProjectionRepositoryError
   | WorkflowRegistryFileError
@@ -134,6 +174,11 @@ export type PromptResolverError =
   | PromptResolverInvariantError
   | PromptTemplateNotFoundError;
 
+export type QualityCheckRunnerError =
+  | QualityCheckRunnerFileError
+  | QualityCheckRunnerParseError
+  | QualityCheckRunnerDecodeError;
+
 export function toWorkflowRegistryDecodeError(path: string) {
   return (error: Schema.SchemaError): WorkflowRegistryDecodeError =>
     new WorkflowRegistryDecodeError({
@@ -146,6 +191,15 @@ export function toWorkflowRegistryDecodeError(path: string) {
 export function toPromptResolverDecodeError(path: string) {
   return (error: Schema.SchemaError): PromptResolverDecodeError =>
     new PromptResolverDecodeError({
+      path,
+      issue: SchemaIssue.makeFormatterDefault()(error.issue),
+      cause: error,
+    });
+}
+
+export function toQualityCheckRunnerDecodeError(path: string) {
+  return (error: Schema.SchemaError): QualityCheckRunnerDecodeError =>
+    new QualityCheckRunnerDecodeError({
       path,
       issue: SchemaIssue.makeFormatterDefault()(error.issue),
       cause: error,

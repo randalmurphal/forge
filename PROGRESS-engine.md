@@ -23,6 +23,7 @@
 - `WI-2: Built-in workflow YAML definitions`
 - `WI-3: Built-in prompt templates`
 - `WI-4: Prompt resolution`
+- `WI-5: QualityCheckRunner service`
 
 ## Iteration Log
 
@@ -30,6 +31,7 @@
 - `2026-04-05`: Added the eight built-in workflow YAML definitions under `apps/server/src/workflow/builtins/` and validation coverage that parses every bundled workflow against `WorkflowDefinition`.
 - `2026-04-05`: Added bundled prompt templates for all built-in workflow roles under `apps/server/src/workflow/prompts/` plus validation coverage that parses each YAML template and checks placeholder usage against the known engine variable set.
 - `2026-04-05`: Added `PromptResolver` with project/global/built-in resolution precedence, typed prompt loading/validation errors, and variable substitution that leaves unknown placeholders intact, with coverage for precedence, substitution, and missing-prompt behavior.
+- `2026-04-05`: Added `QualityCheckRunner` with project/global Forge config resolution, sequential shell execution in the session worktree, structured pass/fail output capture, timeout handling, and graceful degradation for missing config files or unknown quality-check keys.
 
 ## Review Log
 
