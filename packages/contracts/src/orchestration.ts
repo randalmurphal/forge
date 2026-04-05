@@ -1500,6 +1500,44 @@ export const ThreadTurnDiffCompletedPayload = Schema.Struct({
   completedAt: IsoDateTime,
 });
 
+export const SessionCheckpointCapturedPayload = Schema.Struct({
+  threadId: ThreadId,
+  turnId: TurnId,
+  turnCount: NonNegativeInt,
+  ref: TrimmedNonEmptyString,
+  capturedAt: IsoDateTime,
+});
+export type SessionCheckpointCapturedPayload = typeof SessionCheckpointCapturedPayload.Type;
+
+export const SessionCheckpointDiffCompletedPayload = Schema.Struct({
+  threadId: ThreadId,
+  fromTurnCount: NonNegativeInt,
+  toTurnCount: NonNegativeInt,
+  diff: Schema.String,
+  files: Schema.Array(OrchestrationCheckpointFile),
+  completedAt: IsoDateTime,
+}).pipe(
+  Schema.check(
+    Schema.makeFilter(
+      (payload) =>
+        payload.fromTurnCount <= payload.toTurnCount ||
+        new SchemaIssue.InvalidValue(Option.some(payload.fromTurnCount), {
+          message: "fromTurnCount must be less than or equal to toTurnCount",
+        }),
+      { identifier: "SessionCheckpointDiffCompletedPayload" },
+    ),
+  ),
+);
+export type SessionCheckpointDiffCompletedPayload =
+  typeof SessionCheckpointDiffCompletedPayload.Type;
+
+export const SessionCheckpointRevertedPayload = Schema.Struct({
+  threadId: ThreadId,
+  turnCount: NonNegativeInt,
+  revertedAt: IsoDateTime,
+});
+export type SessionCheckpointRevertedPayload = typeof SessionCheckpointRevertedPayload.Type;
+
 export const ThreadActivityAppendedPayload = Schema.Struct({
   threadId: ThreadId,
   activity: OrchestrationThreadActivity,
@@ -1673,6 +1711,9 @@ export const ForgeEventType = Schema.Union([
     "thread.dependency-removed",
     "thread.dependencies-satisfied",
     "thread.synthesis-completed",
+    "thread.checkpoint-captured",
+    "thread.checkpoint-diff-completed",
+    "thread.checkpoint-reverted",
     "channel.created",
     "channel.message-posted",
     "channel.messages-read",
@@ -2103,6 +2144,21 @@ export const ForgeEvent = Schema.Union([
     ...ForgeEventBaseFields,
     type: Schema.Literal("thread.synthesis-completed"),
     payload: ThreadSynthesisCompletedPayload,
+  }),
+  Schema.Struct({
+    ...ForgeEventBaseFields,
+    type: Schema.Literal("thread.checkpoint-captured"),
+    payload: SessionCheckpointCapturedPayload,
+  }),
+  Schema.Struct({
+    ...ForgeEventBaseFields,
+    type: Schema.Literal("thread.checkpoint-diff-completed"),
+    payload: SessionCheckpointDiffCompletedPayload,
+  }),
+  Schema.Struct({
+    ...ForgeEventBaseFields,
+    type: Schema.Literal("thread.checkpoint-reverted"),
+    payload: SessionCheckpointRevertedPayload,
   }),
   Schema.Struct({
     ...ForgeEventBaseFields,

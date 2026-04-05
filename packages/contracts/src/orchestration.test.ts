@@ -42,6 +42,9 @@ import {
   SessionArchivedPayload,
   SessionCancelCommand,
   SessionCancelledPayload,
+  SessionCheckpointCapturedPayload,
+  SessionCheckpointDiffCompletedPayload,
+  SessionCheckpointRevertedPayload,
   SessionCompletedPayload,
   SessionCreateCommand,
   SessionCreatedPayload,
@@ -1777,61 +1780,80 @@ it.effect("round-trips the Forge lifecycle event surface through ForgeEvent", ()
   }),
 );
 
-it.effect("round-trips additive workflow, channel, and request events through ForgeEvent", () =>
-  Effect.gen(function* () {
-    const baseEvent = {
-      sequence: 1,
-      eventId: "event-1",
-      occurredAt: "2026-01-01T01:00:00.000Z",
-      commandId: "cmd-event-1",
-      causationEventId: null,
-      correlationId: "cmd-event-1",
-      metadata: {},
-    } as const;
+it.effect(
+  "round-trips additive workflow, checkpoint, channel, and request events through ForgeEvent",
+  () =>
+    Effect.gen(function* () {
+      const baseEvent = {
+        sequence: 1,
+        eventId: "event-1",
+        occurredAt: "2026-01-01T01:00:00.000Z",
+        commandId: "cmd-event-1",
+        causationEventId: null,
+        correlationId: "cmd-event-1",
+        metadata: {},
+      } as const;
 
-    const cases = [
-      {
-        payloadSchema: ThreadPhaseStartedPayload,
-        event: {
-          ...baseEvent,
-          aggregateKind: "thread",
-          aggregateId: "thread-1",
-          type: "thread.phase-started",
-          payload: {
+      const cases = [
+        {
+          payloadSchema: ThreadPhaseStartedPayload,
+          event: {
+            ...baseEvent,
+            aggregateKind: "thread",
+            aggregateId: "thread-1",
+            type: "thread.phase-started",
+            payload: {
+              threadId: "thread-1",
+              phaseRunId: " phase-run-1 ",
+              phaseId: " phase-1 ",
+              phaseName: " Implement ",
+              phaseType: "single-agent",
+              iteration: 1,
+              startedAt: "2026-01-01T01:00:00.000Z",
+            },
+          },
+          expectedPayload: {
             threadId: "thread-1",
-            phaseRunId: " phase-run-1 ",
-            phaseId: " phase-1 ",
-            phaseName: " Implement ",
+            phaseRunId: "phase-run-1",
+            phaseId: "phase-1",
+            phaseName: "Implement",
             phaseType: "single-agent",
             iteration: 1,
             startedAt: "2026-01-01T01:00:00.000Z",
           },
         },
-        expectedPayload: {
-          threadId: "thread-1",
-          phaseRunId: "phase-run-1",
-          phaseId: "phase-1",
-          phaseName: "Implement",
-          phaseType: "single-agent",
-          iteration: 1,
-          startedAt: "2026-01-01T01:00:00.000Z",
-        },
-      },
-      {
-        payloadSchema: ThreadPhaseCompletedPayload,
-        event: {
-          ...baseEvent,
-          aggregateKind: "thread",
-          aggregateId: "thread-1",
-          type: "thread.phase-completed",
-          payload: {
+        {
+          payloadSchema: ThreadPhaseCompletedPayload,
+          event: {
+            ...baseEvent,
+            aggregateKind: "thread",
+            aggregateId: "thread-1",
+            type: "thread.phase-completed",
+            payload: {
+              threadId: "thread-1",
+              phaseRunId: " phase-run-1 ",
+              outputs: [
+                {
+                  key: " output ",
+                  content: "Implementation complete",
+                  sourceType: " agent ",
+                },
+              ],
+              gateResult: {
+                status: "passed",
+                evaluatedAt: "2026-01-01T01:05:00.000Z",
+              },
+              completedAt: "2026-01-01T01:06:00.000Z",
+            },
+          },
+          expectedPayload: {
             threadId: "thread-1",
-            phaseRunId: " phase-run-1 ",
+            phaseRunId: "phase-run-1",
             outputs: [
               {
-                key: " output ",
+                key: "output",
                 content: "Implementation complete",
-                sourceType: " agent ",
+                sourceType: "agent",
               },
             ],
             gateResult: {
@@ -1841,620 +1863,684 @@ it.effect("round-trips additive workflow, channel, and request events through Fo
             completedAt: "2026-01-01T01:06:00.000Z",
           },
         },
-        expectedPayload: {
-          threadId: "thread-1",
-          phaseRunId: "phase-run-1",
-          outputs: [
-            {
-              key: "output",
-              content: "Implementation complete",
-              sourceType: "agent",
+        {
+          payloadSchema: ThreadPhaseFailedPayload,
+          event: {
+            ...baseEvent,
+            aggregateKind: "thread",
+            aggregateId: "thread-1",
+            type: "thread.phase-failed",
+            payload: {
+              threadId: "thread-1",
+              phaseRunId: " phase-run-2 ",
+              error: "Build failed",
+              failedAt: "2026-01-01T01:07:00.000Z",
             },
-          ],
-          gateResult: {
-            status: "passed",
-            evaluatedAt: "2026-01-01T01:05:00.000Z",
           },
-          completedAt: "2026-01-01T01:06:00.000Z",
-        },
-      },
-      {
-        payloadSchema: ThreadPhaseFailedPayload,
-        event: {
-          ...baseEvent,
-          aggregateKind: "thread",
-          aggregateId: "thread-1",
-          type: "thread.phase-failed",
-          payload: {
+          expectedPayload: {
             threadId: "thread-1",
-            phaseRunId: " phase-run-2 ",
+            phaseRunId: "phase-run-2",
             error: "Build failed",
             failedAt: "2026-01-01T01:07:00.000Z",
           },
         },
-        expectedPayload: {
-          threadId: "thread-1",
-          phaseRunId: "phase-run-2",
-          error: "Build failed",
-          failedAt: "2026-01-01T01:07:00.000Z",
-        },
-      },
-      {
-        payloadSchema: ThreadPhaseSkippedPayload,
-        event: {
-          ...baseEvent,
-          aggregateKind: "thread",
-          aggregateId: "thread-1",
-          type: "thread.phase-skipped",
-          payload: {
+        {
+          payloadSchema: ThreadPhaseSkippedPayload,
+          event: {
+            ...baseEvent,
+            aggregateKind: "thread",
+            aggregateId: "thread-1",
+            type: "thread.phase-skipped",
+            payload: {
+              threadId: "thread-1",
+              phaseRunId: " phase-run-3 ",
+              skippedAt: "2026-01-01T01:08:00.000Z",
+            },
+          },
+          expectedPayload: {
             threadId: "thread-1",
-            phaseRunId: " phase-run-3 ",
+            phaseRunId: "phase-run-3",
             skippedAt: "2026-01-01T01:08:00.000Z",
           },
         },
-        expectedPayload: {
-          threadId: "thread-1",
-          phaseRunId: "phase-run-3",
-          skippedAt: "2026-01-01T01:08:00.000Z",
-        },
-      },
-      {
-        payloadSchema: ThreadPhaseOutputEditedPayload,
-        event: {
-          ...baseEvent,
-          aggregateKind: "thread",
-          aggregateId: "thread-1",
-          type: "thread.phase-output-edited",
-          payload: {
+        {
+          payloadSchema: ThreadPhaseOutputEditedPayload,
+          event: {
+            ...baseEvent,
+            aggregateKind: "thread",
+            aggregateId: "thread-1",
+            type: "thread.phase-output-edited",
+            payload: {
+              threadId: "thread-1",
+              phaseRunId: " phase-run-1 ",
+              outputKey: " summary ",
+              previousContent: "Old summary",
+              newContent: "New summary",
+              editedAt: "2026-01-01T01:09:00.000Z",
+            },
+          },
+          expectedPayload: {
             threadId: "thread-1",
-            phaseRunId: " phase-run-1 ",
-            outputKey: " summary ",
+            phaseRunId: "phase-run-1",
+            outputKey: "summary",
             previousContent: "Old summary",
             newContent: "New summary",
             editedAt: "2026-01-01T01:09:00.000Z",
           },
         },
-        expectedPayload: {
-          threadId: "thread-1",
-          phaseRunId: "phase-run-1",
-          outputKey: "summary",
-          previousContent: "Old summary",
-          newContent: "New summary",
-          editedAt: "2026-01-01T01:09:00.000Z",
-        },
-      },
-      {
-        payloadSchema: ThreadQualityCheckStartedPayload,
-        event: {
-          ...baseEvent,
-          aggregateKind: "thread",
-          aggregateId: "thread-1",
-          type: "thread.quality-check-started",
-          payload: {
+        {
+          payloadSchema: ThreadQualityCheckStartedPayload,
+          event: {
+            ...baseEvent,
+            aggregateKind: "thread",
+            aggregateId: "thread-1",
+            type: "thread.quality-check-started",
+            payload: {
+              threadId: "thread-1",
+              phaseRunId: " phase-run-1 ",
+              checks: [{ check: " lint ", required: true }],
+              startedAt: "2026-01-01T01:10:00.000Z",
+            },
+          },
+          expectedPayload: {
             threadId: "thread-1",
-            phaseRunId: " phase-run-1 ",
-            checks: [{ check: " lint ", required: true }],
+            phaseRunId: "phase-run-1",
+            checks: [{ check: "lint", required: true }],
             startedAt: "2026-01-01T01:10:00.000Z",
           },
         },
-        expectedPayload: {
-          threadId: "thread-1",
-          phaseRunId: "phase-run-1",
-          checks: [{ check: "lint", required: true }],
-          startedAt: "2026-01-01T01:10:00.000Z",
-        },
-      },
-      {
-        payloadSchema: ThreadQualityCheckCompletedPayload,
-        event: {
-          ...baseEvent,
-          aggregateKind: "thread",
-          aggregateId: "thread-1",
-          type: "thread.quality-check-completed",
-          payload: {
+        {
+          payloadSchema: ThreadQualityCheckCompletedPayload,
+          event: {
+            ...baseEvent,
+            aggregateKind: "thread",
+            aggregateId: "thread-1",
+            type: "thread.quality-check-completed",
+            payload: {
+              threadId: "thread-1",
+              phaseRunId: " phase-run-1 ",
+              results: [{ check: " test ", passed: false, output: "1 failure" }],
+              completedAt: "2026-01-01T01:11:00.000Z",
+            },
+          },
+          expectedPayload: {
             threadId: "thread-1",
-            phaseRunId: " phase-run-1 ",
-            results: [{ check: " test ", passed: false, output: "1 failure" }],
+            phaseRunId: "phase-run-1",
+            results: [{ check: "test", passed: false, output: "1 failure" }],
             completedAt: "2026-01-01T01:11:00.000Z",
           },
         },
-        expectedPayload: {
-          threadId: "thread-1",
-          phaseRunId: "phase-run-1",
-          results: [{ check: "test", passed: false, output: "1 failure" }],
-          completedAt: "2026-01-01T01:11:00.000Z",
-        },
-      },
-      {
-        payloadSchema: ThreadBootstrapQueuedPayload,
-        event: {
-          ...baseEvent,
-          aggregateKind: "thread",
-          aggregateId: "thread-1",
-          type: "thread.bootstrap-queued",
-          payload: {
+        {
+          payloadSchema: ThreadBootstrapQueuedPayload,
+          event: {
+            ...baseEvent,
+            aggregateKind: "thread",
+            aggregateId: "thread-1",
+            type: "thread.bootstrap-queued",
+            payload: {
+              threadId: "thread-1",
+              queuedAt: "2026-01-01T01:11:30.000Z",
+            },
+          },
+          expectedPayload: {
             threadId: "thread-1",
             queuedAt: "2026-01-01T01:11:30.000Z",
           },
         },
-        expectedPayload: {
-          threadId: "thread-1",
-          queuedAt: "2026-01-01T01:11:30.000Z",
-        },
-      },
-      {
-        payloadSchema: ThreadBootstrapStartedPayload,
-        event: {
-          ...baseEvent,
-          aggregateKind: "thread",
-          aggregateId: "thread-1",
-          type: "thread.bootstrap-started",
-          payload: {
+        {
+          payloadSchema: ThreadBootstrapStartedPayload,
+          event: {
+            ...baseEvent,
+            aggregateKind: "thread",
+            aggregateId: "thread-1",
+            type: "thread.bootstrap-started",
+            payload: {
+              threadId: "thread-1",
+              startedAt: "2026-01-01T01:12:00.000Z",
+            },
+          },
+          expectedPayload: {
             threadId: "thread-1",
             startedAt: "2026-01-01T01:12:00.000Z",
           },
         },
-        expectedPayload: {
-          threadId: "thread-1",
-          startedAt: "2026-01-01T01:12:00.000Z",
-        },
-      },
-      {
-        payloadSchema: ThreadBootstrapCompletedPayload,
-        event: {
-          ...baseEvent,
-          aggregateKind: "thread",
-          aggregateId: "thread-1",
-          type: "thread.bootstrap-completed",
-          payload: {
+        {
+          payloadSchema: ThreadBootstrapCompletedPayload,
+          event: {
+            ...baseEvent,
+            aggregateKind: "thread",
+            aggregateId: "thread-1",
+            type: "thread.bootstrap-completed",
+            payload: {
+              threadId: "thread-1",
+              completedAt: "2026-01-01T01:13:00.000Z",
+            },
+          },
+          expectedPayload: {
             threadId: "thread-1",
             completedAt: "2026-01-01T01:13:00.000Z",
           },
         },
-        expectedPayload: {
-          threadId: "thread-1",
-          completedAt: "2026-01-01T01:13:00.000Z",
-        },
-      },
-      {
-        payloadSchema: ThreadBootstrapFailedPayload,
-        event: {
-          ...baseEvent,
-          aggregateKind: "thread",
-          aggregateId: "thread-1",
-          type: "thread.bootstrap-failed",
-          payload: {
+        {
+          payloadSchema: ThreadBootstrapFailedPayload,
+          event: {
+            ...baseEvent,
+            aggregateKind: "thread",
+            aggregateId: "thread-1",
+            type: "thread.bootstrap-failed",
+            payload: {
+              threadId: "thread-1",
+              error: "Install failed",
+              stdout: "npm ERR!",
+              command: " bun install ",
+              failedAt: "2026-01-01T01:14:00.000Z",
+            },
+          },
+          expectedPayload: {
             threadId: "thread-1",
             error: "Install failed",
             stdout: "npm ERR!",
-            command: " bun install ",
+            command: "bun install",
             failedAt: "2026-01-01T01:14:00.000Z",
           },
         },
-        expectedPayload: {
-          threadId: "thread-1",
-          error: "Install failed",
-          stdout: "npm ERR!",
-          command: "bun install",
-          failedAt: "2026-01-01T01:14:00.000Z",
-        },
-      },
-      {
-        payloadSchema: ThreadBootstrapSkippedPayload,
-        event: {
-          ...baseEvent,
-          aggregateKind: "thread",
-          aggregateId: "thread-1",
-          type: "thread.bootstrap-skipped",
-          payload: {
+        {
+          payloadSchema: ThreadBootstrapSkippedPayload,
+          event: {
+            ...baseEvent,
+            aggregateKind: "thread",
+            aggregateId: "thread-1",
+            type: "thread.bootstrap-skipped",
+            payload: {
+              threadId: "thread-1",
+              skippedAt: "2026-01-01T01:15:00.000Z",
+            },
+          },
+          expectedPayload: {
             threadId: "thread-1",
             skippedAt: "2026-01-01T01:15:00.000Z",
           },
         },
-        expectedPayload: {
-          threadId: "thread-1",
-          skippedAt: "2026-01-01T01:15:00.000Z",
-        },
-      },
-      {
-        payloadSchema: ThreadCorrectionQueuedPayload,
-        event: {
-          ...baseEvent,
-          aggregateKind: "thread",
-          aggregateId: "thread-1",
-          type: "thread.correction-queued",
-          payload: {
+        {
+          payloadSchema: ThreadCorrectionQueuedPayload,
+          event: {
+            ...baseEvent,
+            aggregateKind: "thread",
+            aggregateId: "thread-1",
+            type: "thread.correction-queued",
+            payload: {
+              threadId: "thread-1",
+              content: "Please address the failing test.",
+              channelId: " channel-1 ",
+              messageId: " channel-message-1 ",
+              createdAt: "2026-01-01T01:16:00.000Z",
+            },
+          },
+          expectedPayload: {
             threadId: "thread-1",
             content: "Please address the failing test.",
-            channelId: " channel-1 ",
-            messageId: " channel-message-1 ",
+            channelId: "channel-1",
+            messageId: "channel-message-1",
             createdAt: "2026-01-01T01:16:00.000Z",
           },
         },
-        expectedPayload: {
-          threadId: "thread-1",
-          content: "Please address the failing test.",
-          channelId: "channel-1",
-          messageId: "channel-message-1",
-          createdAt: "2026-01-01T01:16:00.000Z",
-        },
-      },
-      {
-        payloadSchema: ThreadCorrectionDeliveredPayload,
-        event: {
-          ...baseEvent,
-          aggregateKind: "thread",
-          aggregateId: "thread-1",
-          type: "thread.correction-delivered",
-          payload: {
+        {
+          payloadSchema: ThreadCorrectionDeliveredPayload,
+          event: {
+            ...baseEvent,
+            aggregateKind: "thread",
+            aggregateId: "thread-1",
+            type: "thread.correction-delivered",
+            payload: {
+              threadId: "thread-1",
+              deliveredAt: "2026-01-01T01:17:00.000Z",
+            },
+          },
+          expectedPayload: {
             threadId: "thread-1",
             deliveredAt: "2026-01-01T01:17:00.000Z",
           },
         },
-        expectedPayload: {
-          threadId: "thread-1",
-          deliveredAt: "2026-01-01T01:17:00.000Z",
-        },
-      },
-      {
-        payloadSchema: ThreadLinkAddedPayload,
-        event: {
-          ...baseEvent,
-          aggregateKind: "thread",
-          aggregateId: "thread-1",
-          type: "thread.link-added",
-          payload: {
+        {
+          payloadSchema: ThreadLinkAddedPayload,
+          event: {
+            ...baseEvent,
+            aggregateKind: "thread",
+            aggregateId: "thread-1",
+            type: "thread.link-added",
+            payload: {
+              threadId: "thread-1",
+              linkId: " link-1 ",
+              linkType: "related",
+              linkedThreadId: null,
+              externalId: " GH-123 ",
+              externalUrl: " https://example.com/issues/123 ",
+              createdAt: "2026-01-01T01:18:00.000Z",
+            },
+          },
+          expectedPayload: {
             threadId: "thread-1",
-            linkId: " link-1 ",
+            linkId: "link-1",
             linkType: "related",
             linkedThreadId: null,
-            externalId: " GH-123 ",
-            externalUrl: " https://example.com/issues/123 ",
+            externalId: "GH-123",
+            externalUrl: "https://example.com/issues/123",
             createdAt: "2026-01-01T01:18:00.000Z",
           },
         },
-        expectedPayload: {
-          threadId: "thread-1",
-          linkId: "link-1",
-          linkType: "related",
-          linkedThreadId: null,
-          externalId: "GH-123",
-          externalUrl: "https://example.com/issues/123",
-          createdAt: "2026-01-01T01:18:00.000Z",
-        },
-      },
-      {
-        payloadSchema: ThreadLinkRemovedPayload,
-        event: {
-          ...baseEvent,
-          aggregateKind: "thread",
-          aggregateId: "thread-1",
-          type: "thread.link-removed",
-          payload: {
+        {
+          payloadSchema: ThreadLinkRemovedPayload,
+          event: {
+            ...baseEvent,
+            aggregateKind: "thread",
+            aggregateId: "thread-1",
+            type: "thread.link-removed",
+            payload: {
+              threadId: "thread-1",
+              linkId: " link-1 ",
+              removedAt: "2026-01-01T01:19:00.000Z",
+            },
+          },
+          expectedPayload: {
             threadId: "thread-1",
-            linkId: " link-1 ",
+            linkId: "link-1",
             removedAt: "2026-01-01T01:19:00.000Z",
           },
         },
-        expectedPayload: {
-          threadId: "thread-1",
-          linkId: "link-1",
-          removedAt: "2026-01-01T01:19:00.000Z",
-        },
-      },
-      {
-        payloadSchema: ThreadPromotedPayload,
-        event: {
-          ...baseEvent,
-          aggregateKind: "thread",
-          aggregateId: "thread-2",
-          type: "thread.promoted",
-          payload: {
-            sourceThreadId: " thread-1 ",
-            targetThreadId: " thread-2 ",
+        {
+          payloadSchema: ThreadPromotedPayload,
+          event: {
+            ...baseEvent,
+            aggregateKind: "thread",
+            aggregateId: "thread-2",
+            type: "thread.promoted",
+            payload: {
+              sourceThreadId: " thread-1 ",
+              targetThreadId: " thread-2 ",
+              promotedAt: "2026-01-01T01:20:00.000Z",
+            },
+          },
+          expectedPayload: {
+            sourceThreadId: "thread-1",
+            targetThreadId: "thread-2",
             promotedAt: "2026-01-01T01:20:00.000Z",
           },
         },
-        expectedPayload: {
-          sourceThreadId: "thread-1",
-          targetThreadId: "thread-2",
-          promotedAt: "2026-01-01T01:20:00.000Z",
-        },
-      },
-      {
-        payloadSchema: ThreadDependencyAddedPayload,
-        event: {
-          ...baseEvent,
-          aggregateKind: "thread",
-          aggregateId: "thread-1",
-          type: "thread.dependency-added",
-          payload: {
+        {
+          payloadSchema: ThreadDependencyAddedPayload,
+          event: {
+            ...baseEvent,
+            aggregateKind: "thread",
+            aggregateId: "thread-1",
+            type: "thread.dependency-added",
+            payload: {
+              threadId: "thread-1",
+              dependsOnThreadId: " thread-2 ",
+              createdAt: "2026-01-01T01:21:00.000Z",
+            },
+          },
+          expectedPayload: {
             threadId: "thread-1",
-            dependsOnThreadId: " thread-2 ",
+            dependsOnThreadId: "thread-2",
             createdAt: "2026-01-01T01:21:00.000Z",
           },
         },
-        expectedPayload: {
-          threadId: "thread-1",
-          dependsOnThreadId: "thread-2",
-          createdAt: "2026-01-01T01:21:00.000Z",
-        },
-      },
-      {
-        payloadSchema: ThreadDependencyRemovedPayload,
-        event: {
-          ...baseEvent,
-          aggregateKind: "thread",
-          aggregateId: "thread-1",
-          type: "thread.dependency-removed",
-          payload: {
+        {
+          payloadSchema: ThreadDependencyRemovedPayload,
+          event: {
+            ...baseEvent,
+            aggregateKind: "thread",
+            aggregateId: "thread-1",
+            type: "thread.dependency-removed",
+            payload: {
+              threadId: "thread-1",
+              dependsOnThreadId: " thread-2 ",
+              removedAt: "2026-01-01T01:22:00.000Z",
+            },
+          },
+          expectedPayload: {
             threadId: "thread-1",
-            dependsOnThreadId: " thread-2 ",
+            dependsOnThreadId: "thread-2",
             removedAt: "2026-01-01T01:22:00.000Z",
           },
         },
-        expectedPayload: {
-          threadId: "thread-1",
-          dependsOnThreadId: "thread-2",
-          removedAt: "2026-01-01T01:22:00.000Z",
-        },
-      },
-      {
-        payloadSchema: ThreadDependenciesSatisfiedPayload,
-        event: {
-          ...baseEvent,
-          aggregateKind: "thread",
-          aggregateId: "thread-1",
-          type: "thread.dependencies-satisfied",
-          payload: {
+        {
+          payloadSchema: ThreadDependenciesSatisfiedPayload,
+          event: {
+            ...baseEvent,
+            aggregateKind: "thread",
+            aggregateId: "thread-1",
+            type: "thread.dependencies-satisfied",
+            payload: {
+              threadId: "thread-1",
+              satisfiedAt: "2026-01-01T01:23:00.000Z",
+            },
+          },
+          expectedPayload: {
             threadId: "thread-1",
             satisfiedAt: "2026-01-01T01:23:00.000Z",
           },
         },
-        expectedPayload: {
-          threadId: "thread-1",
-          satisfiedAt: "2026-01-01T01:23:00.000Z",
-        },
-      },
-      {
-        payloadSchema: ThreadSynthesisCompletedPayload,
-        event: {
-          ...baseEvent,
-          aggregateKind: "thread",
-          aggregateId: "thread-1",
-          type: "thread.synthesis-completed",
-          payload: {
+        {
+          payloadSchema: ThreadSynthesisCompletedPayload,
+          event: {
+            ...baseEvent,
+            aggregateKind: "thread",
+            aggregateId: "thread-1",
+            type: "thread.synthesis-completed",
+            payload: {
+              threadId: "thread-1",
+              content: "Combined findings",
+              generatedByThreadId: " thread-2 ",
+              completedAt: "2026-01-01T01:24:00.000Z",
+            },
+          },
+          expectedPayload: {
             threadId: "thread-1",
             content: "Combined findings",
-            generatedByThreadId: " thread-2 ",
+            generatedByThreadId: "thread-2",
             completedAt: "2026-01-01T01:24:00.000Z",
           },
         },
-        expectedPayload: {
-          threadId: "thread-1",
-          content: "Combined findings",
-          generatedByThreadId: "thread-2",
-          completedAt: "2026-01-01T01:24:00.000Z",
+        {
+          payloadSchema: SessionCheckpointCapturedPayload,
+          event: {
+            ...baseEvent,
+            aggregateKind: "thread",
+            aggregateId: "thread-1",
+            type: "thread.checkpoint-captured",
+            payload: {
+              threadId: "thread-1",
+              turnId: " turn-1 ",
+              turnCount: 4,
+              ref: " refs/checkpoints/4 ",
+              capturedAt: "2026-01-01T01:24:15.000Z",
+            },
+          },
+          expectedPayload: {
+            threadId: "thread-1",
+            turnId: "turn-1",
+            turnCount: 4,
+            ref: "refs/checkpoints/4",
+            capturedAt: "2026-01-01T01:24:15.000Z",
+          },
         },
-      },
-      {
-        payloadSchema: ChannelCreatedPayload,
-        event: {
-          ...baseEvent,
-          aggregateKind: "channel",
-          aggregateId: "channel-1",
-          type: "channel.created",
-          payload: {
-            channelId: " channel-1 ",
+        {
+          payloadSchema: SessionCheckpointDiffCompletedPayload,
+          event: {
+            ...baseEvent,
+            aggregateKind: "thread",
+            aggregateId: "thread-1",
+            type: "thread.checkpoint-diff-completed",
+            payload: {
+              threadId: "thread-1",
+              fromTurnCount: 3,
+              toTurnCount: 4,
+              diff: "diff --git a/file.ts b/file.ts",
+              files: [
+                {
+                  path: " src/file.ts ",
+                  kind: " modified ",
+                  additions: 10,
+                  deletions: 2,
+                },
+              ],
+              completedAt: "2026-01-01T01:24:30.000Z",
+            },
+          },
+          expectedPayload: {
+            threadId: "thread-1",
+            fromTurnCount: 3,
+            toTurnCount: 4,
+            diff: "diff --git a/file.ts b/file.ts",
+            files: [
+              {
+                path: "src/file.ts",
+                kind: "modified",
+                additions: 10,
+                deletions: 2,
+              },
+            ],
+            completedAt: "2026-01-01T01:24:30.000Z",
+          },
+        },
+        {
+          payloadSchema: SessionCheckpointRevertedPayload,
+          event: {
+            ...baseEvent,
+            aggregateKind: "thread",
+            aggregateId: "thread-1",
+            type: "thread.checkpoint-reverted",
+            payload: {
+              threadId: "thread-1",
+              turnCount: 4,
+              revertedAt: "2026-01-01T01:24:45.000Z",
+            },
+          },
+          expectedPayload: {
+            threadId: "thread-1",
+            turnCount: 4,
+            revertedAt: "2026-01-01T01:24:45.000Z",
+          },
+        },
+        {
+          payloadSchema: ChannelCreatedPayload,
+          event: {
+            ...baseEvent,
+            aggregateKind: "channel",
+            aggregateId: "channel-1",
+            type: "channel.created",
+            payload: {
+              channelId: " channel-1 ",
+              threadId: "thread-1",
+              channelType: "guidance",
+              phaseRunId: " phase-run-1 ",
+              createdAt: "2026-01-01T01:25:00.000Z",
+            },
+          },
+          expectedPayload: {
+            channelId: "channel-1",
             threadId: "thread-1",
             channelType: "guidance",
-            phaseRunId: " phase-run-1 ",
+            phaseRunId: "phase-run-1",
             createdAt: "2026-01-01T01:25:00.000Z",
           },
         },
-        expectedPayload: {
-          channelId: "channel-1",
-          threadId: "thread-1",
-          channelType: "guidance",
-          phaseRunId: "phase-run-1",
-          createdAt: "2026-01-01T01:25:00.000Z",
-        },
-      },
-      {
-        payloadSchema: ChannelMessagePostedPayload,
-        event: {
-          ...baseEvent,
-          aggregateKind: "channel",
-          aggregateId: "channel-1",
-          type: "channel.message-posted",
-          payload: {
-            channelId: " channel-1 ",
-            messageId: " channel-message-1 ",
+        {
+          payloadSchema: ChannelMessagePostedPayload,
+          event: {
+            ...baseEvent,
+            aggregateKind: "channel",
+            aggregateId: "channel-1",
+            type: "channel.message-posted",
+            payload: {
+              channelId: " channel-1 ",
+              messageId: " channel-message-1 ",
+              sequence: 1,
+              fromType: "agent",
+              fromId: " thread-2 ",
+              fromRole: " reviewer ",
+              content: "First note",
+              createdAt: "2026-01-01T01:26:00.000Z",
+            },
+          },
+          expectedPayload: {
+            channelId: "channel-1",
+            messageId: "channel-message-1",
             sequence: 1,
             fromType: "agent",
-            fromId: " thread-2 ",
-            fromRole: " reviewer ",
+            fromId: "thread-2",
+            fromRole: "reviewer",
             content: "First note",
             createdAt: "2026-01-01T01:26:00.000Z",
           },
         },
-        expectedPayload: {
-          channelId: "channel-1",
-          messageId: "channel-message-1",
-          sequence: 1,
-          fromType: "agent",
-          fromId: "thread-2",
-          fromRole: "reviewer",
-          content: "First note",
-          createdAt: "2026-01-01T01:26:00.000Z",
-        },
-      },
-      {
-        payloadSchema: ChannelMessagesReadPayload,
-        event: {
-          ...baseEvent,
-          aggregateKind: "channel",
-          aggregateId: "channel-1",
-          type: "channel.messages-read",
-          payload: {
-            channelId: " channel-1 ",
-            threadId: " thread-2 ",
+        {
+          payloadSchema: ChannelMessagesReadPayload,
+          event: {
+            ...baseEvent,
+            aggregateKind: "channel",
+            aggregateId: "channel-1",
+            type: "channel.messages-read",
+            payload: {
+              channelId: " channel-1 ",
+              threadId: " thread-2 ",
+              upToSequence: 4,
+              readAt: "2026-01-01T01:26:30.000Z",
+            },
+          },
+          expectedPayload: {
+            channelId: "channel-1",
+            threadId: "thread-2",
             upToSequence: 4,
             readAt: "2026-01-01T01:26:30.000Z",
           },
         },
-        expectedPayload: {
-          channelId: "channel-1",
-          threadId: "thread-2",
-          upToSequence: 4,
-          readAt: "2026-01-01T01:26:30.000Z",
-        },
-      },
-      {
-        payloadSchema: ChannelConclusionProposedPayload,
-        event: {
-          ...baseEvent,
-          aggregateKind: "channel",
-          aggregateId: "channel-1",
-          type: "channel.conclusion-proposed",
-          payload: {
-            channelId: " channel-1 ",
-            threadId: " thread-2 ",
+        {
+          payloadSchema: ChannelConclusionProposedPayload,
+          event: {
+            ...baseEvent,
+            aggregateKind: "channel",
+            aggregateId: "channel-1",
+            type: "channel.conclusion-proposed",
+            payload: {
+              channelId: " channel-1 ",
+              threadId: " thread-2 ",
+              summary: "Consensus reached",
+              proposedAt: "2026-01-01T01:27:00.000Z",
+            },
+          },
+          expectedPayload: {
+            channelId: "channel-1",
+            threadId: "thread-2",
             summary: "Consensus reached",
             proposedAt: "2026-01-01T01:27:00.000Z",
           },
         },
-        expectedPayload: {
-          channelId: "channel-1",
-          threadId: "thread-2",
-          summary: "Consensus reached",
-          proposedAt: "2026-01-01T01:27:00.000Z",
-        },
-      },
-      {
-        payloadSchema: ChannelConcludedPayload,
-        event: {
-          ...baseEvent,
-          aggregateKind: "channel",
-          aggregateId: "channel-1",
-          type: "channel.concluded",
-          payload: {
-            channelId: " channel-1 ",
+        {
+          payloadSchema: ChannelConcludedPayload,
+          event: {
+            ...baseEvent,
+            aggregateKind: "channel",
+            aggregateId: "channel-1",
+            type: "channel.concluded",
+            payload: {
+              channelId: " channel-1 ",
+              concludedAt: "2026-01-01T01:28:00.000Z",
+            },
+          },
+          expectedPayload: {
+            channelId: "channel-1",
             concludedAt: "2026-01-01T01:28:00.000Z",
           },
         },
-        expectedPayload: {
-          channelId: "channel-1",
-          concludedAt: "2026-01-01T01:28:00.000Z",
-        },
-      },
-      {
-        payloadSchema: ChannelClosedPayload,
-        event: {
-          ...baseEvent,
-          aggregateKind: "channel",
-          aggregateId: "channel-1",
-          type: "channel.closed",
-          payload: {
-            channelId: " channel-1 ",
+        {
+          payloadSchema: ChannelClosedPayload,
+          event: {
+            ...baseEvent,
+            aggregateKind: "channel",
+            aggregateId: "channel-1",
+            type: "channel.closed",
+            payload: {
+              channelId: " channel-1 ",
+              closedAt: "2026-01-01T01:29:00.000Z",
+            },
+          },
+          expectedPayload: {
+            channelId: "channel-1",
             closedAt: "2026-01-01T01:29:00.000Z",
           },
         },
-        expectedPayload: {
-          channelId: "channel-1",
-          closedAt: "2026-01-01T01:29:00.000Z",
-        },
-      },
-      {
-        payloadSchema: InteractiveRequestOpenedPayload,
-        event: {
-          ...baseEvent,
-          aggregateKind: "request",
-          aggregateId: "request-1",
-          type: "request.opened",
-          payload: {
-            requestId: " request-1 ",
+        {
+          payloadSchema: InteractiveRequestOpenedPayload,
+          event: {
+            ...baseEvent,
+            aggregateKind: "request",
+            aggregateId: "request-1",
+            type: "request.opened",
+            payload: {
+              requestId: " request-1 ",
+              threadId: "thread-1",
+              childThreadId: " thread-2 ",
+              phaseRunId: " phase-run-1 ",
+              requestType: "gate",
+              payload: {
+                type: "gate",
+                gateType: " human-approval ",
+                phaseRunId: " phase-run-1 ",
+                phaseOutput: "Ready for review",
+              },
+              createdAt: "2026-01-01T01:30:00.000Z",
+            },
+          },
+          expectedPayload: {
+            requestId: "request-1",
             threadId: "thread-1",
-            childThreadId: " thread-2 ",
-            phaseRunId: " phase-run-1 ",
+            childThreadId: "thread-2",
+            phaseRunId: "phase-run-1",
             requestType: "gate",
             payload: {
               type: "gate",
-              gateType: " human-approval ",
-              phaseRunId: " phase-run-1 ",
+              gateType: "human-approval",
+              phaseRunId: "phase-run-1",
               phaseOutput: "Ready for review",
             },
             createdAt: "2026-01-01T01:30:00.000Z",
           },
         },
-        expectedPayload: {
-          requestId: "request-1",
-          threadId: "thread-1",
-          childThreadId: "thread-2",
-          phaseRunId: "phase-run-1",
-          requestType: "gate",
-          payload: {
-            type: "gate",
-            gateType: "human-approval",
-            phaseRunId: "phase-run-1",
-            phaseOutput: "Ready for review",
+        {
+          payloadSchema: InteractiveRequestResolvedPayload,
+          event: {
+            ...baseEvent,
+            aggregateKind: "request",
+            aggregateId: "request-1",
+            type: "request.resolved",
+            payload: {
+              requestId: " request-1 ",
+              resolvedWith: { decision: "approve" },
+              resolvedAt: "2026-01-01T01:31:00.000Z",
+            },
           },
-          createdAt: "2026-01-01T01:30:00.000Z",
-        },
-      },
-      {
-        payloadSchema: InteractiveRequestResolvedPayload,
-        event: {
-          ...baseEvent,
-          aggregateKind: "request",
-          aggregateId: "request-1",
-          type: "request.resolved",
-          payload: {
-            requestId: " request-1 ",
+          expectedPayload: {
+            requestId: "request-1",
             resolvedWith: { decision: "approve" },
             resolvedAt: "2026-01-01T01:31:00.000Z",
           },
         },
-        expectedPayload: {
-          requestId: "request-1",
-          resolvedWith: { decision: "approve" },
-          resolvedAt: "2026-01-01T01:31:00.000Z",
-        },
-      },
-      {
-        payloadSchema: InteractiveRequestStalePayload,
-        event: {
-          ...baseEvent,
-          aggregateKind: "request",
-          aggregateId: "request-1",
-          type: "request.stale",
-          payload: {
-            requestId: " request-1 ",
+        {
+          payloadSchema: InteractiveRequestStalePayload,
+          event: {
+            ...baseEvent,
+            aggregateKind: "request",
+            aggregateId: "request-1",
+            type: "request.stale",
+            payload: {
+              requestId: " request-1 ",
+              reason: "Superseded",
+              staleAt: "2026-01-01T01:32:00.000Z",
+            },
+          },
+          expectedPayload: {
+            requestId: "request-1",
             reason: "Superseded",
             staleAt: "2026-01-01T01:32:00.000Z",
           },
         },
-        expectedPayload: {
-          requestId: "request-1",
-          reason: "Superseded",
-          staleAt: "2026-01-01T01:32:00.000Z",
-        },
-      },
-    ] as const;
+      ] as const;
 
-    for (const testCase of cases) {
-      const payload = yield* decode(testCase.payloadSchema, testCase.event.payload);
-      const { parsed, encoded } = yield* roundTrip(ForgeEvent, testCase.event);
+      for (const testCase of cases) {
+        const payload = yield* decode(testCase.payloadSchema, testCase.event.payload);
+        const { parsed, encoded } = yield* roundTrip(ForgeEvent, testCase.event);
 
-      assert.deepStrictEqual(payload, testCase.expectedPayload);
-      assert.deepStrictEqual(parsed.payload, testCase.expectedPayload);
-      assert.deepStrictEqual(encoded, {
-        ...testCase.event,
-        payload: testCase.expectedPayload,
-      });
-      assert.deepStrictEqual(parsed, yield* decodeForgeEvent(testCase.event));
-    }
-  }),
+        assert.deepStrictEqual(payload, testCase.expectedPayload);
+        assert.deepStrictEqual(parsed.payload, testCase.expectedPayload);
+        assert.deepStrictEqual(encoded, {
+          ...testCase.event,
+          payload: testCase.expectedPayload,
+        });
+        assert.deepStrictEqual(parsed, yield* decodeForgeEvent(testCase.event));
+      }
+    }),
 );
 
 it.effect("round-trips the spec-defined ForgeReadModel contracts", () =>
