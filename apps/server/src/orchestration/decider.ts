@@ -1,12 +1,13 @@
-import type {
+import {
   ChannelId,
   ChannelMessageId,
-  ForgeCommand,
-  ForgeEvent,
+  EventId,
   LinkId,
-  OrchestrationCommand,
-  OrchestrationReadModel,
   PhaseRunId,
+  type ForgeCommand,
+  type ForgeEvent,
+  type OrchestrationCommand,
+  type OrchestrationReadModel,
 } from "@t3tools/contracts";
 import { Effect } from "effect";
 
@@ -76,14 +77,13 @@ export type DecidableOrchestrationCommand =
 type DistributiveOmit<T, K extends PropertyKey> = T extends unknown ? Omit<T, K> : never;
 export type DecidedOrchestrationEvent = DistributiveOmit<ForgeEvent, "sequence">;
 
-const defaultMetadata: Omit<ForgeEvent, "sequence" | "type" | "payload"> = {
-  eventId: crypto.randomUUID() as ForgeEvent["eventId"],
-  aggregateKind: "thread",
-  aggregateId: "" as ForgeEvent["aggregateId"],
-  occurredAt: nowIso(),
-  commandId: null,
+type SharedEventMetadata = Pick<
+  ForgeEvent,
+  "eventId" | "occurredAt" | "commandId" | "causationEventId" | "correlationId" | "metadata"
+>;
+
+const defaultMetadata: Pick<SharedEventMetadata, "causationEventId" | "metadata"> = {
   causationEventId: null,
-  correlationId: null,
   metadata: {},
 };
 
@@ -98,24 +98,18 @@ function withEventBase<
     readonly metadata?: ForgeEvent["metadata"];
   },
 ): {
-  readonly eventId: ForgeEvent["eventId"];
   readonly aggregateKind: TAggregateKind;
   readonly aggregateId: TAggregateId;
-  readonly occurredAt: string;
-  readonly commandId: ForgeEvent["commandId"];
-  readonly causationEventId: ForgeEvent["causationEventId"];
-  readonly correlationId: ForgeEvent["correlationId"];
-  readonly metadata: ForgeEvent["metadata"];
-} {
+} & SharedEventMetadata {
   return {
     ...defaultMetadata,
-    eventId: crypto.randomUUID() as ForgeEvent["eventId"],
+    eventId: EventId.makeUnsafe(crypto.randomUUID()),
     aggregateKind: input.aggregateKind,
     aggregateId: input.aggregateId,
     occurredAt: input.occurredAt,
     commandId: input.commandId,
     correlationId: input.commandId,
-    metadata: input.metadata ?? {},
+    metadata: input.metadata ?? defaultMetadata.metadata,
   };
 }
 
@@ -766,8 +760,8 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
         payload: {
           threadId: command.threadId,
           content: command.content,
-          channelId: crypto.randomUUID() as ChannelId,
-          messageId: crypto.randomUUID() as ChannelMessageId,
+          channelId: ChannelId.makeUnsafe(crypto.randomUUID()),
+          messageId: ChannelMessageId.makeUnsafe(crypto.randomUUID()),
           createdAt: command.createdAt,
         },
       };
@@ -789,7 +783,7 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
         type: "thread.phase-started",
         payload: {
           threadId: command.threadId,
-          phaseRunId: crypto.randomUUID() as PhaseRunId,
+          phaseRunId: PhaseRunId.makeUnsafe(crypto.randomUUID()),
           phaseId: command.phaseId,
           phaseName: command.phaseName,
           phaseType: command.phaseType,
@@ -1113,7 +1107,7 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
           type: "thread.link-added",
           payload: {
             threadId: command.sourceThreadId,
-            linkId: crypto.randomUUID() as LinkId,
+            linkId: LinkId.makeUnsafe(crypto.randomUUID()),
             linkType: "promoted-to",
             linkedThreadId: command.targetThreadId,
             externalId: null,
@@ -1131,7 +1125,7 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
           type: "thread.link-added",
           payload: {
             threadId: command.targetThreadId,
-            linkId: crypto.randomUUID() as LinkId,
+            linkId: LinkId.makeUnsafe(crypto.randomUUID()),
             linkType: "promoted-from",
             linkedThreadId: sourceThread.id,
             externalId: null,
