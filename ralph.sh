@@ -168,15 +168,34 @@ while :; do
 
   # Run in background process group so Ctrl+C doesn't kill the agent.
   # stdin redirected from /dev/null to prevent SIGTTIN (background read from terminal).
+  #
+  # script(1) provides a PTY so the agent thinks it has a terminal.
+  # macOS and Linux have different syntax:
+  #   Linux: script -qec "command" /dev/null
+  #   macOS: script -q /dev/null command args...
+  if [[ "$OSTYPE" == "darwin"* ]]; then
+    SCRIPT_CMD="script -q /dev/null"
+  else
+    SCRIPT_CMD="script -qec"
+  fi
+
   if [ "$AGENT_NAME" = "codex" ]; then
     # Codex dumps verbose output (thinking, tool calls, input echo) to stdout.
     # Suppress script output entirely, use -o to capture only the final clean
     # response, then cat that into the log.
     CODEX_OUT=$(mktemp /tmp/ralph-codex-XXXXXX.txt)
-    (script -qec "cat $PROMPT_FILE | $AGENT_CMD -o $CODEX_OUT -" /dev/null < /dev/null > /dev/null 2>&1; cat "$CODEX_OUT" | tee -a "$LOGFILE"; rm -f "$CODEX_OUT") &
+    if [[ "$OSTYPE" == "darwin"* ]]; then
+      ($SCRIPT_CMD sh -c "cat $PROMPT_FILE | $AGENT_CMD -o $CODEX_OUT -" < /dev/null > /dev/null 2>&1; cat "$CODEX_OUT" | tee -a "$LOGFILE"; rm -f "$CODEX_OUT") &
+    else
+      (script -qec "cat $PROMPT_FILE | $AGENT_CMD -o $CODEX_OUT -" /dev/null < /dev/null > /dev/null 2>&1; cat "$CODEX_OUT" | tee -a "$LOGFILE"; rm -f "$CODEX_OUT") &
+    fi
   else
     # Claude: pipe script output through tee into the log.
-    (script -qec "cat $PROMPT_FILE | $AGENT_CMD" /dev/null < /dev/null 2>&1 | tee -a "$LOGFILE") &
+    if [[ "$OSTYPE" == "darwin"* ]]; then
+      ($SCRIPT_CMD sh -c "cat $PROMPT_FILE | $AGENT_CMD" < /dev/null 2>&1 | tee -a "$LOGFILE") &
+    else
+      (script -qec "cat $PROMPT_FILE | $AGENT_CMD" /dev/null < /dev/null 2>&1 | tee -a "$LOGFILE") &
+    fi
   fi
   CHILD_PID=$!
 
