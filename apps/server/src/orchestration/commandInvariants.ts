@@ -308,6 +308,43 @@ export function requireInteractiveRequestPayloadMatchesType(input: {
   );
 }
 
+export function requireInteractiveRequestPhaseRunForThread(input: {
+  readonly readModel: OrchestrationReadModel;
+  readonly command: Extract<ForgeCommand, { type: "request.open" }>;
+}): Effect.Effect<void, OrchestrationCommandInvariantError> {
+  if (input.command.phaseRunId === undefined) {
+    return Effect.void;
+  }
+  return requirePhaseRunForThread({
+    readModel: input.readModel,
+    command: input.command,
+    phaseRunId: input.command.phaseRunId,
+    threadId: input.command.threadId,
+  }).pipe(Effect.asVoid);
+}
+
+export function requireGateRequestPhaseRunMatches(input: {
+  readonly command: Extract<ForgeCommand, { type: "request.open" }>;
+}): Effect.Effect<void, OrchestrationCommandInvariantError> {
+  if (input.command.payload.type !== "gate") {
+    return Effect.void;
+  }
+  if (input.command.phaseRunId === undefined) {
+    return Effect.fail(
+      invariantError(input.command.type, `Gate requests must include phaseRunId on request.open.`),
+    );
+  }
+  if (input.command.phaseRunId === input.command.payload.phaseRunId) {
+    return Effect.void;
+  }
+  return Effect.fail(
+    invariantError(
+      input.command.type,
+      `request.open phaseRunId '${input.command.phaseRunId}' must match gate payload phaseRunId '${input.command.payload.phaseRunId}'.`,
+    ),
+  );
+}
+
 function isApprovalResolution(
   resolution: InteractiveRequestResolution,
 ): resolution is Extract<InteractiveRequestResolution, { decision: string }> {

@@ -19,11 +19,13 @@ import {
   requireChannelOpen,
   requireDistinctThreadIds,
   requireInteractiveRequestPayloadMatchesType,
+  requireInteractiveRequestPhaseRunForThread,
+  requireGateRequestPhaseRunMatches,
+  requirePendingRequest,
+  requirePendingRequestAbsent,
   requirePendingRequestResolutionMatchesType,
   requirePhaseRunForThread,
   requirePhaseRunStatus,
-  requirePendingRequest,
-  requirePendingRequestAbsent,
   requireProject,
   requireProjectAbsent,
   requireThread,
@@ -1474,6 +1476,7 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
         threadId: command.threadId,
       });
       yield* requireInteractiveRequestPayloadMatchesType({ command });
+      yield* requireGateRequestPhaseRunMatches({ command });
       if (command.childThreadId !== undefined) {
         yield* requireDistinctThreadIds({
           command,
@@ -1495,6 +1498,10 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
           rightThread: childThread,
         });
       }
+      yield* requireInteractiveRequestPhaseRunForThread({
+        readModel,
+        command,
+      });
       yield* requirePendingRequestAbsent({
         readModel,
         command,

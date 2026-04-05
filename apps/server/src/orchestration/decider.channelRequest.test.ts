@@ -7,6 +7,7 @@ import {
   PhaseRunId,
   ProjectId,
   ThreadId,
+  WorkflowPhaseId,
   type OrchestrationReadModel,
   type OrchestrationThread,
 } from "@t3tools/contracts";
@@ -54,6 +55,23 @@ const makeThread = (threadId: string, projectId: string): OrchestrationThread =>
   session: null,
 });
 
+function makePhaseRun(
+  overrides: Partial<OrchestrationReadModel["phaseRuns"][number]> = {},
+): OrchestrationReadModel["phaseRuns"][number] {
+  return {
+    phaseRunId: PhaseRunId.makeUnsafe("phase-run-1"),
+    threadId: ThreadId.makeUnsafe("thread-parent"),
+    phaseId: WorkflowPhaseId.makeUnsafe("phase-review"),
+    phaseName: "Review",
+    phaseType: "single-agent",
+    iteration: 1,
+    status: "running",
+    startedAt: now,
+    completedAt: null,
+    ...overrides,
+  };
+}
+
 const makeReadModel = (): OrchestrationReadModel => ({
   snapshotSequence: 12,
   updatedAt: now,
@@ -84,7 +102,14 @@ const makeReadModel = (): OrchestrationReadModel => ({
     makeThread("thread-child", "project-a"),
     makeThread("thread-other-project", "project-b"),
   ],
-  phaseRuns: [],
+  phaseRuns: [
+    makePhaseRun(),
+    makePhaseRun({
+      phaseRunId: PhaseRunId.makeUnsafe("phase-run-foreign"),
+      threadId: ThreadId.makeUnsafe("thread-other-project"),
+      phaseName: "Foreign Review",
+    }),
+  ],
   channels: [
     {
       id: ChannelId.makeUnsafe("channel-open"),
@@ -351,6 +376,43 @@ describe("decider interactive request commands", () => {
         createdAt: now,
       }),
     ).rejects.toThrow("must match payload.type");
+  });
+
+  it("rejects request.open for gate requests when command phaseRunId does not match payload phaseRunId", async () => {
+    await expect(
+      run({
+        type: "request.open",
+        commandId: CommandId.makeUnsafe("cmd-request-open-mismatched-phase-run"),
+        requestId: InteractiveRequestId.makeUnsafe("request-mismatched-phase-run"),
+        threadId: ThreadId.makeUnsafe("thread-parent"),
+        phaseRunId: PhaseRunId.makeUnsafe("phase-run-1"),
+        requestType: "gate",
+        payload: {
+          type: "gate",
+          gateType: "human-approval",
+          phaseRunId: PhaseRunId.makeUnsafe("phase-run-foreign"),
+        },
+        createdAt: now,
+      }),
+    ).rejects.toThrow("must match gate payload phaseRunId");
+  });
+
+  it("rejects request.open when phaseRunId does not belong to the thread", async () => {
+    await expect(
+      run({
+        type: "request.open",
+        commandId: CommandId.makeUnsafe("cmd-request-open-foreign-phase-run"),
+        requestId: InteractiveRequestId.makeUnsafe("request-foreign-phase-run"),
+        threadId: ThreadId.makeUnsafe("thread-parent"),
+        phaseRunId: PhaseRunId.makeUnsafe("phase-run-foreign"),
+        requestType: "correction-needed",
+        payload: {
+          type: "correction-needed",
+          reason: "Needs another pass.",
+        },
+        createdAt: now,
+      }),
+    ).rejects.toThrow("does not belong to thread");
   });
 
   it("emits request.resolved for request.resolve", async () => {
