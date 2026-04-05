@@ -41,13 +41,19 @@ export type ProjectionChannelMessage = typeof ProjectionChannelMessage.Type;
 
 export const QUERY_PROJECTION_CHANNEL_MESSAGES_DEFAULT_LIMIT = 50;
 export const QUERY_PROJECTION_CHANNEL_MESSAGES_MAX_LIMIT = 200;
+const QueryProjectionChannelMessagesLimit = PositiveInt.check(
+  Schema.isLessThanOrEqualTo(QUERY_PROJECTION_CHANNEL_MESSAGES_MAX_LIMIT),
+);
+const QUERY_PROJECTION_CHANNEL_MESSAGES_DEFAULT_LIMIT_VALUE = Schema.decodeSync(
+  QueryProjectionChannelMessagesLimit,
+)(QUERY_PROJECTION_CHANNEL_MESSAGES_DEFAULT_LIMIT);
 
 export const QueryProjectionChannelMessagesByChannelIdInput = Schema.Struct({
   channelId: ChannelId,
   cursor: Schema.optional(ChannelSequenceCursor),
-  limit: PositiveInt.check(
-    Schema.isLessThanOrEqualTo(QUERY_PROJECTION_CHANNEL_MESSAGES_MAX_LIMIT),
-  ).pipe(Schema.withDecodingDefault(() => QUERY_PROJECTION_CHANNEL_MESSAGES_DEFAULT_LIMIT as any)),
+  limit: QueryProjectionChannelMessagesLimit.pipe(
+    Schema.withDecodingDefault(() => QUERY_PROJECTION_CHANNEL_MESSAGES_DEFAULT_LIMIT_VALUE),
+  ),
 });
 export type QueryProjectionChannelMessagesByChannelIdInput =
   typeof QueryProjectionChannelMessagesByChannelIdInput.Type;

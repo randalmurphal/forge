@@ -4,7 +4,10 @@ import { Effect, Layer, Schema } from "effect";
 import * as SqlClient from "effect/unstable/sql/SqlClient";
 
 import { PersistenceDecodeError } from "../Errors.ts";
-import { ProjectionChannelMessageRepository } from "../Services/ProjectionChannelMessages.ts";
+import {
+  ProjectionChannelMessageRepository,
+  QueryProjectionChannelMessagesByChannelIdInput,
+} from "../Services/ProjectionChannelMessages.ts";
 import { ProjectionChannelReadRepository } from "../Services/ProjectionChannelReads.ts";
 import { ProjectionChannelMessageRepositoryLive } from "./ProjectionChannelMessages.ts";
 import { ProjectionChannelReadRepositoryLive } from "./ProjectionChannelReads.ts";
@@ -17,6 +20,19 @@ const layer = it.layer(
 );
 
 layer("ProjectionChannelMessageRepository", (it) => {
+  it.effect("decodes the default query limit without unchecked casts", () =>
+    Effect.gen(function* () {
+      const parsed = yield* Schema.decodeUnknownEffect(
+        QueryProjectionChannelMessagesByChannelIdInput,
+      )({
+        channelId: " channel-default-limit ",
+      });
+
+      assert.strictEqual(parsed.channelId, "channel-default-limit");
+      assert.strictEqual(parsed.limit, 50);
+    }),
+  );
+
   it.effect("stores channel messages, paginates by sequence cursor, and counts unread rows", () =>
     Effect.gen(function* () {
       const messages = yield* ProjectionChannelMessageRepository;
