@@ -72,6 +72,20 @@ function bootstrapRequestId(threadId: ThreadId, attempt: number): InteractiveReq
   return InteractiveRequestId.makeUnsafe(`bootstrap-request:${threadId}:${attempt}`);
 }
 
+function parseBootstrapRequestAttempt(requestId: string, threadId: ThreadId): number | null {
+  const prefix = `bootstrap-request:${threadId}:`;
+  if (!requestId.startsWith(prefix)) {
+    return null;
+  }
+  const attempt = Number.parseInt(requestId.slice(prefix.length), 10);
+  return Number.isFinite(attempt) && attempt > 0 ? attempt : null;
+}
+
+function nextBootstrapAttemptFromRequest(requestId: string, threadId: ThreadId): number | null {
+  const attempt = parseBootstrapRequestAttempt(requestId, threadId);
+  return attempt === null ? null : attempt + 1;
+}
+
 function normalizeBootstrapBranch(threadId: ThreadId): string {
   return `${DEFAULT_BOOTSTRAP_BRANCH_PREFIX}/${threadId}`;
 }
@@ -502,11 +516,14 @@ export const makeBootstrapReactor = Effect.gen(function* () {
       return;
     }
 
+    const followUpAttempt =
+      nextBootstrapAttemptFromRequest(request.value.requestId, request.value.threadId) ??
+      (yield* nextBootstrapAttempt(request.value.threadId));
+
     if (action === "skip") {
-      const attempt = yield* nextBootstrapAttempt(request.value.threadId);
       yield* dispatchForgeCommand({
         type: "thread.bootstrap-skipped",
-        commandId: bootstrapCommandId(request.value.threadId, attempt, "skip"),
+        commandId: bootstrapCommandId(request.value.threadId, followUpAttempt, "skip"),
         threadId: request.value.threadId,
         createdAt: event.payload.resolvedAt,
       });
@@ -517,8 +534,7 @@ export const makeBootstrapReactor = Effect.gen(function* () {
       return;
     }
 
-    const attempt = yield* nextBootstrapAttempt(request.value.threadId);
-    yield* runBootstrapAttempt(request.value.threadId, attempt);
+    yield* runBootstrapAttempt(request.value.threadId, followUpAttempt);
   });
 
   const processEvent = Effect.fn("BootstrapReactor.processEvent")(function* (

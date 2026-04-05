@@ -16,6 +16,7 @@ import { afterEach, describe, expect, it } from "vitest";
 
 import { ServerConfig } from "../../config.ts";
 import { GitCoreLive } from "../../git/Layers/GitCore.ts";
+import { GitCore } from "../../git/Services/GitCore.ts";
 import { OrchestrationCommandReceiptRepositoryLive } from "../../persistence/Layers/OrchestrationCommandReceipts.ts";
 import { OrchestrationEventStoreLive } from "../../persistence/Layers/OrchestrationEventStore.ts";
 import { ProjectionInteractiveRequestRepositoryLive } from "../../persistence/Layers/ProjectionInteractiveRequests.ts";
@@ -359,5 +360,117 @@ describe("BootstrapReactor", () => {
 
     expect(duplicate.sequence).toBe(completed[0]?.sequence);
     expect(completed).toHaveLength(1);
+  });
+
+  it("derives retry follow-up attempts from the bootstrap request id on duplicate request.resolved delivery", async () => {
+    const threadId = ThreadId.makeUnsafe("thread-bootstrap-duplicate-resolution");
+    const requestId = InteractiveRequestId.makeUnsafe(
+      "bootstrap-request:thread-bootstrap-duplicate-resolution:1",
+    );
+    const commands: Array<{ readonly type: string; readonly commandId: string }> = [];
+    const persistedEvents = [
+      {
+        sequence: 1,
+        commandId: "bootstrap:thread-bootstrap-duplicate-resolution:1:fail",
+      },
+    ];
+
+    const layer = BootstrapReactorLive.pipe(
+      Layer.provideMerge(
+        Layer.mock(OrchestrationEngineService)({
+          getReadModel: () => Effect.die("unused"),
+          readEvents: () => Stream.fromIterable(persistedEvents as Array<any>),
+          dispatch: (command) =>
+            Effect.sync(() => {
+              commands.push({
+                type: command.type,
+                commandId: command.commandId,
+              });
+              persistedEvents.push({
+                sequence: persistedEvents.length + 1,
+                commandId: command.commandId,
+              });
+              return { sequence: persistedEvents.length };
+            }),
+          streamDomainEvents: Stream.fromIterable([
+            {
+              type: "request.resolved",
+              payload: {
+                requestId,
+                resolvedWith: { action: "skip" },
+                resolvedAt: "2026-04-05T18:00:00.000Z",
+              },
+            },
+            {
+              type: "request.resolved",
+              payload: {
+                requestId,
+                resolvedWith: { action: "skip" },
+                resolvedAt: "2026-04-05T18:00:01.000Z",
+              },
+            },
+          ] as Array<any>),
+        }),
+      ),
+      Layer.provideMerge(
+        Layer.mock(ProjectionInteractiveRequestRepository)({
+          upsert: () => Effect.die("unused"),
+          queryByThreadId: () => Effect.succeed([]),
+          queryPending: () => Effect.succeed([]),
+          updateStatus: () => Effect.void,
+          markStale: () => Effect.void,
+          queryById: () =>
+            Effect.succeed(
+              Option.some({
+                requestId,
+                threadId,
+                childThreadId: null,
+                phaseRunId: null,
+                type: "bootstrap-failed" as const,
+                status: "resolved" as const,
+                payload: {
+                  type: "bootstrap-failed" as const,
+                  error: "boom",
+                  stdout: "",
+                  command: "echo boom",
+                },
+                resolvedWith: {
+                  action: "skip" as const,
+                },
+                createdAt: "2026-04-05T17:59:59.000Z",
+                resolvedAt: "2026-04-05T18:00:00.000Z",
+                staleReason: null,
+              }),
+            ),
+        }),
+      ),
+      Layer.provideMerge(Layer.mock(GitCore)({})),
+      Layer.provideMerge(
+        ServerConfig.layerTest(process.cwd(), { prefix: "forge-bootstrap-duplicate-test-" }),
+      ),
+      Layer.provideMerge(NodeServices.layer),
+    );
+
+    await Effect.runPromise(
+      Effect.scoped(
+        Effect.gen(function* () {
+          const reactor = yield* BootstrapReactor;
+          yield* reactor.start();
+          yield* Effect.sleep("50 millis");
+          yield* reactor.drain;
+        }),
+      ).pipe(Effect.provide(layer)),
+    );
+
+    expect(commands).toEqual([
+      {
+        type: "thread.bootstrap-skipped",
+        commandId: "bootstrap:thread-bootstrap-duplicate-resolution:2:skip",
+      },
+      {
+        type: "thread.bootstrap-skipped",
+        commandId: "bootstrap:thread-bootstrap-duplicate-resolution:2:skip",
+      },
+    ]);
   });
 });

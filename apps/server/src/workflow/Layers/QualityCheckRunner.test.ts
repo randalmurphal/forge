@@ -218,6 +218,115 @@ it.effect("gracefully degrades when no Forge config file exists", () =>
   }).pipe(Effect.provide(NodeServices.layer)),
 );
 
+it.effect("falls back to the global Forge config when the project config is missing", () =>
+  Effect.gen(function* () {
+    const projectRoot = yield* makeTempDir;
+    const worktreeDir = yield* makeTempDir;
+    const globalRoot = yield* makeTempDir;
+    const globalConfigPath = `${globalRoot}/.forge/config.json`;
+
+    yield* writeTextFile(
+      globalRoot,
+      ".forge/config.json",
+      JSON.stringify({
+        qualityChecks: {
+          test: {
+            command: nodeCommand('console.log("global-pass");'),
+          },
+        },
+      }),
+    );
+
+    const results = yield* Effect.gen(function* () {
+      const runner = yield* QualityCheckRunner;
+      return yield* runner.run({
+        projectRoot,
+        worktreeDir,
+        checks: [{ check: "test", required: true }],
+      });
+    }).pipe(
+      Effect.provide(
+        makeQualityCheckRunnerTestLayer({
+          globalConfigPath,
+        }),
+      ),
+    );
+
+    assert.deepStrictEqual(results, [
+      {
+        check: "test",
+        passed: true,
+        output: [
+          `Source: ${globalConfigPath}`,
+          `Command: ${nodeCommand('console.log("global-pass");')}`,
+          "Result: passed.",
+          "stdout:\nglobal-pass",
+        ].join("\n\n"),
+      },
+    ]);
+  }).pipe(Effect.provide(NodeServices.layer)),
+);
+
+it.effect("prefers the project Forge config over the global config for the same check key", () =>
+  Effect.gen(function* () {
+    const projectRoot = yield* makeTempDir;
+    const worktreeDir = yield* makeTempDir;
+    const globalRoot = yield* makeTempDir;
+    const globalConfigPath = `${globalRoot}/.forge/config.json`;
+
+    yield* writeTextFile(
+      globalRoot,
+      ".forge/config.json",
+      JSON.stringify({
+        qualityChecks: {
+          lint: {
+            command: nodeCommand('console.log("global-lint");'),
+          },
+        },
+      }),
+    );
+    yield* writeTextFile(
+      projectRoot,
+      ".forge/config.json",
+      JSON.stringify({
+        qualityChecks: {
+          lint: {
+            command: nodeCommand('console.log("project-lint");'),
+          },
+        },
+      }),
+    );
+
+    const results = yield* Effect.gen(function* () {
+      const runner = yield* QualityCheckRunner;
+      return yield* runner.run({
+        projectRoot,
+        worktreeDir,
+        checks: [{ check: "lint", required: true }],
+      });
+    }).pipe(
+      Effect.provide(
+        makeQualityCheckRunnerTestLayer({
+          globalConfigPath,
+        }),
+      ),
+    );
+
+    assert.deepStrictEqual(results, [
+      {
+        check: "lint",
+        passed: true,
+        output: [
+          `Source: ${projectRoot}/.forge/config.json`,
+          `Command: ${nodeCommand('console.log("project-lint");')}`,
+          "Result: passed.",
+          "stdout:\nproject-lint",
+        ].join("\n\n"),
+      },
+    ]);
+  }).pipe(Effect.provide(NodeServices.layer)),
+);
+
 it.effect("returns a failed result when the requested quality check key is missing", () =>
   Effect.gen(function* () {
     const projectRoot = yield* makeTempDir;
