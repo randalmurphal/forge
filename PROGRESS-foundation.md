@@ -17,6 +17,8 @@
 
 (Issues found during review phase. Highest severity first.)
 
+- 2026-04-05: Spec compliance gap in the staged Forge lifecycle contract surface: `design/15-contracts.md` defines Forge-level session lifecycle commands/events (`thread.create` with parent/workflow/session fields, `thread.pause`, `thread.resume`, `thread.recover`, `thread.cancel`, `thread.restart`, `thread.meta-update`, plus `thread.status-changed`, `thread.completed`, `thread.failed`, `thread.cancelled`, and `thread.restarted`), but `packages/contracts/src/orchestration.ts` still stages only the additive workflow/channel/request surface on top of the legacy thread lifecycle schemas, so the documented Forge target union is still incomplete.
+
 ## Resolved Issues
 
 (Issues moved here after being fixed and committed.)
@@ -88,6 +90,8 @@
 ## Review Log
 
 (Entries added during review phase.)
+
+- 2026-04-05: Swept `Spec Compliance` across `design/15-contracts.md` versus the staged Forge contracts, reran `bun fmt`, `bun lint`, `bun typecheck`, and `bun run test`, and logged a remaining known issue for the incomplete Forge lifecycle command/event surface (`thread.pause`/`resume`/`recover`/`cancel`/`restart`, the widened `thread.create`/`thread.meta-update`, and the matching lifecycle events) so the next iteration can address it explicitly.
 
 - 2026-04-05: Swept `Code Consistency` and `Integration Wiring` for thread projection persistence by widening `ProjectionThreadRepository` to match the migration `022_ThreadExtensions` column surface (`parent_thread_id`, workflow/phase linkage, workflow snapshot, deliberation state, bootstrap/completion, transcript archival), teaching the SQLite layer to round-trip the new JSON-backed fields with `PersistenceDecodeError` classification on malformed rows, and adding focused repository coverage in `ProjectionThreads.test.ts`. Verified with `bun fmt`, `bun lint`, `bun typecheck`, and `bun run test`.
 - 2026-04-05: Swept `Code Consistency` for repeated guidance-channel corrections by teaching `ProjectionPipeline` to preserve existing `channels.created_at`/status rows when `thread.correction-queued` reuses a guidance channel, while still appending persisted human correction messages at the next sequence. Added projector and pipeline regressions for existing guidance-channel reuse and verified with `bun fmt`, `bun lint`, `bun typecheck`, and `bun run test`.
