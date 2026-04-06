@@ -49,6 +49,7 @@ import {
 import { deriveForgeSessionType, isStandaloneAgentSession } from "../../sessionType";
 import { DaemonSocketError } from "../Errors.ts";
 import {
+  DAEMON_SOCKET_PROTOCOL_ERROR_CODE,
   DAEMON_SOCKET_PROTOCOL_VERSION,
   formatDaemonProtocolHandshakeMissingMessage,
   formatDaemonProtocolMismatchMessage,
@@ -522,25 +523,26 @@ function parseJsonRpcRequest(
   };
 }
 
-function requiresProtocolHandshake(method: string): boolean {
-  return method !== "daemon.ping";
-}
-
 function validateProtocolVersion(request: JsonRpcRequest): JsonRpcResponse | undefined {
-  if (!requiresProtocolHandshake(request.method)) {
-    return undefined;
-  }
-
   if (request.forgeProtocolVersion === undefined) {
-    return encodeError(request.id ?? null, -32001, formatDaemonProtocolHandshakeMissingMessage(), {
-      daemonProtocolVersion: DAEMON_SOCKET_PROTOCOL_VERSION,
-    });
+    if (request.method === "daemon.ping") {
+      return undefined;
+    }
+
+    return encodeError(
+      request.id ?? null,
+      DAEMON_SOCKET_PROTOCOL_ERROR_CODE,
+      formatDaemonProtocolHandshakeMissingMessage(),
+      {
+        daemonProtocolVersion: DAEMON_SOCKET_PROTOCOL_VERSION,
+      },
+    );
   }
 
   if (request.forgeProtocolVersion !== DAEMON_SOCKET_PROTOCOL_VERSION) {
     return encodeError(
       request.id ?? null,
-      -32001,
+      DAEMON_SOCKET_PROTOCOL_ERROR_CODE,
       formatDaemonProtocolMismatchMessage({
         clientProtocolVersion: request.forgeProtocolVersion,
         daemonProtocolVersion: DAEMON_SOCKET_PROTOCOL_VERSION,

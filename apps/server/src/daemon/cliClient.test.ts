@@ -12,7 +12,7 @@ import {
   readDaemonInfoFile,
   sendDaemonRpc,
 } from "./cliClient.ts";
-import { DAEMON_SOCKET_PROTOCOL_VERSION } from "./protocol.ts";
+import { DAEMON_SOCKET_PROTOCOL_ERROR_CODE, DAEMON_SOCKET_PROTOCOL_VERSION } from "./protocol.ts";
 
 const VALID_DAEMON_WS_TOKEN = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef";
 
@@ -241,6 +241,68 @@ describe("getDaemonStatusSnapshot", () => {
         daemonInfoPath,
       },
     });
+  });
+
+  it("surfaces daemon protocol mismatches instead of reporting the daemon as stopped", async () => {
+    const baseDir = FS.mkdtempSync("/tmp/forge-cli-daemon-status-version-mismatch-");
+    tempDirs.push(baseDir);
+    const socketPath = Path.join(baseDir, "forge.sock");
+    const daemonInfoPath = Path.join(baseDir, "daemon.json");
+    writeDaemonInfo(daemonInfoPath, socketPath);
+
+    const server = Net.createServer((socket) => {
+      socket.setEncoding("utf8");
+      socket.once("data", (chunk) => {
+        const request = JSON.parse(chunk.toString()) as { readonly id: string };
+        socket.write(
+          `${JSON.stringify({
+            jsonrpc: "2.0",
+            id: request.id,
+            error: {
+              code: DAEMON_SOCKET_PROTOCOL_ERROR_CODE,
+              message: "Forge daemon protocol version mismatch. Restart the daemon.",
+            },
+          })}\n`,
+        );
+        socket.end();
+      });
+    });
+
+    await new Promise<void>((resolve, reject) => {
+      server.once("error", reject);
+      server.listen(socketPath, () => {
+        FS.chmodSync(socketPath, 0o600);
+        resolve();
+      });
+    });
+
+    try {
+      await expect(
+        Effect.runPromise(
+          getDaemonStatusSnapshot({
+            baseDir,
+            socketPath,
+            daemonInfoPath,
+            worktreesDir: Path.join(baseDir, "worktrees"),
+          }),
+        ),
+      ).rejects.toMatchObject({
+        _tag: "ForgeDaemonCliError",
+        message: expect.stringContaining("protocol version mismatch"),
+        rpcCode: DAEMON_SOCKET_PROTOCOL_ERROR_CODE,
+      });
+    } finally {
+      await new Promise<void>((resolve, reject) => {
+        server.close((error) => {
+          if (error) {
+            reject(error);
+            return;
+          }
+          resolve();
+        });
+      });
+      FS.rmSync(socketPath, { force: true });
+    }
   });
 });
 

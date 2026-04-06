@@ -14,7 +14,7 @@ import { Data, Effect } from "effect";
 
 import { resolveBaseDir } from "../os-jank.ts";
 import type { DaemonInfo } from "./Services/DaemonService.ts";
-import { DAEMON_SOCKET_PROTOCOL_VERSION } from "./protocol.ts";
+import { DAEMON_SOCKET_PROTOCOL_ERROR_CODE, DAEMON_SOCKET_PROTOCOL_VERSION } from "./protocol.ts";
 
 const DEFAULT_RPC_TIMEOUT_MS = 3_000;
 
@@ -69,6 +69,7 @@ export interface DaemonLaunchPlan {
 export class ForgeDaemonCliError extends Data.TaggedError("ForgeDaemonCliError")<{
   readonly message: string;
   readonly cause?: unknown;
+  readonly rpcCode?: number;
 }> {}
 
 const isRecord = (value: unknown): value is Record<string, unknown> =>
@@ -83,11 +84,15 @@ const daemonUnavailableError = (socketPath: string, cause: unknown) =>
     cause: toError(cause),
   });
 
-const rpcError = (method: string, message: string, cause?: unknown) =>
+const rpcError = (method: string, message: string, cause?: unknown, rpcCode?: number) =>
   new ForgeDaemonCliError({
     message: `Daemon RPC '${method}' failed: ${message}`,
     ...(cause === undefined ? {} : { cause: toError(cause) }),
+    ...(rpcCode === undefined ? {} : { rpcCode }),
   });
+
+const isProtocolVersionRpcError = (error: ForgeDaemonCliError): boolean =>
+  error.rpcCode === DAEMON_SOCKET_PROTOCOL_ERROR_CODE;
 
 export const resolveCliDaemonPaths = (rawBaseDir: string | undefined) =>
   Effect.gen(function* () {
@@ -201,6 +206,7 @@ export const sendDaemonRpc = <Result = unknown>(input: {
                   input.method,
                   `${(parsed as JsonRpcFailure).error.message} (code ${(parsed as JsonRpcFailure).error.code})`,
                   (parsed as JsonRpcFailure).error.data,
+                  (parsed as JsonRpcFailure).error.code,
                 ),
               ),
             );
@@ -223,13 +229,22 @@ export const getDaemonStatusSnapshot = (paths: CliDaemonPaths) =>
       expectedSocketPath: paths.socketPath,
       requireOwnerOnlyPermissions: true,
     });
-    const ping = yield* sendDaemonRpc<{ readonly status: string; readonly uptime: number }>({
+    const pingResult = yield* sendDaemonRpc<{ readonly status: string; readonly uptime: number }>({
       socketPath: paths.socketPath,
       method: "daemon.ping",
       timeoutMs: 1_000,
-    }).pipe(Effect.option);
+    }).pipe(
+      Effect.match({
+        onFailure: (error) => ({ ok: false as const, error }),
+        onSuccess: (ping) => ({ ok: true as const, ping }),
+      }),
+    );
 
-    if (ping._tag === "None") {
+    if (!pingResult.ok) {
+      if (isProtocolVersionRpcError(pingResult.error)) {
+        return yield* pingResult.error;
+      }
+
       return {
         running: false,
         paths,
@@ -242,7 +257,7 @@ export const getDaemonStatusSnapshot = (paths: CliDaemonPaths) =>
       running: true,
       paths,
       info: manifestInfo,
-      ping: ping.value,
+      ping: pingResult.ping,
     } satisfies DaemonStatusSnapshot;
   });
 

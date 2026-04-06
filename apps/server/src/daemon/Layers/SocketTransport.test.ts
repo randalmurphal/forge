@@ -24,7 +24,7 @@ import {
   WorkspacePaths,
   type WorkspacePathsShape,
 } from "../../workspace/Services/WorkspacePaths.ts";
-import { DAEMON_SOCKET_PROTOCOL_VERSION } from "../protocol.ts";
+import { DAEMON_SOCKET_PROTOCOL_ERROR_CODE, DAEMON_SOCKET_PROTOCOL_VERSION } from "../protocol.ts";
 import { SocketTransport } from "../Services/SocketTransport.ts";
 import { SocketTransportLive } from "./SocketTransport.ts";
 
@@ -811,7 +811,7 @@ it("bind rejects requests that omit the daemon protocol version handshake", asyn
         readonly error: { readonly code: number; readonly message: string };
       };
 
-      assert.equal(response.error.code, -32001);
+      assert.equal(response.error.code, DAEMON_SOCKET_PROTOCOL_ERROR_CODE);
       assert.match(response.error.message, /protocol version handshake is required/i);
     } finally {
       await Effect.runPromise(binding.close.pipe(Effect.catch(() => Effect.void)));
@@ -845,9 +845,43 @@ it("bind rejects requests whose daemon protocol version does not match", async (
         readonly error: { readonly code: number; readonly message: string };
       };
 
-      assert.equal(response.error.code, -32001);
+      assert.equal(response.error.code, DAEMON_SOCKET_PROTOCOL_ERROR_CODE);
       assert.match(response.error.message, /protocol version mismatch/i);
       assert.match(response.error.message, /forge daemon restart/i);
+    } finally {
+      await Effect.runPromise(binding.close.pipe(Effect.catch(() => Effect.void)));
+    }
+  } finally {
+    FS.rmSync(socketDir, { recursive: true, force: true });
+  }
+});
+
+it("bind rejects daemon.ping when a client supplies a mismatched protocol version", async () => {
+  const socketDir = FS.mkdtempSync(Path.join(OS.tmpdir(), "forge-socket-transport-"));
+  const socketPath = Path.join(socketDir, "forge.sock");
+
+  try {
+    const transport = await Effect.runPromise(
+      Effect.service(SocketTransport).pipe(Effect.provide(makeTestLayer())),
+    );
+    const binding = await Effect.runPromise(transport.bind({ socketPath }));
+
+    try {
+      const response = (await sendRaw(
+        socketPath,
+        serializeRequest({
+          jsonrpc: "2.0",
+          id: "ping-bad-version",
+          method: "daemon.ping",
+          params: {},
+          forgeProtocolVersion: DAEMON_SOCKET_PROTOCOL_VERSION + 1,
+        }),
+      )) as {
+        readonly error: { readonly code: number; readonly message: string };
+      };
+
+      assert.equal(response.error.code, DAEMON_SOCKET_PROTOCOL_ERROR_CODE);
+      assert.match(response.error.message, /protocol version mismatch/i);
     } finally {
       await Effect.runPromise(binding.close.pipe(Effect.catch(() => Effect.void)));
     }
