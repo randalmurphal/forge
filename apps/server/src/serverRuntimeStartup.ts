@@ -42,6 +42,7 @@ export class ServerRuntimeStartupError extends Data.TaggedError("ServerRuntimeSt
 
 export interface ServerRuntimeStartupShape {
   readonly awaitCommandReady: Effect.Effect<void, ServerRuntimeStartupError>;
+  readonly awaitHttpListening: Effect.Effect<void, ServerRuntimeStartupError>;
   readonly markHttpListening: Effect.Effect<void>;
   readonly enqueueCommand: <A, E>(
     effect: Effect.Effect<A, E>,
@@ -264,7 +265,7 @@ const makeServerRuntimeStartup = Effect.gen(function* () {
   const serverSettings = yield* ServerSettingsService;
 
   const commandGate = yield* makeCommandGate;
-  const httpListening = yield* Deferred.make<void>();
+  const httpListening = yield* Deferred.make<void, ServerRuntimeStartupError>();
   const reactorScope = yield* Scope.make("sequential");
 
   yield* Effect.addFinalizer(() => Scope.close(reactorScope, Exit.void));
@@ -341,6 +342,7 @@ const makeServerRuntimeStartup = Effect.gen(function* () {
         });
         yield* Effect.logError("server runtime startup failed", { cause: startupExit.cause });
         yield* commandGate.failCommandReady(error);
+        yield* Deferred.fail(httpListening, error).pipe(Effect.orDie);
         return;
       }
 
@@ -368,6 +370,7 @@ const makeServerRuntimeStartup = Effect.gen(function* () {
 
   return {
     awaitCommandReady: commandGate.awaitCommandReady,
+    awaitHttpListening: Deferred.await(httpListening),
     markHttpListening: Deferred.succeed(httpListening, undefined),
     enqueueCommand: commandGate.enqueueCommand,
   } satisfies ServerRuntimeStartupShape;

@@ -3,6 +3,7 @@ import * as Exit from "effect/Exit";
 import * as Fiber from "effect/Fiber";
 
 import { ServerConfig } from "../../config.ts";
+import { ServerRuntimeStartup } from "../../serverRuntimeStartup.ts";
 import { NotificationDispatch } from "../Services/NotificationDispatch.ts";
 import { DaemonService } from "../Services/DaemonService.ts";
 import { SocketTransport } from "../Services/SocketTransport.ts";
@@ -15,6 +16,7 @@ export const runDaemonModeServer = <A, E, R>(launchHttpServer: Effect.Effect<A, 
     const config = yield* ServerConfig;
     const daemonService = yield* DaemonService;
     const socketTransport = yield* SocketTransport;
+    const startup = yield* ServerRuntimeStartup;
 
     // Materialize the notification service so daemon mode includes the runtime dependency.
     yield* NotificationDispatch;
@@ -28,6 +30,7 @@ export const runDaemonModeServer = <A, E, R>(launchHttpServer: Effect.Effect<A, 
         socketTransport.bind({
           socketPath,
           startedAt,
+          awaitReady: startup.awaitHttpListening.pipe(Effect.mapError(toError)),
           stopDaemon: Deferred.succeed(shutdownRequested, undefined).pipe(Effect.asVoid),
         }),
       gracefulShutdown: Effect.void,

@@ -358,6 +358,7 @@ const buildAppUnderTest = (options?: {
       }),
       Layer.mock(ServerRuntimeStartup)({
         awaitCommandReady: Effect.void,
+        awaitHttpListening: Effect.void,
         markHttpListening: Effect.void,
         enqueueCommand: (effect) => effect,
         ...options?.layers?.serverRuntimeStartup,

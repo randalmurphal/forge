@@ -1334,6 +1334,19 @@ const makeSocketTransport = Effect.gen(function* () {
               }
 
               let effect = handler(parsed.request.params);
+              if (parsed.request.method !== "daemon.stop" && input.awaitReady !== undefined) {
+                const handlerEffect = effect;
+                effect = input.awaitReady.pipe(
+                  Effect.mapError(
+                    (cause) =>
+                      new OrchestrationGetSnapshotError({
+                        message: "Daemon transport is not ready.",
+                        cause: toError(cause),
+                      }),
+                  ),
+                  Effect.flatMap(() => handlerEffect),
+                );
+              }
               if (parsed.request.method === "daemon.ping") {
                 effect = Effect.map(effect, (result) => ({
                   ...(result as Record<string, unknown>),

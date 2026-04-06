@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { Effect, Layer, Option, Ref } from "effect";
+import { Deferred, Effect, Layer, Option, Ref } from "effect";
 import * as FS from "node:fs";
 import * as Net from "node:net";
 import * as OS from "node:os";
@@ -227,6 +227,49 @@ it("bind accepts daemon.ping JSON-RPC requests and returns status + uptime", asy
       assert.equal(response.result.status, "ok");
       assert.equal(typeof response.result.uptime, "number");
       expect(response.result.uptime).toBeGreaterThanOrEqual(0);
+    } finally {
+      await Effect.runPromise(binding.close.pipe(Effect.catch(() => Effect.void)));
+    }
+  } finally {
+    FS.rmSync(socketDir, { recursive: true, force: true });
+  }
+});
+
+it("bind delays daemon.ping responses until the daemon runtime is ready", async () => {
+  const socketDir = FS.mkdtempSync(Path.join(OS.tmpdir(), "forge-socket-transport-"));
+  const socketPath = Path.join(socketDir, "forge.sock");
+
+  try {
+    const ready = await Effect.runPromise(Deferred.make<void, Error>());
+    const transport = await Effect.runPromise(
+      Effect.service(SocketTransport).pipe(Effect.provide(makeTestLayer())),
+    );
+    const binding = await Effect.runPromise(
+      transport.bind({
+        socketPath,
+        awaitReady: Deferred.await(ready),
+      }),
+    );
+
+    try {
+      const responsePromise = sendRaw(
+        socketPath,
+        `${JSON.stringify({ jsonrpc: "2.0", id: "ping-delayed", method: "daemon.ping", params: {} })}\n`,
+      );
+
+      const earlyResult = await Promise.race([
+        responsePromise.then(() => "response"),
+        new Promise<"timeout">((resolve) => setTimeout(() => resolve("timeout"), 50)),
+      ]);
+      assert.equal(earlyResult, "timeout");
+
+      await Effect.runPromise(Deferred.succeed(ready, undefined));
+
+      const response = (await responsePromise) as {
+        readonly result: { readonly status: string; readonly uptime: number };
+      };
+      assert.equal(response.result.status, "ok");
+      assert.equal(typeof response.result.uptime, "number");
     } finally {
       await Effect.runPromise(binding.close.pipe(Effect.catch(() => Effect.void)));
     }

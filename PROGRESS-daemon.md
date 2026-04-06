@@ -16,6 +16,8 @@
 
 (Issues moved here after being fixed and committed.)
 
+- 2026-04-06: Fixed a daemon startup readiness race discovered during the Spec Compliance review sweep. The Unix socket could answer `daemon.ping` before the daemon WebSocket listener was actually accepting connections, which let desktop discovery succeed and then race a dead `ws://127.0.0.1:{port}` on first connect. The fix exposes HTTP-listener readiness from `ServerRuntimeStartup`, gates daemon socket RPC execution on that readiness, and adds regression coverage for delayed `daemon.ping` responses until the runtime is ready.
+
 ## Completed Work Items
 
 - WI-1: Product identity -- base directory and paths
@@ -43,3 +45,5 @@
 ## Review Log
 
 (Entries added during review phase.)
+
+- 2026-04-06: Review Category 1 -- Spec Compliance. Verified daemon/desktop lifecycle behavior against `design/07-daemon-mode.md` and fixed the daemon readiness race so socket discovery now reflects actual WebSocket availability. Verified with `bun fmt`, `bun lint`, `bun typecheck`, and `bun run test`.

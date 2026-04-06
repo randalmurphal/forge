@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 import { Deferred, Effect, Layer } from "effect";
 
 import { ServerConfig, type ServerConfigShape } from "../../config.ts";
+import { ServerRuntimeStartup } from "../../serverRuntimeStartup.ts";
 import { runDaemonModeServer } from "./Runtime.ts";
 import { DaemonService } from "../Services/DaemonService.ts";
 import { SocketTransport } from "../Services/SocketTransport.ts";
@@ -63,6 +64,12 @@ describe("runDaemonModeServer", () => {
         Effect.provide(
           Layer.mergeAll(
             Layer.succeed(ServerConfig, makeServerConfig()),
+            Layer.succeed(ServerRuntimeStartup, {
+              awaitCommandReady: Effect.void,
+              awaitHttpListening: Effect.void,
+              markHttpListening: Effect.void,
+              enqueueCommand: (effect) => effect,
+            }),
             Layer.succeed(DaemonService, {
               getPaths: Effect.die("unused"),
               probeSocket: () => Effect.succeed(true),
@@ -136,6 +143,12 @@ describe("runDaemonModeServer", () => {
           Effect.provide(
             Layer.mergeAll(
               Layer.succeed(ServerConfig, makeServerConfig()),
+              Layer.succeed(ServerRuntimeStartup, {
+                awaitCommandReady: Effect.void,
+                awaitHttpListening: Effect.void,
+                markHttpListening: Effect.void,
+                enqueueCommand: (effect) => effect,
+              }),
               Layer.succeed(DaemonService, {
                 getPaths: Effect.die("unused"),
                 probeSocket: () => Effect.succeed(true),

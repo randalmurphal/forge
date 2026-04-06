@@ -6,6 +6,7 @@ import type { DaemonSocketBinding } from "./DaemonService.ts";
 export interface SocketTransportBindInput {
   readonly socketPath: string;
   readonly startedAt?: string;
+  readonly awaitReady?: Effect.Effect<void, Error>;
   readonly stopDaemon?: Effect.Effect<void, Error>;
 }
 
