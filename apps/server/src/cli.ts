@@ -267,16 +267,19 @@ export const resolveServerConfig = (
         () => mode === "desktop" || mode === "daemon",
       ),
     );
-    const authToken =
-      Option.getOrUndefined(
-        resolveOptionPrecedence(
-          flags.authToken,
-          Option.fromUndefinedOr(env.authToken),
-          Option.flatMap(bootstrapEnvelope, (bootstrap) =>
-            Option.fromUndefinedOr(bootstrap.authToken),
-          ),
+    const configuredAuthToken = Option.getOrUndefined(
+      resolveOptionPrecedence(
+        flags.authToken,
+        Option.fromUndefinedOr(env.authToken),
+        Option.flatMap(bootstrapEnvelope, (bootstrap) =>
+          Option.fromUndefinedOr(bootstrap.authToken),
         ),
-      ) ?? (mode === "daemon" ? Crypto.randomBytes(32).toString("hex") : undefined);
+      ),
+    );
+    // Daemon-mode reconnect auth is always a fresh startup token. Reusing a
+    // caller-provided token breaks the manifest rotation contract.
+    const authToken =
+      mode === "daemon" ? Crypto.randomBytes(32).toString("hex") : configuredAuthToken;
     const autoBootstrapProjectFromCwd = resolveBooleanFlag(
       flags.autoBootstrapProjectFromCwd,
       Option.getOrElse(

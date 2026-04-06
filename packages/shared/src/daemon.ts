@@ -18,6 +18,8 @@ export interface DaemonManifestTrustOptions {
   readonly platform?: NodeJS.Platform;
 }
 
+const DAEMON_WS_TOKEN_PATTERN = /^[0-9a-f]{64}$/i;
+
 const INHERITED_DAEMON_RUNTIME_ENV_KEYS = [
   "FORGE_AUTH_TOKEN",
   "FORGE_BOOTSTRAP_FD",
@@ -38,6 +40,9 @@ const isPortNumber = (value: unknown): value is number =>
 
 const isNonEmptyString = (value: unknown): value is string =>
   typeof value === "string" && value.length > 0;
+
+export const isForgeDaemonWsToken = (value: unknown): value is string =>
+  typeof value === "string" && DAEMON_WS_TOKEN_PATTERN.test(value);
 
 export const hasOwnerOnlyFileMode = (mode: number): boolean =>
   (mode & 0o777) === OWNER_ONLY_FILE_MODE;
@@ -73,7 +78,7 @@ export const parseDaemonManifest = (value: unknown): ForgeDaemonManifest | undef
   if (
     !isPositiveInteger(pid) ||
     !isPortNumber(wsPort) ||
-    !isNonEmptyString(wsToken) ||
+    !isForgeDaemonWsToken(wsToken) ||
     !isNonEmptyString(socketPath) ||
     !isNonEmptyString(startedAt)
   ) {

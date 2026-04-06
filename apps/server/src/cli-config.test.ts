@@ -447,4 +447,62 @@ it.layer(NodeServices.layer)("cli config resolution", (it) => {
       });
     }),
   );
+
+  it.effect("ignores provided authToken overrides in daemon mode and rotates a fresh token", () =>
+    Effect.gen(function* () {
+      const fs = yield* FileSystem.FileSystem;
+      const baseDir = yield* fs.makeTempDirectoryScoped({
+        prefix: "forge-cli-config-daemon-override-",
+      });
+      const derivedPaths = yield* deriveServerPaths(baseDir, undefined);
+
+      const resolved = yield* resolveServerConfig(
+        {
+          mode: Option.some("daemon"),
+          port: Option.some(4878),
+          host: Option.none(),
+          baseDir: Option.some(baseDir),
+          devUrl: Option.none(),
+          noBrowser: Option.none(),
+          authToken: Option.some("not-a-daemon-token"),
+          bootstrapFd: Option.none(),
+          autoBootstrapProjectFromCwd: Option.none(),
+          logWebSocketEvents: Option.none(),
+        },
+        Option.none(),
+      ).pipe(
+        Effect.provide(
+          Layer.mergeAll(
+            ConfigProvider.layer(
+              ConfigProvider.fromEnv({
+                env: {
+                  FORGE_AUTH_TOKEN: "also-ignored",
+                },
+              }),
+            ),
+            NetService.layer,
+          ),
+        ),
+      );
+
+      expect(resolved).toEqual({
+        logLevel: "Info",
+        ...defaultObservabilityConfig,
+        mode: "daemon",
+        port: 4878,
+        cwd: process.cwd(),
+        baseDir,
+        ...derivedPaths,
+        host: "127.0.0.1",
+        staticDir: resolved.staticDir,
+        devUrl: undefined,
+        noBrowser: true,
+        authToken: expect.stringMatching(/^[0-9a-f]{64}$/),
+        autoBootstrapProjectFromCwd: false,
+        logWebSocketEvents: false,
+      });
+      expect(resolved.authToken).not.toBe("not-a-daemon-token");
+      expect(resolved.authToken).not.toBe("also-ignored");
+    }),
+  );
 });

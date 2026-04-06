@@ -13,6 +13,10 @@ import {
   type DesktopDaemonInfo,
 } from "./daemonState";
 
+const VALID_DAEMON_WS_TOKEN = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef";
+const ROTATED_DAEMON_WS_TOKEN = "abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789";
+const REPRIMED_DAEMON_WS_TOKEN = "fedcba9876543210fedcba9876543210fedcba9876543210fedcba9876543210";
+
 const tempDirs: string[] = [];
 
 const makeTempDir = (prefix: string): string => {
@@ -24,7 +28,7 @@ const makeTempDir = (prefix: string): string => {
 const makeDaemonInfo = (socketPath: string): DesktopDaemonInfo => ({
   pid: 42,
   wsPort: 3773,
-  wsToken: "secret-token",
+  wsToken: VALID_DAEMON_WS_TOKEN,
   socketPath,
   startedAt: "2026-04-06T12:00:00.000Z",
 });
@@ -100,6 +104,25 @@ describe("readDaemonInfoSync", () => {
       JSON.stringify({
         pid: 42,
         wsPort: 70_000,
+        wsToken: VALID_DAEMON_WS_TOKEN,
+        socketPath: paths.socketPath,
+        startedAt: "2026-04-06T12:00:00.000Z",
+      }),
+      "utf8",
+    );
+
+    expect(readDaemonInfoSync(paths.daemonInfoPath)).toBeUndefined();
+  });
+
+  it("rejects daemon.json when wsToken is not a 256-bit hex token", () => {
+    const baseDir = makeTempDir("forge-desktop-daemon-invalid-token-");
+    const paths = resolveDesktopDaemonPaths(baseDir);
+
+    FS.writeFileSync(
+      paths.daemonInfoPath,
+      JSON.stringify({
+        pid: 42,
+        wsPort: 3773,
         wsToken: "secret-token",
         socketPath: paths.socketPath,
         startedAt: "2026-04-06T12:00:00.000Z",
@@ -155,7 +178,7 @@ describe("createDesktopWsUrlResolver", () => {
     const rotatedDaemonInfo = {
       ...initialDaemonInfo,
       wsPort: 4777,
-      wsToken: "rotated-secret-token",
+      wsToken: ROTATED_DAEMON_WS_TOKEN,
       startedAt: "2026-04-06T12:05:00.000Z",
     } satisfies DesktopDaemonInfo;
 
@@ -203,7 +226,7 @@ describe("createDesktopWsUrlResolver", () => {
     const rotatedDaemonInfo = {
       ...initialDaemonInfo,
       wsPort: 4888,
-      wsToken: "rotated-prime-token",
+      wsToken: REPRIMED_DAEMON_WS_TOKEN,
       startedAt: "2026-04-06T12:10:00.000Z",
     } satisfies DesktopDaemonInfo;
 

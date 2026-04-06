@@ -12,6 +12,8 @@ import { DaemonSocketError } from "../Errors.ts";
 import { DaemonService } from "../Services/DaemonService.ts";
 import { DaemonServiceLive } from "./DaemonService.ts";
 
+const VALID_DAEMON_WS_TOKEN = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef";
+
 const makeDaemonTestLayer = (baseDir: string) =>
   DaemonServiceLive.pipe(
     Layer.provide(ServerConfig.layerTest(process.cwd(), baseDir)),
@@ -172,7 +174,7 @@ it.effect("start persists the configured websocket auth token to daemon.json", (
         const daemon = yield* DaemonService;
         return yield* daemon.start({
           wsPort: 47832,
-          wsToken: "daemon-auth-token",
+          wsToken: VALID_DAEMON_WS_TOKEN,
           bindSocket: (socketPath) => makePingServer(socketPath),
         });
       }).pipe(Effect.provide(makeDaemonTestLayer(baseDir)));
@@ -184,7 +186,7 @@ it.effect("start persists the configured websocket auth token to daemon.json", (
       const daemonInfo = JSON.parse(FS.readFileSync(Path.join(baseDir, "daemon.json"), "utf8")) as {
         readonly wsToken: string;
       };
-      assert.equal(daemonInfo.wsToken, "daemon-auth-token");
+      assert.equal(daemonInfo.wsToken, VALID_DAEMON_WS_TOKEN);
 
       yield* result.stop;
     }),

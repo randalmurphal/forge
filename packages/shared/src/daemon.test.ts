@@ -3,12 +3,15 @@ import { describe, expect, it } from "vitest";
 import {
   hasExpectedDaemonSocketPath,
   hasOwnerOnlyFileMode,
+  isForgeDaemonWsToken,
   isTrustedDaemonManifest,
   OWNER_ONLY_FILE_MODE,
   parseDaemonManifest,
   stripInheritedDaemonRuntimeEnv,
   shouldRequireOwnerOnlyPermissions,
 } from "./daemon";
+
+const VALID_DAEMON_WS_TOKEN = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef";
 
 describe("daemon manifest helpers", () => {
   it("accepts owner-only file modes", () => {
@@ -39,14 +42,14 @@ describe("daemon manifest helpers", () => {
       parseDaemonManifest({
         pid: 42,
         wsPort: 3773,
-        wsToken: "secret-token",
+        wsToken: VALID_DAEMON_WS_TOKEN,
         socketPath: "/Users/randy/.forge/forge.sock",
         startedAt: "2026-04-06T12:00:00.000Z",
       }),
     ).toEqual({
       pid: 42,
       wsPort: 3773,
-      wsToken: "secret-token",
+      wsToken: VALID_DAEMON_WS_TOKEN,
       socketPath: "/Users/randy/.forge/forge.sock",
       startedAt: "2026-04-06T12:00:00.000Z",
     });
@@ -69,6 +72,19 @@ describe("daemon manifest helpers", () => {
       parseDaemonManifest({
         pid: 42,
         wsPort: 70_000,
+        wsToken: VALID_DAEMON_WS_TOKEN,
+        socketPath: "/Users/randy/.forge/forge.sock",
+        startedAt: "2026-04-06T12:00:00.000Z",
+      }),
+    ).toBeUndefined();
+  });
+
+  it("requires a 256-bit hex websocket token", () => {
+    expect(isForgeDaemonWsToken(VALID_DAEMON_WS_TOKEN)).toBe(true);
+    expect(
+      parseDaemonManifest({
+        pid: 42,
+        wsPort: 3773,
         wsToken: "secret-token",
         socketPath: "/Users/randy/.forge/forge.sock",
         startedAt: "2026-04-06T12:00:00.000Z",

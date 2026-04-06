@@ -7,6 +7,8 @@ import { afterEach, describe, expect, it } from "vitest";
 
 import { buildDaemonLaunchPlan, readDaemonInfoFile } from "./cliClient.ts";
 
+const VALID_DAEMON_WS_TOKEN = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef";
+
 const tempDirs: string[] = [];
 
 const makeTempDir = (prefix: string): string => {
@@ -21,7 +23,7 @@ const writeDaemonInfo = (daemonInfoPath: string, socketPath: string, mode = 0o60
     JSON.stringify({
       pid: 42,
       wsPort: 3773,
-      wsToken: "secret-token",
+      wsToken: VALID_DAEMON_WS_TOKEN,
       socketPath,
       startedAt: "2026-04-06T12:00:00.000Z",
     }),
@@ -50,7 +52,7 @@ describe("readDaemonInfoFile", () => {
     );
 
     expect(info?.socketPath).toBe(socketPath);
-    expect(info?.wsToken).toBe("secret-token");
+    expect(info?.wsToken).toBe(VALID_DAEMON_WS_TOKEN);
   });
 
   it("rejects daemon.json when the socket path does not match the Forge socket", async () => {
@@ -118,6 +120,32 @@ describe("readDaemonInfoFile", () => {
       JSON.stringify({
         pid: 42,
         wsPort: 70_000,
+        wsToken: VALID_DAEMON_WS_TOKEN,
+        socketPath,
+        startedAt: "2026-04-06T12:00:00.000Z",
+      }),
+      { encoding: "utf8", mode: 0o600 },
+    );
+    FS.chmodSync(daemonInfoPath, 0o600);
+
+    const info = await Effect.runPromise(
+      readDaemonInfoFile(daemonInfoPath, {
+        expectedSocketPath: socketPath,
+      }),
+    );
+
+    expect(info).toBeUndefined();
+  });
+
+  it("rejects daemon.json when wsToken is not a 256-bit hex token", async () => {
+    const baseDir = makeTempDir("forge-cli-daemon-info-invalid-token-");
+    const daemonInfoPath = Path.join(baseDir, "daemon.json");
+    const socketPath = Path.join(baseDir, "forge.sock");
+    FS.writeFileSync(
+      daemonInfoPath,
+      JSON.stringify({
+        pid: 42,
+        wsPort: 3773,
         wsToken: "secret-token",
         socketPath,
         startedAt: "2026-04-06T12:00:00.000Z",

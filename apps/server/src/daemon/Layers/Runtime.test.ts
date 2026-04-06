@@ -12,6 +12,8 @@ import { SocketTransport } from "../Services/SocketTransport.ts";
 import { NotificationDispatch } from "../Services/NotificationDispatch.ts";
 import { NotificationReactor } from "../Services/NotificationReactor.ts";
 
+const VALID_DAEMON_WS_TOKEN = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef";
+
 const makeServerConfig = (): ServerConfigShape => ({
   logLevel: "Info",
   traceMinLevel: "Info",
@@ -44,7 +46,7 @@ const makeServerConfig = (): ServerConfigShape => ({
   staticDir: undefined,
   devUrl: undefined,
   noBrowser: true,
-  authToken: "token",
+  authToken: VALID_DAEMON_WS_TOKEN,
   autoBootstrapProjectFromCwd: false,
   logWebSocketEvents: false,
 });
@@ -106,7 +108,7 @@ describe("runDaemonModeServer", () => {
                     info: {
                       pid: 123,
                       wsPort: 4777,
-                      wsToken: "token",
+                      wsToken: VALID_DAEMON_WS_TOKEN,
                       socketPath: "/tmp/forge-daemon-runtime/forge.sock",
                       startedAt: "2026-04-06T00:00:00.000Z",
                     },
@@ -174,7 +176,7 @@ describe("runDaemonModeServer", () => {
 
     await expect(daemonPromise).resolves.toBe("stopped");
     await Effect.runPromise(Deferred.await(launchStopped));
-    expect(requestedWsToken).toBe("token");
+    expect(requestedWsToken).toBe(VALID_DAEMON_WS_TOKEN);
     expect(listSessions).toHaveBeenCalledTimes(1);
     expect(stopSession).toHaveBeenCalledTimes(1);
     expect(stopSession).toHaveBeenCalledWith({ threadId: "thread-1" });
@@ -213,7 +215,7 @@ describe("runDaemonModeServer", () => {
                     info: {
                       pid: 123,
                       wsPort: 4777,
-                      wsToken: "token",
+                      wsToken: VALID_DAEMON_WS_TOKEN,
                       socketPath: "/tmp/forge-daemon-runtime/forge.sock",
                       startedAt: "2026-04-06T00:00:00.000Z",
                     },
