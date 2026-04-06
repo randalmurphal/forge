@@ -5,6 +5,7 @@ import { useStore } from "../store";
 import {
   MAX_HIDDEN_MOUNTED_TERMINAL_THREADS,
   buildExpiredTerminalContextToastCopy,
+  buildTemporaryWorktreeBranchName,
   createLocalDispatchSnapshot,
   deriveComposerSendState,
   hasServerAcknowledgedLocalDispatch,
@@ -74,6 +75,12 @@ describe("buildExpiredTerminalContextToastCopy", () => {
       title: "Expired terminal contexts omitted from message",
       description: "Re-add it if you want that terminal output included.",
     });
+  });
+});
+
+describe("buildTemporaryWorktreeBranchName", () => {
+  it("uses the Forge worktree branch namespace with an 8-hex suffix", () => {
+    expect(buildTemporaryWorktreeBranchName()).toMatch(/^forge\/[0-9a-f]{8}$/);
   });
 });
 

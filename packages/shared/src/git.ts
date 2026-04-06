@@ -1,5 +1,17 @@
 import type { GitBranch } from "@forgetools/contracts";
 
+export const FORGE_WORKTREE_BRANCH_PREFIX = "forge";
+
+export function buildForgePrefixedBranchName(fragment: string): string {
+  return `${FORGE_WORKTREE_BRANCH_PREFIX}/${sanitizeBranchFragment(fragment)}`;
+}
+
+export function isForgeTemporaryWorktreeBranch(branch: string): boolean {
+  return new RegExp(`^${FORGE_WORKTREE_BRANCH_PREFIX}\\/[0-9a-f]{8}$`).test(
+    branch.trim().toLowerCase(),
+  );
+}
+
 /**
  * Sanitize an arbitrary string into a valid, lowercase git branch fragment.
  * Strips quotes, collapses separators, limits to 64 chars.

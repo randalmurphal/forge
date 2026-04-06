@@ -1125,26 +1125,24 @@ it.layer(TestLayer)("git integration", (it) => {
       Effect.gen(function* () {
         const tmp = yield* makeTmpDir();
         yield* initRepoWithCommit(tmp);
-        yield* (yield* GitCore).createBranch({ cwd: tmp, branch: "t3code/feat/session" });
-        yield* (yield* GitCore).createBranch({ cwd: tmp, branch: "t3code/tmp-working" });
-        yield* (yield* GitCore).checkoutBranch({ cwd: tmp, branch: "t3code/tmp-working" });
+        yield* (yield* GitCore).createBranch({ cwd: tmp, branch: "forge/feat/session" });
+        yield* (yield* GitCore).createBranch({ cwd: tmp, branch: "forge/tmp-working" });
+        yield* (yield* GitCore).checkoutBranch({ cwd: tmp, branch: "forge/tmp-working" });
 
         const renamed = yield* (yield* GitCore).renameBranch({
           cwd: tmp,
-          oldBranch: "t3code/tmp-working",
-          newBranch: "t3code/feat/session",
+          oldBranch: "forge/tmp-working",
+          newBranch: "forge/feat/session",
         });
 
-        expect(renamed.branch).toBe("t3code/feat/session-1");
+        expect(renamed.branch).toBe("forge/feat/session-1");
         const branches = yield* (yield* GitCore).listBranches({ cwd: tmp });
-        expect(branches.branches.some((branch) => branch.name === "t3code/feat/session")).toBe(
-          true,
-        );
-        expect(branches.branches.some((branch) => branch.name === "t3code/feat/session-1")).toBe(
+        expect(branches.branches.some((branch) => branch.name === "forge/feat/session")).toBe(true);
+        expect(branches.branches.some((branch) => branch.name === "forge/feat/session-1")).toBe(
           true,
         );
         const current = branches.branches.find((branch) => branch.current);
-        expect(current?.name).toBe("t3code/feat/session-1");
+        expect(current?.name).toBe("forge/feat/session-1");
       }),
     );
 
@@ -1152,18 +1150,18 @@ it.layer(TestLayer)("git integration", (it) => {
       Effect.gen(function* () {
         const tmp = yield* makeTmpDir();
         yield* initRepoWithCommit(tmp);
-        yield* (yield* GitCore).createBranch({ cwd: tmp, branch: "t3code/feat/session" });
-        yield* (yield* GitCore).createBranch({ cwd: tmp, branch: "t3code/feat/session-1" });
-        yield* (yield* GitCore).createBranch({ cwd: tmp, branch: "t3code/tmp-working" });
-        yield* (yield* GitCore).checkoutBranch({ cwd: tmp, branch: "t3code/tmp-working" });
+        yield* (yield* GitCore).createBranch({ cwd: tmp, branch: "forge/feat/session" });
+        yield* (yield* GitCore).createBranch({ cwd: tmp, branch: "forge/feat/session-1" });
+        yield* (yield* GitCore).createBranch({ cwd: tmp, branch: "forge/tmp-working" });
+        yield* (yield* GitCore).checkoutBranch({ cwd: tmp, branch: "forge/tmp-working" });
 
         const renamed = yield* (yield* GitCore).renameBranch({
           cwd: tmp,
-          oldBranch: "t3code/tmp-working",
-          newBranch: "t3code/feat/session",
+          oldBranch: "forge/tmp-working",
+          newBranch: "forge/feat/session",
         });
 
-        expect(renamed.branch).toBe("t3code/feat/session-2");
+        expect(renamed.branch).toBe("forge/feat/session-2");
       }),
     );
 

@@ -3,6 +3,7 @@ import { type ChatMessage, type SessionPhase, type Thread, type ThreadSession } 
 import { randomUUID } from "~/lib/utils";
 import { type ComposerImageAttachment, type DraftThreadState } from "../composerDraftStore";
 import { Schema } from "effect";
+import { FORGE_WORKTREE_BRANCH_PREFIX } from "@forgetools/shared/git";
 import { useStore } from "../store";
 import {
   filterTerminalContextsWithText,
@@ -12,7 +13,6 @@ import {
 
 export const LAST_INVOKED_SCRIPT_BY_PROJECT_KEY = "forge:last-invoked-script-by-project";
 export const MAX_HIDDEN_MOUNTED_TERMINAL_THREADS = 10;
-const WORKTREE_BRANCH_PREFIX = "t3code";
 
 export const LastInvokedScriptByProjectSchema = Schema.Record(ProjectId, Schema.String);
 
@@ -132,7 +132,7 @@ export function readFileAsDataUrl(file: File): Promise<string> {
 export function buildTemporaryWorktreeBranchName(): string {
   // Keep the 8-hex suffix shape for backend temporary-branch detection.
   const token = randomUUID().slice(0, 8).toLowerCase();
-  return `${WORKTREE_BRANCH_PREFIX}/${token}`;
+  return `${FORGE_WORKTREE_BRANCH_PREFIX}/${token}`;
 }
 
 export function cloneComposerImageForRetry(
