@@ -6,7 +6,7 @@ import {
   SendHorizonalIcon,
   StopCircleIcon,
 } from "lucide-react";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { PhaseRunId, type ThreadId } from "@forgetools/contracts";
 import { useNavigate } from "@tanstack/react-router";
 import { useStore } from "../store";
@@ -48,6 +48,18 @@ export function ChannelView(props: { threadId: ThreadId }) {
   const [splitView, setSplitView] = useState(false);
   const [interventionOpen, setInterventionOpen] = useState(false);
   const [interventionText, setInterventionText] = useState("");
+  const interventionTriggerRef = useRef<HTMLButtonElement | null>(null);
+
+  const closeIntervention = (restoreFocus: boolean) => {
+    setInterventionOpen(false);
+    if (!restoreFocus) {
+      return;
+    }
+
+    requestAnimationFrame(() => {
+      interventionTriggerRef.current?.focus();
+    });
+  };
 
   const childThreads = useMemo(() => {
     const childThreadIds = new Set(thread?.childThreadIds ?? []);
@@ -126,7 +138,7 @@ export function ChannelView(props: { threadId: ThreadId }) {
       if (event.key === "Escape" && interventionOpen) {
         event.preventDefault();
         event.stopPropagation();
-        setInterventionOpen(false);
+        closeIntervention(true);
       }
     };
 
@@ -149,7 +161,7 @@ export function ChannelView(props: { threadId: ThreadId }) {
 
     await interveneMutation.mutateAsync(content);
     setInterventionText("");
-    setInterventionOpen(false);
+    closeIntervention(true);
   };
 
   const concludeChannel = async () => {
@@ -208,7 +220,9 @@ export function ChannelView(props: { threadId: ThreadId }) {
               <p className="mt-1 text-sm text-muted-foreground">
                 {thread.title}
                 {" · "}
-                {formatChannelTurnCounter(viewModel.turnCount, maxTurns)}
+                <span aria-live="polite">
+                  {formatChannelTurnCounter(viewModel.turnCount, maxTurns)}
+                </span>
               </p>
             </div>
           </div>
@@ -218,6 +232,8 @@ export function ChannelView(props: { threadId: ThreadId }) {
               variant={splitView ? "secondary" : "outline"}
               size="sm"
               onClick={() => setSplitView((current) => !current)}
+              aria-pressed={splitView}
+              aria-keyshortcuts="d"
             >
               <ArrowRightLeftIcon className="size-4" />
               Split View
@@ -281,7 +297,13 @@ export function ChannelView(props: { threadId: ThreadId }) {
           </header>
 
           <ScrollArea className="min-h-0 flex-1" scrollbarGutter scrollFade>
-            <div className="space-y-3 px-4 py-4">
+            <div
+              className="space-y-3 px-4 py-4"
+              role="log"
+              aria-live="polite"
+              aria-relevant="additions text"
+              aria-label="Deliberation channel messages"
+            >
               {loading ? (
                 <p className="text-sm text-muted-foreground">Loading deliberation...</p>
               ) : error ? (
@@ -340,7 +362,7 @@ export function ChannelView(props: { threadId: ThreadId }) {
                       variant="outline"
                       size="sm"
                       onClick={() => {
-                        setInterventionOpen(false);
+                        closeIntervention(true);
                         setInterventionText("");
                       }}
                     >
@@ -364,7 +386,13 @@ export function ChannelView(props: { threadId: ThreadId }) {
                   Post guidance into the shared channel or end the deliberation early.
                 </div>
                 <div className="flex items-center gap-2">
-                  <Button variant="outline" size="sm" onClick={() => setInterventionOpen(true)}>
+                  <Button
+                    ref={interventionTriggerRef}
+                    variant="outline"
+                    size="sm"
+                    onClick={() => setInterventionOpen(true)}
+                    aria-keyshortcuts="c"
+                  >
                     Intervene
                   </Button>
                   <Button

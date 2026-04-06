@@ -182,7 +182,7 @@ export function GateApproval(props: {
             <p className="text-xs font-semibold uppercase tracking-[0.1em] text-muted-foreground">
               Correction
             </p>
-            <p className="text-xs text-muted-foreground">Shortcuts: `a` approve, `r` fail</p>
+            <p className="text-xs text-muted-foreground">Shortcuts: `a` approve, `r` reject</p>
           </div>
 
           <Textarea
@@ -200,6 +200,7 @@ export function GateApproval(props: {
                 "rounded-lg border px-3 py-2 text-sm",
                 gateStatusBadgeVariants({ tone: "rejected" }),
               )}
+              role="alert"
             >
               <XCircleIcon className="size-4" />
               <span>{currentError.message}</span>
@@ -211,6 +212,7 @@ export function GateApproval(props: {
               type="button"
               onClick={() => void approveMutation.mutateAsync()}
               disabled={isSubmitting}
+              aria-keyshortcuts="a"
             >
               Approve & Continue
             </Button>
@@ -227,8 +229,9 @@ export function GateApproval(props: {
               variant="destructive"
               onClick={() => void rejectMutation.mutateAsync()}
               disabled={isSubmitting || trimmedDraft.length === 0}
+              aria-keyshortcuts="r"
             >
-              Fail
+              Reject
             </Button>
           </div>
         </section>

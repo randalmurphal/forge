@@ -19,6 +19,7 @@ describe("QualityCheckResults", () => {
     expect(markup).toContain("test");
     expect(markup).toContain("passed");
     expect(markup).toContain("failed");
+    expect(markup).toContain('aria-live="polite"');
     expect(markup).toContain("All good.");
     expect(markup).toContain("1 failed assertion.");
   });

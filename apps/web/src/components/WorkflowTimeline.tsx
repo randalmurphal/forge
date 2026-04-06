@@ -106,6 +106,10 @@ function statusIconForPhase(status: string) {
   }
 }
 
+function workflowTimelineTranscriptPanelId(phaseRunId: string): string {
+  return `workflow-timeline-transcript-${phaseRunId}`;
+}
+
 export function WorkflowTimeline({ threadId }: { threadId: ThreadId }) {
   const [expandedPhaseRunIds, setExpandedPhaseRunIds] = useState<Set<string>>(() => new Set());
   const navigate = useNavigate();
@@ -378,6 +382,9 @@ export function WorkflowTimeline({ threadId }: { threadId: ThreadId }) {
                     <button
                       type="button"
                       className="flex w-full items-start justify-between gap-4 px-4 py-4 text-left transition-colors hover:bg-accent/35 sm:px-5"
+                      aria-controls={workflowTimelineTranscriptPanelId(phaseItem.phaseRunId)}
+                      aria-expanded={expanded}
+                      aria-label={`Toggle transcript for ${phaseItem.phaseName}`}
                       onClick={() =>
                         setExpandedPhaseRunIds((current) => {
                           const next = new Set(current);
@@ -436,7 +443,10 @@ export function WorkflowTimeline({ threadId }: { threadId: ThreadId }) {
                     </div>
 
                     {expanded ? (
-                      <div className="border-t border-border/70 bg-background/35 px-4 py-4 sm:px-5">
+                      <div
+                        id={workflowTimelineTranscriptPanelId(phaseItem.phaseRunId)}
+                        className="border-t border-border/70 bg-background/35 px-4 py-4 sm:px-5"
+                      >
                         <WorkflowTimelineTranscriptPanel
                           childSessions={phaseItem.childSessions}
                           markdownCwd={project?.cwd}

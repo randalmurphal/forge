@@ -70,8 +70,10 @@ describe("GateApproval", () => {
     expect(markup).toContain("Agent reviewed the implementation and found one open issue.");
     expect(markup).toContain("Auth fallback behavior is still ambiguous.");
     expect(markup).toContain("4 files changed");
+    expect(markup).toContain('aria-keyshortcuts="a"');
+    expect(markup).toContain('aria-keyshortcuts="r"');
     expect(markup).toContain("Approve &amp; Continue");
     expect(markup).toContain("Correct &amp; Retry");
-    expect(markup).toContain("Fail");
+    expect(markup).toContain("Reject");
   });
 });

@@ -204,7 +204,11 @@ export function WorkflowTimelineTransitionPanel(props: { state: WorkflowTimeline
   const TransitionIcon = transitionIcon(state);
 
   return (
-    <section className="overflow-hidden rounded-2xl border border-border/70 bg-card/75 shadow-sm">
+    <section
+      className="overflow-hidden rounded-2xl border border-border/70 bg-card/75 shadow-sm"
+      role="status"
+      aria-live="polite"
+    >
       <div className="flex items-start gap-3 border-b border-border/70 px-4 py-4 sm:px-5">
         <span className="mt-0.5 inline-flex size-9 shrink-0 items-center justify-center rounded-full border border-border/70 bg-background/80 text-muted-foreground">
           <TransitionIcon
@@ -224,7 +228,7 @@ export function WorkflowTimelineTransitionPanel(props: { state: WorkflowTimeline
       </div>
 
       {state.kind === "quality-checks" ? (
-        <div className="space-y-3 px-4 py-4 sm:px-5">
+        <div className="space-y-3 px-4 py-4 sm:px-5" aria-live="polite">
           {state.checks.length === 0 ? (
             <p className="text-sm text-muted-foreground">Waiting for check output.</p>
           ) : (
@@ -262,7 +266,10 @@ export function WorkflowTimelineTransitionPanel(props: { state: WorkflowTimeline
       {state.kind === "bootstrap" ? (
         <div className="px-4 py-4 sm:px-5">
           {state.output.length > 0 ? (
-            <pre className="overflow-auto rounded-xl bg-background px-4 py-3 text-xs text-foreground/85">
+            <pre
+              className="overflow-auto rounded-xl bg-background px-4 py-3 text-xs text-foreground/85"
+              aria-live="polite"
+            >
               {state.output}
             </pre>
           ) : (

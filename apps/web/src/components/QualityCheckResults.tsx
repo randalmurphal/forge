@@ -31,7 +31,10 @@ export function QualityCheckResults(props: {
   }
 
   return (
-    <section className={cn("rounded-2xl border border-border/70 bg-card/65", props.className)}>
+    <section
+      className={cn("rounded-2xl border border-border/70 bg-card/65", props.className)}
+      aria-live="polite"
+    >
       <header className="border-b border-border/70 px-4 py-3">
         <p className="text-xs font-semibold uppercase tracking-[0.1em] text-muted-foreground">
           {props.title ?? "Quality Checks"}
