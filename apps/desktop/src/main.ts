@@ -27,7 +27,11 @@ import { autoUpdater } from "electron-updater";
 import type { ContextMenuItem } from "@forgetools/contracts";
 import { RotatingFileSink } from "@forgetools/shared/logging";
 import { showDesktopConfirmDialog } from "./confirmDialog";
-import { resolveDesktopBaseDir, resolveDesktopDaemonPaths } from "./daemonState";
+import {
+  resolveDesktopBaseDir,
+  resolveDesktopDaemonPaths,
+  resolveDesktopStateDir,
+} from "./daemonState";
 import {
   buildDesktopWindowUrl,
   buildDetachedDaemonLaunchPlan,
@@ -71,10 +75,10 @@ const UPDATE_INSTALL_CHANNEL = "desktop:update-install";
 const UPDATE_CHECK_CHANNEL = "desktop:update-check";
 const BASE_DIR = resolveDesktopBaseDir(process.env);
 const DAEMON_PATHS = resolveDesktopDaemonPaths(BASE_DIR);
-const STATE_DIR = Path.join(BASE_DIR, "userdata");
 const DESKTOP_SCHEME = "forge";
 const ROOT_DIR = Path.resolve(__dirname, "../../..");
 const isDevelopment = Boolean(process.env.VITE_DEV_SERVER_URL);
+const STATE_DIR = resolveDesktopStateDir(BASE_DIR, isDevelopment);
 const APP_DISPLAY_NAME = isDevelopment ? "Forge (Dev)" : "Forge (Alpha)";
 const APP_USER_MODEL_ID = "com.forgetools.forge";
 const LINUX_DESKTOP_ENTRY_NAME = isDevelopment ? "forge-dev.desktop" : "forge.desktop";

@@ -43,6 +43,9 @@ export const resolveDesktopDaemonPaths = (
   daemonInfoPath: Path.join(baseDir, "daemon.json"),
 });
 
+export const resolveDesktopStateDir = (baseDir: string, isDevelopment: boolean): string =>
+  isDevelopment ? Path.join(baseDir, "dev") : baseDir;
+
 export const toDesktopDaemonInfo = parseDaemonManifest;
 
 export const readDaemonInfo = async (

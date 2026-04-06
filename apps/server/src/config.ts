@@ -64,11 +64,11 @@ export const deriveServerPaths = Effect.fn(function* (
   devUrl: ServerConfigShape["devUrl"],
 ): Effect.fn.Return<ServerDerivedPaths, never, Path.Path> {
   const { join } = yield* Path.Path;
-  const stateDir = join(baseDir, devUrl !== undefined ? "dev" : "userdata");
-  const dbPath = join(stateDir, "state.sqlite");
+  const stateDir = devUrl !== undefined ? join(baseDir, "dev") : baseDir;
+  const dbPath = join(stateDir, "forge.db");
   const attachmentsDir = join(stateDir, "attachments");
   const logsDir = join(stateDir, "logs");
-  const providerLogsDir = join(logsDir, "provider");
+  const providerLogsDir = join(logsDir, "sessions");
   return {
     stateDir,
     dbPath,
@@ -80,9 +80,9 @@ export const deriveServerPaths = Effect.fn(function* (
     serverLogPath: join(logsDir, "server.log"),
     serverTracePath: join(logsDir, "server.trace.ndjson"),
     providerLogsDir,
-    providerEventLogPath: join(providerLogsDir, "events.log"),
+    providerEventLogPath: join(logsDir, "provider-events.log"),
     terminalLogsDir: join(logsDir, "terminals"),
-    anonymousIdPath: join(stateDir, "anonymous-id"),
+    anonymousIdPath: join(stateDir, "telemetry", "anonymous-id"),
   };
 });
 

@@ -10,6 +10,7 @@ import {
   readDaemonInfoSync,
   resolveDesktopBaseDir,
   resolveDesktopDaemonPaths,
+  resolveDesktopStateDir,
   type DesktopDaemonInfo,
 } from "./daemonState";
 
@@ -53,6 +54,16 @@ describe("resolveDesktopBaseDir", () => {
     expect(resolveDesktopBaseDir({ FORGE_HOME: "/tmp/custom-forge" }, "/Users/randy")).toBe(
       "/tmp/custom-forge",
     );
+  });
+});
+
+describe("resolveDesktopStateDir", () => {
+  it("uses the Forge base dir directly in packaged mode", () => {
+    expect(resolveDesktopStateDir("/Users/randy/.forge", false)).toBe("/Users/randy/.forge");
+  });
+
+  it("keeps dev desktop state isolated under the dev directory", () => {
+    expect(resolveDesktopStateDir("/Users/randy/.forge", true)).toBe("/Users/randy/.forge/dev");
   });
 });
 
