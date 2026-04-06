@@ -545,6 +545,125 @@ it("gate.reject fails safely when phaseRunId is omitted for an ambiguous session
   }
 });
 
+it("bootstrap.retry resolves the current pending bootstrap-failed request", async () => {
+  const socketDir = FS.mkdtempSync(Path.join(OS.tmpdir(), "forge-socket-transport-"));
+  const socketPath = Path.join(socketDir, "forge.sock");
+  const baseSnapshot = makeSnapshot();
+  const snapshot = {
+    ...baseSnapshot,
+    pendingRequests: [
+      {
+        id: "request-bootstrap-1" as never,
+        threadId: "thread-1" as never,
+        type: "bootstrap-failed",
+        status: "pending",
+        payload: {
+          type: "bootstrap-failed",
+          error: "bootstrap failed",
+          stdout: "command output",
+          command: "bun install",
+        },
+        createdAt: "2026-04-06T18:02:00.000Z",
+      },
+    ],
+  } satisfies OrchestrationReadModel;
+
+  try {
+    const dispatched = await Effect.runPromise(Ref.make<ReadonlyArray<unknown>>([]));
+    const transport = await Effect.runPromise(
+      Effect.service(SocketTransport).pipe(
+        Effect.provide(
+          makeTestLayer({
+            snapshot,
+            orchestrationEngine: {
+              dispatch: (command) =>
+                Ref.update(dispatched, (commands) => [...commands, command]).pipe(
+                  Effect.as({ sequence: 51 }),
+                ),
+            },
+          }),
+        ),
+      ),
+    );
+    const binding = await Effect.runPromise(transport.bind({ socketPath }));
+
+    try {
+      const response = (await sendRaw(
+        socketPath,
+        `${JSON.stringify({
+          jsonrpc: "2.0",
+          id: "bootstrap-retry-1",
+          method: "bootstrap.retry",
+          params: {
+            sessionId: "thread-1",
+          },
+        })}\n`,
+      )) as {
+        readonly result: { readonly sequence: number };
+      };
+
+      assert.equal(response.result.sequence, 51);
+
+      const commands = await Effect.runPromise(Ref.get(dispatched));
+      assert.equal(commands.length, 1);
+      assert.deepStrictEqual(
+        {
+          type: (commands[0] as { readonly type: string }).type,
+          requestId: (commands[0] as { readonly requestId: string }).requestId,
+          resolvedWith: (commands[0] as { readonly resolvedWith: unknown }).resolvedWith,
+        },
+        {
+          type: "request.resolve",
+          requestId: "request-bootstrap-1",
+          resolvedWith: { action: "retry" },
+        },
+      );
+    } finally {
+      await Effect.runPromise(binding.close.pipe(Effect.catch(() => Effect.void)));
+    }
+  } finally {
+    FS.rmSync(socketDir, { recursive: true, force: true });
+  }
+});
+
+it("bootstrap.skip fails when there is no pending bootstrap-failed request", async () => {
+  const socketDir = FS.mkdtempSync(Path.join(OS.tmpdir(), "forge-socket-transport-"));
+  const socketPath = Path.join(socketDir, "forge.sock");
+
+  try {
+    const transport = await Effect.runPromise(
+      Effect.service(SocketTransport).pipe(Effect.provide(makeTestLayer())),
+    );
+    const binding = await Effect.runPromise(transport.bind({ socketPath }));
+
+    try {
+      const response = (await sendRaw(
+        socketPath,
+        `${JSON.stringify({
+          jsonrpc: "2.0",
+          id: "bootstrap-skip-1",
+          method: "bootstrap.skip",
+          params: {
+            sessionId: "thread-1",
+          },
+        })}\n`,
+      )) as {
+        readonly error: { readonly code: number; readonly message: string };
+      };
+
+      assert.equal(response.error.code, -32000);
+      assert.equal(
+        response.error.message,
+        "No pending bootstrap request found for thread 'thread-1'.",
+      );
+    } finally {
+      await Effect.runPromise(binding.close.pipe(Effect.catch(() => Effect.void)));
+    }
+  } finally {
+    FS.rmSync(socketDir, { recursive: true, force: true });
+  }
+});
+
 it("channel.intervene maps to channel.post-message orchestration commands", async () => {
   const socketDir = FS.mkdtempSync(Path.join(OS.tmpdir(), "forge-socket-transport-"));
   const socketPath = Path.join(socketDir, "forge.sock");

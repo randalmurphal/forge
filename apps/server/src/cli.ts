@@ -703,6 +703,46 @@ const rejectCommand = Command.make("reject", {
   ),
 );
 
+const bootstrapRetryCommand = Command.make("bootstrap-retry", {
+  ...cliDaemonFlags,
+  sessionId: Argument.string("session-id"),
+}).pipe(
+  Command.withDescription("Retry the current pending bootstrap failure for a session."),
+  Command.withHandler((input) =>
+    Effect.gen(function* () {
+      const paths = yield* resolveCliPathsFromInput(input);
+      const result = yield* sendDaemonRpc({
+        socketPath: paths.socketPath,
+        method: "bootstrap.retry",
+        params: {
+          sessionId: input.sessionId,
+        },
+      });
+      yield* Console.log(queueSummary(`Queued bootstrap retry for ${input.sessionId}`, result));
+    }),
+  ),
+);
+
+const bootstrapSkipCommand = Command.make("bootstrap-skip", {
+  ...cliDaemonFlags,
+  sessionId: Argument.string("session-id"),
+}).pipe(
+  Command.withDescription("Skip the current pending bootstrap failure for a session."),
+  Command.withHandler((input) =>
+    Effect.gen(function* () {
+      const paths = yield* resolveCliPathsFromInput(input);
+      const result = yield* sendDaemonRpc({
+        socketPath: paths.socketPath,
+        method: "bootstrap.skip",
+        params: {
+          sessionId: input.sessionId,
+        },
+      });
+      yield* Console.log(queueSummary(`Queued bootstrap skip for ${input.sessionId}`, result));
+    }),
+  ),
+);
+
 const interveneCommand = Command.make("intervene", {
   ...cliDaemonFlags,
   channelId: Argument.string("channel-id"),
@@ -900,6 +940,8 @@ export const cli = rootCommand.pipe(
     correctCommand,
     approveCommand,
     rejectCommand,
+    bootstrapRetryCommand,
+    bootstrapSkipCommand,
     interveneCommand,
     pauseCommand,
     resumeCommand,

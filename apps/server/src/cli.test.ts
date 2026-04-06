@@ -259,6 +259,30 @@ vitestIt("routes `forge reject` to gate.reject with an optional reason", async (
   });
 });
 
+vitestIt("routes `forge bootstrap-retry` to bootstrap.retry using sessionId params", async () => {
+  await withSocketServer({ sequence: 26 }, async ({ baseDir, requests }) => {
+    await runCli(["bootstrap-retry", "thread-9", "--base-dir", baseDir]);
+
+    nodeAssert.equal(requests.length, 1);
+    nodeAssert.equal(requests[0]?.method, "bootstrap.retry");
+    nodeAssert.deepStrictEqual(requests[0]?.params, {
+      sessionId: "thread-9",
+    });
+  });
+});
+
+vitestIt("routes `forge bootstrap-skip` to bootstrap.skip using sessionId params", async () => {
+  await withSocketServer({ sequence: 27 }, async ({ baseDir, requests }) => {
+    await runCli(["bootstrap-skip", "thread-10", "--base-dir", baseDir]);
+
+    nodeAssert.equal(requests.length, 1);
+    nodeAssert.equal(requests[0]?.method, "bootstrap.skip");
+    nodeAssert.deepStrictEqual(requests[0]?.params, {
+      sessionId: "thread-10",
+    });
+  });
+});
+
 vitestIt("routes `forge intervene` to channel.intervene", async () => {
   await withSocketServer({ sequence: 25 }, async ({ baseDir, requests }) => {
     await runCli(["intervene", "channel-7", "please reassess", "--base-dir", baseDir]);

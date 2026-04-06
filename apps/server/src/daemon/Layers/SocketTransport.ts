@@ -152,6 +152,11 @@ const GateRejectParams = Schema.Struct({
   correction: Schema.optional(Schema.String),
 });
 
+const BootstrapResolveParams = Schema.Struct({
+  sessionId: Schema.optional(ThreadId),
+  threadId: Schema.optional(ThreadId),
+});
+
 const RequestResolveParams = Schema.Struct({
   requestId: InteractiveRequestId,
   resolvedWith: InteractiveRequestResolution,
@@ -597,7 +602,37 @@ const makeSocketTransport = Effect.gen(function* () {
     return Effect.succeed(requests[0]!);
   };
 
-  const resolveGateThreadId = (
+  const requireCurrentBootstrapRequest = (
+    snapshot: OrchestrationReadModel,
+    threadId: ThreadId,
+  ): Effect.Effect<InteractiveRequest, OrchestrationDispatchCommandError> => {
+    const requests = snapshot.pendingRequests.filter(
+      (candidate) =>
+        candidate.threadId === threadId &&
+        candidate.type === "bootstrap-failed" &&
+        candidate.status === "pending",
+    );
+
+    if (requests.length === 0) {
+      return Effect.fail(
+        new OrchestrationDispatchCommandError({
+          message: `No pending bootstrap request found for thread '${threadId}'.`,
+        }),
+      );
+    }
+
+    if (requests.length > 1) {
+      return Effect.fail(
+        new OrchestrationDispatchCommandError({
+          message: `Multiple pending bootstrap requests found for thread '${threadId}'.`,
+        }),
+      );
+    }
+
+    return Effect.succeed(requests[0]!);
+  };
+
+  const resolveSessionThreadId = (
     input: {
       readonly sessionId: ThreadId | undefined;
       readonly threadId: ThreadId | undefined;
@@ -968,7 +1003,7 @@ const makeSocketTransport = Effect.gen(function* () {
   const handleGateApprove = (params: unknown) =>
     Effect.gen(function* () {
       const input = decodeParams(GateApproveParams, params, "gate.approve");
-      const threadId = resolveGateThreadId(
+      const threadId = resolveSessionThreadId(
         {
           sessionId: input.sessionId,
           threadId: input.threadId,
@@ -1004,7 +1039,7 @@ const makeSocketTransport = Effect.gen(function* () {
   const handleGateReject = (params: unknown) =>
     Effect.gen(function* () {
       const input = decodeParams(GateRejectParams, params, "gate.reject");
-      const threadId = resolveGateThreadId(
+      const threadId = resolveSessionThreadId(
         {
           sessionId: input.sessionId,
           threadId: input.threadId,
@@ -1044,6 +1079,51 @@ const makeSocketTransport = Effect.gen(function* () {
           createdAt: nowIso(),
         },
         "Failed to reject gate",
+      );
+    });
+
+  const handleBootstrapResolve = (params: unknown, action: "retry" | "skip", method: string) =>
+    Effect.gen(function* () {
+      const input = decodeParams(BootstrapResolveParams, params, method);
+      const threadId = resolveSessionThreadId(
+        {
+          sessionId: input.sessionId,
+          threadId: input.threadId,
+        },
+        method,
+      );
+      const snapshot = yield* loadSnapshot("Failed to resolve bootstrap request").pipe(
+        Effect.mapError(
+          (cause) =>
+            new OrchestrationDispatchCommandError({
+              message: cause.message,
+              ...(cause.cause ? { cause } : {}),
+            }),
+        ),
+      );
+      yield* requireThread(
+        snapshot,
+        threadId,
+        `Failed to load thread '${threadId}' for ${method}.`,
+      ).pipe(
+        Effect.mapError(
+          (cause) =>
+            new OrchestrationDispatchCommandError({
+              message: cause.message,
+              ...(cause.cause ? { cause } : {}),
+            }),
+        ),
+      );
+      const request = yield* requireCurrentBootstrapRequest(snapshot, threadId);
+      return yield* dispatchSocketCommand(
+        {
+          type: "request.resolve",
+          commandId: randomCommandId("request.resolve"),
+          requestId: request.id,
+          resolvedWith: { action },
+          createdAt: nowIso(),
+        },
+        `Failed to ${action} bootstrap`,
       );
     });
 
@@ -1350,6 +1430,8 @@ const makeSocketTransport = Effect.gen(function* () {
     ],
     ["gate.approve", (params) => handleGateApprove(params)],
     ["gate.reject", (params) => handleGateReject(params)],
+    ["bootstrap.retry", (params) => handleBootstrapResolve(params, "retry", "bootstrap.retry")],
+    ["bootstrap.skip", (params) => handleBootstrapResolve(params, "skip", "bootstrap.skip")],
     ["request.resolve", (params) => handleRequestResolve(params)],
     [
       "channel.getMessages",
