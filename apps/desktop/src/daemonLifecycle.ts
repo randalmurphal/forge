@@ -39,6 +39,7 @@ export interface EnsureDaemonConnectionInput {
     options?: DesktopDaemonReadOptions,
   ) => Promise<DesktopDaemonInfo | undefined>;
   readonly pingDaemon?: (socketPath: string) => Promise<boolean>;
+  readonly isProcessAlive?: (pid: number) => boolean | Promise<boolean>;
 }
 
 export interface SingleInstanceAppLike {
@@ -68,6 +69,23 @@ const DEFAULT_PING_TIMEOUT_MS = 1_000;
 const DESKTOP_DAEMON_PING_REQUEST_ID = "forge-desktop-ping";
 
 const sleep = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms));
+
+const isProcessAlive = (pid: number): boolean => {
+  if (!Number.isInteger(pid) || pid <= 0) {
+    return false;
+  }
+
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch (cause) {
+    const code = cause && typeof cause === "object" && "code" in cause ? cause.code : undefined;
+    if (code === "EPERM") {
+      return true;
+    }
+    return false;
+  }
+};
 
 export const pingDaemon = async (
   socketPath: string,
@@ -169,6 +187,7 @@ export const ensureDaemonConnection = async (
 ): Promise<ConnectedDaemon> => {
   const readInfo = input.readDaemonInfo ?? readDaemonInfo;
   const ping = input.pingDaemon ?? pingDaemon;
+  const checkProcessAlive = input.isProcessAlive ?? isProcessAlive;
   const timeoutMs = input.timeoutMs ?? DEFAULT_DAEMON_TIMEOUT_MS;
   const pollIntervalMs = input.pollIntervalMs ?? DEFAULT_POLL_INTERVAL_MS;
   const readOptions = {
@@ -195,22 +214,36 @@ export const ensureDaemonConnection = async (
 
   const waitForResponsiveDaemonManifest = async (): Promise<{
     readonly daemon: ConnectedDaemon | undefined;
+    readonly waitedOnManifestBackedProcess: boolean;
     readonly waitedOnResponsiveSocket: boolean;
   }> => {
+    let waitedOnManifestBackedProcess = false;
     let waitedOnResponsiveSocket = false;
 
     while (Date.now() < deadline) {
-      const readyExisting = await connectIfManifestReady("existing");
-      if (readyExisting !== undefined) {
+      const daemonInfo = await readInfo(input.paths.daemonInfoPath, readOptions);
+      if (daemonInfo !== undefined && (await ping(input.paths.socketPath))) {
         return {
-          daemon: readyExisting,
+          daemon: {
+            info: daemonInfo,
+            source: "existing",
+            wsUrl: buildDaemonWsUrl(daemonInfo),
+          },
+          waitedOnManifestBackedProcess,
           waitedOnResponsiveSocket,
         };
+      }
+
+      if (daemonInfo !== undefined && (await checkProcessAlive(daemonInfo.pid))) {
+        waitedOnManifestBackedProcess = true;
+        await sleep(pollIntervalMs);
+        continue;
       }
 
       if (!(await ping(input.paths.socketPath))) {
         return {
           daemon: undefined,
+          waitedOnManifestBackedProcess,
           waitedOnResponsiveSocket,
         };
       }
@@ -221,6 +254,7 @@ export const ensureDaemonConnection = async (
 
     return {
       daemon: undefined,
+      waitedOnManifestBackedProcess,
       waitedOnResponsiveSocket,
     };
   };
@@ -236,6 +270,10 @@ export const ensureDaemonConnection = async (
   const existingAfterWait = await waitForResponsiveDaemonManifest();
   if (existingAfterWait.daemon !== undefined) {
     return existingAfterWait.daemon;
+  }
+
+  if (existingAfterWait.waitedOnManifestBackedProcess) {
+    throw new Error(`Forge daemon did not become ready within ${timeoutMs}ms.`);
   }
 
   if (existingAfterWait.waitedOnResponsiveSocket && (await ping(input.paths.socketPath))) {

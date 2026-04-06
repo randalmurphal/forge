@@ -97,6 +97,42 @@ describe("ensureDaemonConnection", () => {
     expect(spawnDetachedDaemon).not.toHaveBeenCalled();
   });
 
+  it("waits for a manifest-backed live daemon to finish warming up instead of spawning a duplicate", async () => {
+    const spawnDetachedDaemon = vi.fn(async () => undefined);
+    const readDaemonInfo = vi
+      .fn<(_: string) => Promise<DesktopDaemonInfo | undefined>>()
+      .mockResolvedValue(daemonInfo);
+    const pingDaemon = vi
+      .fn<(_: string) => Promise<boolean>>()
+      .mockResolvedValueOnce(false)
+      .mockResolvedValueOnce(false)
+      .mockResolvedValueOnce(false)
+      .mockResolvedValueOnce(true);
+    const isProcessAlive = vi.fn((pid: number) => pid === daemonInfo.pid);
+
+    const result = await ensureDaemonConnection({
+      paths: {
+        baseDir: "/tmp/forge",
+        socketPath: daemonInfo.socketPath,
+        daemonInfoPath: "/tmp/forge/daemon.json",
+      },
+      spawnDetachedDaemon,
+      readDaemonInfo,
+      pingDaemon,
+      isProcessAlive,
+      timeoutMs: 100,
+      pollIntervalMs: 0,
+    });
+
+    expect(result).toEqual({
+      info: daemonInfo,
+      source: "existing",
+      wsUrl: "ws://127.0.0.1:3773/?token=secret-token",
+    });
+    expect(spawnDetachedDaemon).not.toHaveBeenCalled();
+    expect(isProcessAlive).toHaveBeenCalledWith(daemonInfo.pid);
+  });
+
   it("does not spawn a detached daemon when an existing socket stays responsive but daemon.json never appears", async () => {
     const spawnDetachedDaemon = vi.fn(async () => undefined);
     const readDaemonInfo = vi.fn(async () => undefined);
@@ -120,6 +156,31 @@ describe("ensureDaemonConnection", () => {
     );
 
     expect(spawnDetachedDaemon).not.toHaveBeenCalled();
+  });
+
+  it("treats a manifest with a dead pid as stale and spawns a fresh daemon", async () => {
+    const spawnDetachedDaemon = vi.fn(async () => undefined);
+    const readDaemonInfo = vi.fn(async () => daemonInfo);
+    const pingDaemon = vi.fn(async () => spawnDetachedDaemon.mock.calls.length > 0);
+    const isProcessAlive = vi.fn(() => false);
+
+    const result = await ensureDaemonConnection({
+      paths: {
+        baseDir: "/tmp/forge",
+        socketPath: daemonInfo.socketPath,
+        daemonInfoPath: "/tmp/forge/daemon.json",
+      },
+      spawnDetachedDaemon,
+      readDaemonInfo,
+      pingDaemon,
+      isProcessAlive,
+      timeoutMs: 100,
+      pollIntervalMs: 0,
+    });
+
+    expect(result.source).toBe("spawned");
+    expect(spawnDetachedDaemon).toHaveBeenCalledTimes(1);
+    expect(isProcessAlive).toHaveBeenCalledWith(daemonInfo.pid);
   });
 
   it("spawns and waits for the daemon when none is running", async () => {
