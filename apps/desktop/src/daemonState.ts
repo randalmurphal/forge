@@ -107,17 +107,23 @@ export const createDesktopWsUrlResolver = (input?: {
   let cachedWsUrl = initialDaemonInfo !== undefined ? buildDaemonWsUrl(initialDaemonInfo) : null;
   let primePromise: Promise<string | null> | undefined;
 
-  const getWsUrl = (): string | null => {
-    if (cachedWsUrl !== null) {
-      return cachedWsUrl;
-    }
-
+  const readLatestWsUrl = (): string | null => {
     const daemonInfo = readSync(paths.daemonInfoPath, readOptions);
     if (daemonInfo === undefined) {
       return null;
     }
 
-    cachedWsUrl = buildDaemonWsUrl(daemonInfo);
+    const nextWsUrl = buildDaemonWsUrl(daemonInfo);
+    cachedWsUrl = nextWsUrl;
+    return nextWsUrl;
+  };
+
+  const getWsUrl = (): string | null => {
+    const latestWsUrl = readLatestWsUrl();
+    if (latestWsUrl !== null) {
+      return latestWsUrl;
+    }
+
     return cachedWsUrl;
   };
 
@@ -127,8 +133,9 @@ export const createDesktopWsUrlResolver = (input?: {
     }
 
     primePromise = (async () => {
-      if (cachedWsUrl !== null) {
-        return cachedWsUrl;
+      const latestWsUrl = readLatestWsUrl();
+      if (latestWsUrl !== null) {
+        return latestWsUrl;
       }
 
       const deadline = Date.now() + (input?.timeoutMs ?? DEFAULT_DAEMON_INFO_TIMEOUT_MS);
@@ -142,7 +149,9 @@ export const createDesktopWsUrlResolver = (input?: {
       }
 
       return getWsUrl();
-    })();
+    })().finally(() => {
+      primePromise = undefined;
+    });
 
     return primePromise;
   };

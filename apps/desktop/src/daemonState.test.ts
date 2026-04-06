@@ -148,6 +148,28 @@ describe("createDesktopWsUrlResolver", () => {
     expect(resolver.getWsUrl()).toBe(buildDaemonWsUrl(daemonInfo));
   });
 
+  it("refreshes the websocket URL when daemon.json rotates after startup", () => {
+    const baseDir = makeTempDir("forge-desktop-daemon-rotated-url-");
+    const paths = resolveDesktopDaemonPaths(baseDir);
+    const initialDaemonInfo = makeDaemonInfo(paths.socketPath);
+    const rotatedDaemonInfo = {
+      ...initialDaemonInfo,
+      wsPort: 4777,
+      wsToken: "rotated-secret-token",
+      startedAt: "2026-04-06T12:05:00.000Z",
+    } satisfies DesktopDaemonInfo;
+
+    writeDaemonInfoFile(paths.daemonInfoPath, initialDaemonInfo);
+
+    const resolver = createDesktopWsUrlResolver({ paths });
+
+    expect(resolver.getWsUrl()).toBe(buildDaemonWsUrl(initialDaemonInfo));
+
+    writeDaemonInfoFile(paths.daemonInfoPath, rotatedDaemonInfo);
+
+    expect(resolver.getWsUrl()).toBe(buildDaemonWsUrl(rotatedDaemonInfo));
+  });
+
   it("primes the websocket URL when daemon.json appears shortly after startup", async () => {
     const baseDir = makeTempDir("forge-desktop-daemon-prime-");
     const paths = resolveDesktopDaemonPaths(baseDir);
@@ -172,6 +194,33 @@ describe("createDesktopWsUrlResolver", () => {
     } finally {
       clearTimeout(writeTimer);
     }
+  });
+
+  it("re-primes against the latest daemon.json after an earlier startup read", async () => {
+    const baseDir = makeTempDir("forge-desktop-daemon-reprime-");
+    const paths = resolveDesktopDaemonPaths(baseDir);
+    const initialDaemonInfo = makeDaemonInfo(paths.socketPath);
+    const rotatedDaemonInfo = {
+      ...initialDaemonInfo,
+      wsPort: 4888,
+      wsToken: "rotated-prime-token",
+      startedAt: "2026-04-06T12:10:00.000Z",
+    } satisfies DesktopDaemonInfo;
+
+    writeDaemonInfoFile(paths.daemonInfoPath, initialDaemonInfo);
+
+    const resolver = createDesktopWsUrlResolver({
+      paths,
+      timeoutMs: 20,
+      pollIntervalMs: 5,
+    });
+
+    await expect(resolver.prime()).resolves.toBe(buildDaemonWsUrl(initialDaemonInfo));
+
+    writeDaemonInfoFile(paths.daemonInfoPath, rotatedDaemonInfo);
+
+    await expect(resolver.prime()).resolves.toBe(buildDaemonWsUrl(rotatedDaemonInfo));
+    expect(resolver.getWsUrl()).toBe(buildDaemonWsUrl(rotatedDaemonInfo));
   });
 
   it("ignores daemon.json files with mismatched socket paths when resolving the websocket URL", () => {
