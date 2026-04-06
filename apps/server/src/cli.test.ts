@@ -261,7 +261,7 @@ vitestIt("routes `forge answer` to request.resolve with a user-input resolution"
     nodeAssert.equal(requests[0]?.method, "request.resolve");
     nodeAssert.deepStrictEqual(requests[0]?.params, {
       requestId: "request-7",
-      resolvedWith: {
+      resolution: {
         answers: {
           input: "ship it",
         },

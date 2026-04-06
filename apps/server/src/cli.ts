@@ -958,7 +958,7 @@ const answerCommand = Command.make("answer", {
         method: "request.resolve",
         params: {
           requestId: input.requestId,
-          resolvedWith: {
+          resolution: {
             answers: {
               input: input.input,
             },

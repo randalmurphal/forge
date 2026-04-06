@@ -2,6 +2,7 @@ import * as Crypto from "node:crypto";
 import * as FSP from "node:fs/promises";
 import * as Net from "node:net";
 import * as Path from "node:path";
+import { isDeepStrictEqual } from "node:util";
 
 import {
   ChannelId,
@@ -167,7 +168,8 @@ const BootstrapResolveParams = Schema.Struct({
 
 const RequestResolveParams = Schema.Struct({
   requestId: InteractiveRequestId,
-  resolvedWith: InteractiveRequestResolution,
+  resolvedWith: Schema.optional(InteractiveRequestResolution),
+  resolution: Schema.optional(InteractiveRequestResolution),
 });
 
 const ChannelGetMessagesParams = Schema.Struct({
@@ -765,6 +767,32 @@ const makeSocketTransport = Effect.gen(function* () {
     return input.reason ?? input.correction;
   };
 
+  const resolveRequestResolution = (
+    input: {
+      readonly resolvedWith: typeof InteractiveRequestResolution.Type | undefined;
+      readonly resolution: typeof InteractiveRequestResolution.Type | undefined;
+    },
+    method: string,
+  ): typeof InteractiveRequestResolution.Type => {
+    if (input.resolvedWith !== undefined && input.resolution !== undefined) {
+      if (!isDeepStrictEqual(input.resolvedWith, input.resolution)) {
+        throw new OrchestrationGetSnapshotError({
+          message: `Invalid params for '${method}'. resolution and resolvedWith must match when both are provided.`,
+        });
+      }
+      return input.resolvedWith;
+    }
+
+    const resolution = input.resolution ?? input.resolvedWith;
+    if (resolution === undefined) {
+      throw new OrchestrationGetSnapshotError({
+        message: `Invalid params for '${method}'. Expected resolution.`,
+      });
+    }
+
+    return resolution;
+  };
+
   const resolveGateRequest = (input: {
     readonly snapshot: OrchestrationReadModel;
     readonly threadId: ThreadId;
@@ -1298,12 +1326,19 @@ const makeSocketTransport = Effect.gen(function* () {
   const handleRequestResolve = (params: unknown) =>
     Effect.gen(function* () {
       const input = decodeParams(RequestResolveParams, params, "request.resolve");
+      const resolution = resolveRequestResolution(
+        {
+          resolvedWith: input.resolvedWith,
+          resolution: input.resolution,
+        },
+        "request.resolve",
+      );
       return yield* dispatchSocketCommand(
         {
           type: "request.resolve",
           commandId: randomCommandId("request.resolve"),
           requestId: input.requestId,
-          resolvedWith: input.resolvedWith,
+          resolvedWith: resolution,
           createdAt: nowIso(),
         },
         "Failed to resolve interactive request",

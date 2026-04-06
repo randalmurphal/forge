@@ -903,6 +903,124 @@ it("bootstrap.skip fails when there is no pending bootstrap-failed request", asy
   }
 });
 
+it("request.resolve accepts the documented resolution alias", async () => {
+  const socketDir = FS.mkdtempSync(Path.join(OS.tmpdir(), "forge-socket-transport-"));
+  const socketPath = Path.join(socketDir, "forge.sock");
+
+  try {
+    const dispatched = await Effect.runPromise(Ref.make<ReadonlyArray<unknown>>([]));
+    const transport = await Effect.runPromise(
+      Effect.service(SocketTransport).pipe(
+        Effect.provide(
+          makeTestLayer({
+            orchestrationEngine: {
+              dispatch: (command) =>
+                Ref.update(dispatched, (commands) => [...commands, command]).pipe(
+                  Effect.as({ sequence: 61 }),
+                ),
+            },
+          }),
+        ),
+      ),
+    );
+    const binding = await Effect.runPromise(transport.bind({ socketPath }));
+
+    try {
+      const response = (await sendRaw(
+        socketPath,
+        serializeRequest({
+          jsonrpc: "2.0",
+          id: "request-resolve-1",
+          method: "request.resolve",
+          params: {
+            requestId: "request-1",
+            resolution: {
+              answers: {
+                input: "ship it",
+              },
+            },
+          },
+        }),
+      )) as {
+        readonly result: { readonly sequence: number };
+      };
+
+      assert.equal(response.result.sequence, 61);
+
+      const commands = await Effect.runPromise(Ref.get(dispatched));
+      assert.equal(commands.length, 1);
+      assert.deepStrictEqual(
+        {
+          type: (commands[0] as { readonly type: string }).type,
+          requestId: (commands[0] as { readonly requestId: string }).requestId,
+          resolvedWith: (commands[0] as { readonly resolvedWith: unknown }).resolvedWith,
+        },
+        {
+          type: "request.resolve",
+          requestId: "request-1",
+          resolvedWith: {
+            answers: {
+              input: "ship it",
+            },
+          },
+        },
+      );
+    } finally {
+      await Effect.runPromise(binding.close.pipe(Effect.catch(() => Effect.void)));
+    }
+  } finally {
+    FS.rmSync(socketDir, { recursive: true, force: true });
+  }
+});
+
+it("request.resolve rejects conflicting resolution aliases", async () => {
+  const socketDir = FS.mkdtempSync(Path.join(OS.tmpdir(), "forge-socket-transport-"));
+  const socketPath = Path.join(socketDir, "forge.sock");
+
+  try {
+    const transport = await Effect.runPromise(
+      Effect.service(SocketTransport).pipe(Effect.provide(makeTestLayer())),
+    );
+    const binding = await Effect.runPromise(transport.bind({ socketPath }));
+
+    try {
+      const response = (await sendRaw(
+        socketPath,
+        serializeRequest({
+          jsonrpc: "2.0",
+          id: "request-resolve-conflict-1",
+          method: "request.resolve",
+          params: {
+            requestId: "request-1",
+            resolution: {
+              answers: {
+                input: "ship it",
+              },
+            },
+            resolvedWith: {
+              answers: {
+                input: "hold",
+              },
+            },
+          },
+        }),
+      )) as {
+        readonly error: { readonly code: number; readonly message: string };
+      };
+
+      assert.equal(response.error.code, -32602);
+      assert.equal(
+        response.error.message,
+        "Invalid params for 'request.resolve'. resolution and resolvedWith must match when both are provided.",
+      );
+    } finally {
+      await Effect.runPromise(binding.close.pipe(Effect.catch(() => Effect.void)));
+    }
+  } finally {
+    FS.rmSync(socketDir, { recursive: true, force: true });
+  }
+});
+
 it("channel.intervene maps to channel.post-message orchestration commands", async () => {
   const socketDir = FS.mkdtempSync(Path.join(OS.tmpdir(), "forge-socket-transport-"));
   const socketPath = Path.join(socketDir, "forge.sock");
