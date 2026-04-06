@@ -258,6 +258,83 @@ describe("buildChannelViewModel", () => {
       interrogatorThreadId,
     ]);
   });
+
+  it("keeps participant tones and transcript pane order stable when messages arrive out of role order", () => {
+    const advocateThreadId = ThreadId.makeUnsafe("thread-advocate");
+    const interrogatorThreadId = ThreadId.makeUnsafe("thread-interrogator");
+
+    const viewModel = buildChannelViewModel({
+      channel: {
+        id: ChannelId.makeUnsafe("channel-1"),
+        threadId: ThreadId.makeUnsafe("thread-parent"),
+        type: "deliberation",
+        status: "open",
+        createdAt: "2026-04-06T00:00:00.000Z",
+        updatedAt: "2026-04-06T00:00:00.000Z",
+      },
+      messages: [
+        {
+          id: ChannelMessageId.makeUnsafe("message-1"),
+          channelId: ChannelId.makeUnsafe("channel-1"),
+          sequence: 1,
+          fromType: "agent",
+          fromId: interrogatorThreadId,
+          fromRole: "interrogator",
+          content: "What happens on rollback?",
+          createdAt: "2026-04-06T00:00:01.000Z",
+        },
+        {
+          id: ChannelMessageId.makeUnsafe("message-2"),
+          channelId: ChannelId.makeUnsafe("channel-1"),
+          sequence: 2,
+          fromType: "agent",
+          fromId: advocateThreadId,
+          fromRole: "advocate",
+          content: "The migration stays backward compatible.",
+          createdAt: "2026-04-06T00:00:02.000Z",
+        },
+      ],
+      deliberationState: null,
+      thread: { title: "Review the rollout plan" },
+      childThreads: [
+        makeChildThread({
+          id: advocateThreadId,
+          title: "Advocate transcript",
+          role: "advocate",
+        }),
+        makeChildThread({
+          id: interrogatorThreadId,
+          title: "Interrogator transcript",
+          role: "interrogator",
+        }),
+      ],
+    });
+
+    expect(viewModel.participants).toEqual([
+      expect.objectContaining({
+        threadId: advocateThreadId,
+        tone: "sky",
+      }),
+      expect.objectContaining({
+        threadId: interrogatorThreadId,
+        tone: "amber",
+      }),
+    ]);
+    expect(viewModel.messages).toEqual([
+      expect.objectContaining({
+        participantId: `agent:${interrogatorThreadId}`,
+        tone: "amber",
+      }),
+      expect.objectContaining({
+        participantId: `agent:${advocateThreadId}`,
+        tone: "sky",
+      }),
+    ]);
+    expect(viewModel.transcriptPanes.map((pane) => pane.threadId)).toEqual([
+      advocateThreadId,
+      interrogatorThreadId,
+    ]);
+  });
 });
 
 describe("ChannelView keyboard helpers", () => {

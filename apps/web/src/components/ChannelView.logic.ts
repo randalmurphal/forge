@@ -203,6 +203,60 @@ function buildParticipantSeedList(input: {
   return seeds;
 }
 
+function participantTypeRank(type: ChannelMessage["fromType"]): number {
+  switch (type) {
+    case "agent":
+      return 0;
+    case "human":
+      return 1;
+    case "system":
+      return 2;
+  }
+}
+
+function compareParticipantSeeds(
+  left: {
+    fromType: ChannelMessage["fromType"];
+    fromId: ChannelMessage["fromId"];
+    role: string | null;
+    threadId: ThreadId | null;
+    label: string;
+  },
+  right: {
+    fromType: ChannelMessage["fromType"];
+    fromId: ChannelMessage["fromId"];
+    role: string | null;
+    threadId: ThreadId | null;
+    label: string;
+  },
+  childThreadOrderById: Map<ThreadId, number>,
+): number {
+  const leftThreadOrder =
+    left.threadId === null ? Number.POSITIVE_INFINITY : childThreadOrderById.get(left.threadId);
+  const rightThreadOrder =
+    right.threadId === null ? Number.POSITIVE_INFINITY : childThreadOrderById.get(right.threadId);
+  const resolvedLeftThreadOrder = leftThreadOrder ?? Number.POSITIVE_INFINITY;
+  const resolvedRightThreadOrder = rightThreadOrder ?? Number.POSITIVE_INFINITY;
+  if (resolvedLeftThreadOrder !== resolvedRightThreadOrder) {
+    return resolvedLeftThreadOrder - resolvedRightThreadOrder;
+  }
+
+  const typeRankDifference =
+    participantTypeRank(left.fromType) - participantTypeRank(right.fromType);
+  if (typeRankDifference !== 0) {
+    return typeRankDifference;
+  }
+
+  const leftRole = formatChannelRoleLabel(left.role) ?? left.label;
+  const rightRole = formatChannelRoleLabel(right.role) ?? right.label;
+  const roleComparison = leftRole.localeCompare(rightRole, undefined, { sensitivity: "base" });
+  if (roleComparison !== 0) {
+    return roleComparison;
+  }
+
+  return left.fromId.localeCompare(right.fromId);
+}
+
 function resolveHeadline(
   participants: readonly ChannelViewParticipant[],
   fallback: string,
@@ -229,11 +283,14 @@ export function buildChannelViewModel(input: {
   const childThreadsById = new Map(
     input.childThreads.map((thread) => [thread.id, thread] as const),
   );
+  const childThreadOrderById = new Map(
+    input.childThreads.map((thread, index) => [thread.id, index] as const),
+  );
   const participantSeeds = buildParticipantSeedList({
     messages: input.messages,
     deliberationState: input.deliberationState,
     childThreadsById,
-  });
+  }).toSorted((left, right) => compareParticipantSeeds(left, right, childThreadOrderById));
 
   const participants = participantSeeds.map((seed, index) => ({
     id: seed.key,
