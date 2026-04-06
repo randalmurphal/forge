@@ -1,4 +1,3 @@
-import * as ChildProcess from "node:child_process";
 import * as Crypto from "node:crypto";
 import * as FS from "node:fs";
 import * as OS from "node:os";
@@ -14,9 +13,9 @@ import {
   nativeTheme,
   protocol,
   shell,
+  Tray,
 } from "electron";
 import type { MenuItemConstructorOptions } from "electron";
-import * as Effect from "effect/Effect";
 import type {
   DesktopTheme,
   DesktopUpdateActionResult,
@@ -26,10 +25,19 @@ import type {
 import { autoUpdater } from "electron-updater";
 
 import type { ContextMenuItem } from "@forgetools/contracts";
-import { NetService } from "@forgetools/shared/Net";
 import { RotatingFileSink } from "@forgetools/shared/logging";
-import { parsePersistedServerObservabilitySettings } from "@forgetools/shared/serverSettings";
 import { showDesktopConfirmDialog } from "./confirmDialog";
+import {
+  buildDesktopWindowUrl,
+  buildDetachedDaemonLaunchPlan,
+  ensureDaemonConnection,
+  extractProtocolUrlFromArgv,
+  handleDesktopBeforeQuit,
+  launchDetachedDaemon,
+  parseSessionProtocolUrl,
+  registerProtocolClient,
+  requestSingleInstanceOrQuit,
+} from "./daemonLifecycle";
 import { syncShellEnvironment } from "./syncShellEnvironment";
 import { getAutoUpdateDisabledReason, shouldBroadcastDownloadProgress } from "./updateState";
 import {
@@ -76,34 +84,35 @@ const LOG_DIR = Path.join(STATE_DIR, "logs");
 const LOG_FILE_MAX_BYTES = 10 * 1024 * 1024;
 const LOG_FILE_MAX_FILES = 10;
 const APP_RUN_ID = Crypto.randomBytes(6).toString("hex");
-const SERVER_SETTINGS_PATH = Path.join(STATE_DIR, "settings.json");
 const AUTO_UPDATE_STARTUP_DELAY_MS = 15_000;
 const AUTO_UPDATE_POLL_INTERVAL_MS = 4 * 60 * 60 * 1000;
 const DESKTOP_UPDATE_CHANNEL = "latest";
 const DESKTOP_UPDATE_ALLOW_PRERELEASE = false;
+const DAEMON_STATUS_RUNNING = "running";
+const DAEMON_STATUS_STARTING = "starting";
+const DAEMON_STATUS_ERROR = "error";
 
 type DesktopUpdateErrorContext = DesktopUpdateState["errorContext"];
 type LinuxDesktopNamedApp = Electron.App & {
   setDesktopName?: (desktopName: string) => void;
 };
+type DaemonStatus =
+  | typeof DAEMON_STATUS_RUNNING
+  | typeof DAEMON_STATUS_STARTING
+  | typeof DAEMON_STATUS_ERROR;
 
 let mainWindow: BrowserWindow | null = null;
-let backendProcess: ChildProcess.ChildProcess | null = null;
-let backendPort = 0;
-let backendAuthToken = "";
 let backendWsUrl = "";
-let restartAttempt = 0;
-let restartTimer: ReturnType<typeof setTimeout> | null = null;
 let isQuitting = false;
 let desktopProtocolRegistered = false;
 let aboutCommitHashCache: string | null | undefined;
 let desktopLogSink: RotatingFileSink | null = null;
-let backendLogSink: RotatingFileSink | null = null;
 let restoreStdIoCapture: (() => void) | null = null;
-let backendObservabilitySettings = readPersistedBackendObservabilitySettings();
+let daemonTray: Tray | null = null;
+let daemonStatus: DaemonStatus = DAEMON_STATUS_STARTING;
+let pendingProtocolUrl = extractProtocolUrlFromArgv(process.argv, DESKTOP_SCHEME);
 
 let destructiveMenuIconCache: Electron.NativeImage | null | undefined;
-const expectedBackendExitChildren = new WeakSet<ChildProcess.ChildProcess>();
 const desktopRuntimeInfo = resolveDesktopRuntimeInfo({
   platform: process.platform,
   processArch: process.arch,
@@ -120,47 +129,9 @@ function logScope(scope: string): string {
   return `${scope} run=${APP_RUN_ID}`;
 }
 
-function sanitizeLogValue(value: string): string {
-  return value.replace(/\s+/g, " ").trim();
-}
-
-function readPersistedBackendObservabilitySettings(): {
-  readonly otlpTracesUrl: string | undefined;
-  readonly otlpMetricsUrl: string | undefined;
-} {
-  try {
-    if (!FS.existsSync(SERVER_SETTINGS_PATH)) {
-      return { otlpTracesUrl: undefined, otlpMetricsUrl: undefined };
-    }
-    return parsePersistedServerObservabilitySettings(FS.readFileSync(SERVER_SETTINGS_PATH, "utf8"));
-  } catch (error) {
-    console.warn("[desktop] failed to read persisted backend observability settings", error);
-    return { otlpTracesUrl: undefined, otlpMetricsUrl: undefined };
-  }
-}
-
-function backendChildEnv(): NodeJS.ProcessEnv {
-  const env = { ...process.env };
-  delete env.FORGE_PORT;
-  delete env.FORGE_AUTH_TOKEN;
-  delete env.FORGE_MODE;
-  delete env.FORGE_NO_BROWSER;
-  delete env.FORGE_HOST;
-  delete env.FORGE_DESKTOP_WS_URL;
-  return env;
-}
-
 function writeDesktopLogHeader(message: string): void {
   if (!desktopLogSink) return;
   desktopLogSink.write(`[${logTimestamp()}] [${logScope("desktop")}] ${message}\n`);
-}
-
-function writeBackendSessionBoundary(phase: "START" | "END", details: string): void {
-  if (!backendLogSink) return;
-  const normalizedDetails = sanitizeLogValue(details);
-  backendLogSink.write(
-    `[${logTimestamp()}] ---- APP SESSION ${phase} run=${APP_RUN_ID} ${normalizedDetails} ----\n`,
-  );
 }
 
 function formatErrorMessage(error: unknown): string {
@@ -260,28 +231,12 @@ function initializePackagedLogging(): void {
       maxBytes: LOG_FILE_MAX_BYTES,
       maxFiles: LOG_FILE_MAX_FILES,
     });
-    backendLogSink = new RotatingFileSink({
-      filePath: Path.join(LOG_DIR, "server-child.log"),
-      maxBytes: LOG_FILE_MAX_BYTES,
-      maxFiles: LOG_FILE_MAX_FILES,
-    });
     installStdIoCapture();
     writeDesktopLogHeader(`runtime log capture enabled logDir=${LOG_DIR}`);
   } catch (error) {
     // Logging setup should never block app startup.
     console.error("[desktop] failed to initialize packaged logging", error);
   }
-}
-
-function captureBackendOutput(child: ChildProcess.ChildProcess): void {
-  if (!app.isPackaged || backendLogSink === null) return;
-  const writeChunk = (chunk: unknown): void => {
-    if (!backendLogSink) return;
-    const buffer = Buffer.isBuffer(chunk) ? chunk : Buffer.from(String(chunk), "utf8");
-    backendLogSink.write(buffer);
-  };
-  child.stdout?.on("data", writeChunk);
-  child.stderr?.on("data", writeChunk);
 }
 
 initializePackagedLogging();
@@ -427,6 +382,73 @@ function resolveBackendCwd(): string {
   return OS.homedir();
 }
 
+function resolveDaemonProcessEnv(): NodeJS.ProcessEnv {
+  const env = { ...process.env };
+  delete env.FORGE_PORT;
+  delete env.FORGE_AUTH_TOKEN;
+  delete env.FORGE_MODE;
+  delete env.FORGE_NO_BROWSER;
+  delete env.FORGE_HOST;
+  return env;
+}
+
+function updateDaemonStatus(nextStatus: DaemonStatus, detail?: string): void {
+  daemonStatus = nextStatus;
+  if (daemonTray) {
+    const label = nextStatus === DAEMON_STATUS_RUNNING ? "running" : nextStatus;
+    daemonTray.setToolTip(`Forge daemon: ${label}`);
+    const menuTemplate: MenuItemConstructorOptions[] = [
+      {
+        label:
+          nextStatus === DAEMON_STATUS_RUNNING
+            ? "Daemon running"
+            : nextStatus === DAEMON_STATUS_STARTING
+              ? "Daemon starting"
+              : "Daemon error",
+        enabled: false,
+      },
+      ...(detail ? [{ label: detail, enabled: false } satisfies MenuItemConstructorOptions] : []),
+      { type: "separator" },
+      {
+        label: "Show Forge",
+        click: () => {
+          const window = mainWindow ?? createWindow();
+          mainWindow = window;
+          window.show();
+          window.focus();
+        },
+      },
+      {
+        label: "Quit Forge",
+        click: () => {
+          app.quit();
+        },
+      },
+    ];
+    daemonTray.setContextMenu(Menu.buildFromTemplate(menuTemplate));
+  }
+}
+
+function ensureDaemonTray(): void {
+  if (daemonTray) {
+    return;
+  }
+
+  const iconPath = resolveIconPath("png");
+  if (!iconPath) {
+    return;
+  }
+
+  daemonTray = new Tray(iconPath);
+  daemonTray.on("click", () => {
+    const window = mainWindow ?? createWindow();
+    mainWindow = window;
+    window.show();
+    window.focus();
+  });
+  updateDaemonStatus(daemonStatus);
+}
+
 function resolveDesktopStaticDir(): string | null {
   const appRoot = resolveAppRoot();
   const candidates = [
@@ -485,7 +507,7 @@ function handleFatalStartupError(stage: string, error: unknown): void {
     isQuitting = true;
     dialog.showErrorBox("Forge failed to start", `Stage: ${stage}\n${message}${detail}`);
   }
-  stopBackend();
+  updateDaemonStatus(DAEMON_STATUS_ERROR, message);
   restoreStdIoCapture?.();
   app.quit();
 }
@@ -841,7 +863,6 @@ async function installDownloadedUpdate(): Promise<{ accepted: boolean; completed
   updateInstallInFlight = true;
   clearUpdatePollTimer();
   try {
-    await stopBackendAndWaitForExit();
     // Destroy all windows before launching the NSIS installer to avoid the installer finding live windows it needs to close.
     for (const win of BrowserWindow.getAllWindows()) {
       win.destroy();
@@ -984,179 +1005,41 @@ function configureAutoUpdater(): void {
   }, AUTO_UPDATE_POLL_INTERVAL_MS);
   updatePollTimer.unref();
 }
-function scheduleBackendRestart(reason: string): void {
-  if (isQuitting || restartTimer) return;
 
-  const delayMs = Math.min(500 * 2 ** restartAttempt, 10_000);
-  restartAttempt += 1;
-  console.error(`[desktop] backend exited unexpectedly (${reason}); restarting in ${delayMs}ms`);
-
-  restartTimer = setTimeout(() => {
-    restartTimer = null;
-    startBackend();
-  }, delayMs);
-}
-
-function startBackend(): void {
-  if (isQuitting || backendProcess) return;
-
-  backendObservabilitySettings = readPersistedBackendObservabilitySettings();
+async function ensureDaemonReady(): Promise<void> {
   const backendEntry = resolveBackendEntry();
   if (!FS.existsSync(backendEntry)) {
-    scheduleBackendRestart(`missing server entry at ${backendEntry}`);
-    return;
+    throw new Error(`Missing server entry at ${backendEntry}. Build apps/server first.`);
   }
 
-  const captureBackendLogs = app.isPackaged && backendLogSink !== null;
-  const child = ChildProcess.spawn(process.execPath, [backendEntry, "--bootstrap-fd", "3"], {
-    cwd: resolveBackendCwd(),
-    // In Electron main, process.execPath points to the Electron binary.
-    // Run the child in Node mode so this backend process does not become a GUI app instance.
-    env: {
-      ...backendChildEnv(),
-      ELECTRON_RUN_AS_NODE: "1",
+  updateDaemonStatus(DAEMON_STATUS_STARTING);
+  writeDesktopLogHeader(`resolving daemon connection baseDir=${BASE_DIR}`);
+
+  const daemon = await ensureDaemonConnection({
+    paths: {
+      baseDir: BASE_DIR,
+      socketPath: Path.join(BASE_DIR, "forge.sock"),
+      daemonInfoPath: Path.join(BASE_DIR, "daemon.json"),
     },
-    stdio: captureBackendLogs
-      ? ["ignore", "pipe", "pipe", "pipe"]
-      : ["ignore", "inherit", "inherit", "pipe"],
+    spawnDetachedDaemon: async () => {
+      const launchPlan = buildDetachedDaemonLaunchPlan({
+        baseDir: BASE_DIR,
+        entryScriptPath: backendEntry,
+        cwd: resolveBackendCwd(),
+        env: resolveDaemonProcessEnv(),
+      });
+      writeDesktopLogHeader(
+        `spawning detached daemon command=${launchPlan.command} cwd=${launchPlan.cwd}`,
+      );
+      await launchDetachedDaemon(launchPlan);
+    },
   });
-  const bootstrapStream = child.stdio[3];
-  if (bootstrapStream && "write" in bootstrapStream) {
-    bootstrapStream.write(
-      `${JSON.stringify({
-        mode: "desktop",
-        noBrowser: true,
-        port: backendPort,
-        forgeHome: BASE_DIR,
-        authToken: backendAuthToken,
-        ...(backendObservabilitySettings.otlpTracesUrl
-          ? { otlpTracesUrl: backendObservabilitySettings.otlpTracesUrl }
-          : {}),
-        ...(backendObservabilitySettings.otlpMetricsUrl
-          ? { otlpMetricsUrl: backendObservabilitySettings.otlpMetricsUrl }
-          : {}),
-      })}\n`,
-    );
-    bootstrapStream.end();
-  } else {
-    child.kill("SIGTERM");
-    scheduleBackendRestart("missing desktop bootstrap pipe");
-    return;
-  }
-  backendProcess = child;
-  let backendSessionClosed = false;
-  const closeBackendSession = (details: string) => {
-    if (backendSessionClosed) return;
-    backendSessionClosed = true;
-    writeBackendSessionBoundary("END", details);
-  };
-  writeBackendSessionBoundary(
-    "START",
-    `pid=${child.pid ?? "unknown"} port=${backendPort} cwd=${resolveBackendCwd()}`,
+
+  backendWsUrl = daemon.wsUrl;
+  updateDaemonStatus(DAEMON_STATUS_RUNNING, `ws://127.0.0.1:${daemon.info.wsPort}`);
+  writeDesktopLogHeader(
+    `daemon ready source=${daemon.source} pid=${daemon.info.pid} wsPort=${daemon.info.wsPort}`,
   );
-  captureBackendOutput(child);
-
-  child.once("spawn", () => {
-    restartAttempt = 0;
-  });
-
-  child.on("error", (error) => {
-    const wasExpected = expectedBackendExitChildren.has(child);
-    if (backendProcess === child) {
-      backendProcess = null;
-    }
-    closeBackendSession(`pid=${child.pid ?? "unknown"} error=${error.message}`);
-    if (wasExpected) {
-      return;
-    }
-    scheduleBackendRestart(error.message);
-  });
-
-  child.on("exit", (code, signal) => {
-    const wasExpected = expectedBackendExitChildren.has(child);
-    if (backendProcess === child) {
-      backendProcess = null;
-    }
-    closeBackendSession(
-      `pid=${child.pid ?? "unknown"} code=${code ?? "null"} signal=${signal ?? "null"}`,
-    );
-    if (isQuitting || wasExpected) return;
-    const reason = `code=${code ?? "null"} signal=${signal ?? "null"}`;
-    scheduleBackendRestart(reason);
-  });
-}
-
-function stopBackend(): void {
-  if (restartTimer) {
-    clearTimeout(restartTimer);
-    restartTimer = null;
-  }
-
-  const child = backendProcess;
-  backendProcess = null;
-  if (!child) return;
-
-  if (child.exitCode === null && child.signalCode === null) {
-    expectedBackendExitChildren.add(child);
-    child.kill("SIGTERM");
-    setTimeout(() => {
-      if (child.exitCode === null && child.signalCode === null) {
-        child.kill("SIGKILL");
-      }
-    }, 2_000).unref();
-  }
-}
-
-async function stopBackendAndWaitForExit(timeoutMs = 5_000): Promise<void> {
-  if (restartTimer) {
-    clearTimeout(restartTimer);
-    restartTimer = null;
-  }
-
-  const child = backendProcess;
-  backendProcess = null;
-  if (!child) return;
-  const backendChild = child;
-  if (backendChild.exitCode !== null || backendChild.signalCode !== null) return;
-  expectedBackendExitChildren.add(backendChild);
-
-  await new Promise<void>((resolve) => {
-    let settled = false;
-    let forceKillTimer: ReturnType<typeof setTimeout> | null = null;
-    let exitTimeoutTimer: ReturnType<typeof setTimeout> | null = null;
-
-    function settle(): void {
-      if (settled) return;
-      settled = true;
-      backendChild.off("exit", onExit);
-      if (forceKillTimer) {
-        clearTimeout(forceKillTimer);
-      }
-      if (exitTimeoutTimer) {
-        clearTimeout(exitTimeoutTimer);
-      }
-      resolve();
-    }
-
-    function onExit(): void {
-      settle();
-    }
-
-    backendChild.once("exit", onExit);
-    backendChild.kill("SIGTERM");
-
-    forceKillTimer = setTimeout(() => {
-      if (backendChild.exitCode === null && backendChild.signalCode === null) {
-        backendChild.kill("SIGKILL");
-      }
-    }, 2_000);
-    forceKillTimer.unref();
-
-    exitTimeoutTimer = setTimeout(() => {
-      settle();
-    }, timeoutMs);
-    exitTimeoutTimer.unref();
-  });
 }
 
 function registerIpcHandlers(): void {
@@ -1330,6 +1213,48 @@ function getIconOption(): { icon: string } | Record<string, never> {
   return iconPath ? { icon: iconPath } : {};
 }
 
+function focusWindow(window: BrowserWindow): void {
+  if (!window.isVisible()) {
+    window.show();
+  }
+  if (window.isMinimized()) {
+    window.restore();
+  }
+  window.focus();
+}
+
+function openSessionFromProtocolUrl(rawUrl: string): void {
+  const target = parseSessionProtocolUrl(rawUrl, DESKTOP_SCHEME);
+  if (!target) {
+    return;
+  }
+
+  const window = mainWindow ?? createWindow();
+  mainWindow = window;
+  pendingProtocolUrl = undefined;
+  void window.loadURL(
+    buildDesktopWindowUrl({
+      scheme: DESKTOP_SCHEME,
+      threadId: target.threadId,
+      ...(process.env.VITE_DEV_SERVER_URL ? { devServerUrl: process.env.VITE_DEV_SERVER_URL } : {}),
+    }),
+  );
+  focusWindow(window);
+}
+
+function handlePotentialProtocolUrl(rawUrl: string | undefined): void {
+  if (!rawUrl) {
+    return;
+  }
+
+  if (!app.isReady() || backendWsUrl.length === 0) {
+    pendingProtocolUrl = rawUrl;
+    return;
+  }
+
+  openSessionFromProtocolUrl(rawUrl);
+}
+
 function createWindow(): BrowserWindow {
   const window = new BrowserWindow({
     width: 1100,
@@ -1393,16 +1318,24 @@ function createWindow(): BrowserWindow {
   window.webContents.on("did-finish-load", () => {
     window.setTitle(APP_DISPLAY_NAME);
     emitUpdateState();
+    if (pendingProtocolUrl) {
+      const queuedProtocolUrl = pendingProtocolUrl;
+      pendingProtocolUrl = undefined;
+      openSessionFromProtocolUrl(queuedProtocolUrl);
+    }
   });
   window.once("ready-to-show", () => {
     window.show();
   });
 
+  void window.loadURL(
+    buildDesktopWindowUrl({
+      scheme: DESKTOP_SCHEME,
+      ...(process.env.VITE_DEV_SERVER_URL ? { devServerUrl: process.env.VITE_DEV_SERVER_URL } : {}),
+    }),
+  );
   if (isDevelopment) {
-    void window.loadURL(process.env.VITE_DEV_SERVER_URL as string);
     window.webContents.openDevTools({ mode: "detach" });
-  } else {
-    void window.loadURL(`${DESKTOP_SCHEME}://app/index.html`);
   }
 
   window.on("closed", () => {
@@ -1417,55 +1350,74 @@ function createWindow(): BrowserWindow {
 // Override Electron's userData path before the `ready` event so that
 // Chromium session data uses a filesystem-friendly directory name.
 // Must be called synchronously at the top level — before `app.whenReady()`.
+const singleInstanceAcquired = requestSingleInstanceOrQuit(app);
 app.setPath("userData", resolveUserDataPath());
 
 configureAppIdentity();
 
+if (singleInstanceAcquired) {
+  app.on("second-instance", (_event, argv) => {
+    const existingWindow = mainWindow ?? BrowserWindow.getAllWindows()[0];
+    if (existingWindow) {
+      focusWindow(existingWindow);
+    }
+    handlePotentialProtocolUrl(extractProtocolUrlFromArgv(argv, DESKTOP_SCHEME));
+  });
+
+  app.on("open-url", (event, url) => {
+    event.preventDefault();
+    handlePotentialProtocolUrl(url);
+  });
+}
+
 async function bootstrap(): Promise<void> {
   writeDesktopLogHeader("bootstrap start");
-  backendPort = await Effect.service(NetService).pipe(
-    Effect.flatMap((net) => net.reserveLoopbackPort()),
-    Effect.provide(NetService.layer),
-    Effect.runPromise,
-  );
-  writeDesktopLogHeader(`reserved backend port via NetService port=${backendPort}`);
-  backendAuthToken = Crypto.randomBytes(24).toString("hex");
-  const baseUrl = `ws://127.0.0.1:${backendPort}`;
-  backendWsUrl = `${baseUrl}/?token=${encodeURIComponent(backendAuthToken)}`;
-  writeDesktopLogHeader(`bootstrap resolved websocket endpoint baseUrl=${baseUrl}`);
-
+  await ensureDaemonReady();
   registerIpcHandlers();
   writeDesktopLogHeader("bootstrap ipc handlers registered");
-  startBackend();
-  writeDesktopLogHeader("bootstrap backend start requested");
   mainWindow = createWindow();
   writeDesktopLogHeader("bootstrap main window created");
 }
 
 app.on("before-quit", () => {
-  isQuitting = true;
   updateInstallInFlight = false;
   writeDesktopLogHeader("before-quit received");
-  clearUpdatePollTimer();
-  stopBackend();
-  restoreStdIoCapture?.();
+  handleDesktopBeforeQuit({
+    markQuitting: () => {
+      isQuitting = true;
+    },
+    clearUpdatePollTimer,
+    restoreStdIoCapture: () => {
+      restoreStdIoCapture?.();
+    },
+  });
+  daemonTray?.destroy();
+  daemonTray = null;
 });
 
 app
   .whenReady()
   .then(() => {
+    if (!singleInstanceAcquired) {
+      return;
+    }
     writeDesktopLogHeader("app ready");
     configureAppIdentity();
     configureApplicationMenu();
     registerDesktopProtocol();
+    ensureDaemonTray();
+    registerProtocolClient(app, DESKTOP_SCHEME);
     configureAutoUpdater();
     void bootstrap().catch((error) => {
+      updateDaemonStatus(DAEMON_STATUS_ERROR, formatErrorMessage(error));
       handleFatalStartupError("bootstrap", error);
     });
 
     app.on("activate", () => {
       if (BrowserWindow.getAllWindows().length === 0) {
         mainWindow = createWindow();
+      } else if (mainWindow) {
+        focusWindow(mainWindow);
       }
     });
   })
@@ -1482,21 +1434,31 @@ app.on("window-all-closed", () => {
 if (process.platform !== "win32") {
   process.on("SIGINT", () => {
     if (isQuitting) return;
-    isQuitting = true;
     writeDesktopLogHeader("SIGINT received");
-    clearUpdatePollTimer();
-    stopBackend();
-    restoreStdIoCapture?.();
+    handleDesktopBeforeQuit({
+      markQuitting: () => {
+        isQuitting = true;
+      },
+      clearUpdatePollTimer,
+      restoreStdIoCapture: () => {
+        restoreStdIoCapture?.();
+      },
+    });
     app.quit();
   });
 
   process.on("SIGTERM", () => {
     if (isQuitting) return;
-    isQuitting = true;
     writeDesktopLogHeader("SIGTERM received");
-    clearUpdatePollTimer();
-    stopBackend();
-    restoreStdIoCapture?.();
+    handleDesktopBeforeQuit({
+      markQuitting: () => {
+        isQuitting = true;
+      },
+      clearUpdatePollTimer,
+      restoreStdIoCapture: () => {
+        restoreStdIoCapture?.();
+      },
+    });
     app.quit();
   });
 }

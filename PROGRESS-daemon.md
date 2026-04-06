@@ -24,6 +24,8 @@
 - WI-4: Unix socket transport -- JSON-RPC server
 - WI-5: CLI client -- forge command
 - WI-6: Notification dispatch
+- WI-7: Electron lifecycle -- daemon discovery and connection
+- WI-9: Server daemon mode runtime
 
 ## Iteration Log
 
@@ -33,6 +35,8 @@
 - 2026-04-06: Completed WI-4 by adding a daemon `SocketTransport` service/layer that binds a `0600` Unix socket, parses newline-delimited JSON-RPC 2.0 requests, maps the socket method registry onto orchestration/channel/workflow operations, and returns structured JSON-RPC errors for parse, invalid-request, invalid-params, and unknown-method failures. Added focused socket transport tests for success, method-not-found, parse errors, and channel intervention dispatch. Verified with `bun fmt`, `bun lint`, `bun typecheck`, and `bun run test`.
 - 2026-04-06: Completed WI-5 by adding a Forge CLI JSON-RPC client with detached daemon startup/status helpers, socket-path and daemon manifest resolution, empty worktree cleanup, and user-facing `forge` commands for session lifecycle, interactive answers, cleanup, and `daemon start|stop|status`. Added CLI routing tests for core commands and the missing-daemon error path, then verified with `bun fmt`, `bun lint`, `bun typecheck`, and `bun run test`.
 - 2026-04-06: Completed WI-6 by adding a daemon `NotificationDispatch` service/layer with typed Forge notification triggers, settings-backed notification preferences, argv-only backend execution for `terminal-notifier`, `osascript`, and `notify-send`, explicit `forge://session/{id}` click metadata where supported, and non-fatal fallback logging when desktop notification delivery is unavailable or fails. Added focused notification dispatch tests for macOS, Linux, missing backend, disabled triggers, special-character payloads, and exec failures, plus server-settings coverage for the new notification toggles. Verified with `bun fmt`, `bun lint`, `bun typecheck`, and `bun run test`.
+- 2026-04-06: Completed WI-7 by refactoring Electron startup around daemon discovery instead of an fd-3 child backend: `main.ts` now acquires the single-instance lock, registers `forge://` protocol handling, discovers or detached-spawns the daemon from `daemon.json`, routes deep links into the renderer, keeps the daemon alive across app quit, and exposes tray status for the background runtime. Added focused desktop lifecycle tests covering discovery, detached launch, protocol parsing, second-instance handling, and quit behavior. Verified with `bun fmt`, `bun lint`, `bun typecheck`, and `bun run test`.
+- 2026-04-06: Completed WI-9 by adding server-side `daemon` runtime mode support, daemon-mode CLI defaults, and a dedicated daemon runtime layer that starts the singleton daemon services, binds both transports, materializes notifications, and shuts down cleanly on `daemon.stop` without interrupting the JSON-RPC response path. Added daemon runtime and config tests covering duplicate-launch detection, shutdown wiring, and daemon-mode auth/defaults. Verified with `bun fmt`, `bun lint`, `bun typecheck`, and `bun run test`.
 
 ## Review Log
 

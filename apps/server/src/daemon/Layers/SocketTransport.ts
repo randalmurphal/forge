@@ -1340,25 +1340,29 @@ const makeSocketTransport = Effect.gen(function* () {
                   uptime: Math.max(0, Date.now() - startedAtMs),
                 }));
               }
-              if (parsed.request.method === "daemon.stop" && input.stopDaemon !== undefined) {
-                effect = Effect.flatMap(effect, (result) =>
-                  input.stopDaemon!.pipe(
-                    Effect.mapError(
-                      (cause) =>
-                        new OrchestrationGetSnapshotError({
-                          message: "Failed to stop daemon.",
-                          cause: toError(cause),
-                        }),
-                    ),
-                    Effect.as(result),
-                  ),
-                );
-              }
-
               void Effect.runPromiseWith(services)(effect).then(
                 (result) => {
                   if (parsed.request.id !== undefined) {
                     writeResponse(encodeResult(parsed.request.id, result));
+                  }
+                  if (parsed.request.method === "daemon.stop" && input.stopDaemon !== undefined) {
+                    void Effect.runPromiseWith(services)(
+                      input.stopDaemon!.pipe(
+                        Effect.mapError(
+                          (cause) =>
+                            new OrchestrationGetSnapshotError({
+                              message: "Failed to stop daemon.",
+                              cause: toError(cause),
+                            }),
+                        ),
+                        Effect.catch((error) =>
+                          Effect.logWarning("daemon stop request failed after response", {
+                            socketPath: input.socketPath,
+                            cause: error,
+                          }),
+                        ),
+                      ),
+                    );
                   }
                 },
                 (cause) => {

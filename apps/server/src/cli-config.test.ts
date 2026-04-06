@@ -399,4 +399,52 @@ it.layer(NodeServices.layer)("cli config resolution", (it) => {
       });
     }),
   );
+
+  it.effect("defaults daemon mode to loopback auth without bootstrap hints", () =>
+    Effect.gen(function* () {
+      const fs = yield* FileSystem.FileSystem;
+      const baseDir = yield* fs.makeTempDirectoryScoped({ prefix: "forge-cli-config-daemon-" });
+      const derivedPaths = yield* deriveServerPaths(baseDir, undefined);
+
+      const resolved = yield* resolveServerConfig(
+        {
+          mode: Option.some("daemon"),
+          port: Option.some(4877),
+          host: Option.none(),
+          baseDir: Option.some(baseDir),
+          devUrl: Option.none(),
+          noBrowser: Option.none(),
+          authToken: Option.none(),
+          bootstrapFd: Option.none(),
+          autoBootstrapProjectFromCwd: Option.none(),
+          logWebSocketEvents: Option.none(),
+        },
+        Option.none(),
+      ).pipe(
+        Effect.provide(
+          Layer.mergeAll(
+            ConfigProvider.layer(ConfigProvider.fromEnv({ env: {} })),
+            NetService.layer,
+          ),
+        ),
+      );
+
+      expect(resolved).toEqual({
+        logLevel: "Info",
+        ...defaultObservabilityConfig,
+        mode: "daemon",
+        port: 4877,
+        cwd: process.cwd(),
+        baseDir,
+        ...derivedPaths,
+        host: "127.0.0.1",
+        staticDir: resolved.staticDir,
+        devUrl: undefined,
+        noBrowser: true,
+        authToken: expect.stringMatching(/^[0-9a-f]{64}$/),
+        autoBootstrapProjectFromCwd: false,
+        logWebSocketEvents: false,
+      });
+    }),
+  );
 });

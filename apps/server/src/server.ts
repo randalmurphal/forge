@@ -62,6 +62,10 @@ import { PromptResolverLive } from "./workflow/Layers/PromptResolver";
 import { QualityCheckRunnerLive } from "./workflow/Layers/QualityCheckRunner";
 import { WorkflowEngineLive } from "./workflow/Layers/WorkflowEngine";
 import { WorkflowRegistryLive } from "./workflow/Layers/WorkflowRegistry";
+import { DaemonServiceLive } from "./daemon/Layers/DaemonService";
+import { NotificationDispatchLive } from "./daemon/Layers/NotificationDispatch";
+import { runDaemonModeServer } from "./daemon/Layers/Runtime";
+import { SocketTransportLive } from "./daemon/Layers/SocketTransport";
 
 const PtyAdapterLive = Layer.unwrap(
   Effect.gen(function* () {
@@ -337,6 +341,21 @@ const RuntimeServicesLive = Layer.mergeAll(
   ServerLifecycleEventsLive,
 );
 
+const DaemonLayerLive = Layer.mergeAll(
+  DaemonServiceLive,
+  SocketTransportLive,
+  NotificationDispatchLive,
+);
+
+const DaemonRuntimeEnvironmentLive = DaemonLayerLive.pipe(
+  Layer.provideMerge(RuntimeServicesLive),
+  Layer.provideMerge(ServerSettingsLive),
+  Layer.provideMerge(PersistenceLayerLive),
+  Layer.provide(ObservabilityLive),
+  Layer.provideMerge(FetchHttpClient.layer),
+  Layer.provideMerge(PlatformServicesLive),
+);
+
 export const makeRoutesLayer = Layer.mergeAll(
   attachmentsRouteLayer,
   projectFaviconRouteLayer,
@@ -378,8 +397,17 @@ export const makeServerLayer = Layer.unwrap(
 );
 
 // Important: Only `ServerConfig` should be provided by the CLI layer!!! Don't let other requirements leak into the launch layer.
-export const runServer = Layer.launch(makeServerLayer) satisfies Effect.Effect<
-  never,
-  any,
-  ServerConfig
->;
+export const runServer = Effect.gen(function* () {
+  const config = yield* ServerConfig;
+
+  if (config.mode === "daemon") {
+    yield* Effect.scoped(
+      runDaemonModeServer(Layer.launch(makeServerLayer)).pipe(
+        Effect.provide(DaemonRuntimeEnvironmentLive),
+      ),
+    );
+    return;
+  }
+
+  return yield* Layer.launch(makeServerLayer);
+}) satisfies Effect.Effect<void, any, ServerConfig>;

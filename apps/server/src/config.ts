@@ -10,7 +10,7 @@ import { Effect, FileSystem, Layer, LogLevel, Path, Schema, ServiceMap } from "e
 
 export const DEFAULT_PORT = 3773;
 
-export const RuntimeMode = Schema.Literals(["web", "desktop"]);
+export const RuntimeMode = Schema.Literals(["web", "desktop", "daemon"]);
 export type RuntimeMode = typeof RuntimeMode.Type;
 
 /**
