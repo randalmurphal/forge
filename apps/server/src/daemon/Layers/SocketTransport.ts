@@ -56,6 +56,7 @@ import {
 import { SocketTransport, type SocketTransportShape } from "../Services/SocketTransport.ts";
 
 const SOCKET_PERMISSIONS = 0o600;
+const MAX_JSON_RPC_REQUEST_BYTES = 1024 * 1024;
 const HUMAN_CHANNEL_PARTICIPANT_ID = "human";
 const DEFAULT_CODEX_MODEL = {
   provider: "codex",
@@ -431,6 +432,14 @@ function encodeResult(id: JsonRpcId, result: unknown): JsonRpcResponse {
     id,
     result,
   };
+}
+
+function encodeRequestTooLargeError(): JsonRpcResponse {
+  return encodeError(
+    null,
+    -32600,
+    `Request exceeds the maximum socket payload size of ${MAX_JSON_RPC_REQUEST_BYTES} bytes.`,
+  );
 }
 
 function parseJsonRpcRequest(
@@ -1727,6 +1736,7 @@ const makeSocketTransport = Effect.gen(function* () {
           socket.setEncoding("utf8");
 
           let buffer = "";
+          let closingOversizedRequest = false;
           const writeResponse = (response: JsonRpcResponse) => {
             socket.write(`${JSON.stringify(response)}\n`);
           };
@@ -1736,7 +1746,19 @@ const makeSocketTransport = Effect.gen(function* () {
           });
 
           socket.on("data", (chunk) => {
+            if (closingOversizedRequest) {
+              return;
+            }
+
             buffer += chunk;
+            if (Buffer.byteLength(buffer, "utf8") > MAX_JSON_RPC_REQUEST_BYTES) {
+              closingOversizedRequest = true;
+              buffer = "";
+              writeResponse(encodeRequestTooLargeError());
+              socket.end();
+              return;
+            }
+
             for (;;) {
               const newlineIndex = buffer.indexOf("\n");
               if (newlineIndex === -1) {

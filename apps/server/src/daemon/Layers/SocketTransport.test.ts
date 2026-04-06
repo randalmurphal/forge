@@ -156,6 +156,54 @@ const sendRaw = (socketPath: string, payload: string): Promise<unknown> =>
     });
   });
 
+const sendRawChunks = (
+  socketPath: string,
+  chunks: ReadonlyArray<string>,
+  timeoutMs = 1_000,
+): Promise<unknown> =>
+  new Promise((resolve, reject) => {
+    const socket = Net.createConnection(socketPath);
+    socket.setEncoding("utf8");
+
+    let buffer = "";
+    const timeout = setTimeout(() => {
+      socket.destroy();
+      reject(new Error(`timed out waiting for socket response from ${socketPath}`));
+    }, timeoutMs);
+
+    const finish = (callback: () => void) => {
+      clearTimeout(timeout);
+      socket.removeAllListeners();
+      socket.on("error", () => {});
+      callback();
+    };
+
+    socket.once("error", (error) => finish(() => reject(error)));
+    socket.once("connect", () => {
+      for (const chunk of chunks) {
+        socket.write(chunk);
+      }
+    });
+    socket.on("data", (chunk) => {
+      buffer += chunk;
+      const newlineIndex = buffer.indexOf("\n");
+      if (newlineIndex === -1) {
+        return;
+      }
+
+      const line = buffer.slice(0, newlineIndex);
+      finish(() => {
+        socket.end();
+        resolve(JSON.parse(line));
+      });
+    });
+    socket.once("end", () => {
+      finish(() => {
+        reject(new Error(`socket closed before a complete response was received: ${buffer}`));
+      });
+    });
+  });
+
 const serializeRequest = (
   request: Record<string, unknown>,
   options?: { readonly includeProtocolVersion?: boolean },
@@ -594,6 +642,34 @@ it("bind returns parse errors for malformed JSON input", async () => {
 
       assert.equal(response.error.code, -32700);
       assert.equal(response.error.message, "Parse error");
+    } finally {
+      await Effect.runPromise(binding.close.pipe(Effect.catch(() => Effect.void)));
+    }
+  } finally {
+    FS.rmSync(socketDir, { recursive: true, force: true });
+  }
+});
+
+it("bind rejects oversized JSON-RPC request lines and closes the connection", async () => {
+  const socketDir = FS.mkdtempSync(Path.join(OS.tmpdir(), "forge-socket-transport-"));
+  const socketPath = Path.join(socketDir, "forge.sock");
+  const oversizedPayload = `{"jsonrpc":"2.0","id":"oversized-1","method":"daemon.ping","params":{"payload":"${"x".repeat(1_400_000)}`;
+
+  try {
+    const transport = await Effect.runPromise(
+      Effect.service(SocketTransport).pipe(Effect.provide(makeTestLayer())),
+    );
+    const binding = await Effect.runPromise(transport.bind({ socketPath }));
+
+    try {
+      const response = (await sendRawChunks(socketPath, [oversizedPayload])) as {
+        readonly id: null;
+        readonly error: { readonly code: number; readonly message: string };
+      };
+
+      assert.equal(response.id, null);
+      assert.equal(response.error.code, -32600);
+      assert.match(response.error.message, /maximum socket payload size/i);
     } finally {
       await Effect.runPromise(binding.close.pipe(Effect.catch(() => Effect.void)));
     }
