@@ -18,6 +18,7 @@ import { useWorkflow } from "../stores/workflowStore";
 import { getWsRpcClient } from "../wsRpcClient";
 import { cn } from "../lib/utils";
 import ChatMarkdown from "./ChatMarkdown";
+import { QualityCheckResults } from "./QualityCheckResults";
 import { SidebarTrigger } from "./ui/sidebar";
 import {
   buildWorkflowTimeline,
@@ -226,54 +227,6 @@ function PhaseOutputBody(props: {
     case "none":
       return <p className="text-sm text-muted-foreground">No persisted output yet.</p>;
   }
-}
-
-function PhaseQualityChecks(props: {
-  checks: readonly { check: string; passed: boolean; output?: string | undefined }[];
-}) {
-  if (props.checks.length === 0) {
-    return null;
-  }
-
-  return (
-    <section className="rounded-2xl border border-border/70 bg-card/65">
-      <header className="border-b border-border/70 px-4 py-3">
-        <p className="text-xs font-semibold uppercase tracking-[0.1em] text-muted-foreground">
-          Quality Checks
-        </p>
-      </header>
-      <div className="space-y-3 px-4 py-4">
-        {props.checks.map((check) => {
-          const Icon = check.passed ? CheckCircle2Icon : XCircleIcon;
-          const iconClassName = check.passed ? "text-emerald-500" : "text-rose-500";
-          return (
-            <details
-              key={check.check}
-              className="rounded-xl border border-border/70 bg-background/65"
-              open={!check.passed}
-            >
-              <summary className="flex cursor-pointer list-none items-center justify-between gap-3 px-4 py-3">
-                <span className="inline-flex items-center gap-2 text-sm font-medium text-foreground">
-                  <Icon className={cn("size-4", iconClassName)} />
-                  {check.check}
-                </span>
-                <span
-                  className={cn("text-xs font-medium uppercase tracking-[0.08em]", iconClassName)}
-                >
-                  {check.passed ? "passed" : "failed"}
-                </span>
-              </summary>
-              {check.output ? (
-                <pre className="overflow-auto border-t border-border/70 px-4 py-3 text-xs text-foreground/85 whitespace-pre-wrap">
-                  {check.output}
-                </pre>
-              ) : null}
-            </details>
-          );
-        })}
-      </div>
-    </section>
-  );
 }
 
 export function WorkflowTimeline({ threadId }: { threadId: ThreadId }) {
@@ -527,7 +480,7 @@ export function WorkflowTimeline({ threadId }: { threadId: ThreadId }) {
                     ) : null}
                   </article>
 
-                  <PhaseQualityChecks checks={phaseItem.qualityChecks} />
+                  <QualityCheckResults results={phaseItem.qualityChecks} />
                 </section>
               );
             })
