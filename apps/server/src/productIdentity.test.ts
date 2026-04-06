@@ -37,6 +37,14 @@ describe("product identity", () => {
     expect(offenders).toEqual([]);
   });
 
+  it("does not leave T3-era metric prefixes in non-test server source", () => {
+    const offenders = collectServerSourceFiles(serverSourceRoot)
+      .filter((filePath) => FS.readFileSync(filePath, "utf8").includes("t3_"))
+      .map((filePath) => Path.relative(repoRoot, filePath));
+
+    expect(offenders).toEqual([]);
+  });
+
   it("ignores the Forge workspace directory instead of the legacy T3 directory", () => {
     const source = FS.readFileSync(Path.join(repoRoot, ".gitignore"), "utf8");
 
