@@ -135,6 +135,37 @@ it.effect("start creates forge.pid, forge.sock, and daemon.json with owner-only 
   ),
 );
 
+it.effect("start persists the configured websocket auth token to daemon.json", () =>
+  Effect.scoped(
+    Effect.gen(function* () {
+      const baseDir = FS.mkdtempSync(Path.join(OS.tmpdir(), "forge-daemon-token-"));
+      yield* Effect.addFinalizer(() =>
+        Effect.sync(() => FS.rmSync(baseDir, { recursive: true, force: true })),
+      );
+
+      const result = yield* Effect.gen(function* () {
+        const daemon = yield* DaemonService;
+        return yield* daemon.start({
+          wsPort: 47832,
+          wsToken: "daemon-auth-token",
+          bindSocket: (socketPath) => makePingServer(socketPath),
+        });
+      }).pipe(Effect.provide(makeDaemonTestLayer(baseDir)));
+
+      if (result.type !== "started") {
+        assert.fail("expected daemon start to win the singleton race");
+      }
+
+      const daemonInfo = JSON.parse(FS.readFileSync(Path.join(baseDir, "daemon.json"), "utf8")) as {
+        readonly wsToken: string;
+      };
+      assert.equal(daemonInfo.wsToken, "daemon-auth-token");
+
+      yield* result.stop;
+    }),
+  ),
+);
+
 it.effect("stop removes daemon state files and socket path", () =>
   Effect.scoped(
     Effect.gen(function* () {

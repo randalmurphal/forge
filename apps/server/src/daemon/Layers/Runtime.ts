@@ -27,6 +27,7 @@ export const runDaemonModeServer = <A, E, R>(launchHttpServer: Effect.Effect<A, 
     const startedAt = new Date().toISOString();
     const startResult = yield* daemonService.start({
       wsPort: config.port,
+      ...(config.authToken === undefined ? {} : { wsToken: config.authToken }),
       startedAt,
       bindSocket: (socketPath) =>
         socketTransport.bind({

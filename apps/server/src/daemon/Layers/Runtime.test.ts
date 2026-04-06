@@ -49,6 +49,7 @@ const makeServerConfig = (): ServerConfigShape => ({
 describe("runDaemonModeServer", () => {
   it("binds the daemon socket and stops the server when daemon.stop is requested", async () => {
     let stopDaemon: Effect.Effect<void, Error> | undefined;
+    let requestedWsToken: string | undefined;
     const stop = vi.fn();
     const startNotifications = vi.fn();
     const launchStarted = Effect.runSync(Deferred.make<void>());
@@ -77,6 +78,7 @@ describe("runDaemonModeServer", () => {
               probeSocket: () => Effect.succeed(true),
               start: (input) =>
                 Effect.gen(function* () {
+                  requestedWsToken = input.wsToken;
                   yield* input.bindSocket("/tmp/forge-daemon-runtime/forge.sock");
                   return {
                     type: "started" as const,
@@ -136,6 +138,7 @@ describe("runDaemonModeServer", () => {
 
     await expect(daemonPromise).resolves.toBe("stopped");
     await Effect.runPromise(Deferred.await(launchStopped));
+    expect(requestedWsToken).toBe("token");
     expect(stop).toHaveBeenCalledTimes(1);
     expect(startNotifications).toHaveBeenCalledTimes(1);
   });

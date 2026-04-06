@@ -593,7 +593,7 @@ const makeDaemonService = Effect.gen(function* () {
         const info = {
           pid: process.pid,
           wsPort: input.wsPort,
-          wsToken: Crypto.randomBytes(32).toString("hex"),
+          wsToken: input.wsToken ?? Crypto.randomBytes(32).toString("hex"),
           socketPath: paths.socketPath,
           startedAt: input.startedAt ?? new Date().toISOString(),
         } satisfies DaemonInfo;

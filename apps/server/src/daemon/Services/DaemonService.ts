@@ -18,6 +18,7 @@ export interface DaemonSocketBinding {
 
 export interface DaemonStartInput {
   readonly wsPort: number;
+  readonly wsToken?: string;
   readonly startedAt?: string;
   readonly pingTimeoutMs?: number;
   readonly shutdownTimeoutMs?: number;
