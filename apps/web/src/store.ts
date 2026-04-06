@@ -158,10 +158,16 @@ function mapThread(thread: OrchestrationThread): Thread {
     id: thread.id,
     codexThreadId: null,
     projectId: thread.projectId,
+    parentThreadId: thread.parentThreadId ?? null,
+    phaseRunId: thread.phaseRunId ?? null,
     title: thread.title,
     modelSelection: normalizeModelSelection(thread.modelSelection),
     runtimeMode: thread.runtimeMode,
     interactionMode: thread.interactionMode,
+    workflowId: thread.workflowId ?? null,
+    currentPhaseId: thread.currentPhaseId ?? null,
+    role: thread.role ?? null,
+    childThreadIds: [...(thread.childThreadIds ?? [])],
     session: thread.session ? mapSession(thread.session) : null,
     messages: thread.messages.map(mapMessage),
     proposedPlans: thread.proposedPlans.map(mapProposedPlan),
@@ -213,8 +219,14 @@ function buildSidebarThreadSummary(thread: Thread): SidebarThreadSummary {
   return {
     id: thread.id,
     projectId: thread.projectId,
+    parentThreadId: thread.parentThreadId ?? null,
+    phaseRunId: thread.phaseRunId ?? null,
     title: thread.title,
     interactionMode: thread.interactionMode,
+    workflowId: thread.workflowId ?? null,
+    currentPhaseId: thread.currentPhaseId ?? null,
+    role: thread.role ?? null,
+    childThreadIds: [...(thread.childThreadIds ?? [])],
     session: thread.session,
     createdAt: thread.createdAt,
     archivedAt: thread.archivedAt,
@@ -239,8 +251,17 @@ function sidebarThreadSummariesEqual(
     left !== undefined &&
     left.id === right.id &&
     left.projectId === right.projectId &&
+    left.parentThreadId === right.parentThreadId &&
+    left.phaseRunId === right.phaseRunId &&
     left.title === right.title &&
     left.interactionMode === right.interactionMode &&
+    left.workflowId === right.workflowId &&
+    left.currentPhaseId === right.currentPhaseId &&
+    left.role === right.role &&
+    (left.childThreadIds ?? []).length === (right.childThreadIds ?? []).length &&
+    (left.childThreadIds ?? []).every(
+      (threadId, index) => threadId === (right.childThreadIds ?? [])[index],
+    ) &&
     left.session === right.session &&
     left.createdAt === right.createdAt &&
     left.archivedAt === right.archivedAt &&
@@ -643,6 +664,26 @@ export function applyOrchestrationEvent(state: AppState, event: OrchestrationEve
 
     case "thread.created": {
       const existing = state.threads.find((thread) => thread.id === event.payload.threadId);
+      const stagedThreadPayload = event.payload as Partial<
+        Pick<
+          OrchestrationThread,
+          | "parentThreadId"
+          | "phaseRunId"
+          | "workflowId"
+          | "currentPhaseId"
+          | "role"
+          | "childThreadIds"
+        >
+      >;
+      const parentThreadId: OrchestrationThread["parentThreadId"] =
+        stagedThreadPayload.parentThreadId ?? null;
+      const phaseRunId: OrchestrationThread["phaseRunId"] = stagedThreadPayload.phaseRunId ?? null;
+      const workflowId: OrchestrationThread["workflowId"] = stagedThreadPayload.workflowId ?? null;
+      const currentPhaseId: OrchestrationThread["currentPhaseId"] =
+        stagedThreadPayload.currentPhaseId ?? null;
+      const role: OrchestrationThread["role"] = stagedThreadPayload.role ?? null;
+      const childThreadIds: OrchestrationThread["childThreadIds"] =
+        stagedThreadPayload.childThreadIds ?? [];
       const nextThread = mapThread({
         id: event.payload.threadId,
         projectId: event.payload.projectId,
@@ -657,13 +698,13 @@ export function applyOrchestrationEvent(state: AppState, event: OrchestrationEve
         updatedAt: event.payload.updatedAt,
         archivedAt: null,
         deletedAt: null,
-        parentThreadId: null,
-        phaseRunId: null,
-        workflowId: null,
-        currentPhaseId: null,
+        parentThreadId,
+        phaseRunId,
+        workflowId,
+        currentPhaseId,
         patternId: null,
-        role: null,
-        childThreadIds: [],
+        role,
+        childThreadIds,
         bootstrapStatus: null,
         messages: [],
         proposedPlans: [],

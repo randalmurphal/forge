@@ -4,6 +4,7 @@ import type {
   OrchestrationProposedPlanId,
   OrchestrationSessionStatus,
   OrchestrationThreadActivity,
+  PhaseRunId,
   ProjectScript as ContractProjectScript,
   ThreadId,
   ProjectId,
@@ -13,6 +14,8 @@ import type {
   CheckpointRef,
   ProviderInteractionMode,
   RuntimeMode,
+  WorkflowId,
+  WorkflowPhaseId,
 } from "@forgetools/contracts";
 
 export type SessionPhase = "disconnected" | "connecting" | "ready" | "running";
@@ -92,10 +95,16 @@ export interface Thread {
   id: ThreadId;
   codexThreadId: string | null;
   projectId: ProjectId;
+  parentThreadId?: ThreadId | null;
+  phaseRunId?: PhaseRunId | null;
   title: string;
   modelSelection: ModelSelection;
   runtimeMode: RuntimeMode;
   interactionMode: ProviderInteractionMode;
+  workflowId?: WorkflowId | null;
+  currentPhaseId?: WorkflowPhaseId | null;
+  role?: string | null;
+  childThreadIds?: ThreadId[];
   session: ThreadSession | null;
   messages: ChatMessage[];
   proposedPlans: ProposedPlan[];
@@ -114,8 +123,14 @@ export interface Thread {
 export interface SidebarThreadSummary {
   id: ThreadId;
   projectId: ProjectId;
+  parentThreadId?: ThreadId | null;
+  phaseRunId?: PhaseRunId | null;
   title: string;
   interactionMode: ProviderInteractionMode;
+  workflowId?: WorkflowId | null;
+  currentPhaseId?: WorkflowPhaseId | null;
+  role?: string | null;
+  childThreadIds?: ThreadId[];
   session: ThreadSession | null;
   createdAt: string;
   archivedAt: string | null;

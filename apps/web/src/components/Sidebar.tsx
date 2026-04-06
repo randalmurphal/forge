@@ -125,12 +125,21 @@ import {
   sortThreadsForSidebar,
   useThreadJumpHintVisibility,
 } from "./Sidebar.logic";
+import { SidebarTree } from "./SidebarTree";
+import {
+  buildSidebarThreadTree,
+  flattenSidebarThreadTree,
+  syncExpandedSidebarTreeState,
+  type SidebarTreeVisibleNode,
+  toggleSidebarTreeThreadExpansion,
+} from "./SidebarTree.logic";
 import { SidebarUpdatePill } from "./sidebar/SidebarUpdatePill";
 import { useCopyToClipboard } from "~/hooks/useCopyToClipboard";
 import { useSettings, useUpdateSettings } from "~/hooks/useSettings";
 import { useServerKeybindings } from "../rpc/serverState";
 import { useSidebarThreadSummaryById } from "../storeSelectors";
 import type { Project } from "../types";
+import { ClaudeAI, OpenAI } from "./Icons";
 const THREAD_PREVIEW_LIMIT = 6;
 const SIDEBAR_SORT_LABELS: Record<SidebarProjectSortOrder, string> = {
   updated_at: "Last user message",
@@ -245,8 +254,25 @@ function prStatusIndicator(pr: ThreadPr): PrStatusIndicator | null {
   return null;
 }
 
+function formatThreadRoleLabel(role: string | null): string | null {
+  if (!role) {
+    return null;
+  }
+  return role
+    .split(/[-_\s]+/)
+    .filter(Boolean)
+    .map((part) => part[0]?.toUpperCase() + part.slice(1))
+    .join(" ");
+}
+
+function ProviderIcon({ provider }: { provider: "codex" | "claudeAgent" }) {
+  const Icon = provider === "claudeAgent" ? ClaudeAI : OpenAI;
+  return <Icon className="size-3" />;
+}
+
 interface SidebarThreadRowProps {
   threadId: ThreadId;
+  treeNode: SidebarTreeVisibleNode | null;
   orderedProjectThreadIds: readonly ThreadId[];
   routeThreadId: ThreadId | null;
   selectedThreadIds: ReadonlySet<ThreadId>;
@@ -277,6 +303,7 @@ interface SidebarThreadRowProps {
   cancelRename: () => void;
   attemptArchiveThread: (threadId: ThreadId) => Promise<void>;
   openPrLink: (event: MouseEvent<HTMLElement>, prUrl: string) => void;
+  toggleTreeNodeExpansion: (threadId: ThreadId) => void;
   pr: ThreadPr | null;
 }
 
@@ -297,12 +324,16 @@ function SidebarThreadRow(props: SidebarThreadRowProps) {
   const isHighlighted = isActive || isSelected;
   const isThreadRunning =
     thread.session?.status === "running" && thread.session.activeTurnId != null;
-  const threadStatus = resolveThreadStatusPill({
+  const directThreadStatus = resolveThreadStatusPill({
     thread: {
       ...thread,
       lastVisitedAt,
     },
   });
+  const threadStatus =
+    props.treeNode && (props.treeNode.depth > 0 || props.treeNode.isExpandable)
+      ? props.treeNode.displayStatus
+      : directThreadStatus;
   const prStatus = prStatusIndicator(props.pr);
   const terminalStatus = terminalStatusFromRunningIds(runningTerminalIds);
   const isConfirmingArchive = props.confirmingArchiveThreadId === thread.id && !isThreadRunning;
@@ -311,6 +342,11 @@ function SidebarThreadRow(props: SidebarThreadRowProps) {
     : !isThreadRunning
       ? "pointer-events-none transition-opacity duration-150 group-hover/menu-sub-item:opacity-0 group-focus-within/menu-sub-item:opacity-0"
       : "pointer-events-none";
+  const roleLabel = formatThreadRoleLabel(thread.role ?? null);
+  const isChildThread = (props.treeNode?.depth ?? 0) > 0;
+  const rowPaddingLeft = 8 + (props.treeNode?.depth ?? 0) * 14;
+  const isExpandable = props.treeNode?.isExpandable ?? false;
+  const showChildMeta = isChildThread;
 
   return (
     <SidebarMenuSubItem
@@ -337,7 +373,9 @@ function SidebarThreadRow(props: SidebarThreadRowProps) {
         className={`${resolveThreadRowClassName({
           isActive,
           isSelected,
+          multiLine: showChildMeta,
         })} relative isolate`}
+        style={{ paddingLeft: `${rowPaddingLeft}px` }}
         onClick={(event) => {
           props.handleThreadClick(event, thread.id, props.orderedProjectThreadIds);
         }}
@@ -364,7 +402,31 @@ function SidebarThreadRow(props: SidebarThreadRowProps) {
           }
         }}
       >
-        <div className="flex min-w-0 flex-1 items-center gap-1.5 text-left">
+        <div className="flex min-w-0 flex-1 items-start gap-1.5 text-left">
+          {props.treeNode && (props.treeNode.isExpandable || props.treeNode.depth > 0) ? (
+            isExpandable ? (
+              <button
+                type="button"
+                data-thread-selection-safe
+                aria-label={`${props.treeNode.isExpanded ? "Collapse" : "Expand"} ${thread.title}`}
+                className="mt-0.5 inline-flex size-4 shrink-0 items-center justify-center rounded-sm text-muted-foreground/70 transition-colors hover:bg-accent hover:text-foreground focus-visible:outline-hidden focus-visible:ring-1 focus-visible:ring-ring"
+                onPointerDown={(event) => {
+                  event.stopPropagation();
+                }}
+                onClick={(event) => {
+                  event.preventDefault();
+                  event.stopPropagation();
+                  props.toggleTreeNodeExpansion(thread.id);
+                }}
+              >
+                <ChevronRightIcon
+                  className={`size-3 transition-transform ${props.treeNode.isExpanded ? "rotate-90" : ""}`}
+                />
+              </button>
+            ) : (
+              <span className="mt-0.5 inline-flex size-4 shrink-0" aria-hidden="true" />
+            )
+          ) : null}
           {prStatus && (
             <Tooltip>
               <TooltipTrigger
@@ -384,41 +446,63 @@ function SidebarThreadRow(props: SidebarThreadRowProps) {
               <TooltipPopup side="top">{prStatus.tooltip}</TooltipPopup>
             </Tooltip>
           )}
-          {threadStatus && <ThreadStatusLabel status={threadStatus} />}
-          {props.renamingThreadId === thread.id ? (
-            <input
-              ref={(element) => {
-                if (element && props.renamingInputRef.current !== element) {
-                  props.renamingInputRef.current = element;
-                  element.focus();
-                  element.select();
-                }
-              }}
-              className="min-w-0 flex-1 truncate text-xs bg-transparent outline-none border border-ring rounded px-0.5"
-              value={props.renamingTitle}
-              onChange={(event) => props.setRenamingTitle(event.target.value)}
-              onKeyDown={(event) => {
-                event.stopPropagation();
-                if (event.key === "Enter") {
-                  event.preventDefault();
-                  props.renamingCommittedRef.current = true;
-                  void props.commitRename(thread.id, props.renamingTitle, thread.title);
-                } else if (event.key === "Escape") {
-                  event.preventDefault();
-                  props.renamingCommittedRef.current = true;
-                  props.cancelRename();
-                }
-              }}
-              onBlur={() => {
-                if (!props.renamingCommittedRef.current) {
-                  void props.commitRename(thread.id, props.renamingTitle, thread.title);
-                }
-              }}
-              onClick={(event) => event.stopPropagation()}
-            />
-          ) : (
-            <span className="min-w-0 flex-1 truncate text-xs">{thread.title}</span>
-          )}
+          {!showChildMeta && threadStatus ? <ThreadStatusLabel status={threadStatus} /> : null}
+          <div className="min-w-0 flex-1">
+            {props.renamingThreadId === thread.id ? (
+              <input
+                ref={(element) => {
+                  if (element && props.renamingInputRef.current !== element) {
+                    props.renamingInputRef.current = element;
+                    element.focus();
+                    element.select();
+                  }
+                }}
+                className="min-w-0 w-full truncate text-xs bg-transparent outline-none border border-ring rounded px-0.5"
+                value={props.renamingTitle}
+                onChange={(event) => props.setRenamingTitle(event.target.value)}
+                onKeyDown={(event) => {
+                  event.stopPropagation();
+                  if (event.key === "Enter") {
+                    event.preventDefault();
+                    props.renamingCommittedRef.current = true;
+                    void props.commitRename(thread.id, props.renamingTitle, thread.title);
+                  } else if (event.key === "Escape") {
+                    event.preventDefault();
+                    props.renamingCommittedRef.current = true;
+                    props.cancelRename();
+                  }
+                }}
+                onBlur={() => {
+                  if (!props.renamingCommittedRef.current) {
+                    void props.commitRename(thread.id, props.renamingTitle, thread.title);
+                  }
+                }}
+                onClick={(event) => event.stopPropagation()}
+              />
+            ) : (
+              <span className="block min-w-0 truncate text-xs">{thread.title}</span>
+            )}
+            {showChildMeta ? (
+              <div className="mt-0.5 flex min-w-0 items-center gap-1.5 text-[10px] text-muted-foreground/75">
+                {thread.session?.provider ? (
+                  <span className="inline-flex shrink-0 items-center gap-1">
+                    <ProviderIcon provider={thread.session.provider} />
+                    <span>{thread.session.provider === "claudeAgent" ? "Claude" : "Codex"}</span>
+                  </span>
+                ) : null}
+                {roleLabel ? (
+                  <span className="inline-flex shrink-0 items-center rounded-full border border-border/70 px-1.5 py-0.5 text-[9px] font-medium uppercase tracking-[0.08em] text-foreground/75">
+                    {roleLabel}
+                  </span>
+                ) : null}
+                {threadStatus ? (
+                  <span className="min-w-0">
+                    <ThreadStatusLabel status={threadStatus} compact />
+                  </span>
+                ) : null}
+              </div>
+            ) : null}
+          </div>
         </div>
         <div className="ml-auto flex shrink-0 items-center gap-1.5">
           {terminalStatus && (
@@ -705,6 +789,9 @@ export default function Sidebar() {
   const [confirmingArchiveThreadId, setConfirmingArchiveThreadId] = useState<ThreadId | null>(null);
   const [expandedThreadListsByProject, setExpandedThreadListsByProject] = useState<
     ReadonlySet<ProjectId>
+  >(() => new Set());
+  const [expandedSidebarTreeThreadIds, setExpandedSidebarTreeThreadIds] = useState<
+    ReadonlySet<ThreadId>
   >(() => new Set());
   const { showThreadJumpHints, updateThreadJumpHintsVisibility } = useThreadJumpHintVisibility();
   const renamingCommittedRef = useRef(false);
@@ -1387,48 +1474,60 @@ export default function Sidebar() {
   const renderedProjects = useMemo(
     () =>
       sortedProjects.map((project) => {
-        const resolveProjectThreadStatus = (thread: (typeof visibleThreads)[number]) =>
-          resolveThreadStatusPill({
-            thread: {
-              ...thread,
+        const projectThreads = (threadIdsByProjectId[project.id] ?? [])
+          .map((threadId) => sidebarThreadsById[threadId])
+          .filter((thread): thread is NonNullable<typeof thread> => thread !== undefined)
+          .filter((thread) => thread.archivedAt === null);
+        const treeNodes = buildSidebarThreadTree({
+          threads: projectThreads.map((thread) =>
+            Object.assign({}, thread, {
               lastVisitedAt: threadLastVisitedAtById[thread.id],
-            },
-          });
-        const projectThreads = sortThreadsForSidebar(
-          (threadIdsByProjectId[project.id] ?? [])
-            .map((threadId) => sidebarThreadsById[threadId])
-            .filter((thread): thread is NonNullable<typeof thread> => thread !== undefined)
-            .filter((thread) => thread.archivedAt === null),
-          appSettings.sidebarThreadSortOrder,
-        );
-        const projectStatus = resolveProjectStatusIndicator(
-          projectThreads.map((thread) => resolveProjectThreadStatus(thread)),
-        );
+            }),
+          ),
+        });
         const activeThreadId = routeThreadId ?? undefined;
         const isThreadListExpanded = expandedThreadListsByProject.has(project.id);
+        const effectiveExpandedTreeThreadIds = syncExpandedSidebarTreeState({
+          nodes: treeNodes,
+          expandedThreadIds: expandedSidebarTreeThreadIds,
+          activeThreadId: routeThreadId,
+        });
+        const flatTreeNodes = flattenSidebarThreadTree({
+          nodes: treeNodes,
+          expandedThreadIds: effectiveExpandedTreeThreadIds,
+        });
+        const previewTreeNodes = flatTreeNodes.map((node) => ({
+          id: node.thread.id,
+          node,
+        }));
+        const projectStatus = resolveProjectStatusIndicator(
+          treeNodes.map((node) => node.displayStatus),
+        );
         const pinnedCollapsedThread =
           !project.expanded && activeThreadId
-            ? (projectThreads.find((thread) => thread.id === activeThreadId) ?? null)
+            ? (flatTreeNodes.find((node) => node.thread.id === activeThreadId) ?? null)
             : null;
         const shouldShowThreadPanel = project.expanded || pinnedCollapsedThread !== null;
         const {
           hasHiddenThreads,
           hiddenThreads,
-          visibleThreads: visibleProjectThreads,
+          visibleThreads: visibleProjectTreeNodes,
         } = getVisibleThreadsForProject({
-          threads: projectThreads,
+          threads: previewTreeNodes,
           activeThreadId,
           isThreadListExpanded,
           previewLimit: THREAD_PREVIEW_LIMIT,
         });
+        const hiddenProjectTreeNodes = hiddenThreads.map((entry) => entry.node);
         const hiddenThreadStatus = resolveProjectStatusIndicator(
-          hiddenThreads.map((thread) => resolveProjectThreadStatus(thread)),
+          hiddenProjectTreeNodes.map((node) => node.displayStatus),
         );
-        const orderedProjectThreadIds = projectThreads.map((thread) => thread.id);
-        const renderedThreadIds = pinnedCollapsedThread
-          ? [pinnedCollapsedThread.id]
-          : visibleProjectThreads.map((thread) => thread.id);
-        const showEmptyThreadState = project.expanded && projectThreads.length === 0;
+        const orderedProjectThreadIds = flatTreeNodes.map((node) => node.thread.id);
+        const renderedTreeNodes = pinnedCollapsedThread
+          ? [pinnedCollapsedThread]
+          : visibleProjectTreeNodes.map((entry) => entry.node);
+        const renderedThreadIds = renderedTreeNodes.map((node) => node.thread.id);
+        const showEmptyThreadState = project.expanded && treeNodes.length === 0;
 
         return {
           hasHiddenThreads,
@@ -1436,6 +1535,7 @@ export default function Sidebar() {
           orderedProjectThreadIds,
           project,
           projectStatus,
+          renderedTreeNodes,
           renderedThreadIds,
           showEmptyThreadState,
           shouldShowThreadPanel,
@@ -1443,7 +1543,7 @@ export default function Sidebar() {
         };
       }),
     [
-      appSettings.sidebarThreadSortOrder,
+      expandedSidebarTreeThreadIds,
       expandedThreadListsByProject,
       routeThreadId,
       sortedProjects,
@@ -1581,7 +1681,7 @@ export default function Sidebar() {
       orderedProjectThreadIds,
       project,
       projectStatus,
-      renderedThreadIds,
+      renderedTreeNodes,
       showEmptyThreadState,
       shouldShowThreadPanel,
       isThreadListExpanded,
@@ -1708,37 +1808,43 @@ export default function Sidebar() {
               </div>
             </SidebarMenuSubItem>
           ) : null}
-          {shouldShowThreadPanel &&
-            renderedThreadIds.map((threadId) => (
-              <SidebarThreadRow
-                key={threadId}
-                threadId={threadId}
-                orderedProjectThreadIds={orderedProjectThreadIds}
-                routeThreadId={routeThreadId}
-                selectedThreadIds={selectedThreadIds}
-                showThreadJumpHints={showThreadJumpHints}
-                jumpLabel={threadJumpLabelById.get(threadId) ?? null}
-                appSettingsConfirmThreadArchive={appSettings.confirmThreadArchive}
-                renamingThreadId={renamingThreadId}
-                renamingTitle={renamingTitle}
-                setRenamingTitle={setRenamingTitle}
-                renamingInputRef={renamingInputRef}
-                renamingCommittedRef={renamingCommittedRef}
-                confirmingArchiveThreadId={confirmingArchiveThreadId}
-                setConfirmingArchiveThreadId={setConfirmingArchiveThreadId}
-                confirmArchiveButtonRefs={confirmArchiveButtonRefs}
-                handleThreadClick={handleThreadClick}
-                navigateToThread={navigateToThread}
-                handleMultiSelectContextMenu={handleMultiSelectContextMenu}
-                handleThreadContextMenu={handleThreadContextMenu}
-                clearSelection={clearSelection}
-                commitRename={commitRename}
-                cancelRename={cancelRename}
-                attemptArchiveThread={attemptArchiveThread}
-                openPrLink={openPrLink}
-                pr={prByThreadId.get(threadId) ?? null}
-              />
-            ))}
+          {shouldShowThreadPanel ? (
+            <SidebarTree
+              nodes={renderedTreeNodes}
+              renderNode={(treeNode) => (
+                <SidebarThreadRow
+                  key={treeNode.thread.id}
+                  threadId={treeNode.thread.id}
+                  treeNode={treeNode}
+                  orderedProjectThreadIds={orderedProjectThreadIds}
+                  routeThreadId={routeThreadId}
+                  selectedThreadIds={selectedThreadIds}
+                  showThreadJumpHints={showThreadJumpHints}
+                  jumpLabel={threadJumpLabelById.get(treeNode.thread.id) ?? null}
+                  appSettingsConfirmThreadArchive={appSettings.confirmThreadArchive}
+                  renamingThreadId={renamingThreadId}
+                  renamingTitle={renamingTitle}
+                  setRenamingTitle={setRenamingTitle}
+                  renamingInputRef={renamingInputRef}
+                  renamingCommittedRef={renamingCommittedRef}
+                  confirmingArchiveThreadId={confirmingArchiveThreadId}
+                  setConfirmingArchiveThreadId={setConfirmingArchiveThreadId}
+                  confirmArchiveButtonRefs={confirmArchiveButtonRefs}
+                  handleThreadClick={handleThreadClick}
+                  navigateToThread={navigateToThread}
+                  handleMultiSelectContextMenu={handleMultiSelectContextMenu}
+                  handleThreadContextMenu={handleThreadContextMenu}
+                  clearSelection={clearSelection}
+                  commitRename={commitRename}
+                  cancelRename={cancelRename}
+                  attemptArchiveThread={attemptArchiveThread}
+                  openPrLink={openPrLink}
+                  toggleTreeNodeExpansion={toggleSidebarTreeExpansion}
+                  pr={prByThreadId.get(treeNode.thread.id) ?? null}
+                />
+              )}
+            />
+          ) : null}
 
           {project.expanded && hasHiddenThreads && !isThreadListExpanded && (
             <SidebarMenuSubItem className="w-full">
@@ -1957,6 +2063,12 @@ export default function Sidebar() {
       next.delete(projectId);
       return next;
     });
+  }, []);
+
+  const toggleSidebarTreeExpansion = useCallback((threadId: ThreadId) => {
+    setExpandedSidebarTreeThreadIds((current) =>
+      toggleSidebarTreeThreadExpansion(current, threadId),
+    );
   }, []);
 
   const wordmark = (

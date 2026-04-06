@@ -28,20 +28,24 @@ export interface ThreadStatusPill {
     | "Working"
     | "Connecting"
     | "Completed"
+    | "Paused"
     | "Pending Approval"
     | "Awaiting Input"
-    | "Plan Ready";
+    | "Plan Ready"
+    | "Failed";
   colorClass: string;
   dotClass: string;
   pulse: boolean;
 }
 
 const THREAD_STATUS_PRIORITY: Record<ThreadStatusPill["label"], number> = {
+  Failed: 6,
   "Pending Approval": 5,
   "Awaiting Input": 4,
   Working: 3,
   Connecting: 3,
   "Plan Ready": 2,
+  Paused: 1,
   Completed: 1,
 };
 
@@ -283,9 +287,9 @@ export function isContextMenuPointerDown(input: {
 export function resolveThreadRowClassName(input: {
   isActive: boolean;
   isSelected: boolean;
+  multiLine?: boolean;
 }): string {
-  const baseClassName =
-    "h-7 w-full translate-x-0 cursor-pointer justify-start px-2 text-left select-none focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-ring";
+  const baseClassName = `${input.multiLine ? "min-h-10 py-1" : "h-7"} w-full translate-x-0 cursor-pointer justify-start px-2 text-left select-none focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-ring`;
 
   if (input.isSelected && input.isActive) {
     return cn(
@@ -349,6 +353,15 @@ export function resolveThreadStatusPill(input: {
       colorClass: "text-sky-600 dark:text-sky-300/80",
       dotClass: "bg-sky-500 dark:bg-sky-300/80",
       pulse: true,
+    };
+  }
+
+  if (thread.session?.status === "error") {
+    return {
+      label: "Failed",
+      colorClass: "text-rose-600 dark:text-rose-300/90",
+      dotClass: "bg-rose-500 dark:bg-rose-300/90",
+      pulse: false,
     };
   }
 
