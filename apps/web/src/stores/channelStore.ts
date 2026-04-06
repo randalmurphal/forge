@@ -15,13 +15,9 @@ import { newCommandId, newMessageId } from "../lib/utils";
 import { ensureNativeApi } from "../nativeApi";
 import { getWsRpcClient } from "../wsRpcClient";
 
-export type ChannelSubscriptionStatus = "idle" | "subscribed";
-
 type ChannelMap = Partial<Record<ChannelId, Channel>>;
 type ChannelMessagesMap = Partial<Record<ChannelId, ChannelMessage[]>>;
-type ChannelTotalsMap = Partial<Record<ChannelId, number>>;
 type ChannelPaginationMap = Partial<Record<ChannelId, ChannelMessagePaginationState>>;
-type ChannelSubscriptionsMap = Partial<Record<ChannelId, ChannelSubscriptionState>>;
 type ChannelDeliberationMap = Partial<Record<ChannelId, ChannelDeliberationState>>;
 
 export interface ChannelParticipantSummary {
@@ -42,24 +38,16 @@ export interface ChannelMessagePaginationState {
   exhausted: boolean;
 }
 
-export interface ChannelSubscriptionState {
-  listenerCount: number;
-  status: ChannelSubscriptionStatus;
-}
-
 export interface ChannelStoreSnapshot {
   channelsById: ChannelMap;
   messagesByChannelId: ChannelMessagesMap;
-  messageTotalsByChannelId: ChannelTotalsMap;
   messagePaginationByChannelId: ChannelPaginationMap;
-  subscriptionStateByChannelId: ChannelSubscriptionsMap;
   deliberationStateByChannelId: ChannelDeliberationMap;
 }
 
 export interface ChannelMessagesPageInput {
   channelId: ChannelId;
   messages: readonly ChannelMessage[];
-  total: number;
   limit?: number;
   afterSequence?: number | null;
 }
@@ -67,18 +55,14 @@ export interface ChannelMessagesPageInput {
 export interface ChannelStoreState extends ChannelStoreSnapshot {
   cacheChannel: (channel: Channel) => void;
   cacheChannelMessagesPage: (input: ChannelMessagesPageInput) => void;
-  appendChannelMessage: (message: ChannelMessage) => void;
   applyChannelPushEvent: (event: ChannelPushEvent) => void;
   advanceMessagePagination: (channelId: ChannelId) => void;
-  attachChannelSubscription: (channelId: ChannelId) => void;
-  detachChannelSubscription: (channelId: ChannelId) => void;
 }
 
 const DEFAULT_CHANNEL_MESSAGES_STALE_TIME = 5_000;
 const DEFAULT_CHANNEL_MESSAGE_LIMIT = 50;
 
 export const channelQueryKeys = {
-  all: ["channels"] as const,
   detail: (channelId: ChannelId | null) => ["channels", "detail", channelId] as const,
   byThread: (input: {
     threadId: ThreadId | null;
@@ -104,15 +88,8 @@ export const channelMutationKeys = {
 export const initialChannelStoreState: ChannelStoreSnapshot = {
   channelsById: {},
   messagesByChannelId: {},
-  messageTotalsByChannelId: {},
   messagePaginationByChannelId: {},
-  subscriptionStateByChannelId: {},
   deliberationStateByChannelId: {},
-};
-
-const DEFAULT_SUBSCRIPTION_STATE: ChannelSubscriptionState = {
-  listenerCount: 0,
-  status: "idle",
 };
 
 function channelEquals(left: Channel | undefined, right: Channel): boolean {
@@ -162,15 +139,6 @@ function paginationStateEquals(
     left.loadedThroughSequence === right.loadedThroughSequence &&
     left.limit === right.limit &&
     left.exhausted === right.exhausted
-  );
-}
-
-function subscriptionStateEquals(
-  left: ChannelSubscriptionState | undefined,
-  right: ChannelSubscriptionState,
-): boolean {
-  return (
-    left !== undefined && left.listenerCount === right.listenerCount && left.status === right.status
   );
 }
 
@@ -280,24 +248,6 @@ export function findThreadChannel(
   );
 }
 
-function updateSubscriptionState(
-  state: ChannelStoreSnapshot,
-  channelId: ChannelId,
-  next: ChannelSubscriptionState,
-): ChannelStoreSnapshot {
-  if (subscriptionStateEquals(state.subscriptionStateByChannelId[channelId], next)) {
-    return state;
-  }
-
-  return {
-    ...state,
-    subscriptionStateByChannelId: {
-      ...state.subscriptionStateByChannelId,
-      [channelId]: next,
-    },
-  };
-}
-
 export function cacheChannelState(
   state: ChannelStoreSnapshot,
   channel: Channel,
@@ -331,16 +281,10 @@ export function syncChannelMessagesPageState(
     limit: input.limit ?? currentPagination?.limit ?? null,
     exhausted: input.limit === undefined ? false : input.messages.length < input.limit,
   };
-  const nextTotal = Math.max(
-    state.messageTotalsByChannelId[input.channelId] ?? 0,
-    input.total,
-    nextMessages.length,
-  );
   const nextDeliberationState = deriveChannelDeliberationState(nextMessages);
 
   if (
     channelMessagesEqual(state.messagesByChannelId[input.channelId], nextMessages) &&
-    (state.messageTotalsByChannelId[input.channelId] ?? 0) === nextTotal &&
     paginationStateEquals(currentPagination, nextPagination) &&
     deliberationStateEquals(
       state.deliberationStateByChannelId[input.channelId],
@@ -355,10 +299,6 @@ export function syncChannelMessagesPageState(
     messagesByChannelId: {
       ...state.messagesByChannelId,
       [input.channelId]: nextMessages,
-    },
-    messageTotalsByChannelId: {
-      ...state.messageTotalsByChannelId,
-      [input.channelId]: nextTotal,
     },
     messagePaginationByChannelId: {
       ...state.messagePaginationByChannelId,
@@ -375,8 +315,6 @@ export function appendChannelMessageState(
   state: ChannelStoreSnapshot,
   message: ChannelMessage,
 ): ChannelStoreSnapshot {
-  const currentMessages = state.messagesByChannelId[message.channelId] ?? [];
-  const alreadyPresent = currentMessages.some((current) => current.id === message.id);
   const limit = state.messagePaginationByChannelId[message.channelId]?.limit;
   const afterSequence =
     state.messagePaginationByChannelId[message.channelId]?.requestedAfterSequence;
@@ -384,9 +322,6 @@ export function appendChannelMessageState(
   return syncChannelMessagesPageState(state, {
     channelId: message.channelId,
     messages: [message],
-    total:
-      (state.messageTotalsByChannelId[message.channelId] ?? currentMessages.length) +
-      (alreadyPresent ? 0 : 1),
     ...(limit === null || limit === undefined ? {} : { limit }),
     ...(afterSequence === undefined ? {} : { afterSequence }),
   });
@@ -440,29 +375,6 @@ export function advanceChannelMessagePaginationState(
       [channelId]: next,
     },
   };
-}
-
-export function attachChannelSubscriptionState(
-  state: ChannelStoreSnapshot,
-  channelId: ChannelId,
-): ChannelStoreSnapshot {
-  const current = state.subscriptionStateByChannelId[channelId] ?? DEFAULT_SUBSCRIPTION_STATE;
-  return updateSubscriptionState(state, channelId, {
-    listenerCount: current.listenerCount + 1,
-    status: "subscribed",
-  });
-}
-
-export function detachChannelSubscriptionState(
-  state: ChannelStoreSnapshot,
-  channelId: ChannelId,
-): ChannelStoreSnapshot {
-  const current = state.subscriptionStateByChannelId[channelId] ?? DEFAULT_SUBSCRIPTION_STATE;
-  const listenerCount = Math.max(0, current.listenerCount - 1);
-  return updateSubscriptionState(state, channelId, {
-    listenerCount,
-    status: listenerCount === 0 ? "idle" : "subscribed",
-  });
 }
 
 export function channelQueryOptions(channelId: ChannelId | null) {
@@ -566,14 +478,9 @@ export const useChannelStore = create<ChannelStoreState>((set) => ({
   ...initialChannelStoreState,
   cacheChannel: (channel) => set((state) => cacheChannelState(state, channel)),
   cacheChannelMessagesPage: (input) => set((state) => syncChannelMessagesPageState(state, input)),
-  appendChannelMessage: (message) => set((state) => appendChannelMessageState(state, message)),
   applyChannelPushEvent: (event) => set((state) => applyChannelPushEventState(state, event)),
   advanceMessagePagination: (channelId) =>
     set((state) => advanceChannelMessagePaginationState(state, channelId)),
-  attachChannelSubscription: (channelId) =>
-    set((state) => attachChannelSubscriptionState(state, channelId)),
-  detachChannelSubscription: (channelId) =>
-    set((state) => detachChannelSubscriptionState(state, channelId)),
 }));
 
 export function useChannel(channelId: ChannelId | null) {
@@ -610,8 +517,6 @@ export function useChannelMessages(
   channelId: ChannelId | null,
   limit = DEFAULT_CHANNEL_MESSAGE_LIMIT,
 ) {
-  const attachChannelSubscription = useChannelStore((state) => state.attachChannelSubscription);
-  const detachChannelSubscription = useChannelStore((state) => state.detachChannelSubscription);
   const cacheChannelMessagesPage = useChannelStore((state) => state.cacheChannelMessagesPage);
   const requestedAfterSequence = useChannelStore(
     (state) =>
@@ -628,18 +533,6 @@ export function useChannelMessages(
   );
 
   useEffect(() => {
-    if (!channelId) {
-      return undefined;
-    }
-
-    attachChannelSubscription(channelId);
-
-    return () => {
-      detachChannelSubscription(channelId);
-    };
-  }, [attachChannelSubscription, channelId, detachChannelSubscription]);
-
-  useEffect(() => {
     if (!channelId || !query.data) {
       return;
     }
@@ -647,7 +540,6 @@ export function useChannelMessages(
     cacheChannelMessagesPage({
       channelId,
       messages: query.data.messages,
-      total: query.data.total,
       limit,
       afterSequence: requestedAfterSequence,
     });

@@ -120,7 +120,6 @@ describe("channel store state helpers", () => {
           fromRole: "interrogator",
         }),
       ],
-      total: 2,
       limit: 2,
       afterSequence: null,
     });
@@ -158,7 +157,6 @@ describe("channel store state helpers", () => {
     const seeded = syncChannelMessagesPageState(initialChannelStoreState, {
       channelId: first.channelId,
       messages: [first],
-      total: 1,
       limit: 50,
       afterSequence: null,
     });
@@ -185,7 +183,6 @@ describe("channel store state helpers", () => {
     const seeded = syncChannelMessagesPageState(initialChannelStoreState, {
       channelId,
       messages: [makeChannelMessage(1), makeChannelMessage(2)],
-      total: 2,
       limit: 2,
       afterSequence: null,
     });
@@ -268,27 +265,6 @@ describe("channel store state helpers", () => {
     );
 
     expect(result).toEqual(exact);
-  });
-});
-
-describe("useChannelStore actions", () => {
-  it("tracks subscription ref counts per channel", () => {
-    const channelId = ChannelId.makeUnsafe("channel-1");
-    const store = useChannelStore.getState();
-
-    store.attachChannelSubscription(channelId);
-    store.attachChannelSubscription(channelId);
-    expect(useChannelStore.getState().subscriptionStateByChannelId[channelId]).toEqual({
-      listenerCount: 2,
-      status: "subscribed",
-    });
-
-    store.detachChannelSubscription(channelId);
-    store.detachChannelSubscription(channelId);
-    expect(useChannelStore.getState().subscriptionStateByChannelId[channelId]).toEqual({
-      listenerCount: 0,
-      status: "idle",
-    });
   });
 });
 
