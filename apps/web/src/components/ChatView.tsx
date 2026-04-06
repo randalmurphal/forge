@@ -172,6 +172,9 @@ import {
 } from "./chat/composerProviderRegistry";
 import { ProviderStatusBanner } from "./chat/ProviderStatusBanner";
 import { ThreadErrorBanner } from "./chat/ThreadErrorBanner";
+
+const LEGACY_LAST_INVOKED_SCRIPT_STORAGE_KEYS = ["t3code:last-invoked-script-by-project"] as const;
+
 import {
   MAX_HIDDEN_MOUNTED_TERMINAL_THREADS,
   buildExpiredTerminalContextToastCopy,
@@ -689,6 +692,7 @@ export default function ChatView({ threadId }: ChatViewProps) {
     LAST_INVOKED_SCRIPT_BY_PROJECT_KEY,
     {},
     LastInvokedScriptByProjectSchema,
+    { legacyKeys: LEGACY_LAST_INVOKED_SCRIPT_STORAGE_KEYS },
   );
   const messagesScrollRef = useRef<HTMLDivElement>(null);
   const [messagesScrollElement, setMessagesScrollElement] = useState<HTMLDivElement | null>(null);

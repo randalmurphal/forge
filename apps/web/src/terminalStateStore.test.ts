@@ -52,8 +52,11 @@ function makeTerminalEvent(
 }
 
 describe("terminalStateStore actions", () => {
+  const terminalStorage = () => useTerminalStateStore.persist.getOptions().storage;
+
   beforeEach(() => {
     useTerminalStateStore.persist.clearStorage();
+    terminalStorage()?.removeItem("t3code:terminal-state:v1");
     useTerminalStateStore.setState({
       terminalStateByThreadId: {},
       terminalEventEntriesByKey: {},
@@ -240,5 +243,34 @@ describe("terminalStateStore actions", () => {
     store.clearTerminalState(THREAD_ID);
 
     expect(useTerminalStateStore.getState()).toBe(before);
+  });
+
+  it("rehydrates terminal state from the legacy storage key", async () => {
+    terminalStorage()?.removeItem("forge:terminal-state:v1");
+    terminalStorage()?.setItem("t3code:terminal-state:v1", {
+      state: {
+        terminalStateByThreadId: {
+          [THREAD_ID]: {
+            terminalOpen: true,
+            terminalHeight: 320,
+            terminalIds: ["default"],
+            runningTerminalIds: [],
+            activeTerminalId: "default",
+            terminalGroups: [{ id: "group-default", terminalIds: ["default"] }],
+            activeTerminalGroupId: "group-default",
+          },
+        },
+      },
+      version: 1,
+    });
+
+    await useTerminalStateStore.persist.rehydrate();
+
+    expect(
+      selectThreadTerminalState(useTerminalStateStore.getState().terminalStateByThreadId, THREAD_ID)
+        .terminalOpen,
+    ).toBe(true);
+    expect(terminalStorage()?.getItem("forge:terminal-state:v1")).not.toBeNull();
+    expect(terminalStorage()?.getItem("t3code:terminal-state:v1")).toBeNull();
   });
 });

@@ -17,7 +17,7 @@ function readErrorMessage(response: JsonRpcProbeResponse): string | undefined {
 export function buildCodexInitializeParams() {
   return {
     clientInfo: {
-      name: "t3code_desktop",
+      name: "forge_desktop",
       title: "Forge Desktop",
       version: "0.1.0",
     },

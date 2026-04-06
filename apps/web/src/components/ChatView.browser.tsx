@@ -1548,7 +1548,7 @@ describe("ChatView timeline estimator parity (full app)", () => {
   });
 
   it("falls back to the first installed editor when the stored favorite is unavailable", async () => {
-    localStorage.setItem("t3code:last-editor", JSON.stringify("vscodium"));
+    localStorage.setItem("forge:last-editor", JSON.stringify("vscodium"));
     setDraftThreadWithoutWorktree();
 
     const mounted = await mountChatView({
@@ -1768,7 +1768,7 @@ describe("ChatView timeline estimator parity (full app)", () => {
             pullRequest: {
               number: 1359,
               title: "Add thread archiving and settings navigation",
-              url: "https://github.com/pingdotgg/t3code/pull/1359",
+              url: "https://github.com/randalmurphal/forge/pull/1359",
               baseBranch: "main",
               headBranch: "archive-settings-overhaul",
               state: "open",
@@ -1780,7 +1780,7 @@ describe("ChatView timeline estimator parity (full app)", () => {
             pullRequest: {
               number: 1359,
               title: "Add thread archiving and settings navigation",
-              url: "https://github.com/pingdotgg/t3code/pull/1359",
+              url: "https://github.com/randalmurphal/forge/pull/1359",
               baseBranch: "main",
               headBranch: "archive-settings-overhaul",
               state: "open",
@@ -2171,7 +2171,7 @@ describe("ChatView timeline estimator parity (full app)", () => {
 
   it("shows the confirm archive action after clicking the archive button", async () => {
     localStorage.setItem(
-      "t3code:client-settings:v1",
+      "forge:client-settings:v1",
       JSON.stringify({
         ...DEFAULT_CLIENT_SETTINGS,
         confirmThreadArchive: true,
@@ -2200,7 +2200,7 @@ describe("ChatView timeline estimator parity (full app)", () => {
       await expect.element(confirmButton).toBeInTheDocument();
       await expect.element(confirmButton).toBeVisible();
     } finally {
-      localStorage.removeItem("t3code:client-settings:v1");
+      localStorage.removeItem("forge:client-settings:v1");
       await mounted.cleanup();
     }
   });

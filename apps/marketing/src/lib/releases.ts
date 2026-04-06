@@ -1,9 +1,10 @@
-const REPO = "pingdotgg/t3code";
+const REPO = "randalmurphal/forge";
 
-export const RELEASES_URL = `https://github.com/${REPO}/releases`;
+export const REPOSITORY_URL = `https://github.com/${REPO}`;
+export const RELEASES_URL = `${REPOSITORY_URL}/releases`;
 
 const API_URL = `https://api.github.com/repos/${REPO}/releases/latest`;
-const CACHE_KEY = "t3code-latest-release";
+const CACHE_KEY = "forge-latest-release";
 
 export interface ReleaseAsset {
   name: string;

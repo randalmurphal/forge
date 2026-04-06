@@ -1,4 +1,3 @@
-import * as Schema from "effect/Schema";
 import {
   ProjectId,
   ThreadId,
@@ -14,7 +13,6 @@ import {
   type ComposerImageAttachment,
   useComposerDraftStore,
 } from "./composerDraftStore";
-import { removeLocalStorageItem, setLocalStorageItem } from "./hooks/useLocalStorage";
 import {
   INLINE_TERMINAL_CONTEXT_PLACEHOLDER,
   insertInlineTerminalContextPlaceholder,
@@ -213,9 +211,11 @@ describe("composerDraftStore clearComposerContent", () => {
 
 describe("composerDraftStore syncPersistedAttachments", () => {
   const threadId = ThreadId.makeUnsafe("thread-sync-persisted");
+  const composerStorage = () => useComposerDraftStore.persist.getOptions().storage;
 
   beforeEach(() => {
-    removeLocalStorageItem(COMPOSER_DRAFT_STORAGE_KEY);
+    composerStorage()?.removeItem(COMPOSER_DRAFT_STORAGE_KEY);
+    composerStorage()?.removeItem("t3code:composer-drafts:v1");
     useComposerDraftStore.setState({
       draftsByThreadId: {},
       draftThreadsByThreadId: {},
@@ -226,7 +226,8 @@ describe("composerDraftStore syncPersistedAttachments", () => {
   });
 
   afterEach(() => {
-    removeLocalStorageItem(COMPOSER_DRAFT_STORAGE_KEY);
+    composerStorage()?.removeItem(COMPOSER_DRAFT_STORAGE_KEY);
+    composerStorage()?.removeItem("t3code:composer-drafts:v1");
   });
 
   it("treats malformed persisted draft storage as empty", async () => {
@@ -235,20 +236,16 @@ describe("composerDraftStore syncPersistedAttachments", () => {
       previewUrl: "blob:persisted",
     });
     useComposerDraftStore.getState().addImage(threadId, image);
-    setLocalStorageItem(
-      COMPOSER_DRAFT_STORAGE_KEY,
-      {
-        version: 2,
-        state: {
-          draftsByThreadId: {
-            [threadId]: {
-              attachments: "not-an-array",
-            },
+    composerStorage()?.setItem(COMPOSER_DRAFT_STORAGE_KEY, {
+      version: 2,
+      state: {
+        draftsByThreadId: {
+          [threadId]: {
+            attachments: "not-an-array",
           },
         },
       },
-      Schema.Unknown,
-    );
+    });
 
     useComposerDraftStore.getState().syncPersistedAttachments(threadId, [
       {
@@ -267,6 +264,34 @@ describe("composerDraftStore syncPersistedAttachments", () => {
     expect(
       useComposerDraftStore.getState().draftsByThreadId[threadId]?.nonPersistedImageIds,
     ).toEqual([image.id]);
+  });
+
+  it("rehydrates drafts from the legacy storage key", async () => {
+    composerStorage()?.removeItem(COMPOSER_DRAFT_STORAGE_KEY);
+    composerStorage()?.setItem("t3code:composer-drafts:v1", {
+      version: 3,
+      state: {
+        draftsByThreadId: {
+          [threadId]: {
+            prompt: "legacy draft",
+            attachments: [],
+          },
+        },
+        draftThreadsByThreadId: {},
+        projectDraftThreadIdByProjectId: {},
+      },
+    });
+    await new Promise((resolve) => {
+      setTimeout(resolve, 350);
+    });
+
+    await useComposerDraftStore.persist.rehydrate();
+
+    expect(useComposerDraftStore.getState().draftsByThreadId[threadId]?.prompt).toBe(
+      "legacy draft",
+    );
+    expect(composerStorage()?.getItem(COMPOSER_DRAFT_STORAGE_KEY)).not.toBeNull();
+    expect(composerStorage()?.getItem("t3code:composer-drafts:v1")).toBeNull();
   });
 });
 

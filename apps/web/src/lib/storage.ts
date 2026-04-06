@@ -39,6 +39,75 @@ export function resolveStorage(storage: Partial<StateStorage> | null | undefined
   return isStateStorage(storage) ? storage : createMemoryStorage();
 }
 
+export function createKeyMigratingStorage(
+  baseStorage: Partial<StateStorage> | null | undefined,
+  migrations: Readonly<Record<string, readonly string[]>>,
+): StateStorage {
+  const storage = resolveStorage(baseStorage);
+
+  const clearLegacyKeys = (name: string) => {
+    for (const legacyKey of migrations[name] ?? []) {
+      storage.removeItem(legacyKey);
+    }
+  };
+
+  const migrateFromLegacy = (
+    name: string,
+    index: number = 0,
+  ): string | null | Promise<string | null> => {
+    const legacyKey = migrations[name]?.[index];
+    if (!legacyKey) {
+      return null;
+    }
+
+    const legacyValue = storage.getItem(legacyKey);
+    if (legacyValue instanceof Promise) {
+      return legacyValue.then((resolvedLegacyValue) => {
+        if (resolvedLegacyValue === null) {
+          return migrateFromLegacy(name, index + 1);
+        }
+        storage.setItem(name, resolvedLegacyValue);
+        clearLegacyKeys(name);
+        return resolvedLegacyValue;
+      });
+    }
+
+    if (legacyValue === null) {
+      return migrateFromLegacy(name, index + 1);
+    }
+
+    storage.setItem(name, legacyValue);
+    clearLegacyKeys(name);
+    return legacyValue;
+  };
+
+  return {
+    getItem: (name) => {
+      const currentValue = storage.getItem(name);
+      if (currentValue instanceof Promise) {
+        return currentValue.then((resolvedCurrentValue) => {
+          if (resolvedCurrentValue !== null) {
+            return resolvedCurrentValue;
+          }
+          return migrateFromLegacy(name);
+        });
+      }
+      if (currentValue !== null) {
+        return currentValue;
+      }
+      return migrateFromLegacy(name);
+    },
+    setItem: (name, value) => {
+      storage.setItem(name, value);
+      clearLegacyKeys(name);
+    },
+    removeItem: (name) => {
+      storage.removeItem(name);
+      clearLegacyKeys(name);
+    },
+  };
+}
+
 export function createDebouncedStorage(
   baseStorage: Partial<StateStorage> | null | undefined,
   debounceMs: number = 300,

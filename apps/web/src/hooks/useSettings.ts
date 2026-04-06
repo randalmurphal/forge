@@ -34,7 +34,8 @@ import { DeepMutable } from "effect/Types";
 import { deepMerge } from "@forgetools/shared/Struct";
 import { applySettingsUpdated, getServerConfig, useServerSettings } from "~/rpc/serverState";
 
-const CLIENT_SETTINGS_STORAGE_KEY = "t3code:client-settings:v1";
+const CLIENT_SETTINGS_STORAGE_KEY = "forge:client-settings:v1";
+const LEGACY_CLIENT_SETTINGS_STORAGE_KEYS = ["t3code:client-settings:v1"] as const;
 const OLD_SETTINGS_KEY = "t3code:app-settings:v1";
 
 // ── Key sets for routing patches ─────────────────────────────────────
@@ -75,6 +76,7 @@ export function useSettings<T extends UnifiedSettings = UnifiedSettings>(
     CLIENT_SETTINGS_STORAGE_KEY,
     DEFAULT_CLIENT_SETTINGS,
     ClientSettingsSchema,
+    { legacyKeys: LEGACY_CLIENT_SETTINGS_STORAGE_KEYS },
   );
 
   const merged = useMemo<UnifiedSettings>(
@@ -99,6 +101,7 @@ export function useUpdateSettings() {
     CLIENT_SETTINGS_STORAGE_KEY,
     DEFAULT_CLIENT_SETTINGS,
     ClientSettingsSchema,
+    { legacyKeys: LEGACY_CLIENT_SETTINGS_STORAGE_KEYS },
   );
 
   const updateSettings = useCallback(

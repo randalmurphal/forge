@@ -25,21 +25,75 @@ const decode = <T, E>(schema: Schema.Codec<T, E>, value: string) =>
 const encode = <T, E>(schema: Schema.Codec<T, E>, value: T) =>
   Schema.encodeSync(Schema.fromJsonString(schema))(value);
 
-export const getLocalStorageItem = <T, E>(key: string, schema: Schema.Codec<T, E>): T | null => {
-  const item = isomorphicLocalStorage.getItem(key);
-  return item ? decode(schema, item) : null;
+export interface LocalStorageOptions {
+  readonly legacyKeys?: readonly string[];
+}
+
+function toLocalStorageOptions(
+  legacyKeys: readonly string[] | undefined,
+): LocalStorageOptions | undefined {
+  return legacyKeys ? { legacyKeys } : undefined;
+}
+
+function getLocalStorageItemEntry<T, E>(
+  key: string,
+  schema: Schema.Codec<T, E>,
+  options?: LocalStorageOptions,
+): { value: T; raw: string } | null {
+  const currentItem = isomorphicLocalStorage.getItem(key);
+  if (currentItem) {
+    return {
+      value: decode(schema, currentItem),
+      raw: currentItem,
+    };
+  }
+
+  for (const legacyKey of options?.legacyKeys ?? []) {
+    const legacyItem = isomorphicLocalStorage.getItem(legacyKey);
+    if (!legacyItem) {
+      continue;
+    }
+    const value = decode(schema, legacyItem);
+    isomorphicLocalStorage.setItem(key, legacyItem);
+    for (const staleKey of options?.legacyKeys ?? []) {
+      isomorphicLocalStorage.removeItem(staleKey);
+    }
+    return { value, raw: legacyItem };
+  }
+
+  return null;
+}
+
+export const getLocalStorageItem = <T, E>(
+  key: string,
+  schema: Schema.Codec<T, E>,
+  options?: LocalStorageOptions,
+): T | null => {
+  const item = getLocalStorageItemEntry(key, schema, options);
+  return item ? item.value : null;
 };
 
-export const setLocalStorageItem = <T, E>(key: string, value: T, schema: Schema.Codec<T, E>) => {
+export const setLocalStorageItem = <T, E>(
+  key: string,
+  value: T,
+  schema: Schema.Codec<T, E>,
+  options?: LocalStorageOptions,
+) => {
   const valueToSet = encode(schema, value);
   isomorphicLocalStorage.setItem(key, valueToSet);
+  for (const legacyKey of options?.legacyKeys ?? []) {
+    isomorphicLocalStorage.removeItem(legacyKey);
+  }
 };
 
-export const removeLocalStorageItem = (key: string) => {
+export const removeLocalStorageItem = (key: string, options?: LocalStorageOptions) => {
   isomorphicLocalStorage.removeItem(key);
+  for (const legacyKey of options?.legacyKeys ?? []) {
+    isomorphicLocalStorage.removeItem(legacyKey);
+  }
 };
 
-const LOCAL_STORAGE_CHANGE_EVENT = "t3code:local_storage_change";
+const LOCAL_STORAGE_CHANGE_EVENT = "forge:local_storage_change";
 
 interface LocalStorageChangeDetail {
   key: string;
@@ -58,11 +112,14 @@ export function useLocalStorage<T, E>(
   key: string,
   initialValue: T,
   schema: Schema.Codec<T, E>,
+  options?: LocalStorageOptions,
 ): [T, (value: T | ((val: T) => T)) => void] {
+  const legacyKeys = options?.legacyKeys;
+
   // Get the initial value from localStorage or use the provided initialValue
   const [storedValue, setStoredValue] = useState<T>(() => {
     try {
-      const item = getLocalStorageItem(key, schema);
+      const item = getLocalStorageItem(key, schema, toLocalStorageOptions(legacyKeys));
       return item ?? initialValue;
     } catch (error) {
       console.error("[LOCALSTORAGE] Error:", error);
@@ -77,9 +134,9 @@ export function useLocalStorage<T, E>(
         setStoredValue((prev) => {
           const valueToStore = typeof value === "function" ? (value as (val: T) => T)(prev) : value;
           if (valueToStore === null) {
-            removeLocalStorageItem(key);
+            removeLocalStorageItem(key, toLocalStorageOptions(legacyKeys));
           } else {
-            setLocalStorageItem(key, valueToStore, schema);
+            setLocalStorageItem(key, valueToStore, schema, toLocalStorageOptions(legacyKeys));
           }
           // Dispatch event after state update completes to avoid nested state updates
           queueMicrotask(() => dispatchLocalStorageChange(key));
@@ -89,7 +146,7 @@ export function useLocalStorage<T, E>(
         console.error("[LOCALSTORAGE] Error:", error);
       }
     },
-    [key, schema],
+    [key, legacyKeys, schema],
   );
 
   const prevKeyRef = useRef(key);
@@ -99,19 +156,19 @@ export function useLocalStorage<T, E>(
     if (prevKeyRef.current !== key) {
       prevKeyRef.current = key;
       try {
-        const newValue = getLocalStorageItem(key, schema);
+        const newValue = getLocalStorageItem(key, schema, toLocalStorageOptions(legacyKeys));
         setStoredValue(newValue ?? initialValue);
       } catch (error) {
         console.error("[LOCALSTORAGE] Error:", error);
       }
     }
-  }, [key, initialValue, schema]);
+  }, [initialValue, key, legacyKeys, schema]);
 
   // Listen for storage events from other tabs AND custom events from the same tab
   useEffect(() => {
     const syncFromStorage = () => {
       try {
-        const newValue = getLocalStorageItem(key, schema);
+        const newValue = getLocalStorageItem(key, schema, toLocalStorageOptions(legacyKeys));
         setStoredValue(newValue ?? initialValue);
       } catch (error) {
         console.error("[LOCALSTORAGE] Error:", error);
@@ -137,7 +194,7 @@ export function useLocalStorage<T, E>(
       window.removeEventListener("storage", handleStorageChange);
       window.removeEventListener(LOCAL_STORAGE_CHANGE_EVENT, handleLocalChange as EventListener);
     };
-  }, [key, initialValue, schema]);
+  }, [initialValue, key, legacyKeys, schema]);
 
   return [storedValue, setValue];
 }
