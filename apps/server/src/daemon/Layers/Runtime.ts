@@ -65,8 +65,8 @@ const makeDaemonRuntime = Effect.gen(function* () {
 
       if (startResult.type === "already-running") {
         yield* Effect.logInfo("forge daemon already running; skipping duplicate launch", {
-          pid: startResult.pid,
           socketPath: startResult.paths.socketPath,
+          ...(startResult.pid === undefined ? {} : { pid: startResult.pid }),
         });
         return "already-running" as const;
       }

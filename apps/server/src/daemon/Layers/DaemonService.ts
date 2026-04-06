@@ -675,17 +675,16 @@ const makeDaemonService = Effect.gen(function* () {
           const socketProbe = yield* pingSocketInfo(paths.socketPath, input.pingTimeoutMs);
           if (socketProbe.responsive) {
             const runningPid = socketProbe.pid ?? existingInfo?.pid ?? existingPid;
-            if (runningPid !== undefined) {
-              return {
-                type: "already-running",
-                pid: runningPid,
-                info:
-                  existingInfo !== undefined && existingInfo.pid === runningPid
-                    ? existingInfo
-                    : undefined,
-                paths,
-              } as const;
-            }
+            return {
+              type: "already-running",
+              pid: runningPid,
+              info:
+                existingInfo !== undefined &&
+                (runningPid === undefined || existingInfo.pid === runningPid)
+                  ? existingInfo
+                  : undefined,
+              paths,
+            } as const;
           }
 
           if (existingPid !== undefined && (yield* isProcessAlive(existingPid))) {

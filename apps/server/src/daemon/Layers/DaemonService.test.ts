@@ -69,7 +69,7 @@ const toSocketError = (socketPath: string, operation: string, cause: unknown): D
     cause: cause instanceof Error ? cause : new Error(String(cause)),
   });
 
-const makePingServer = (socketPath: string) =>
+const makePingServer = (socketPath: string, options?: { readonly includePid?: boolean }) =>
   Effect.tryPromise({
     try: async () => {
       const server = Net.createServer((socket) => {
@@ -88,7 +88,10 @@ const makePingServer = (socketPath: string) =>
               `${JSON.stringify({
                 jsonrpc: "2.0",
                 id: request.id,
-                result: { status: "ok", pid: process.pid },
+                result: {
+                  status: "ok",
+                  ...(options?.includePid === false ? {} : { pid: process.pid }),
+                },
               })}\n`,
             );
           }
@@ -465,6 +468,57 @@ it.effect("start reuses a responsive daemon even when forge.pid and daemon.json 
       yield* startedResult.stop;
     }),
   ),
+);
+
+it.effect(
+  "start reuses a responsive daemon even when forge.pid and daemon.json are missing and ping omits pid",
+  () =>
+    Effect.scoped(
+      Effect.gen(function* () {
+        const baseDir = FS.mkdtempSync(Path.join(OS.tmpdir(), "forge-daemon-pidless-ping-"));
+        yield* Effect.addFinalizer(() =>
+          Effect.sync(() => FS.rmSync(baseDir, { recursive: true, force: true })),
+        );
+
+        const bindCalls = yield* Ref.make(0);
+
+        const startedResult = yield* Effect.gen(function* () {
+          const daemon = yield* DaemonService;
+          return yield* daemon.start({
+            wsPort: 47835,
+            bindSocket: (socketPath) => makePingServer(socketPath, { includePid: false }),
+          });
+        }).pipe(Effect.provide(makeDaemonTestLayer(baseDir)));
+
+        if (startedResult.type !== "started") {
+          assert.fail("expected initial daemon start to own the singleton");
+        }
+
+        FS.rmSync(Path.join(baseDir, "forge.pid"), { force: true });
+        FS.rmSync(Path.join(baseDir, "daemon.json"), { force: true });
+
+        const secondResult = yield* Effect.gen(function* () {
+          const daemon = yield* DaemonService;
+          return yield* daemon.start({
+            wsPort: 49997,
+            bindSocket: (socketPath) =>
+              Effect.gen(function* () {
+                yield* Ref.update(bindCalls, (count) => count + 1);
+                return yield* makePingServer(socketPath);
+              }),
+          });
+        }).pipe(Effect.provide(makeDaemonTestLayer(baseDir)));
+
+        if (secondResult.type !== "already-running") {
+          assert.fail("expected duplicate start to reuse the responsive daemon without pid state");
+        }
+        assert.equal(secondResult.pid, undefined);
+        assert.equal(secondResult.info, undefined);
+        assert.equal(yield* Ref.get(bindCalls), 0);
+
+        yield* startedResult.stop;
+      }),
+    ),
 );
 
 it.effect("concurrent start serializes on the startup lock and reuses the winner", () =>
