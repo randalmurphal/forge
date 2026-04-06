@@ -47,3 +47,4 @@
 ## Review Log
 
 - 2026-04-06: Review fix -- extracted `apps/web/src/components/ChannelView.parts.tsx` from `apps/web/src/components/ChannelView.tsx` to keep the channel view component under the 500-line limit without changing behavior. Validation passed: `bun fmt`, `bun lint`, `bun typecheck`, and `bun run test`.
+- 2026-04-06: Review fix -- split the workflow editor and phase card UI into `apps/web/src/components/WorkflowEditor.parts.tsx`, `apps/web/src/components/PhaseCard.parts.tsx`, `apps/web/src/components/PhaseCard.fields.tsx`, and `apps/web/src/components/PhaseCard.gate.tsx` so every loop-added workflow editor component file now stays under the 500-line cap without behavior changes. Validation passed: `bun fmt`, `bun lint`, `bun typecheck`, and `bun run test`.

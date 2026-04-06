@@ -5,10 +5,9 @@ import type {
   WorkflowSummary,
 } from "@forgetools/contracts";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
-import { Link2Icon, PlusIcon, SaveIcon, SparklesIcon } from "lucide-react";
+import { PlusIcon } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { useNavigate } from "@tanstack/react-router";
-import { cn } from "~/lib/utils";
 import { resolveAppModelSelectionState } from "../modelSelection";
 import { useServerConfig } from "../rpc/serverState";
 import { useStore } from "../store";
@@ -23,10 +22,15 @@ import { getWsRpcClient } from "../wsRpcClient";
 import { useSettings } from "../hooks/useSettings";
 import { toastManager } from "./ui/toast";
 import { Button } from "./ui/button";
-import { Input } from "./ui/input";
-import { SidebarInset, SidebarTrigger } from "./ui/sidebar";
-import { Textarea } from "./ui/textarea";
+import { SidebarInset } from "./ui/sidebar";
 import { PhaseCard } from "./PhaseCard";
+import {
+  WorkflowEditorBasicsSection,
+  WorkflowEditorFootnote,
+  WorkflowEditorShell,
+  WorkflowEditorSidebar,
+  WorkflowEditorTopBar,
+} from "./WorkflowEditor.parts";
 import {
   appendWorkflowDraftPhase,
   buildWorkflowMutationDefinition,
@@ -246,17 +250,11 @@ export function WorkflowEditor(props: { workflowId: WorkflowId | null }) {
   if (props.workflowId !== null && workflowDetailQuery.isPending && !sourceWorkflow) {
     return (
       <SidebarInset className="h-dvh min-h-0 overflow-hidden overscroll-y-none bg-background text-foreground">
-        <div className="flex min-h-0 flex-1 flex-col">
-          <header className="border-b border-border px-3 py-2 sm:px-5">
-            <div className="flex items-center gap-2">
-              <SidebarTrigger className="size-7 shrink-0 md:hidden" />
-              <span className="text-sm font-medium text-foreground">Workflow editor</span>
-            </div>
-          </header>
+        <WorkflowEditorShell>
           <div className="flex flex-1 items-center justify-center text-sm text-muted-foreground">
             Loading workflow…
           </div>
-        </div>
+        </WorkflowEditorShell>
       </SidebarInset>
     );
   }
@@ -264,19 +262,13 @@ export function WorkflowEditor(props: { workflowId: WorkflowId | null }) {
   if (props.workflowId !== null && workflowDetailQuery.isError && !sourceWorkflow) {
     return (
       <SidebarInset className="h-dvh min-h-0 overflow-hidden overscroll-y-none bg-background text-foreground">
-        <div className="flex min-h-0 flex-1 flex-col">
-          <header className="border-b border-border px-3 py-2 sm:px-5">
-            <div className="flex items-center gap-2">
-              <SidebarTrigger className="size-7 shrink-0 md:hidden" />
-              <span className="text-sm font-medium text-foreground">Workflow editor</span>
-            </div>
-          </header>
+        <WorkflowEditorShell>
           <div className="flex flex-1 items-center justify-center px-6 text-center text-sm text-muted-foreground">
             {workflowDetailQuery.error instanceof Error
               ? workflowDetailQuery.error.message
               : "Unable to load this workflow."}
           </div>
-        </div>
+        </WorkflowEditorShell>
       </SidebarInset>
     );
   }
@@ -284,227 +276,75 @@ export function WorkflowEditor(props: { workflowId: WorkflowId | null }) {
   return (
     <SidebarInset className="h-dvh min-h-0 overflow-hidden overscroll-y-none bg-background text-foreground">
       <div className="flex min-h-0 flex-1 flex-col bg-background">
-        <header className="border-b border-border px-3 py-2 sm:px-5">
-          <div className="flex flex-wrap items-center gap-2">
-            <SidebarTrigger className="size-7 shrink-0 md:hidden" />
-            <div className="min-w-0 flex-1">
-              <p className="text-sm font-medium text-foreground">Workflow editor</p>
-              <p className="text-xs text-muted-foreground">
-                Build list-based workflows with phase gates, deliberation, and retry behavior.
-              </p>
-            </div>
-            <Button
-              type="button"
-              variant="outline"
-              onClick={() => void navigate({ to: "/workflow/editor" })}
-            >
-              <PlusIcon className="size-4" />
-              New workflow
-            </Button>
-            <Button
-              type="button"
-              onClick={() => void saveMutation.mutateAsync()}
-              disabled={saveMutation.isPending || validationMessage !== null || isReadOnlyBuiltIn}
-            >
-              <SaveIcon className="size-4" />
-              {saveMutation.isPending ? "Saving…" : "Save"}
-            </Button>
-          </div>
-        </header>
-
+        <WorkflowEditorTopBar
+          onCreateNew={() => void navigate({ to: "/workflow/editor" })}
+          onSave={() => void saveMutation.mutateAsync()}
+          saveDisabled={saveMutation.isPending || validationMessage !== null || isReadOnlyBuiltIn}
+          savePending={saveMutation.isPending}
+        />
         <div className="grid min-h-0 flex-1 lg:grid-cols-[19rem_minmax(0,1fr)]">
-          <aside className="min-h-0 border-b border-border/70 bg-card/50 lg:border-r lg:border-b-0">
-            <div className="flex items-center justify-between border-b border-border/70 px-4 py-3">
-              <div>
-                <p className="text-xs font-semibold uppercase tracking-[0.08em] text-muted-foreground">
-                  Workflows
-                </p>
-                <p className="text-xs text-muted-foreground">Built-in first, then custom.</p>
-              </div>
-              <Button
-                type="button"
-                size="xs"
-                variant="outline"
-                onClick={() => void navigate({ to: "/workflow/editor" })}
-              >
-                <PlusIcon className="size-3.5" />
-                New
-              </Button>
-            </div>
-            <div className="max-h-64 overflow-y-auto px-2 py-2 lg:max-h-none lg:h-full">
-              <div className="space-y-1">
-                {renderedDefinitions.map((workflow) => {
-                  const active = props.workflowId === workflow.id;
-                  return (
-                    <Button
-                      key={workflow.id}
-                      type="button"
-                      variant="ghost"
-                      className={cn(
-                        "h-auto w-full justify-start rounded-xl px-3 py-3 text-left",
-                        active && "bg-accent text-foreground",
-                      )}
-                      onClick={() =>
-                        void navigate({
-                          to: "/workflow/editor/$workflowId",
-                          params: { workflowId: workflow.id },
-                        })
-                      }
-                    >
-                      <div className="min-w-0">
-                        <div className="flex items-center gap-2">
-                          <span className="truncate font-medium">{workflow.name}</span>
-                          {workflow.builtIn ? (
-                            <span className="rounded-full border border-amber-500/20 bg-amber-500/10 px-2 py-0.5 text-[10px] uppercase tracking-[0.08em] text-amber-700 dark:text-amber-300">
-                              Built-in
-                            </span>
-                          ) : null}
-                        </div>
-                        <p className="mt-1 line-clamp-2 text-xs text-muted-foreground">
-                          {workflow.description || "No description"}
-                        </p>
-                      </div>
-                    </Button>
-                  );
-                })}
-              </div>
-            </div>
-          </aside>
+          <WorkflowEditorSidebar
+            workflows={renderedDefinitions}
+            activeWorkflowId={props.workflowId}
+            onCreateNew={() => void navigate({ to: "/workflow/editor" })}
+            onSelectWorkflow={(workflowId) =>
+              void navigate({
+                to: "/workflow/editor/$workflowId",
+                params: { workflowId },
+              })
+            }
+          />
 
           <main className="min-h-0 overflow-y-auto">
             <div className="mx-auto flex w-full max-w-5xl flex-col gap-5 px-4 py-5 sm:px-6">
+              <WorkflowEditorBasicsSection
+                draft={draft}
+                disabled={!draft || isReadOnlyBuiltIn}
+                scope={scope}
+                projects={projects}
+                currentProject={currentProject}
+                draftDirty={draftDirty}
+                sourceWorkflow={sourceWorkflow}
+                validationMessage={validationMessage}
+                onDraftNameChange={(name) => {
+                  setDraft((current) =>
+                    current
+                      ? {
+                          ...current,
+                          name,
+                        }
+                      : current,
+                  );
+                  setDraftDirty(true);
+                }}
+                onDraftDescriptionChange={(description) => {
+                  setDraft((current) =>
+                    current
+                      ? {
+                          ...current,
+                          description,
+                        }
+                      : current,
+                  );
+                  setDraftDirty(true);
+                }}
+                onScopeChange={setScope}
+                onProjectScopeRequest={() => {
+                  setScope("project");
+                  if (!projectId && projects[0]?.id) {
+                    setProjectId(projects[0].id);
+                  }
+                }}
+                onCloneBuiltIn={() => {
+                  if (!sourceWorkflow) {
+                    return;
+                  }
+                  setDraft(cloneWorkflowForEditing(sourceWorkflow, new Date().toISOString()));
+                  setDraftDirty(true);
+                }}
+              />
+
               <section className="rounded-2xl border border-border/80 bg-card/90 shadow-sm">
-                <div className="grid gap-5 border-b border-border/70 px-4 py-4 sm:px-5 lg:grid-cols-[minmax(0,1fr)_18rem]">
-                  <div className="space-y-4">
-                    <div className="space-y-2">
-                      <label className="text-[11px] font-semibold uppercase tracking-[0.08em] text-muted-foreground">
-                        Name
-                      </label>
-                      <Input
-                        value={draft?.name ?? ""}
-                        onChange={(event) => {
-                          setDraft((current) =>
-                            current
-                              ? {
-                                  ...current,
-                                  name: event.target.value,
-                                }
-                              : current,
-                          );
-                          setDraftDirty(true);
-                        }}
-                        placeholder="build-with-review"
-                        disabled={!draft || isReadOnlyBuiltIn}
-                      />
-                    </div>
-
-                    <div className="space-y-2">
-                      <label className="text-[11px] font-semibold uppercase tracking-[0.08em] text-muted-foreground">
-                        Description
-                      </label>
-                      <Textarea
-                        value={draft?.description ?? ""}
-                        onChange={(event) => {
-                          setDraft((current) =>
-                            current
-                              ? {
-                                  ...current,
-                                  description: event.target.value,
-                                }
-                              : current,
-                          );
-                          setDraftDirty(true);
-                        }}
-                        placeholder="Describe what this workflow optimizes for."
-                        className="min-h-24"
-                        disabled={!draft || isReadOnlyBuiltIn}
-                      />
-                    </div>
-                  </div>
-
-                  <div className="space-y-4 rounded-2xl border border-border/70 bg-background/60 p-4">
-                    <div className="space-y-2">
-                      <p className="text-[11px] font-semibold uppercase tracking-[0.08em] text-muted-foreground">
-                        Scope
-                      </p>
-                      <div className="flex gap-2">
-                        <Button
-                          type="button"
-                          size="sm"
-                          variant={scope === "global" ? "secondary" : "outline"}
-                          onClick={() => setScope("global")}
-                          disabled={isReadOnlyBuiltIn}
-                        >
-                          Global
-                        </Button>
-                        <Button
-                          type="button"
-                          size="sm"
-                          variant={scope === "project" ? "secondary" : "outline"}
-                          onClick={() => {
-                            setScope("project");
-                            if (!projectId && projects[0]?.id) {
-                              setProjectId(projects[0].id);
-                            }
-                          }}
-                          disabled={isReadOnlyBuiltIn || projects.length === 0}
-                        >
-                          This project
-                        </Button>
-                      </div>
-                      <p className="text-xs text-muted-foreground">
-                        {scope === "project"
-                          ? currentProject
-                            ? `Selected project: ${currentProject.name}`
-                            : "No project is available yet."
-                          : "Available across every project."}
-                      </p>
-                    </div>
-
-                    <div className="space-y-2">
-                      <p className="text-[11px] font-semibold uppercase tracking-[0.08em] text-muted-foreground">
-                        Status
-                      </p>
-                      <div className="rounded-xl border border-border/70 bg-card px-3 py-2 text-sm">
-                        {draftDirty ? "Unsaved changes" : "Saved"}
-                      </div>
-                    </div>
-
-                    {isReadOnlyBuiltIn ? (
-                      <div className="space-y-3 rounded-xl border border-amber-500/20 bg-amber-500/10 px-3 py-3">
-                        <div className="space-y-1">
-                          <p className="text-sm font-medium text-foreground">Built-in workflow</p>
-                          <p className="text-xs text-muted-foreground">
-                            Clone it before editing so the shipped template stays read-only.
-                          </p>
-                        </div>
-                        <Button
-                          type="button"
-                          variant="outline"
-                          onClick={() => {
-                            if (!sourceWorkflow) {
-                              return;
-                            }
-                            setDraft(
-                              cloneWorkflowForEditing(sourceWorkflow, new Date().toISOString()),
-                            );
-                            setDraftDirty(true);
-                          }}
-                        >
-                          <SparklesIcon className="size-4" />
-                          Clone to edit
-                        </Button>
-                      </div>
-                    ) : null}
-
-                    {validationMessage ? (
-                      <div className="rounded-xl border border-amber-500/20 bg-amber-500/10 px-3 py-2 text-sm text-amber-700 dark:text-amber-300">
-                        {validationMessage}
-                      </div>
-                    ) : null}
-                  </div>
-                </div>
-
                 <div className="border-b border-border/70 px-4 py-3 sm:px-5">
                   <div className="flex items-center justify-between gap-3">
                     <div>
@@ -586,16 +426,7 @@ export function WorkflowEditor(props: { workflowId: WorkflowId | null }) {
                 </div>
               </section>
 
-              <section className="rounded-2xl border border-border/70 bg-card/70 px-4 py-4 text-sm text-muted-foreground shadow-sm sm:px-5">
-                <div className="flex items-start gap-3">
-                  <Link2Icon className="mt-0.5 size-4 shrink-0" />
-                  <p>
-                    Built-in workflows stay read-only. Clone them to customize, then save as a new
-                    workflow. The project scope toggle is preserved in editor state so the UI is
-                    ready for project-backed workflow persistence as the backend catches up.
-                  </p>
-                </div>
-              </section>
+              <WorkflowEditorFootnote />
             </div>
           </main>
         </div>
