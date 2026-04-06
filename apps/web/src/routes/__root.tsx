@@ -26,6 +26,7 @@ import {
   startServerStateSync,
   useServerConfig,
   useServerConfigUpdatedSubscription,
+  useServerLifecycleCompatibilityIssue,
   useServerWelcomeSubscription,
 } from "../rpc/serverState";
 import {
@@ -56,28 +57,82 @@ export const Route = createRootRouteWithContext<{
 });
 
 function RootRouteView() {
-  if (!readNativeApi()) {
-    return (
-      <div className="flex h-screen flex-col bg-background text-foreground">
-        <div className="flex flex-1 items-center justify-center">
-          <p className="text-sm text-muted-foreground">
-            Connecting to {APP_DISPLAY_NAME} server...
-          </p>
-        </div>
-      </div>
-    );
-  }
+  const nativeApi = readNativeApi();
+  const compatibilityIssue = useServerLifecycleCompatibilityIssue();
 
   return (
     <ToastProvider>
       <AnchoredToastProvider>
         <ServerStateBootstrap />
-        <EventRouter />
-        <AppSidebarLayout>
-          <Outlet />
-        </AppSidebarLayout>
+        {!nativeApi ? (
+          <ConnectingView />
+        ) : compatibilityIssue ? (
+          <DaemonVersionMismatchView
+            appVersion={compatibilityIssue.appVersion}
+            daemonVersion={compatibilityIssue.daemonVersion}
+            appProtocolVersion={compatibilityIssue.appProtocolVersion}
+            daemonProtocolVersion={compatibilityIssue.daemonProtocolVersion}
+          />
+        ) : (
+          <>
+            <EventRouter />
+            <AppSidebarLayout>
+              <Outlet />
+            </AppSidebarLayout>
+          </>
+        )}
       </AnchoredToastProvider>
     </ToastProvider>
+  );
+}
+
+function ConnectingView() {
+  return (
+    <div className="flex h-screen flex-col bg-background text-foreground">
+      <div className="flex flex-1 items-center justify-center">
+        <p className="text-sm text-muted-foreground">Connecting to {APP_DISPLAY_NAME} server...</p>
+      </div>
+    </div>
+  );
+}
+
+function DaemonVersionMismatchView(input: {
+  readonly appVersion: string;
+  readonly daemonVersion: string;
+  readonly appProtocolVersion: number;
+  readonly daemonProtocolVersion: number;
+}) {
+  return (
+    <div className="relative flex min-h-screen items-center justify-center overflow-hidden bg-background px-4 py-10 text-foreground sm:px-6">
+      <div className="pointer-events-none absolute inset-0 opacity-80">
+        <div className="absolute inset-x-0 top-0 h-44 bg-[radial-gradient(44rem_16rem_at_top,color-mix(in_srgb,var(--color-amber-500)_18%,transparent),transparent)]" />
+        <div className="absolute inset-0 bg-[linear-gradient(145deg,color-mix(in_srgb,var(--background)_88%,var(--color-black))_0%,var(--background)_55%)]" />
+      </div>
+
+      <section className="relative w-full max-w-xl rounded-2xl border border-border/80 bg-card/90 p-6 shadow-2xl shadow-black/20 backdrop-blur-md sm:p-8">
+        <p className="text-[11px] font-semibold tracking-[0.18em] text-muted-foreground uppercase">
+          {APP_DISPLAY_NAME}
+        </p>
+        <h1 className="mt-3 text-2xl font-semibold tracking-tight sm:text-3xl">Version mismatch</h1>
+        <p className="mt-2 text-sm leading-relaxed text-muted-foreground">
+          The running Forge daemon is not compatible with this app build. Restart the daemon with{" "}
+          <code>forge daemon restart</code>, then reload the app.
+        </p>
+
+        <div className="mt-5 rounded-lg border border-border/70 bg-background/70 px-4 py-3 text-sm">
+          <p>App version: {input.appVersion}</p>
+          <p>Daemon version: {input.daemonVersion}</p>
+          <p>App protocol: {input.appProtocolVersion}</p>
+          <p>Daemon protocol: {input.daemonProtocolVersion}</p>
+        </div>
+
+        <div className="mt-5 flex flex-wrap gap-2">
+          <Button size="sm" onClick={() => window.location.reload()}>
+            Reload app
+          </Button>
+        </div>
+      </section>
+    </div>
   );
 }
 

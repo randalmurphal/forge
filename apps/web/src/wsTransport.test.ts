@@ -1,4 +1,4 @@
-import { WS_METHODS } from "@forgetools/contracts";
+import { FORGE_DAEMON_LIFECYCLE_PROTOCOL_VERSION, WS_METHODS } from "@forgetools/contracts";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { WsTransport } from "./wsTransport";
@@ -228,6 +228,8 @@ describe("WsTransport", () => {
       payload: {
         cwd: "/tmp/workspace",
         projectName: "workspace",
+        daemonVersion: "0.0.15",
+        protocolVersion: FORGE_DAEMON_LIFECYCLE_PROTOCOL_VERSION,
       },
     };
 
@@ -279,6 +281,8 @@ describe("WsTransport", () => {
             payload: {
               cwd: "/tmp/one",
               projectName: "one",
+              daemonVersion: "0.0.15",
+              protocolVersion: FORGE_DAEMON_LIFECYCLE_PROTOCOL_VERSION,
             },
           },
         ],
@@ -321,6 +325,8 @@ describe("WsTransport", () => {
       payload: {
         cwd: "/tmp/two",
         projectName: "two",
+        daemonVersion: "0.0.15",
+        protocolVersion: FORGE_DAEMON_LIFECYCLE_PROTOCOL_VERSION,
       },
     };
     socket.serverMessage(

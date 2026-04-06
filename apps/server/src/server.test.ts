@@ -6,6 +6,7 @@ import {
   ChannelMessageId,
   CommandId,
   DEFAULT_SERVER_SETTINGS,
+  FORGE_DAEMON_LIFECYCLE_PROTOCOL_VERSION,
   GitCommandError,
   InteractiveRequestId,
   KeybindingRule,
@@ -745,6 +746,8 @@ it.layer(NodeServices.layer)("server router seam", (it) => {
             payload: {
               cwd: "/tmp/project",
               projectName: "project",
+              daemonVersion: "0.0.15",
+              protocolVersion: FORGE_DAEMON_LIFECYCLE_PROTOCOL_VERSION,
             },
           },
         ] as const;

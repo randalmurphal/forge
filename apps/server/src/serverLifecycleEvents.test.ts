@@ -17,6 +17,8 @@ it.effect(
           payload: {
             cwd: "/tmp/project",
             projectName: "project",
+            daemonVersion: "0.0.15",
+            protocolVersion: 1,
           },
         })
         .pipe(Effect.timeoutOption("50 millis"));

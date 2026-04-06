@@ -2,6 +2,7 @@ import { Schema } from "effect";
 import {
   IsoDateTime,
   NonNegativeInt,
+  PositiveInt,
   ProjectId,
   ThreadId,
   TrimmedNonEmptyString,
@@ -170,9 +171,13 @@ export const ServerLifecycleReadyPayload = Schema.Struct({
 });
 export type ServerLifecycleReadyPayload = typeof ServerLifecycleReadyPayload.Type;
 
+export const FORGE_DAEMON_LIFECYCLE_PROTOCOL_VERSION = 1;
+
 export const ServerLifecycleWelcomePayload = Schema.Struct({
   cwd: TrimmedNonEmptyString,
   projectName: TrimmedNonEmptyString,
+  daemonVersion: TrimmedNonEmptyString,
+  protocolVersion: PositiveInt,
   bootstrapProjectId: Schema.optional(ProjectId),
   bootstrapThreadId: Schema.optional(ThreadId),
 });

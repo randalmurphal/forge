@@ -1,5 +1,6 @@
 import {
   DEFAULT_SERVER_SETTINGS,
+  FORGE_DAEMON_LIFECYCLE_PROTOCOL_VERSION,
   ProjectId,
   ThreadId,
   type ServerConfig,
@@ -10,6 +11,7 @@ import {
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import {
+  getServerLifecycleCompatibilityIssue,
   getServerConfig,
   onProvidersUpdated,
   onServerConfigUpdated,
@@ -17,6 +19,7 @@ import {
   resetServerStateForTests,
   startServerStateSync,
 } from "./serverState";
+import { APP_VERSION } from "../branding";
 
 function registerListener<T>(listeners: Set<(event: T) => void>, listener: (event: T) => void) {
   listeners.add(listener);
@@ -194,7 +197,9 @@ describe("serverState", () => {
       type: "welcome",
       payload: {
         cwd: "/tmp/workspace",
-        projectName: "t3-code",
+        projectName: "forge",
+        daemonVersion: "0.0.15",
+        protocolVersion: FORGE_DAEMON_LIFECYCLE_PROTOCOL_VERSION,
         bootstrapProjectId: ProjectId.makeUnsafe("project-1"),
         bootstrapThreadId: ThreadId.makeUnsafe("thread-1"),
       },
@@ -202,7 +207,9 @@ describe("serverState", () => {
 
     expect(listener).toHaveBeenCalledWith({
       cwd: "/tmp/workspace",
-      projectName: "t3-code",
+      projectName: "forge",
+      daemonVersion: "0.0.15",
+      protocolVersion: FORGE_DAEMON_LIFECYCLE_PROTOCOL_VERSION,
       bootstrapProjectId: ProjectId.makeUnsafe("project-1"),
       bootstrapThreadId: ThreadId.makeUnsafe("thread-1"),
     });
@@ -211,12 +218,47 @@ describe("serverState", () => {
     const unsubscribeLate = onWelcome(lateListener);
     expect(lateListener).toHaveBeenCalledWith({
       cwd: "/tmp/workspace",
-      projectName: "t3-code",
+      projectName: "forge",
+      daemonVersion: "0.0.15",
+      protocolVersion: FORGE_DAEMON_LIFECYCLE_PROTOCOL_VERSION,
       bootstrapProjectId: ProjectId.makeUnsafe("project-1"),
       bootstrapThreadId: ThreadId.makeUnsafe("thread-1"),
     });
 
     unsubscribeLate();
+    unsubscribe();
+    stop();
+  });
+
+  it("blocks welcome propagation when the daemon protocol version does not match the app", async () => {
+    serverApi.getConfig.mockResolvedValueOnce(baseServerConfig);
+    const stop = startServerStateSync(serverApi);
+    const listener = vi.fn();
+    const unsubscribe = onWelcome(listener);
+
+    emitLifecycleEvent({
+      version: 1,
+      sequence: 1,
+      type: "welcome",
+      payload: {
+        cwd: "/tmp/workspace",
+        projectName: "forge",
+        daemonVersion: "9.9.9",
+        protocolVersion: FORGE_DAEMON_LIFECYCLE_PROTOCOL_VERSION + 1,
+      },
+    });
+
+    await waitFor(() => {
+      expect(getServerLifecycleCompatibilityIssue()).toEqual({
+        appVersion: APP_VERSION,
+        daemonVersion: "9.9.9",
+        appProtocolVersion: FORGE_DAEMON_LIFECYCLE_PROTOCOL_VERSION,
+        daemonProtocolVersion: FORGE_DAEMON_LIFECYCLE_PROTOCOL_VERSION + 1,
+      });
+    });
+
+    expect(listener).not.toHaveBeenCalled();
+
     unsubscribe();
     stop();
   });

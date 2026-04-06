@@ -1,6 +1,7 @@
 import {
   CommandId,
   DEFAULT_PROVIDER_INTERACTION_MODE,
+  FORGE_DAEMON_LIFECYCLE_PROTOCOL_VERSION,
   type ModelSelection,
   ProjectId,
   ThreadId,
@@ -28,6 +29,7 @@ import { OrchestrationReactor } from "./orchestration/Services/OrchestrationReac
 import { ServerLifecycleEvents } from "./serverLifecycleEvents";
 import { ServerSettingsService } from "./serverSettings";
 import { AnalyticsService } from "./telemetry/Services/AnalyticsService";
+import { version as daemonVersion } from "../package.json" with { type: "json" };
 
 const isWildcardHost = (host: string | undefined): boolean =>
   host === "0.0.0.0" || host === "::" || host === "[::]";
@@ -149,6 +151,17 @@ export const launchStartupHeartbeat = recordStartupHeartbeat.pipe(
   Effect.asVoid,
 );
 
+export const buildServerLifecycleWelcomePayload = (input: {
+  readonly cwd: string;
+  readonly projectName: string;
+  readonly bootstrapProjectId?: ProjectId;
+  readonly bootstrapThreadId?: ThreadId;
+}) => ({
+  ...input,
+  daemonVersion,
+  protocolVersion: FORGE_DAEMON_LIFECYCLE_PROTOCOL_VERSION,
+});
+
 const autoBootstrapWelcome = Effect.gen(function* () {
   const serverConfig = yield* ServerConfig;
   const projectionReadModelQuery = yield* ProjectionSnapshotQuery;
@@ -221,12 +234,12 @@ const autoBootstrapWelcome = Effect.gen(function* () {
   const segments = serverConfig.cwd.split(/[/\\]/).filter(Boolean);
   const projectName = segments[segments.length - 1] ?? "project";
 
-  return {
+  return buildServerLifecycleWelcomePayload({
     cwd: serverConfig.cwd,
     projectName,
     ...(bootstrapProjectId ? { bootstrapProjectId } : {}),
     ...(bootstrapThreadId ? { bootstrapThreadId } : {}),
-  } as const;
+  });
 });
 
 const maybeOpenBrowser = Effect.gen(function* () {

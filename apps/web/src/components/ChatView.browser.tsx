@@ -3,6 +3,7 @@ import "../index.css";
 
 import {
   EventId,
+  FORGE_DAEMON_LIFECYCLE_PROTOCOL_VERSION,
   ORCHESTRATION_WS_METHODS,
   type MessageId,
   type OrchestrationEvent,
@@ -316,6 +317,8 @@ function buildFixture(snapshot: OrchestrationReadModel): TestFixture {
     welcome: {
       cwd: "/repo/project",
       projectName: "Project",
+      daemonVersion: "0.0.15",
+      protocolVersion: FORGE_DAEMON_LIFECYCLE_PROTOCOL_VERSION,
       bootstrapProjectId: PROJECT_ID,
       bootstrapThreadId: THREAD_ID,
     },

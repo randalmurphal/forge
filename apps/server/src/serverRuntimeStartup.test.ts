@@ -1,13 +1,16 @@
 import { assert, it } from "@effect/vitest";
 import { Deferred, Effect, Fiber, Option, Ref } from "effect";
+import { FORGE_DAEMON_LIFECYCLE_PROTOCOL_VERSION } from "@forgetools/contracts";
 
 import { AnalyticsService } from "./telemetry/Services/AnalyticsService.ts";
 import { ProjectionSnapshotQuery } from "./orchestration/Services/ProjectionSnapshotQuery.ts";
 import {
+  buildServerLifecycleWelcomePayload,
   launchStartupHeartbeat,
   makeCommandGate,
   ServerRuntimeStartupError,
 } from "./serverRuntimeStartup.ts";
+import { version as daemonVersion } from "../package.json" with { type: "json" };
 
 it.effect("enqueueCommand waits for readiness and then drains queued work", () =>
   Effect.scoped(
@@ -80,3 +83,18 @@ it.effect("launchStartupHeartbeat does not block the caller while counts are loa
     }),
   ),
 );
+
+it("buildServerLifecycleWelcomePayload adds daemon version metadata for the desktop handshake", () => {
+  assert.deepEqual(
+    buildServerLifecycleWelcomePayload({
+      cwd: "/tmp/project",
+      projectName: "project",
+    }),
+    {
+      cwd: "/tmp/project",
+      projectName: "project",
+      daemonVersion,
+      protocolVersion: FORGE_DAEMON_LIFECYCLE_PROTOCOL_VERSION,
+    },
+  );
+});

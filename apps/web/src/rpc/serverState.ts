@@ -1,6 +1,7 @@
 import { useAtomSubscribe, useAtomValue } from "@effect/atom-react";
 import {
   DEFAULT_SERVER_SETTINGS,
+  FORGE_DAEMON_LIFECYCLE_PROTOCOL_VERSION,
   type EditorId,
   type ServerConfig,
   type ServerConfigStreamEvent,
@@ -15,6 +16,7 @@ import { useCallback, useRef } from "react";
 
 import type { WsRpcClient } from "../wsRpcClient";
 import { appAtomRegistry, resetAppAtomRegistryForTests } from "./atomRegistry";
+import { APP_VERSION } from "../branding";
 
 export type ServerConfigUpdateSource = ServerConfigStreamEvent["type"];
 
@@ -22,6 +24,13 @@ export interface ServerConfigUpdatedNotification {
   readonly id: number;
   readonly payload: ServerConfigUpdatedPayload;
   readonly source: ServerConfigUpdateSource;
+}
+
+export interface ServerLifecycleCompatibilityIssue {
+  readonly appVersion: string;
+  readonly daemonVersion: string;
+  readonly appProtocolVersion: number;
+  readonly daemonProtocolVersion: number;
 }
 
 type ServerStateClient = Pick<
@@ -69,9 +78,18 @@ export const providersUpdatedAtom = makeStateAtom<ServerProviderUpdatedPayload |
   "server-providers-updated",
   null,
 );
+export const serverLifecycleCompatibilityIssueAtom =
+  makeStateAtom<ServerLifecycleCompatibilityIssue | null>(
+    "server-lifecycle-compatibility-issue",
+    null,
+  );
 
 export function getServerConfig(): ServerConfig | null {
   return appAtomRegistry.get(serverConfigAtom);
+}
+
+export function getServerLifecycleCompatibilityIssue(): ServerLifecycleCompatibilityIssue | null {
+  return appAtomRegistry.get(serverLifecycleCompatibilityIssueAtom);
 }
 
 export function getServerConfigUpdatedNotification(): ServerConfigUpdatedNotification | null {
@@ -148,6 +166,21 @@ export function emitWelcome(payload: ServerLifecycleWelcomePayload): void {
   appAtomRegistry.set(welcomeAtom, payload);
 }
 
+export function resolveServerLifecycleCompatibilityIssue(
+  payload: ServerLifecycleWelcomePayload,
+): ServerLifecycleCompatibilityIssue | null {
+  if (payload.protocolVersion === FORGE_DAEMON_LIFECYCLE_PROTOCOL_VERSION) {
+    return null;
+  }
+
+  return {
+    appVersion: APP_VERSION,
+    daemonVersion: payload.daemonVersion,
+    appProtocolVersion: FORGE_DAEMON_LIFECYCLE_PROTOCOL_VERSION,
+    daemonProtocolVersion: payload.protocolVersion,
+  };
+}
+
 export function onWelcome(listener: (payload: ServerLifecycleWelcomePayload) => void): () => void {
   return subscribeLatest(welcomeAtom, listener);
 }
@@ -171,6 +204,12 @@ export function startServerStateSync(client: ServerStateClient): () => void {
   const cleanups = [
     client.subscribeLifecycle((event) => {
       if (event.type === "welcome") {
+        const compatibilityIssue = resolveServerLifecycleCompatibilityIssue(event.payload);
+        appAtomRegistry.set(serverLifecycleCompatibilityIssueAtom, compatibilityIssue);
+        if (compatibilityIssue) {
+          appAtomRegistry.set(welcomeAtom, null);
+          return;
+        }
         emitWelcome(event.payload);
       }
     }),
@@ -260,6 +299,10 @@ function useLatestAtomSubscription<A>(
 
 export function useServerConfig(): ServerConfig | null {
   return useAtomValue(serverConfigAtom);
+}
+
+export function useServerLifecycleCompatibilityIssue(): ServerLifecycleCompatibilityIssue | null {
+  return useAtomValue(serverLifecycleCompatibilityIssueAtom);
 }
 
 export function useServerSettings(): ServerSettings {
