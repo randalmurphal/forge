@@ -264,6 +264,7 @@ export const buildDaemonLaunchPlan = (input: {
   }
 
   const env = { ...process.env };
+  delete env.FORGE_AUTH_TOKEN;
   delete env.FORGE_MODE;
   delete env.FORGE_NO_BROWSER;
 

@@ -5,7 +5,7 @@ import * as Path from "node:path";
 import { Effect } from "effect";
 import { afterEach, describe, expect, it } from "vitest";
 
-import { readDaemonInfoFile } from "./cliClient.ts";
+import { buildDaemonLaunchPlan, readDaemonInfoFile } from "./cliClient.ts";
 
 const tempDirs: string[] = [];
 
@@ -133,5 +133,59 @@ describe("readDaemonInfoFile", () => {
     );
 
     expect(info).toBeUndefined();
+  });
+});
+
+describe("buildDaemonLaunchPlan", () => {
+  it("clears inherited daemon auth token overrides so each daemon startup can rotate wsToken", () => {
+    const originalAuthToken = process.env.FORGE_AUTH_TOKEN;
+    const originalMode = process.env.FORGE_MODE;
+    const originalNoBrowser = process.env.FORGE_NO_BROWSER;
+
+    process.env.FORGE_AUTH_TOKEN = "pinned-token";
+    process.env.FORGE_MODE = "desktop";
+    process.env.FORGE_NO_BROWSER = "1";
+
+    try {
+      const plan = buildDaemonLaunchPlan({
+        baseDir: "/Users/randy/.forge",
+        entryScriptPath: "/repo/apps/server/dist/bin.mjs",
+        execPath: "/usr/local/bin/node",
+      });
+
+      expect(plan).not.toBeInstanceOf(Error);
+      expect(plan).toMatchObject({
+        command: "/usr/local/bin/node",
+        args: [
+          "/repo/apps/server/dist/bin.mjs",
+          "--mode",
+          "daemon",
+          "--no-browser",
+          "--base-dir",
+          "/Users/randy/.forge",
+        ],
+      });
+      if (!(plan instanceof Error)) {
+        expect(plan.env.FORGE_AUTH_TOKEN).toBeUndefined();
+        expect(plan.env.FORGE_MODE).toBeUndefined();
+        expect(plan.env.FORGE_NO_BROWSER).toBeUndefined();
+      }
+    } finally {
+      if (originalAuthToken === undefined) {
+        delete process.env.FORGE_AUTH_TOKEN;
+      } else {
+        process.env.FORGE_AUTH_TOKEN = originalAuthToken;
+      }
+      if (originalMode === undefined) {
+        delete process.env.FORGE_MODE;
+      } else {
+        process.env.FORGE_MODE = originalMode;
+      }
+      if (originalNoBrowser === undefined) {
+        delete process.env.FORGE_NO_BROWSER;
+      } else {
+        process.env.FORGE_NO_BROWSER = originalNoBrowser;
+      }
+    }
   });
 });
