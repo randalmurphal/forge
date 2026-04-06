@@ -17,6 +17,7 @@ export interface SidebarTreeNode {
   ownStatus: ThreadStatusPill;
   displayStatus: ThreadStatusPill;
   sortGroup: SidebarTreeSortGroup;
+  latestActivityAt: string | null;
 }
 
 export interface SidebarTreeVisibleNode extends SidebarTreeNode {
@@ -58,6 +59,24 @@ function toSortableTimestamp(iso: string | undefined | null): number {
   }
   const timestamp = Date.parse(iso);
   return Number.isFinite(timestamp) ? timestamp : Number.NEGATIVE_INFINITY;
+}
+
+function resolveLatestActivityAt(
+  thread: SidebarTreeThread,
+  children: readonly SidebarTreeNode[],
+): string | null {
+  let latestActivityAt: string | null = thread.updatedAt ?? thread.createdAt ?? null;
+  let latestTimestamp = toSortableTimestamp(latestActivityAt);
+
+  for (const child of children) {
+    const childTimestamp = toSortableTimestamp(child.latestActivityAt);
+    if (childTimestamp > latestTimestamp) {
+      latestTimestamp = childTimestamp;
+      latestActivityAt = child.latestActivityAt;
+    }
+  }
+
+  return latestActivityAt;
 }
 
 function resolveOwnTreeStatus(thread: SidebarTreeThread): ThreadStatusPill {
@@ -136,8 +155,8 @@ function compareTreeNodes(left: SidebarTreeNode, right: SidebarTreeNode): number
     return byGroupPriority;
   }
 
-  const rightTimestamp = toSortableTimestamp(right.thread.updatedAt ?? right.thread.createdAt);
-  const leftTimestamp = toSortableTimestamp(left.thread.updatedAt ?? left.thread.createdAt);
+  const rightTimestamp = toSortableTimestamp(right.latestActivityAt);
+  const leftTimestamp = toSortableTimestamp(left.latestActivityAt);
   if (rightTimestamp !== leftTimestamp) {
     return rightTimestamp > leftTimestamp ? 1 : -1;
   }
@@ -178,6 +197,7 @@ export function buildSidebarThreadTree(input: {
 
     const ownStatus = resolveOwnTreeStatus(thread);
     const displayStatus = resolveDisplayStatus(ownStatus, childThreads);
+    const latestActivityAt = resolveLatestActivityAt(thread, childThreads);
 
     return {
       thread,
@@ -186,6 +206,7 @@ export function buildSidebarThreadTree(input: {
       ownStatus,
       displayStatus,
       sortGroup: resolveSortGroupFromStatus(displayStatus),
+      latestActivityAt,
     };
   };
 

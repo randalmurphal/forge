@@ -347,6 +347,9 @@ function SidebarThreadRow(props: SidebarThreadRowProps) {
   const rowPaddingLeft = 8 + (props.treeNode?.depth ?? 0) * 14;
   const isExpandable = props.treeNode?.isExpandable ?? false;
   const showChildMeta = isChildThread;
+  const rowRelativeTime = formatRelativeTimeLabel(
+    props.treeNode?.latestActivityAt ?? thread.updatedAt ?? thread.createdAt,
+  );
 
   return (
     <SidebarMenuSubItem
@@ -613,7 +616,7 @@ function SidebarThreadRow(props: SidebarThreadRowProps) {
                       : "text-muted-foreground/40"
                   }`}
                 >
-                  {formatRelativeTimeLabel(thread.updatedAt ?? thread.createdAt)}
+                  {rowRelativeTime}
                 </span>
               )}
             </span>

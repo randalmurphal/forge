@@ -148,6 +148,43 @@ describe("buildSidebarThreadTree", () => {
       completed.id,
     ]);
   });
+
+  it("uses descendant activity when sorting parent containers", () => {
+    const staleParent = makeThread("stale-parent", {
+      updatedAt: "2026-04-06T01:00:00.000Z",
+      childThreadIds: [ThreadId.makeUnsafe("active-child")],
+    });
+    const activeChild = makeThread("active-child", {
+      parentThreadId: staleParent.id,
+      updatedAt: "2026-04-06T05:00:00.000Z",
+      session: {
+        provider: "codex",
+        status: "running",
+        activeTurnId: undefined,
+        createdAt: "2026-04-06T00:00:00.000Z",
+        updatedAt: "2026-04-06T05:00:00.000Z",
+        orchestrationStatus: "running",
+      },
+    });
+    const newerOwnActivity = makeThread("newer-own-activity", {
+      updatedAt: "2026-04-06T04:00:00.000Z",
+      session: {
+        provider: "claudeAgent",
+        status: "running",
+        activeTurnId: undefined,
+        createdAt: "2026-04-06T00:00:00.000Z",
+        updatedAt: "2026-04-06T04:00:00.000Z",
+        orchestrationStatus: "running",
+      },
+    });
+
+    const tree = buildSidebarThreadTree({
+      threads: [staleParent, activeChild, newerOwnActivity],
+    });
+
+    expect(tree.map((node) => node.thread.id)).toEqual([staleParent.id, newerOwnActivity.id]);
+    expect(tree[0]?.latestActivityAt).toBe(activeChild.updatedAt);
+  });
 });
 
 describe("sidebar tree expansion helpers", () => {
