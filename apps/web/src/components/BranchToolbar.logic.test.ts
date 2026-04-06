@@ -14,7 +14,7 @@ describe("resolveDraftEnvModeAfterBranchChange", () => {
     expect(
       resolveDraftEnvModeAfterBranchChange({
         nextWorktreePath: null,
-        currentWorktreePath: "/repo/.t3/worktrees/feature-a",
+        currentWorktreePath: "/repo/.forge/worktrees/feature-a",
         effectiveEnvMode: "worktree",
       }),
     ).toBe("local");
@@ -33,7 +33,7 @@ describe("resolveDraftEnvModeAfterBranchChange", () => {
   it("uses worktree mode when selecting a branch already attached to a worktree", () => {
     expect(
       resolveDraftEnvModeAfterBranchChange({
-        nextWorktreePath: "/repo/.t3/worktrees/feature-a",
+        nextWorktreePath: "/repo/.forge/worktrees/feature-a",
         currentWorktreePath: null,
         effectiveEnvMode: "local",
       }),
@@ -204,15 +204,15 @@ describe("resolveBranchSelectionTarget", () => {
     expect(
       resolveBranchSelectionTarget({
         activeProjectCwd: "/repo",
-        activeWorktreePath: "/repo/.t3/worktrees/feature-a",
+        activeWorktreePath: "/repo/.forge/worktrees/feature-a",
         branch: {
           isDefault: false,
-          worktreePath: "/repo/.t3/worktrees/feature-b",
+          worktreePath: "/repo/.forge/worktrees/feature-b",
         },
       }),
     ).toEqual({
-      checkoutCwd: "/repo/.t3/worktrees/feature-b",
-      nextWorktreePath: "/repo/.t3/worktrees/feature-b",
+      checkoutCwd: "/repo/.forge/worktrees/feature-b",
+      nextWorktreePath: "/repo/.forge/worktrees/feature-b",
       reuseExistingWorktree: true,
     });
   });
@@ -221,7 +221,7 @@ describe("resolveBranchSelectionTarget", () => {
     expect(
       resolveBranchSelectionTarget({
         activeProjectCwd: "/repo",
-        activeWorktreePath: "/repo/.t3/worktrees/feature-a",
+        activeWorktreePath: "/repo/.forge/worktrees/feature-a",
         branch: {
           isDefault: true,
           worktreePath: "/repo",
@@ -238,7 +238,7 @@ describe("resolveBranchSelectionTarget", () => {
     expect(
       resolveBranchSelectionTarget({
         activeProjectCwd: "/repo",
-        activeWorktreePath: "/repo/.t3/worktrees/feature-a",
+        activeWorktreePath: "/repo/.forge/worktrees/feature-a",
         branch: {
           isDefault: true,
           worktreePath: null,
@@ -255,15 +255,15 @@ describe("resolveBranchSelectionTarget", () => {
     expect(
       resolveBranchSelectionTarget({
         activeProjectCwd: "/repo",
-        activeWorktreePath: "/repo/.t3/worktrees/feature-a",
+        activeWorktreePath: "/repo/.forge/worktrees/feature-a",
         branch: {
           isDefault: false,
           worktreePath: null,
         },
       }),
     ).toEqual({
-      checkoutCwd: "/repo/.t3/worktrees/feature-a",
-      nextWorktreePath: "/repo/.t3/worktrees/feature-a",
+      checkoutCwd: "/repo/.forge/worktrees/feature-a",
+      nextWorktreePath: "/repo/.forge/worktrees/feature-a",
       reuseExistingWorktree: false,
     });
   });

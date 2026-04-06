@@ -1,39 +1,28 @@
-import { describe, expect, it, vi } from "vitest";
+import os from "node:os";
 
-import { fixPath } from "./os-jank";
+import * as NodeServices from "@effect/platform-node/NodeServices";
+import { assert, it } from "@effect/vitest";
+import { Effect, Path } from "effect";
 
-describe("fixPath", () => {
-  it("hydrates PATH on linux using the resolved login shell", () => {
-    const env: NodeJS.ProcessEnv = {
-      SHELL: "/bin/zsh",
-      PATH: "/usr/bin",
-    };
-    const readPath = vi.fn(() => "/opt/homebrew/bin:/usr/bin");
+import { resolveBaseDir } from "./os-jank";
 
-    fixPath({
-      env,
-      platform: "linux",
-      readPath,
-    });
+it.layer(NodeServices.layer)("resolveBaseDir", (it) => {
+  it.effect("defaults to ~/.forge when unset", () =>
+    Effect.gen(function* () {
+      const { basename, join } = yield* Path.Path;
+      const baseDir = yield* resolveBaseDir(undefined);
 
-    expect(readPath).toHaveBeenCalledWith("/bin/zsh");
-    expect(env.PATH).toBe("/opt/homebrew/bin:/usr/bin");
-  });
+      assert.equal(baseDir, join(os.homedir(), ".forge"));
+      assert.equal(basename(baseDir), ".forge");
+    }),
+  );
 
-  it("does nothing outside macOS and linux even when SHELL is set", () => {
-    const env: NodeJS.ProcessEnv = {
-      SHELL: "C:/Program Files/Git/bin/bash.exe",
-      PATH: "C:\\Windows\\System32",
-    };
-    const readPath = vi.fn(() => "/usr/local/bin:/usr/bin");
+  it.effect("expands and resolves explicit home-relative paths", () =>
+    Effect.gen(function* () {
+      const { join, resolve } = yield* Path.Path;
+      const baseDir = yield* resolveBaseDir("~/workspace/.forge-alt");
 
-    fixPath({
-      env,
-      platform: "win32",
-      readPath,
-    });
-
-    expect(readPath).not.toHaveBeenCalled();
-    expect(env.PATH).toBe("C:\\Windows\\System32");
-  });
+      assert.equal(baseDir, resolve(join(os.homedir(), "workspace/.forge-alt")));
+    }),
+  );
 });

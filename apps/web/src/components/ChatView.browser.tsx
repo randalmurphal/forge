@@ -119,7 +119,7 @@ function isoAt(offsetSeconds: number): string {
 function createBaseServerConfig(): ServerConfig {
   return {
     cwd: "/repo/project",
-    keybindingsConfigPath: "/repo/project/.t3code-keybindings.json",
+    keybindingsConfigPath: "/repo/project/.forge/keybindings.json",
     keybindings: [],
     issues: [],
     providers: [
@@ -136,7 +136,7 @@ function createBaseServerConfig(): ServerConfig {
     ],
     availableEditors: [],
     observability: {
-      logsDirectoryPath: "/repo/project/.t3/logs",
+      logsDirectoryPath: "/repo/project/.forge/logs",
       localTracingEnabled: true,
       otlpTracesEnabled: false,
       otlpMetricsEnabled: false,
@@ -1645,7 +1645,7 @@ describe("ChatView timeline estimator parity (full app)", () => {
             threadId: THREAD_ID,
             cwd: "/repo/project",
             env: {
-              T3CODE_PROJECT_ROOT: "/repo/project",
+              FORGE_PROJECT_ROOT: "/repo/project",
             },
           });
         },
@@ -1721,8 +1721,8 @@ describe("ChatView timeline estimator parity (full app)", () => {
             threadId: THREAD_ID,
             cwd: "/repo/worktrees/feature-draft",
             env: {
-              T3CODE_PROJECT_ROOT: "/repo/project",
-              T3CODE_WORKTREE_PATH: "/repo/worktrees/feature-draft",
+              FORGE_PROJECT_ROOT: "/repo/project",
+              FORGE_WORKTREE_PATH: "/repo/worktrees/feature-draft",
             },
           });
         },
@@ -1854,8 +1854,8 @@ describe("ChatView timeline estimator parity (full app)", () => {
             threadId: expect.any(String),
             cwd: "/repo/worktrees/pr-1359",
             env: {
-              T3CODE_PROJECT_ROOT: "/repo/project",
-              T3CODE_WORKTREE_PATH: "/repo/worktrees/pr-1359",
+              FORGE_PROJECT_ROOT: "/repo/project",
+              FORGE_WORKTREE_PATH: "/repo/worktrees/pr-1359",
             },
           });
         },
