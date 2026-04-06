@@ -12,6 +12,8 @@
 
 (Issues found during review phase. Highest severity first.)
 
+- 2026-04-06: Component-size review debt -- [`apps/web/src/components/Sidebar.tsx`](/Users/randy/repos/forge/apps/web/src/components/Sidebar.tsx) is still 2,313 lines, which means the frontend loop does not yet satisfy the "no component over 500 lines" review category end-to-end. The workflow/channel additions were extracted successfully, but the sidebar still needs a deliberate follow-up split into focused files before this category can be considered closed.
+
 ## Resolved Issues
 
 (Issues moved here after being fixed and committed.)
@@ -46,6 +48,7 @@
 
 ## Review Log
 
+- 2026-04-06: Review sweep -- reran `bun fmt`, `bun lint`, `bun typecheck`, and `bun run test`; the full repo remains green. Swept the component-size review category and confirmed all workflow/channel loop-added component files are under the 500-line cap, but recorded a remaining Known Issue for `apps/web/src/components/Sidebar.tsx`, which is still 2,313 lines and needs a larger extraction pass.
 - 2026-04-06: Review fix -- swept the spec-compliance category for sidebar status indicators by adding deliberation-aware sidebar thread metadata and status resolution, so running chat-pattern containers and multi-agent participant sessions now render a distinct blue `Deliberating` state while ordinary active work returns to the green `Working` state called for in the workspace UX. Extended `apps/web/src/components/Sidebar.logic.test.ts` and `apps/web/src/components/SidebarTree.logic.test.ts` with focused coverage for standalone deliberation threads, multi-agent child sessions, and parent status propagation. Validation passed: `bun fmt`, `bun lint`, `bun typecheck`, and `bun run test`.
 - 2026-04-06: Review fix -- swept the spec-compliance category for concluded deliberation sessions by gating `apps/web/src/components/ChannelView.tsx` intervention UI and the `c` shortcut behind the channel's open status. Added `canInterveneInChannel` in `apps/web/src/components/ChannelView.logic.ts` plus focused coverage in `apps/web/src/components/ChannelView.logic.test.ts`, so concluded/closed channels no longer reopen the intervention composer or accept new guidance after ending. Validation passed: `bun fmt`, `bun lint`, `bun typecheck`, and `bun run test`.
 - 2026-04-06: Review fix -- swept the component-size category by extracting per-phase gate/transition presentation derivation out of `apps/web/src/components/WorkflowTimeline.tsx` into the pure helper `buildWorkflowTimelinePhasePresentation` in `apps/web/src/components/WorkflowTimeline.logic.ts`, with focused coverage added to `apps/web/src/components/WorkflowTimeline.logic.test.ts`. This cut the workflow timeline container from 486 lines to 447 lines while keeping gate approval fallback behavior and transition anchoring behavior under fast unit tests. Validation passed: `bun fmt`, `bun lint`, `bun typecheck`, and `bun run test`.
