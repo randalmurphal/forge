@@ -13,7 +13,7 @@
       },
     },
     "apps/desktop": {
-      "name": "@t3tools/desktop",
+      "name": "@forgetools/desktop",
       "version": "0.0.15",
       "dependencies": {
         "effect": "catalog:",
@@ -21,8 +21,8 @@
         "electron-updater": "^6.6.2",
       },
       "devDependencies": {
-        "@t3tools/contracts": "workspace:*",
-        "@t3tools/shared": "workspace:*",
+        "@forgetools/contracts": "workspace:*",
+        "@forgetools/shared": "workspace:*",
         "@types/node": "catalog:",
         "tsdown": "catalog:",
         "typescript": "catalog:",
@@ -30,7 +30,7 @@
       },
     },
     "apps/marketing": {
-      "name": "@t3tools/marketing",
+      "name": "@forgetools/marketing",
       "version": "0.0.0",
       "dependencies": {
         "astro": "^6.0.4",
@@ -41,10 +41,10 @@
       },
     },
     "apps/server": {
-      "name": "t3",
+      "name": "@forgetools/server",
       "version": "0.0.15",
       "bin": {
-        "t3": "./dist/bin.mjs",
+        "forge": "./dist/bin.mjs",
       },
       "dependencies": {
         "@anthropic-ai/claude-agent-sdk": "^0.2.77",
@@ -61,9 +61,9 @@
       "devDependencies": {
         "@effect/language-service": "catalog:",
         "@effect/vitest": "catalog:",
-        "@t3tools/contracts": "workspace:*",
-        "@t3tools/shared": "workspace:*",
-        "@t3tools/web": "workspace:*",
+        "@forgetools/contracts": "workspace:*",
+        "@forgetools/shared": "workspace:*",
+        "@forgetools/web": "workspace:*",
         "@types/bun": "catalog:",
         "@types/node": "catalog:",
         "tsdown": "catalog:",
@@ -72,7 +72,7 @@
       },
     },
     "apps/web": {
-      "name": "@t3tools/web",
+      "name": "@forgetools/web",
       "version": "0.0.15",
       "dependencies": {
         "@base-ui/react": "^1.2.0",
@@ -81,11 +81,11 @@
         "@dnd-kit/sortable": "^10.0.0",
         "@dnd-kit/utilities": "^3.2.2",
         "@effect/atom-react": "catalog:",
+        "@forgetools/contracts": "workspace:*",
+        "@forgetools/shared": "workspace:*",
         "@formkit/auto-animate": "^0.9.0",
         "@lexical/react": "^0.41.0",
         "@pierre/diffs": "^1.1.0-beta.16",
-        "@t3tools/contracts": "workspace:*",
-        "@t3tools/shared": "workspace:*",
         "@tanstack/react-pacer": "^0.19.4",
         "@tanstack/react-query": "^5.90.0",
         "@tanstack/react-router": "^1.160.2",
@@ -124,7 +124,7 @@
       },
     },
     "packages/contracts": {
-      "name": "@t3tools/contracts",
+      "name": "@forgetools/contracts",
       "version": "0.0.15",
       "dependencies": {
         "effect": "catalog:",
@@ -138,10 +138,10 @@
       },
     },
     "packages/shared": {
-      "name": "@t3tools/shared",
+      "name": "@forgetools/shared",
       "version": "0.0.0-alpha.1",
       "dependencies": {
-        "@t3tools/contracts": "workspace:*",
+        "@forgetools/contracts": "workspace:*",
         "effect": "catalog:",
       },
       "devDependencies": {
@@ -153,12 +153,12 @@
       },
     },
     "scripts": {
-      "name": "@t3tools/scripts",
+      "name": "@forgetools/scripts",
       "dependencies": {
         "@anthropic-ai/claude-agent-sdk": "^0.2.77",
         "@effect/platform-node": "catalog:",
-        "@t3tools/contracts": "workspace:*",
-        "@t3tools/shared": "workspace:*",
+        "@forgetools/contracts": "workspace:*",
+        "@forgetools/shared": "workspace:*",
         "effect": "catalog:",
       },
       "devDependencies": {
@@ -368,6 +368,20 @@
     "@floating-ui/react-dom": ["@floating-ui/react-dom@2.1.8", "", { "dependencies": { "@floating-ui/dom": "^1.7.6" }, "peerDependencies": { "react": ">=16.8.0", "react-dom": ">=16.8.0" } }, "sha512-cC52bHwM/n/CxS87FH0yWdngEZrjdtLW/qVruo68qg+prK7ZQ4YGdut2GyDVpoGeAYe/h899rVeOVm6Oi40k2A=="],
 
     "@floating-ui/utils": ["@floating-ui/utils@0.2.11", "", {}, "sha512-RiB/yIh78pcIxl6lLMG0CgBXAZ2Y0eVHqMPYugu+9U0AeT6YBeiJpf7lbdJNIugFP5SIjwNRgo4DhR1Qxi26Gg=="],
+
+    "@forgetools/contracts": ["@forgetools/contracts@workspace:packages/contracts"],
+
+    "@forgetools/desktop": ["@forgetools/desktop@workspace:apps/desktop"],
+
+    "@forgetools/marketing": ["@forgetools/marketing@workspace:apps/marketing"],
+
+    "@forgetools/scripts": ["@forgetools/scripts@workspace:scripts"],
+
+    "@forgetools/server": ["@forgetools/server@workspace:apps/server"],
+
+    "@forgetools/shared": ["@forgetools/shared@workspace:packages/shared"],
+
+    "@forgetools/web": ["@forgetools/web@workspace:apps/web"],
 
     "@formkit/auto-animate": ["@formkit/auto-animate@0.9.0", "", {}, "sha512-VhP4zEAacXS3dfTpJpJ88QdLqMTcabMg0jwpOSxZ/VzfQVfl3GkZSCZThhGC5uhq/TxPHPzW0dzr4H9Bb1OgKA=="],
 
@@ -660,18 +674,6 @@
     "@standard-schema/spec": ["@standard-schema/spec@1.1.0", "", {}, "sha512-l2aFy5jALhniG5HgqrD6jXLi/rUWrKvqN/qJx6yoJsgKhblVd+iqqU4RCXavm/jPityDo5TCvKMnpjKnOriy0w=="],
 
     "@szmarczak/http-timer": ["@szmarczak/http-timer@4.0.6", "", { "dependencies": { "defer-to-connect": "^2.0.0" } }, "sha512-4BAffykYOgO+5nzBWYwE3W90sBgLJoUPRWWcL8wlyiM8IB8ipJz3UMJ9KXQd1RKQXpKp8Tutn80HZtWsu2u76w=="],
-
-    "@t3tools/contracts": ["@t3tools/contracts@workspace:packages/contracts"],
-
-    "@t3tools/desktop": ["@t3tools/desktop@workspace:apps/desktop"],
-
-    "@t3tools/marketing": ["@t3tools/marketing@workspace:apps/marketing"],
-
-    "@t3tools/scripts": ["@t3tools/scripts@workspace:scripts"],
-
-    "@t3tools/shared": ["@t3tools/shared@workspace:packages/shared"],
-
-    "@t3tools/web": ["@t3tools/web@workspace:apps/web"],
 
     "@tailwindcss/node": ["@tailwindcss/node@4.2.1", "", { "dependencies": { "@jridgewell/remapping": "^2.3.5", "enhanced-resolve": "^5.19.0", "jiti": "^2.6.1", "lightningcss": "1.31.1", "magic-string": "^0.30.21", "source-map-js": "^1.2.1", "tailwindcss": "4.2.1" } }, "sha512-jlx6sLk4EOwO6hHe1oCGm1Q4AN/s0rSrTTPBGPM0/RQ6Uylwq17FuU8IeJJKEjtc6K6O07zsvP+gDO6MMWo7pg=="],
 
@@ -1608,8 +1610,6 @@
     "sumchecker": ["sumchecker@3.0.1", "", { "dependencies": { "debug": "^4.1.0" } }, "sha512-MvjXzkz/BOfyVDkG0oFOtBxHX2u3gKbMHIF/dXblZsgD3BWOFLmHovIpZY7BykJdAjcqRCBi1WYBNdEC9yI7vg=="],
 
     "svgo": ["svgo@4.0.1", "", { "dependencies": { "commander": "^11.1.0", "css-select": "^5.1.0", "css-tree": "^3.0.1", "css-what": "^6.1.0", "csso": "^5.0.5", "picocolors": "^1.1.1", "sax": "^1.5.0" }, "bin": "./bin/svgo.js" }, "sha512-XDpWUOPC6FEibaLzjfe0ucaV0YrOjYotGJO1WpF0Zd+n6ZGEQUsSugaoLq9QkEZtAfQIxT42UChcssDVPP3+/w=="],
-
-    "t3": ["t3@workspace:apps/server"],
 
     "tabbable": ["tabbable@6.4.0", "", {}, "sha512-05PUHKSNE8ou2dwIxTngl4EzcnsCDZGJ/iCLtDflR/SHB/ny14rXc+qU5P4mG9JkusiV7EivzY9Mhm55AzAvCg=="],
 
