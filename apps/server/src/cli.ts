@@ -1,7 +1,8 @@
+import type { SessionSummary } from "@forgetools/contracts";
 import { NetService } from "@forgetools/shared/Net";
 import { parsePersistedServerObservabilitySettings } from "@forgetools/shared/serverSettings";
-import { Config, Effect, FileSystem, LogLevel, Option, Path, Schema } from "effect";
-import { Command, Flag, GlobalFlag } from "effect/unstable/cli";
+import { Config, Console, Effect, FileSystem, LogLevel, Option, Path, Schema } from "effect";
+import { Argument, Command, Flag, GlobalFlag } from "effect/unstable/cli";
 
 import {
   DEFAULT_PORT,
@@ -15,6 +16,18 @@ import {
 import { readBootstrapEnvelope } from "./bootstrap";
 import { resolveBaseDir } from "./os-jank";
 import { runServer } from "./server";
+import {
+  buildDaemonLaunchPlan,
+  cleanEmptyWorktrees,
+  type CliDaemonPaths,
+  type DaemonStatusSnapshot,
+  ForgeDaemonCliError,
+  getDaemonStatusSnapshot,
+  launchDaemonProcess,
+  resolveCliDaemonPaths,
+  sendDaemonRpc,
+  waitForDaemonReady,
+} from "./daemon/cliClient";
 
 const PortSchema = Schema.Int.check(Schema.isBetween({ minimum: 1, maximum: 65535 }));
 
@@ -346,8 +359,78 @@ const commandFlags = {
   logWebSocketEvents: logWebSocketEventsFlag,
 } as const;
 
+interface CliDaemonFlags {
+  readonly baseDir: Option.Option<string>;
+}
+
+const cliDaemonFlags = {
+  baseDir: baseDirFlag,
+} as const;
+
+const renderSessionLine = (session: SessionSummary) =>
+  [
+    session.threadId,
+    session.status.padEnd(15, " "),
+    (session.sessionType ?? "agent").padEnd(8, " "),
+    session.title,
+  ].join("  ");
+
+const renderSessionDetails = (session: SessionSummary) =>
+  [
+    `Session: ${session.threadId}`,
+    `Title: ${session.title}`,
+    `Status: ${session.status}`,
+    `Type: ${session.sessionType}`,
+    `Provider: ${session.provider ?? "-"}`,
+    `Model: ${session.model?.model ?? "-"}`,
+    `Project: ${session.projectId}`,
+    `Workflow: ${session.workflowId ?? "-"}`,
+    `Phase: ${session.currentPhaseId ?? "-"}`,
+    `Branch: ${session.branch ?? "-"}`,
+    `Children: ${session.childThreadIds.length}`,
+    `Created: ${session.createdAt}`,
+    `Updated: ${session.updatedAt}`,
+  ].join("\n");
+
+const renderDaemonStatus = (
+  status: DaemonStatusSnapshot,
+  sessions: ReadonlyArray<SessionSummary>,
+) => {
+  const runningCount = sessions.filter((session) => session.status === "running").length;
+  const attentionCount = sessions.filter((session) => session.status === "needs-attention").length;
+  return [
+    `Daemon: ${status.running ? "running" : "stopped"}`,
+    `Base dir: ${status.paths.baseDir}`,
+    `Socket: ${status.paths.socketPath}`,
+    `PID: ${status.info?.pid ?? "-"}`,
+    `WebSocket port: ${status.info?.wsPort ?? "-"}`,
+    `Started: ${status.info?.startedAt ?? "-"}`,
+    `Uptime ms: ${status.ping?.uptime ?? "-"}`,
+    `Sessions: ${sessions.length}`,
+    `Running sessions: ${runningCount}`,
+    `Needs attention: ${attentionCount}`,
+  ].join("\n");
+};
+
+const resolveCliPathsFromInput = (input: CliDaemonFlags) =>
+  resolveCliDaemonPaths(Option.getOrUndefined(input.baseDir));
+
+const loadDaemonSessions = (paths: CliDaemonPaths) =>
+  sendDaemonRpc<ReadonlyArray<SessionSummary>>({
+    socketPath: paths.socketPath,
+    method: "session.list",
+  });
+
+const queueSummary = (label: string, result: unknown) => {
+  const sequence =
+    typeof result === "object" && result !== null && "sequence" in result
+      ? (result as { readonly sequence?: unknown }).sequence
+      : undefined;
+  return sequence === undefined ? `${label}.` : `${label} Receipt sequence=${String(sequence)}.`;
+};
+
 const rootCommand = Command.make("forge", commandFlags).pipe(
-  Command.withDescription("Run the Forge server."),
+  Command.withDescription("Run the Forge server or talk to the Forge daemon."),
   Command.withHandler((flags) =>
     Effect.gen(function* () {
       const logLevel = yield* GlobalFlag.LogLevel;
@@ -357,4 +440,294 @@ const rootCommand = Command.make("forge", commandFlags).pipe(
   ),
 );
 
-export const cli = rootCommand;
+const listCommand = Command.make("list", cliDaemonFlags).pipe(
+  Command.withDescription("List sessions from the running Forge daemon."),
+  Command.withHandler((input) =>
+    Effect.gen(function* () {
+      const paths = yield* resolveCliPathsFromInput(input);
+      const sessions = yield* loadDaemonSessions(paths);
+      if (sessions.length === 0) {
+        yield* Console.log("No sessions.");
+        return;
+      }
+      yield* Console.log(sessions.map(renderSessionLine).join("\n"));
+    }),
+  ),
+);
+
+const statusCommand = Command.make("status", {
+  ...cliDaemonFlags,
+  sessionId: Argument.string("session-id").pipe(Argument.optional),
+}).pipe(
+  Command.withDescription("Show daemon status or a detailed session status."),
+  Command.withHandler((input) =>
+    Effect.gen(function* () {
+      const paths = yield* resolveCliPathsFromInput(input);
+
+      if (Option.isNone(input.sessionId)) {
+        const status = yield* getDaemonStatusSnapshot(paths);
+        const sessions = status.running ? yield* loadDaemonSessions(paths) : [];
+        yield* Console.log(renderDaemonStatus(status, sessions));
+        return;
+      }
+
+      const session = yield* sendDaemonRpc<SessionSummary>({
+        socketPath: paths.socketPath,
+        method: "session.get",
+        params: {
+          sessionId: input.sessionId.value,
+        },
+      });
+      yield* Console.log(renderSessionDetails(session));
+    }),
+  ),
+);
+
+const createCommand = Command.make("create", {
+  ...cliDaemonFlags,
+  title: Argument.string("title"),
+  workflow: Flag.string("workflow").pipe(Flag.optional),
+  project: Flag.string("project").pipe(Flag.withDescription("Project path.")),
+}).pipe(
+  Command.withDescription("Create a new session through the daemon socket API."),
+  Command.withHandler((input) =>
+    Effect.gen(function* () {
+      const paths = yield* resolveCliPathsFromInput(input);
+      const path = yield* Path.Path;
+      const result = yield* sendDaemonRpc({
+        socketPath: paths.socketPath,
+        method: "session.create",
+        params: {
+          title: input.title,
+          ...(Option.isSome(input.workflow) ? { workflow: input.workflow.value } : {}),
+          projectPath: path.resolve(input.project),
+        },
+      });
+      yield* Console.log(queueSummary(`Queued session.create for '${input.title}'`, result));
+    }),
+  ),
+);
+
+const correctCommand = Command.make("correct", {
+  ...cliDaemonFlags,
+  sessionId: Argument.string("session-id"),
+  message: Argument.string("message"),
+}).pipe(
+  Command.withDescription("Send a correction to a session."),
+  Command.withHandler((input) =>
+    Effect.gen(function* () {
+      const paths = yield* resolveCliPathsFromInput(input);
+      const result = yield* sendDaemonRpc({
+        socketPath: paths.socketPath,
+        method: "session.correct",
+        params: {
+          sessionId: input.sessionId,
+          content: input.message,
+        },
+      });
+      yield* Console.log(queueSummary(`Queued correction for ${input.sessionId}`, result));
+    }),
+  ),
+);
+
+const pauseCommand = Command.make("pause", {
+  ...cliDaemonFlags,
+  sessionId: Argument.string("session-id"),
+}).pipe(
+  Command.withDescription("Pause a running session."),
+  Command.withHandler((input) =>
+    Effect.gen(function* () {
+      const paths = yield* resolveCliPathsFromInput(input);
+      const result = yield* sendDaemonRpc({
+        socketPath: paths.socketPath,
+        method: "session.pause",
+        params: { sessionId: input.sessionId },
+      });
+      yield* Console.log(queueSummary(`Queued pause for ${input.sessionId}`, result));
+    }),
+  ),
+);
+
+const resumeCommand = Command.make("resume", {
+  ...cliDaemonFlags,
+  sessionId: Argument.string("session-id"),
+}).pipe(
+  Command.withDescription("Resume a paused session."),
+  Command.withHandler((input) =>
+    Effect.gen(function* () {
+      const paths = yield* resolveCliPathsFromInput(input);
+      const result = yield* sendDaemonRpc({
+        socketPath: paths.socketPath,
+        method: "session.resume",
+        params: { sessionId: input.sessionId },
+      });
+      yield* Console.log(queueSummary(`Queued resume for ${input.sessionId}`, result));
+    }),
+  ),
+);
+
+const cancelCommand = Command.make("cancel", {
+  ...cliDaemonFlags,
+  sessionId: Argument.string("session-id"),
+  reason: Flag.string("reason").pipe(Flag.optional),
+}).pipe(
+  Command.withDescription("Cancel a session."),
+  Command.withHandler((input) =>
+    Effect.gen(function* () {
+      const paths = yield* resolveCliPathsFromInput(input);
+      const result = yield* sendDaemonRpc({
+        socketPath: paths.socketPath,
+        method: "session.cancel",
+        params: {
+          sessionId: input.sessionId,
+          ...(Option.isSome(input.reason) ? { reason: input.reason.value } : {}),
+        },
+      });
+      yield* Console.log(queueSummary(`Queued cancel for ${input.sessionId}`, result));
+    }),
+  ),
+);
+
+const answerCommand = Command.make("answer", {
+  ...cliDaemonFlags,
+  requestId: Argument.string("request-id"),
+  input: Flag.string("input"),
+}).pipe(
+  Command.withDescription("Resolve a pending interactive request with text input."),
+  Command.withHandler((input) =>
+    Effect.gen(function* () {
+      const paths = yield* resolveCliPathsFromInput(input);
+      const result = yield* sendDaemonRpc({
+        socketPath: paths.socketPath,
+        method: "request.resolve",
+        params: {
+          requestId: input.requestId,
+          resolvedWith: {
+            answers: {
+              input: input.input,
+            },
+          },
+        },
+      });
+      yield* Console.log(queueSummary(`Queued request.resolve for ${input.requestId}`, result));
+    }),
+  ),
+);
+
+const cleanupCommand = Command.make("cleanup", cliDaemonFlags).pipe(
+  Command.withDescription("Remove empty directories under ~/.forge/worktrees."),
+  Command.withHandler((input) =>
+    Effect.gen(function* () {
+      const paths = yield* resolveCliPathsFromInput(input);
+      const removed = yield* cleanEmptyWorktrees(paths.worktreesDir);
+      yield* Console.log(
+        removed.length === 0
+          ? "No empty Forge worktree directories removed."
+          : `Removed empty Forge worktree directories: ${removed.join(", ")}`,
+      );
+    }),
+  ),
+);
+
+const daemonStatusCommand = Command.make("status", cliDaemonFlags).pipe(
+  Command.withDescription("Show daemon runtime status."),
+  Command.withHandler((input) =>
+    Effect.gen(function* () {
+      const paths = yield* resolveCliPathsFromInput(input);
+      const status = yield* getDaemonStatusSnapshot(paths);
+      const sessions = status.running ? yield* loadDaemonSessions(paths) : [];
+      yield* Console.log(renderDaemonStatus(status, sessions));
+    }),
+  ),
+);
+
+const daemonStopCommand = Command.make("stop", cliDaemonFlags).pipe(
+  Command.withDescription("Stop the running daemon gracefully."),
+  Command.withHandler((input) =>
+    Effect.gen(function* () {
+      const paths = yield* resolveCliPathsFromInput(input);
+      const status = yield* getDaemonStatusSnapshot(paths);
+      if (!status.running) {
+        yield* Console.log("Forge daemon is already stopped.");
+        return;
+      }
+      yield* sendDaemonRpc({
+        socketPath: paths.socketPath,
+        method: "daemon.stop",
+      });
+      yield* Console.log("Queued daemon stop.");
+    }),
+  ),
+);
+
+const daemonStartCommand = Command.make("start", cliDaemonFlags).pipe(
+  Command.withDescription("Launch the daemon as a detached background process."),
+  Command.withHandler((input) =>
+    Effect.gen(function* () {
+      const paths = yield* resolveCliPathsFromInput(input);
+      const status = yield* getDaemonStatusSnapshot(paths);
+      if (status.running) {
+        const sessions = yield* loadDaemonSessions(paths);
+        yield* Console.log(renderDaemonStatus(status, sessions));
+        return;
+      }
+
+      const launchPlan = buildDaemonLaunchPlan({ baseDir: paths.baseDir });
+      if (launchPlan instanceof ForgeDaemonCliError) {
+        return yield* launchPlan;
+      }
+      const child = yield* launchDaemonProcess(launchPlan);
+      const childExit = Effect.promise(
+        () =>
+          new Promise<{
+            readonly code: number | null;
+            readonly signal: NodeJS.Signals | null;
+          }>((resolve) => {
+            child.once("exit", (code, signal) => resolve({ code, signal }));
+          }),
+      );
+
+      const outcome = yield* waitForDaemonReady(paths).pipe(
+        Effect.map((readyStatus) => ({ type: "ready" as const, readyStatus })),
+        Effect.raceFirst(childExit.pipe(Effect.map((exit) => ({ type: "exit" as const, exit })))),
+        Effect.timeoutOption("1500 millis"),
+      );
+
+      if (Option.isNone(outcome)) {
+        yield* Console.log(`Daemon launch requested. PID=${child.pid ?? "unknown"}.`);
+        return;
+      }
+      if (outcome.value.type === "exit") {
+        return yield* new ForgeDaemonCliError({
+          message: `Forge daemon exited before becoming ready (code=${outcome.value.exit.code ?? "null"}, signal=${outcome.value.exit.signal ?? "null"}).`,
+        });
+      }
+      if (outcome.value.readyStatus === undefined) {
+        yield* Console.log(`Daemon launch requested. PID=${child.pid ?? "unknown"}.`);
+        return;
+      }
+      const sessions = yield* loadDaemonSessions(paths);
+      yield* Console.log(renderDaemonStatus(outcome.value.readyStatus, sessions));
+    }),
+  ),
+);
+
+const daemonCommand = Command.make("daemon").pipe(
+  Command.withDescription("Manage the background Forge daemon."),
+  Command.withSubcommands([daemonStartCommand, daemonStopCommand, daemonStatusCommand]),
+);
+
+export const cli = rootCommand.pipe(
+  Command.withSubcommands([
+    listCommand,
+    statusCommand,
+    createCommand,
+    correctCommand,
+    pauseCommand,
+    resumeCommand,
+    cancelCommand,
+    answerCommand,
+    cleanupCommand,
+    daemonCommand,
+  ]),
+);
