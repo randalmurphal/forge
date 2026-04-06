@@ -56,7 +56,10 @@ describe("product identity", () => {
 
   it("does not leave T3-era metric prefixes in non-test server source", () => {
     const offenders = collectServerSourceFiles(serverSourceRoot)
-      .filter((filePath) => FS.readFileSync(filePath, "utf8").includes("t3_"))
+      .filter((filePath) => {
+        const source = FS.readFileSync(filePath, "utf8");
+        return source.includes("t3_") || source.includes("t3Code");
+      })
       .map((filePath) => Path.relative(repoRoot, filePath));
 
     expect(offenders).toEqual([]);
