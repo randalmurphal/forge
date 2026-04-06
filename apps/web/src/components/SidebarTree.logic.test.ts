@@ -21,6 +21,7 @@ function makeThread(
     interactionMode: "default",
     workflowId: null,
     currentPhaseId: null,
+    patternId: null,
     role: null,
     childThreadIds: [],
     session: null,
@@ -184,6 +185,43 @@ describe("buildSidebarThreadTree", () => {
 
     expect(tree.map((node) => node.thread.id)).toEqual([staleParent.id, newerOwnActivity.id]);
     expect(tree[0]?.latestActivityAt).toBe(activeChild.updatedAt);
+  });
+
+  it("propagates deliberation status from running participants to their parent container", () => {
+    const workflowParent = makeThread("workflow-parent", {
+      childThreadIds: [ThreadId.makeUnsafe("participant-a"), ThreadId.makeUnsafe("participant-b")],
+    });
+    const participantA = makeThread("participant-a", {
+      parentThreadId: workflowParent.id,
+      role: "advocate",
+      session: {
+        provider: "claudeAgent",
+        status: "running",
+        activeTurnId: undefined,
+        createdAt: "2026-04-06T00:00:00.000Z",
+        updatedAt: "2026-04-06T04:00:00.000Z",
+        orchestrationStatus: "running",
+      },
+    });
+    const participantB = makeThread("participant-b", {
+      parentThreadId: workflowParent.id,
+      role: "interrogator",
+      session: {
+        provider: "codex",
+        status: "running",
+        activeTurnId: undefined,
+        createdAt: "2026-04-06T00:00:00.000Z",
+        updatedAt: "2026-04-06T04:05:00.000Z",
+        orchestrationStatus: "running",
+      },
+    });
+
+    const tree = buildSidebarThreadTree({
+      threads: [workflowParent, participantA, participantB],
+    });
+
+    expect(tree[0]?.displayStatus.label).toBe("Deliberating");
+    expect(tree[0]?.sortGroup).toBe("running");
   });
 });
 

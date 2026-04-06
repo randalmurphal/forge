@@ -100,6 +100,7 @@ function resolveSortGroupFromStatus(status: ThreadStatusPill): SidebarTreeSortGr
     case "Plan Ready":
     case "Failed":
       return "needs-attention";
+    case "Deliberating":
     case "Working":
     case "Connecting":
       return "running";

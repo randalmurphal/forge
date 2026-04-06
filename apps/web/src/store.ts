@@ -227,6 +227,7 @@ function buildSidebarThreadSummary(thread: Thread): SidebarThreadSummary {
     interactionMode: thread.interactionMode,
     workflowId: thread.workflowId ?? null,
     currentPhaseId: thread.currentPhaseId ?? null,
+    patternId: thread.patternId ?? null,
     role: thread.role ?? null,
     childThreadIds: [...(thread.childThreadIds ?? [])],
     session: thread.session,
@@ -259,6 +260,7 @@ function sidebarThreadSummariesEqual(
     left.interactionMode === right.interactionMode &&
     left.workflowId === right.workflowId &&
     left.currentPhaseId === right.currentPhaseId &&
+    (left.patternId ?? null) === (right.patternId ?? null) &&
     left.role === right.role &&
     (left.childThreadIds ?? []).length === (right.childThreadIds ?? []).length &&
     (left.childThreadIds ?? []).every(

@@ -130,6 +130,7 @@ export interface SidebarThreadSummary {
   interactionMode: ProviderInteractionMode;
   workflowId?: WorkflowId | null;
   currentPhaseId?: WorkflowPhaseId | null;
+  patternId?: string | null;
   role?: string | null;
   childThreadIds?: ThreadId[];
   session: ThreadSession | null;

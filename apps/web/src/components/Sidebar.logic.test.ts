@@ -402,6 +402,8 @@ describe("resolveThreadStatusPill", () => {
     interactionMode: "plan" as const,
     latestTurn: null,
     lastVisitedAt: undefined,
+    patternId: null,
+    role: null,
     session: {
       provider: "codex" as const,
       status: "running" as const,
@@ -439,7 +441,40 @@ describe("resolveThreadStatusPill", () => {
       resolveThreadStatusPill({
         thread: baseThread,
       }),
-    ).toMatchObject({ label: "Working", pulse: true });
+    ).toMatchObject({
+      label: "Working",
+      pulse: true,
+      dotClass: "bg-emerald-500 dark:bg-emerald-300/90",
+    });
+  });
+
+  it("uses the deliberation status for standalone chat patterns while running", () => {
+    expect(
+      resolveThreadStatusPill({
+        thread: {
+          ...baseThread,
+          patternId: "interrogate",
+        },
+      }),
+    ).toMatchObject({
+      label: "Deliberating",
+      pulse: false,
+      dotClass: "border border-sky-500 bg-transparent dark:border-sky-300/90",
+    });
+  });
+
+  it("uses the deliberation status for running multi-agent participant sessions", () => {
+    expect(
+      resolveThreadStatusPill({
+        thread: {
+          ...baseThread,
+          role: "advocate",
+        },
+      }),
+    ).toMatchObject({
+      label: "Deliberating",
+      pulse: false,
+    });
   });
 
   it("shows plan ready when a settled plan turn has a proposed plan ready for follow-up", () => {
@@ -539,10 +574,10 @@ describe("resolveProjectStatusIndicator", () => {
           pulse: false,
         },
         {
-          label: "Working",
+          label: "Deliberating",
           colorClass: "text-sky-600",
-          dotClass: "bg-sky-500",
-          pulse: true,
+          dotClass: "border border-sky-500 bg-transparent",
+          pulse: false,
         },
       ]),
     ).toMatchObject({ label: "Pending Approval", dotClass: "bg-amber-500" });

@@ -27,6 +27,7 @@ export interface ThreadStatusPill {
   label:
     | "Working"
     | "Connecting"
+    | "Deliberating"
     | "Completed"
     | "Paused"
     | "Pending Approval"
@@ -42,6 +43,7 @@ const THREAD_STATUS_PRIORITY: Record<ThreadStatusPill["label"], number> = {
   Failed: 6,
   "Pending Approval": 5,
   "Awaiting Input": 4,
+  Deliberating: 3,
   Working: 3,
   Connecting: 3,
   "Plan Ready": 2,
@@ -56,6 +58,8 @@ type ThreadStatusInput = Pick<
   | "hasPendingUserInput"
   | "interactionMode"
   | "latestTurn"
+  | "patternId"
+  | "role"
   | "session"
 > & {
   lastVisitedAt?: string | undefined;
@@ -319,6 +323,7 @@ export function resolveThreadStatusPill(input: {
   thread: ThreadStatusInput;
 }): ThreadStatusPill | null {
   const { thread } = input;
+  const isDeliberationThread = thread.patternId != null || thread.role != null;
 
   if (thread.hasPendingApprovals) {
     return {
@@ -339,10 +344,19 @@ export function resolveThreadStatusPill(input: {
   }
 
   if (thread.session?.status === "running") {
+    if (isDeliberationThread) {
+      return {
+        label: "Deliberating",
+        colorClass: "text-sky-600 dark:text-sky-300/90",
+        dotClass: "border border-sky-500 bg-transparent dark:border-sky-300/90",
+        pulse: false,
+      };
+    }
+
     return {
       label: "Working",
-      colorClass: "text-sky-600 dark:text-sky-300/80",
-      dotClass: "bg-sky-500 dark:bg-sky-300/80",
+      colorClass: "text-emerald-600 dark:text-emerald-300/90",
+      dotClass: "bg-emerald-500 dark:bg-emerald-300/90",
       pulse: true,
     };
   }
