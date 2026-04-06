@@ -5,6 +5,7 @@ import { describe, expect, it } from "vitest";
 
 const repoRoot = Path.resolve(import.meta.dirname, "../../..");
 const serverSourceRoot = Path.join(repoRoot, "apps/server/src");
+const observabilityDocPath = Path.join(repoRoot, "docs/observability.md");
 
 function collectServerSourceFiles(directory: string): string[] {
   const entries = FS.readdirSync(directory, { withFileTypes: true });
@@ -50,5 +51,13 @@ describe("product identity", () => {
 
     expect(source).toContain(".forge");
     expect(source).not.toContain(".t3");
+  });
+
+  it("documents Forge metric prefixes in observability docs", () => {
+    const source = FS.readFileSync(observabilityDocPath, "utf8");
+
+    expect(source).toContain("forge_orchestration_command_ack_duration");
+    expect(source).not.toContain("t3_orchestration_command_ack_duration");
+    expect(source).not.toContain("t3_rpc_request_duration");
   });
 });
