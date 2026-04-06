@@ -64,6 +64,7 @@ import { WorkflowEngineLive } from "./workflow/Layers/WorkflowEngine";
 import { WorkflowRegistryLive } from "./workflow/Layers/WorkflowRegistry";
 import { DaemonServiceLive } from "./daemon/Layers/DaemonService";
 import { NotificationDispatchLive } from "./daemon/Layers/NotificationDispatch";
+import { NotificationReactorLive } from "./daemon/Layers/NotificationReactor";
 import { runDaemonModeServer } from "./daemon/Layers/Runtime";
 import { SocketTransportLive } from "./daemon/Layers/SocketTransport";
 
@@ -341,10 +342,15 @@ const RuntimeServicesLive = Layer.mergeAll(
   ServerLifecycleEventsLive,
 );
 
+const NotificationReactorRuntimeLive = NotificationReactorLive.pipe(
+  Layer.provide(NotificationDispatchLive),
+);
+
 const DaemonLayerLive = Layer.mergeAll(
   DaemonServiceLive,
   SocketTransportLive,
   NotificationDispatchLive,
+  NotificationReactorRuntimeLive,
 );
 
 const DaemonRuntimeEnvironmentLive = DaemonLayerLive.pipe(

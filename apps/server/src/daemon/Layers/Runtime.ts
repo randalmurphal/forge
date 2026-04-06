@@ -5,6 +5,7 @@ import * as Fiber from "effect/Fiber";
 import { ServerConfig } from "../../config.ts";
 import { ServerRuntimeStartup } from "../../serverRuntimeStartup.ts";
 import { NotificationDispatch } from "../Services/NotificationDispatch.ts";
+import { NotificationReactor } from "../Services/NotificationReactor.ts";
 import { DaemonService } from "../Services/DaemonService.ts";
 import { SocketTransport } from "../Services/SocketTransport.ts";
 
@@ -17,6 +18,7 @@ export const runDaemonModeServer = <A, E, R>(launchHttpServer: Effect.Effect<A, 
     const daemonService = yield* DaemonService;
     const socketTransport = yield* SocketTransport;
     const startup = yield* ServerRuntimeStartup;
+    const notificationReactor = yield* NotificationReactor;
 
     // Materialize the notification service so daemon mode includes the runtime dependency.
     yield* NotificationDispatch;
@@ -55,6 +57,8 @@ export const runDaemonModeServer = <A, E, R>(launchHttpServer: Effect.Effect<A, 
         ),
       ),
     );
+
+    yield* notificationReactor.start();
 
     const serverFiber = yield* Effect.forkScoped(launchHttpServer);
     const outcome = yield* Effect.raceFirst(

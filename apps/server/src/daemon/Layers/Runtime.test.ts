@@ -7,6 +7,7 @@ import { runDaemonModeServer } from "./Runtime.ts";
 import { DaemonService } from "../Services/DaemonService.ts";
 import { SocketTransport } from "../Services/SocketTransport.ts";
 import { NotificationDispatch } from "../Services/NotificationDispatch.ts";
+import { NotificationReactor } from "../Services/NotificationReactor.ts";
 
 const makeServerConfig = (): ServerConfigShape => ({
   logLevel: "Info",
@@ -49,6 +50,7 @@ describe("runDaemonModeServer", () => {
   it("binds the daemon socket and stops the server when daemon.stop is requested", async () => {
     let stopDaemon: Effect.Effect<void, Error> | undefined;
     const stop = vi.fn();
+    const startNotifications = vi.fn();
     const launchStarted = Effect.runSync(Deferred.make<void>());
     const launchStopped = Effect.runSync(Deferred.make<void>());
 
@@ -116,6 +118,13 @@ describe("runDaemonModeServer", () => {
                   reason: "backend-unavailable" as const,
                 }),
             }),
+            Layer.succeed(NotificationReactor, {
+              start: () =>
+                Effect.sync(() => {
+                  startNotifications();
+                }),
+              drain: Effect.void,
+            }),
           ),
         ),
       ),
@@ -128,10 +137,12 @@ describe("runDaemonModeServer", () => {
     await expect(daemonPromise).resolves.toBe("stopped");
     await Effect.runPromise(Deferred.await(launchStopped));
     expect(stop).toHaveBeenCalledTimes(1);
+    expect(startNotifications).toHaveBeenCalledTimes(1);
   });
 
   it("returns already-running without launching a duplicate server", async () => {
     const launchServer = vi.fn();
+    const startNotifications = vi.fn();
 
     const result = await Effect.runPromise(
       Effect.scoped(
@@ -185,6 +196,13 @@ describe("runDaemonModeServer", () => {
                     reason: "backend-unavailable" as const,
                   }),
               }),
+              Layer.succeed(NotificationReactor, {
+                start: () =>
+                  Effect.sync(() => {
+                    startNotifications();
+                  }),
+                drain: Effect.void,
+              }),
             ),
           ),
         ),
@@ -193,5 +211,6 @@ describe("runDaemonModeServer", () => {
 
     expect(result).toBe("already-running");
     expect(launchServer).not.toHaveBeenCalled();
+    expect(startNotifications).not.toHaveBeenCalled();
   });
 });
