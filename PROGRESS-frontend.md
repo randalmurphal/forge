@@ -36,4 +36,4 @@
 
 ## Review Log
 
-(Entries added during review phase.)
+- 2026-04-06: Review fix -- extracted `apps/web/src/components/ChannelView.parts.tsx` from `apps/web/src/components/ChannelView.tsx` to keep the channel view component under the 500-line limit without changing behavior. Validation passed: `bun fmt`, `bun lint`, `bun typecheck`, and `bun run test`.
