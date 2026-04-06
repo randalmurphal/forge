@@ -22,9 +22,9 @@ This loop builds:
 - WebSocket push event handling for new channels
 - New Zustand stores and React Query hooks for workflow/channel state
 
-This loop does NOT build: server services, daemon mode, CLI, or product identity changes.
+This loop PRIMARILY builds frontend, but it CAN and SHOULD modify backend code when needed to properly support the frontend features. If a server endpoint is missing, an RPC method needs adding, a contract type needs adjusting, or a persistence query needs updating to serve the UI correctly -- fix it. The frontend should work end-to-end, not be blocked waiting for a separate backend pass.
 
-Scope boundary: If it requires creating server endpoints, modifying persistence layers, or changing orchestration logic -- it's out of scope for this loop.
+This loop does NOT build: daemon mode, CLI, or product identity changes.
 
 ## Authority Hierarchy
 
@@ -55,13 +55,19 @@ When authorities conflict, higher-numbered documents yield to lower-numbered. UX
 
 PROHIBITED:
 
-- Modifying existing server code
-- Creating new server services or endpoints
 - Modifying ChatView.tsx (it works for agent sessions as-is)
 - Using CSS-in-JS or CSS modules
 - Creating components over 500 lines without extraction
 - Using async/await outside of React Query hooks
-- Defining new types that aren't derived from design/15-contracts.md
+
+PERMITTED (when needed to support frontend features):
+
+- Adding/modifying server RPC methods and handlers (ws.ts, rpc.ts)
+- Adding/modifying contract types in packages/contracts/src/
+- Adding/modifying persistence queries and repositories
+- Extending the decider/projector for missing command/event handling
+- Adding server services or extending existing ones
+- Any backend change required to make the frontend feature work correctly end-to-end
 
 ## Environment
 
