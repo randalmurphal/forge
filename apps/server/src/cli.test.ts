@@ -71,6 +71,8 @@ const closeServer = (server: Net.Server) =>
     });
   });
 
+const sleep = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms));
+
 const runCli = (args: ReadonlyArray<string>) =>
   Effect.runPromise(
     Command.runWith(cli, { version: "0.0.0" })([...args]).pipe(Effect.provide(CliRuntimeLayer)),
@@ -183,6 +185,91 @@ vitestIt("routes `forge daemon stop` to daemon.stop", async () => {
       nodeAssert.equal(requests[1]?.method, "daemon.stop");
     },
   );
+});
+
+vitestIt("routes `forge daemon restart` through stop then launch", async () => {
+  const baseDir = FS.mkdtempSync(Path.join(OS.tmpdir(), "forge-cli-daemon-restart-"));
+  const requests: Array<JsonRpcRequest> = [];
+  const socketPath = Path.join(baseDir, "forge.sock");
+  const fakeDaemonScriptPath = Path.join(baseDir, "fake-daemon.js");
+  const originalArgv1 = process.argv[1];
+
+  FS.writeFileSync(
+    fakeDaemonScriptPath,
+    [
+      'const FS = require("node:fs");',
+      'const Net = require("node:net");',
+      'const Path = require("node:path");',
+      'const baseDirIndex = process.argv.indexOf("--base-dir");',
+      "const baseDir = baseDirIndex === -1 ? undefined : process.argv[baseDirIndex + 1];",
+      'if (!baseDir) throw new Error("missing --base-dir");',
+      'const socketPath = Path.join(baseDir, "forge.sock");',
+      "try {",
+      "  FS.rmSync(socketPath, { force: true });",
+      "} catch {}",
+      "const startedAt = Date.now();",
+      "let handledSessionList = false;",
+      "const server = Net.createServer((socket) => {",
+      '  socket.setEncoding("utf8");',
+      '  let buffer = "";',
+      '  socket.on("data", (chunk) => {',
+      "    buffer += chunk;",
+      '    const newlineIndex = buffer.indexOf("\\n");',
+      "    if (newlineIndex === -1) return;",
+      "    const line = buffer.slice(0, newlineIndex);",
+      "    buffer = buffer.slice(newlineIndex + 1);",
+      "    const request = JSON.parse(line);",
+      "    let result = null;",
+      '    if (request.method === "daemon.ping") {',
+      '      result = { status: "ok", uptime: Date.now() - startedAt };',
+      '    } else if (request.method === "session.list") {',
+      "      handledSessionList = true;",
+      "      result = [];",
+      "    }",
+      '    socket.end(`${JSON.stringify({ jsonrpc: "2.0", id: request.id, result })}\\n`, () => {',
+      "      if (handledSessionList) {",
+      "        server.close(() => process.exit(0));",
+      "      }",
+      "    });",
+      "  });",
+      "});",
+      "server.listen(socketPath);",
+      "setTimeout(() => server.close(() => process.exit(0)), 5000);",
+    ].join("\n"),
+    "utf8",
+  );
+
+  const server = await listenOnSocket(socketPath, requests, (request: JsonRpcRequest) => {
+    if (request.method === "daemon.ping") {
+      return { status: "ok", uptime: 1 };
+    }
+    if (request.method === "daemon.stop") {
+      setImmediate(() => {
+        void closeServer(server).catch(() => undefined);
+      });
+      return null;
+    }
+    return null;
+  });
+
+  try {
+    process.argv[1] = fakeDaemonScriptPath;
+
+    await runCli(["daemon", "restart", "--base-dir", baseDir]);
+
+    nodeAssert.equal(requests.length, 2);
+    nodeAssert.equal(requests[0]?.method, "daemon.ping");
+    nodeAssert.equal(requests[1]?.method, "daemon.stop");
+    await sleep(300);
+  } finally {
+    if (originalArgv1 === undefined) {
+      delete process.argv[1];
+    } else {
+      process.argv[1] = originalArgv1;
+    }
+    await closeServer(server).catch(() => undefined);
+    FS.rmSync(baseDir, { recursive: true, force: true });
+  }
 });
 
 vitestIt("reports a friendly error when the daemon socket is missing", async () => {

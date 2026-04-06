@@ -311,6 +311,23 @@ export const waitForDaemonReady = (
     return undefined;
   });
 
+export const waitForDaemonStopped = (
+  paths: CliDaemonPaths,
+  timeoutMs = 5_000,
+  pollIntervalMs = 100,
+) =>
+  Effect.gen(function* () {
+    const deadline = Date.now() + timeoutMs;
+    while (Date.now() < deadline) {
+      const status = yield* getDaemonStatusSnapshot(paths);
+      if (!status.running) {
+        return true;
+      }
+      yield* Effect.sleep(`${pollIntervalMs} millis`);
+    }
+    return false;
+  });
+
 export const cleanEmptyWorktrees = (worktreesDir: string) =>
   Effect.tryPromise({
     try: async () => {

@@ -29,6 +29,7 @@ import {
   resolveCliDaemonPaths,
   sendDaemonRpc,
   waitForDaemonReady,
+  waitForDaemonStopped,
 } from "./daemon/cliClient";
 
 const PortSchema = Schema.Int.check(Schema.isBetween({ minimum: 1, maximum: 65535 }));
@@ -432,6 +433,72 @@ const queueSummary = (label: string, result: unknown) => {
   return sequence === undefined ? `${label}.` : `${label} Receipt sequence=${String(sequence)}.`;
 };
 
+const startDaemonFromCli = (paths: CliDaemonPaths) =>
+  Effect.gen(function* () {
+    const status = yield* getDaemonStatusSnapshot(paths);
+    if (status.running) {
+      const sessions = yield* loadDaemonSessions(paths);
+      yield* Console.log(renderDaemonStatus(status, sessions));
+      return;
+    }
+
+    const launchPlan = buildDaemonLaunchPlan({ baseDir: paths.baseDir });
+    if (launchPlan instanceof ForgeDaemonCliError) {
+      return yield* launchPlan;
+    }
+    const child = yield* launchDaemonProcess(launchPlan);
+    const childExit = Effect.promise(
+      () =>
+        new Promise<{
+          readonly code: number | null;
+          readonly signal: NodeJS.Signals | null;
+        }>((resolve) => {
+          child.once("exit", (code, signal) => resolve({ code, signal }));
+        }),
+    );
+
+    const outcome = yield* waitForDaemonReady(paths).pipe(
+      Effect.map((readyStatus) => ({ type: "ready" as const, readyStatus })),
+      Effect.raceFirst(childExit.pipe(Effect.map((exit) => ({ type: "exit" as const, exit })))),
+      Effect.timeoutOption("1500 millis"),
+    );
+
+    if (Option.isNone(outcome)) {
+      yield* Console.log(`Daemon launch requested. PID=${child.pid ?? "unknown"}.`);
+      return;
+    }
+    if (outcome.value.type === "exit") {
+      return yield* new ForgeDaemonCliError({
+        message: `Forge daemon exited before becoming ready (code=${outcome.value.exit.code ?? "null"}, signal=${outcome.value.exit.signal ?? "null"}).`,
+      });
+    }
+    if (outcome.value.readyStatus === undefined) {
+      yield* Console.log(`Daemon launch requested. PID=${child.pid ?? "unknown"}.`);
+      return;
+    }
+    const sessions = yield* loadDaemonSessions(paths);
+    yield* Console.log(renderDaemonStatus(outcome.value.readyStatus, sessions));
+  });
+
+const restartDaemonFromCli = (paths: CliDaemonPaths) =>
+  Effect.gen(function* () {
+    const status = yield* getDaemonStatusSnapshot(paths);
+    if (status.running) {
+      yield* sendDaemonRpc({
+        socketPath: paths.socketPath,
+        method: "daemon.stop",
+      });
+      const stopped = yield* waitForDaemonStopped(paths);
+      if (!stopped) {
+        return yield* new ForgeDaemonCliError({
+          message: `Forge daemon did not stop within 5000ms at ${paths.socketPath}.`,
+        });
+      }
+    }
+
+    yield* startDaemonFromCli(paths);
+  });
+
 const rootCommand = Command.make("forge", commandFlags).pipe(
   Command.withDescription("Run the Forge server or talk to the Forge daemon."),
   Command.withHandler((flags) =>
@@ -668,56 +735,29 @@ const daemonStartCommand = Command.make("start", cliDaemonFlags).pipe(
   Command.withHandler((input) =>
     Effect.gen(function* () {
       const paths = yield* resolveCliPathsFromInput(input);
-      const status = yield* getDaemonStatusSnapshot(paths);
-      if (status.running) {
-        const sessions = yield* loadDaemonSessions(paths);
-        yield* Console.log(renderDaemonStatus(status, sessions));
-        return;
-      }
+      yield* startDaemonFromCli(paths);
+    }),
+  ),
+);
 
-      const launchPlan = buildDaemonLaunchPlan({ baseDir: paths.baseDir });
-      if (launchPlan instanceof ForgeDaemonCliError) {
-        return yield* launchPlan;
-      }
-      const child = yield* launchDaemonProcess(launchPlan);
-      const childExit = Effect.promise(
-        () =>
-          new Promise<{
-            readonly code: number | null;
-            readonly signal: NodeJS.Signals | null;
-          }>((resolve) => {
-            child.once("exit", (code, signal) => resolve({ code, signal }));
-          }),
-      );
-
-      const outcome = yield* waitForDaemonReady(paths).pipe(
-        Effect.map((readyStatus) => ({ type: "ready" as const, readyStatus })),
-        Effect.raceFirst(childExit.pipe(Effect.map((exit) => ({ type: "exit" as const, exit })))),
-        Effect.timeoutOption("1500 millis"),
-      );
-
-      if (Option.isNone(outcome)) {
-        yield* Console.log(`Daemon launch requested. PID=${child.pid ?? "unknown"}.`);
-        return;
-      }
-      if (outcome.value.type === "exit") {
-        return yield* new ForgeDaemonCliError({
-          message: `Forge daemon exited before becoming ready (code=${outcome.value.exit.code ?? "null"}, signal=${outcome.value.exit.signal ?? "null"}).`,
-        });
-      }
-      if (outcome.value.readyStatus === undefined) {
-        yield* Console.log(`Daemon launch requested. PID=${child.pid ?? "unknown"}.`);
-        return;
-      }
-      const sessions = yield* loadDaemonSessions(paths);
-      yield* Console.log(renderDaemonStatus(outcome.value.readyStatus, sessions));
+const daemonRestartCommand = Command.make("restart", cliDaemonFlags).pipe(
+  Command.withDescription("Restart the daemon after waiting for graceful shutdown."),
+  Command.withHandler((input) =>
+    Effect.gen(function* () {
+      const paths = yield* resolveCliPathsFromInput(input);
+      yield* restartDaemonFromCli(paths);
     }),
   ),
 );
 
 const daemonCommand = Command.make("daemon").pipe(
   Command.withDescription("Manage the background Forge daemon."),
-  Command.withSubcommands([daemonStartCommand, daemonStopCommand, daemonStatusCommand]),
+  Command.withSubcommands([
+    daemonStartCommand,
+    daemonStopCommand,
+    daemonStatusCommand,
+    daemonRestartCommand,
+  ]),
 );
 
 export const cli = rootCommand.pipe(
