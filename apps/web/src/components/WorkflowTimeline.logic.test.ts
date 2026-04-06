@@ -13,6 +13,7 @@ import { describe, expect, it } from "vitest";
 import type { Thread } from "../types";
 import {
   buildWorkflowTimeline,
+  buildWorkflowTimelinePhasePresentation,
   isWorkflowContainerThread,
   parseWorkflowChannelTranscript,
   resolveWorkflowAutoNavigationTarget,
@@ -614,6 +615,144 @@ describe("resolveWorkflowTimelineTransitionState", () => {
     });
 
     expect(transitionState).toBeNull();
+  });
+});
+
+describe("buildWorkflowTimelinePhasePresentation", () => {
+  it("uses runtime quality-check events as a gate fallback and derives gate summaries", () => {
+    const workflow = makeWorkflowDefinition();
+    const phaseRunId = PhaseRunId.makeUnsafe("phase-run-plan");
+    const phaseItem = buildWorkflowTimeline({
+      workflow,
+      phaseRuns: [
+        {
+          phaseRunId,
+          phaseId: workflow.phases[0]!.id,
+          phaseName: workflow.phases[0]!.name,
+          phaseType: workflow.phases[0]!.type,
+          iteration: 1,
+          status: "completed",
+          gateResult: null,
+          qualityChecks: [],
+          startedAt: "2026-04-06T01:00:00.000Z",
+          completedAt: "2026-04-06T01:02:00.000Z",
+        },
+      ],
+      phaseOutputsByPhaseRunId: {
+        [phaseRunId]: {
+          outputKey: "summary",
+          content: JSON.stringify({
+            summary: "Implementation shipped.",
+            unresolvedItems: ["Document follow-up"],
+            changesSummary: ["apps/web/src/components/WorkflowTimeline.tsx"],
+          }),
+          sourceType: "agent",
+        },
+      },
+      childSessionsByPhaseRunId: {},
+    })[0]!;
+
+    const presentation = buildWorkflowTimelinePhasePresentation({
+      phaseItem,
+      runtime: makeRuntimeState({
+        gateEventsByPhaseRunId: {
+          [phaseRunId]: makeWorkflowGateEvent({
+            phaseRunId,
+            gateType: "human-approval",
+            status: "waiting-human",
+          }),
+        },
+        qualityChecksByPhaseRunId: {
+          [phaseRunId]: [
+            makeWorkflowQualityCheckEvent({
+              phaseRunId,
+              checkName: "bun fmt",
+              status: "running",
+            }),
+            makeWorkflowQualityCheckEvent({
+              phaseRunId,
+              checkName: "bun typecheck",
+              status: "passed",
+              output: "0 errors",
+            }),
+          ],
+        },
+      }),
+      transitionState: {
+        kind: "waiting-human",
+        anchorPhaseRunId: phaseRunId,
+        phaseName: "Plan",
+      },
+    });
+
+    expect(presentation).toEqual({
+      gateQualityChecks: [{ check: "bun typecheck", passed: true, output: "0 errors" }],
+      gateSummaryMarkdown: "Implementation shipped.",
+      gateUnresolvedItems: ["Document follow-up"],
+      gateChangesSummary: ["apps/web/src/components/WorkflowTimeline.tsx"],
+      phaseTransitionState: null,
+      shouldRenderGateApproval: true,
+    });
+  });
+
+  it("prefers persisted gate results and keeps non-human transitions attached to the phase", () => {
+    const workflow = makeWorkflowDefinition();
+    const phaseRunId = PhaseRunId.makeUnsafe("phase-run-plan");
+    const phaseItem = buildWorkflowTimeline({
+      workflow,
+      phaseRuns: [
+        {
+          phaseRunId,
+          phaseId: workflow.phases[0]!.id,
+          phaseName: workflow.phases[0]!.name,
+          phaseType: workflow.phases[0]!.type,
+          iteration: 1,
+          status: "completed",
+          gateResult: {
+            status: "waiting-human",
+            qualityCheckResults: [{ check: "persisted", passed: false, output: "failed" }],
+            humanDecision: undefined,
+            correction: undefined,
+            evaluatedAt: "2026-04-06T01:03:00.000Z",
+          },
+          qualityChecks: [{ check: "local", passed: true }],
+          startedAt: "2026-04-06T01:00:00.000Z",
+          completedAt: "2026-04-06T01:02:00.000Z",
+        },
+      ],
+      phaseOutputsByPhaseRunId: {},
+      childSessionsByPhaseRunId: {},
+    })[0]!;
+
+    const transitionState = {
+      kind: "phase-handoff" as const,
+      anchorPhaseRunId: phaseRunId,
+      phaseName: "Plan",
+      nextPhaseName: "Deliberate",
+    };
+
+    const presentation = buildWorkflowTimelinePhasePresentation({
+      phaseItem,
+      runtime: makeRuntimeState({
+        qualityChecksByPhaseRunId: {
+          [phaseRunId]: [
+            makeWorkflowQualityCheckEvent({
+              phaseRunId,
+              checkName: "runtime",
+              status: "passed",
+              output: "should not win",
+            }),
+          ],
+        },
+      }),
+      transitionState,
+    });
+
+    expect(presentation.gateQualityChecks).toEqual([
+      { check: "persisted", passed: false, output: "failed" },
+    ]);
+    expect(presentation.phaseTransitionState).toEqual(transitionState);
+    expect(presentation.shouldRenderGateApproval).toBe(true);
   });
 });
 

@@ -16,16 +16,11 @@ import { useProjectById, useThreadById, useThreadsByIds } from "../storeSelector
 import { useWorkflow, useWorkflowStore } from "../stores/workflowStore";
 import { getWsRpcClient } from "../wsRpcClient";
 import { GateApproval } from "./GateApproval";
-import {
-  deriveGateApprovalChangesSummary,
-  deriveGateApprovalSummaryMarkdown,
-  deriveGateApprovalUnresolvedItems,
-  selectGateApprovalQualityChecks,
-} from "./GateApproval.logic";
 import { QualityCheckResults } from "./QualityCheckResults";
 import { SidebarTrigger } from "./ui/sidebar";
 import {
   buildWorkflowTimeline,
+  buildWorkflowTimelinePhasePresentation,
   resolveWorkflowAutoNavigationTarget,
   resolveWorkflowTimelineTransitionState,
   selectLatestWorkflowPhaseEvent,
@@ -333,45 +328,11 @@ export function WorkflowTimeline({ threadId }: { threadId: ThreadId }) {
               const expanded = phaseItem.isActive || expandedPhaseRunIds.has(phaseItem.phaseRunId);
               const StatusIcon = statusIconForPhase(phaseItem.status);
               const roleLabelCount = phaseItem.childSessions.length;
-              const runtimeGateEvent =
-                workflowRuntime?.gateEventsByPhaseRunId[phaseItem.phaseRunId] ?? null;
-              const gateStatus = runtimeGateEvent?.status ?? phaseItem.gateResult?.status ?? null;
-              const runtimeQualityChecks =
-                workflowRuntime?.qualityChecksByPhaseRunId[phaseItem.phaseRunId] ?? [];
-              const gateQualityChecks = selectGateApprovalQualityChecks({
-                gateQualityCheckResults: phaseItem.gateResult?.qualityCheckResults,
-                phaseQualityChecks:
-                  phaseItem.qualityChecks.length > 0
-                    ? phaseItem.qualityChecks
-                    : runtimeQualityChecks
-                        .filter((check) => check.status !== "running")
-                        .map((check) => {
-                          const qualityCheck = {
-                            check: check.checkName,
-                            passed: check.status === "passed",
-                          } as {
-                            check: string;
-                            passed: boolean;
-                            output?: string;
-                          };
-
-                          if (check.output) {
-                            qualityCheck.output = check.output;
-                          }
-
-                          return qualityCheck;
-                        }),
+              const phasePresentation = buildWorkflowTimelinePhasePresentation({
+                phaseItem,
+                runtime: workflowRuntime,
+                transitionState,
               });
-              const phaseTransitionState =
-                transitionState !== null &&
-                transitionState.kind !== "waiting-human" &&
-                transitionState.anchorPhaseRunId === phaseItem.phaseRunId
-                  ? transitionState
-                  : null;
-              const shouldRenderGateApproval =
-                gateStatus === "waiting-human" ||
-                (transitionState?.kind === "waiting-human" &&
-                  transitionState.anchorPhaseRunId === phaseItem.phaseRunId);
 
               return (
                 <section key={phaseItem.phaseRunId} className="space-y-4">
@@ -459,19 +420,21 @@ export function WorkflowTimeline({ threadId }: { threadId: ThreadId }) {
 
                   <QualityCheckResults results={phaseItem.qualityChecks} />
 
-                  {phaseTransitionState ? (
-                    <WorkflowTimelineTransitionPanel state={phaseTransitionState} />
+                  {phasePresentation.phaseTransitionState ? (
+                    <WorkflowTimelineTransitionPanel
+                      state={phasePresentation.phaseTransitionState}
+                    />
                   ) : null}
 
-                  {shouldRenderGateApproval ? (
+                  {phasePresentation.shouldRenderGateApproval ? (
                     <GateApproval
                       threadId={threadId}
                       phaseRunId={phaseItem.phaseRunId}
                       phaseName={phaseItem.phaseName}
-                      summaryMarkdown={deriveGateApprovalSummaryMarkdown(phaseItem.output)}
-                      qualityCheckResults={gateQualityChecks}
-                      unresolvedItems={deriveGateApprovalUnresolvedItems(phaseItem.output)}
-                      changesSummary={deriveGateApprovalChangesSummary(phaseItem.output)}
+                      summaryMarkdown={phasePresentation.gateSummaryMarkdown}
+                      qualityCheckResults={phasePresentation.gateQualityChecks}
+                      unresolvedItems={phasePresentation.gateUnresolvedItems}
+                      changesSummary={phasePresentation.gateChangesSummary}
                       markdownCwd={project?.cwd}
                     />
                   ) : null}

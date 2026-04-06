@@ -13,6 +13,12 @@ import type {
   WorkflowPhase,
 } from "@forgetools/contracts";
 import type { Thread } from "../types";
+import {
+  deriveGateApprovalChangesSummary,
+  deriveGateApprovalSummaryMarkdown,
+  deriveGateApprovalUnresolvedItems,
+  selectGateApprovalQualityChecks,
+} from "./GateApproval.logic";
 
 export interface WorkflowTimelinePhaseOutputRecord {
   outputKey: string;
@@ -78,6 +84,15 @@ export interface WorkflowTimelinePhaseItem {
   gateResult: GateResult | null;
   childSessions: WorkflowTimelineChildSession[];
   isActive: boolean;
+}
+
+export interface WorkflowTimelinePhasePresentation {
+  gateQualityChecks: readonly QualityCheckResult[];
+  gateSummaryMarkdown: string | null;
+  gateUnresolvedItems: string[];
+  gateChangesSummary: string[];
+  phaseTransitionState: WorkflowTimelineTransitionState | null;
+  shouldRenderGateApproval: boolean;
 }
 
 export interface WorkflowTimelineRuntimeState {
@@ -305,6 +320,27 @@ function buildBootstrapOutput(events: readonly WorkflowBootstrapEvent[]): string
     .join("");
 }
 
+function runtimeQualityChecksToResults(
+  qualityChecks: readonly WorkflowQualityCheckEvent[],
+): QualityCheckResult[] {
+  return qualityChecks
+    .filter((check) => check.status !== "running")
+    .map((check): QualityCheckResult => {
+      if (check.output) {
+        return {
+          check: check.checkName,
+          passed: check.status === "passed",
+          output: check.output,
+        };
+      }
+
+      return {
+        check: check.checkName,
+        passed: check.status === "passed",
+      };
+    });
+}
+
 export function selectLatestWorkflowPhaseEvent(
   runtime: WorkflowTimelineRuntimeState | null | undefined,
 ): WorkflowPhaseEvent | null {
@@ -489,6 +525,44 @@ export function resolveWorkflowAutoNavigationTarget(input: {
   })[0];
 
   return newestChildThread?.threadId ?? null;
+}
+
+export function buildWorkflowTimelinePhasePresentation(input: {
+  phaseItem: WorkflowTimelinePhaseItem;
+  runtime: WorkflowTimelineRuntimeState | null;
+  transitionState: WorkflowTimelineTransitionState | null;
+}): WorkflowTimelinePhasePresentation {
+  const runtimeGateEvent =
+    input.runtime?.gateEventsByPhaseRunId[input.phaseItem.phaseRunId] ?? null;
+  const gateStatus = runtimeGateEvent?.status ?? input.phaseItem.gateResult?.status ?? null;
+  const runtimeQualityChecks =
+    input.runtime?.qualityChecksByPhaseRunId[input.phaseItem.phaseRunId] ?? [];
+  const gateQualityChecks = selectGateApprovalQualityChecks({
+    gateQualityCheckResults: input.phaseItem.gateResult?.qualityCheckResults,
+    phaseQualityChecks:
+      input.phaseItem.qualityChecks.length > 0
+        ? input.phaseItem.qualityChecks
+        : runtimeQualityChecksToResults(runtimeQualityChecks),
+  });
+  const phaseTransitionState =
+    input.transitionState !== null &&
+    input.transitionState.kind !== "waiting-human" &&
+    input.transitionState.anchorPhaseRunId === input.phaseItem.phaseRunId
+      ? input.transitionState
+      : null;
+  const shouldRenderGateApproval =
+    gateStatus === "waiting-human" ||
+    (input.transitionState?.kind === "waiting-human" &&
+      input.transitionState.anchorPhaseRunId === input.phaseItem.phaseRunId);
+
+  return {
+    gateQualityChecks,
+    gateSummaryMarkdown: deriveGateApprovalSummaryMarkdown(input.phaseItem.output),
+    gateUnresolvedItems: deriveGateApprovalUnresolvedItems(input.phaseItem.output),
+    gateChangesSummary: deriveGateApprovalChangesSummary(input.phaseItem.output),
+    phaseTransitionState,
+    shouldRenderGateApproval,
+  };
 }
 
 export function parseWorkflowChannelTranscript(
