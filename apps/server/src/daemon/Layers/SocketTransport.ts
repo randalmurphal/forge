@@ -139,13 +139,16 @@ const SessionCreateParams = Schema.Struct({
 });
 
 const GateApproveParams = Schema.Struct({
-  threadId: ThreadId,
-  phaseRunId: PhaseRunId,
+  sessionId: Schema.optional(ThreadId),
+  threadId: Schema.optional(ThreadId),
+  phaseRunId: Schema.optional(PhaseRunId),
 });
 
 const GateRejectParams = Schema.Struct({
-  threadId: ThreadId,
-  phaseRunId: PhaseRunId,
+  sessionId: Schema.optional(ThreadId),
+  threadId: Schema.optional(ThreadId),
+  phaseRunId: Schema.optional(PhaseRunId),
+  reason: Schema.optional(Schema.String),
   correction: Schema.optional(Schema.String),
 });
 
@@ -564,6 +567,92 @@ const makeSocketTransport = Effect.gen(function* () {
       : Effect.succeed(request);
   };
 
+  const requireCurrentGateRequest = (
+    snapshot: OrchestrationReadModel,
+    threadId: ThreadId,
+  ): Effect.Effect<InteractiveRequest, OrchestrationDispatchCommandError> => {
+    const requests = snapshot.pendingRequests.filter(
+      (candidate) =>
+        candidate.threadId === threadId &&
+        candidate.type === "gate" &&
+        candidate.status === "pending",
+    );
+
+    if (requests.length === 0) {
+      return Effect.fail(
+        new OrchestrationDispatchCommandError({
+          message: `No pending gate request found for thread '${threadId}'.`,
+        }),
+      );
+    }
+
+    if (requests.length > 1) {
+      return Effect.fail(
+        new OrchestrationDispatchCommandError({
+          message: `Multiple pending gate requests found for thread '${threadId}'; specify phaseRunId.`,
+        }),
+      );
+    }
+
+    return Effect.succeed(requests[0]!);
+  };
+
+  const resolveGateThreadId = (
+    input: {
+      readonly sessionId: ThreadId | undefined;
+      readonly threadId: ThreadId | undefined;
+    },
+    method: string,
+  ): ThreadId => {
+    if (
+      input.sessionId !== undefined &&
+      input.threadId !== undefined &&
+      input.sessionId !== input.threadId
+    ) {
+      throw new OrchestrationGetSnapshotError({
+        message: `Invalid params for '${method}'. sessionId and threadId must match when both are provided.`,
+      });
+    }
+
+    const threadId = input.sessionId ?? input.threadId;
+    if (threadId === undefined) {
+      throw new OrchestrationGetSnapshotError({
+        message: `Invalid params for '${method}'. Expected sessionId.`,
+      });
+    }
+
+    return threadId;
+  };
+
+  const resolveGateCorrection = (
+    input: {
+      readonly reason: string | undefined;
+      readonly correction: string | undefined;
+    },
+    method: string,
+  ): string | undefined => {
+    if (
+      input.reason !== undefined &&
+      input.correction !== undefined &&
+      input.reason !== input.correction
+    ) {
+      throw new OrchestrationGetSnapshotError({
+        message: `Invalid params for '${method}'. reason and correction must match when both are provided.`,
+      });
+    }
+
+    return input.reason ?? input.correction;
+  };
+
+  const resolveGateRequest = (input: {
+    readonly snapshot: OrchestrationReadModel;
+    readonly threadId: ThreadId;
+    readonly phaseRunId: PhaseRunId | undefined;
+  }): Effect.Effect<InteractiveRequest, OrchestrationDispatchCommandError> =>
+    input.phaseRunId === undefined
+      ? requireCurrentGateRequest(input.snapshot, input.threadId)
+      : requireGateRequest(input.snapshot, input.threadId, input.phaseRunId);
+
   const resolveProjectContext = (input: {
     readonly projectId: ProjectId | undefined;
     readonly parentThreadId: ThreadId | undefined;
@@ -879,6 +968,13 @@ const makeSocketTransport = Effect.gen(function* () {
   const handleGateApprove = (params: unknown) =>
     Effect.gen(function* () {
       const input = decodeParams(GateApproveParams, params, "gate.approve");
+      const threadId = resolveGateThreadId(
+        {
+          sessionId: input.sessionId,
+          threadId: input.threadId,
+        },
+        "gate.approve",
+      );
       const snapshot = yield* loadSnapshot("Failed to resolve gate request").pipe(
         Effect.mapError(
           (cause) =>
@@ -888,7 +984,11 @@ const makeSocketTransport = Effect.gen(function* () {
             }),
         ),
       );
-      const request = yield* requireGateRequest(snapshot, input.threadId, input.phaseRunId);
+      const request = yield* resolveGateRequest({
+        snapshot,
+        threadId,
+        phaseRunId: input.phaseRunId,
+      });
       return yield* dispatchSocketCommand(
         {
           type: "request.resolve",
@@ -904,6 +1004,20 @@ const makeSocketTransport = Effect.gen(function* () {
   const handleGateReject = (params: unknown) =>
     Effect.gen(function* () {
       const input = decodeParams(GateRejectParams, params, "gate.reject");
+      const threadId = resolveGateThreadId(
+        {
+          sessionId: input.sessionId,
+          threadId: input.threadId,
+        },
+        "gate.reject",
+      );
+      const correction = resolveGateCorrection(
+        {
+          reason: input.reason,
+          correction: input.correction,
+        },
+        "gate.reject",
+      );
       const snapshot = yield* loadSnapshot("Failed to resolve gate request").pipe(
         Effect.mapError(
           (cause) =>
@@ -913,7 +1027,11 @@ const makeSocketTransport = Effect.gen(function* () {
             }),
         ),
       );
-      const request = yield* requireGateRequest(snapshot, input.threadId, input.phaseRunId);
+      const request = yield* resolveGateRequest({
+        snapshot,
+        threadId,
+        phaseRunId: input.phaseRunId,
+      });
       return yield* dispatchSocketCommand(
         {
           type: "request.resolve",
@@ -921,7 +1039,7 @@ const makeSocketTransport = Effect.gen(function* () {
           requestId: request.id,
           resolvedWith: {
             decision: "reject",
-            ...(input.correction === undefined ? {} : { correction: input.correction }),
+            ...(correction === undefined ? {} : { correction }),
           },
           createdAt: nowIso(),
         },

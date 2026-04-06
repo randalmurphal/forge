@@ -419,6 +419,132 @@ it("bind does not respond to invalid-param notifications with no id", async () =
   }
 });
 
+it("gate.approve resolves the current pending gate when phaseRunId is omitted", async () => {
+  const socketDir = FS.mkdtempSync(Path.join(OS.tmpdir(), "forge-socket-transport-"));
+  const socketPath = Path.join(socketDir, "forge.sock");
+
+  try {
+    const dispatched = await Effect.runPromise(Ref.make<ReadonlyArray<unknown>>([]));
+    const transport = await Effect.runPromise(
+      Effect.service(SocketTransport).pipe(
+        Effect.provide(
+          makeTestLayer({
+            orchestrationEngine: {
+              dispatch: (command) =>
+                Ref.update(dispatched, (commands) => [...commands, command]).pipe(
+                  Effect.as({ sequence: 43 }),
+                ),
+            },
+          }),
+        ),
+      ),
+    );
+    const binding = await Effect.runPromise(transport.bind({ socketPath }));
+
+    try {
+      const response = (await sendRaw(
+        socketPath,
+        `${JSON.stringify({
+          jsonrpc: "2.0",
+          id: "approve-1",
+          method: "gate.approve",
+          params: {
+            sessionId: "thread-1",
+          },
+        })}\n`,
+      )) as {
+        readonly result: { readonly sequence: number };
+      };
+
+      assert.equal(response.result.sequence, 43);
+
+      const commands = await Effect.runPromise(Ref.get(dispatched));
+      assert.equal(commands.length, 1);
+      assert.deepStrictEqual(
+        {
+          type: (commands[0] as { readonly type: string }).type,
+          requestId: (commands[0] as { readonly requestId: string }).requestId,
+          resolvedWith: (commands[0] as { readonly resolvedWith: unknown }).resolvedWith,
+        },
+        {
+          type: "request.resolve",
+          requestId: "request-1",
+          resolvedWith: { decision: "approve" },
+        },
+      );
+    } finally {
+      await Effect.runPromise(binding.close.pipe(Effect.catch(() => Effect.void)));
+    }
+  } finally {
+    FS.rmSync(socketDir, { recursive: true, force: true });
+  }
+});
+
+it("gate.reject fails safely when phaseRunId is omitted for an ambiguous session", async () => {
+  const socketDir = FS.mkdtempSync(Path.join(OS.tmpdir(), "forge-socket-transport-"));
+  const socketPath = Path.join(socketDir, "forge.sock");
+  const baseSnapshot = makeSnapshot();
+  const snapshot = {
+    ...baseSnapshot,
+    pendingRequests: [
+      ...baseSnapshot.pendingRequests,
+      {
+        id: "request-2" as never,
+        threadId: "thread-1" as never,
+        phaseRunId: "phase-2" as never,
+        type: "gate",
+        status: "pending",
+        payload: {
+          type: "gate",
+          gateType: "human-approval",
+          phaseRunId: "phase-2" as never,
+        },
+        createdAt: "2026-04-06T18:01:00.000Z",
+      },
+    ],
+  } satisfies OrchestrationReadModel;
+
+  try {
+    const transport = await Effect.runPromise(
+      Effect.service(SocketTransport).pipe(
+        Effect.provide(
+          makeTestLayer({
+            snapshot,
+          }),
+        ),
+      ),
+    );
+    const binding = await Effect.runPromise(transport.bind({ socketPath }));
+
+    try {
+      const response = (await sendRaw(
+        socketPath,
+        `${JSON.stringify({
+          jsonrpc: "2.0",
+          id: "reject-1",
+          method: "gate.reject",
+          params: {
+            sessionId: "thread-1",
+            reason: "need another pass",
+          },
+        })}\n`,
+      )) as {
+        readonly error: { readonly code: number; readonly message: string };
+      };
+
+      assert.equal(response.error.code, -32000);
+      assert.equal(
+        response.error.message,
+        "Multiple pending gate requests found for thread 'thread-1'; specify phaseRunId.",
+      );
+    } finally {
+      await Effect.runPromise(binding.close.pipe(Effect.catch(() => Effect.void)));
+    }
+  } finally {
+    FS.rmSync(socketDir, { recursive: true, force: true });
+  }
+});
+
 it("channel.intervene maps to channel.post-message orchestration commands", async () => {
   const socketDir = FS.mkdtempSync(Path.join(OS.tmpdir(), "forge-socket-transport-"));
   const socketPath = Path.join(socketDir, "forge.sock");

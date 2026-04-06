@@ -173,6 +173,44 @@ vitestIt("routes `forge answer` to request.resolve with a user-input resolution"
   });
 });
 
+vitestIt("routes `forge approve` to gate.approve using sessionId params", async () => {
+  await withSocketServer({ sequence: 23 }, async ({ baseDir, requests }) => {
+    await runCli(["approve", "thread-7", "--base-dir", baseDir]);
+
+    nodeAssert.equal(requests.length, 1);
+    nodeAssert.equal(requests[0]?.method, "gate.approve");
+    nodeAssert.deepStrictEqual(requests[0]?.params, {
+      sessionId: "thread-7",
+    });
+  });
+});
+
+vitestIt("routes `forge reject` to gate.reject with an optional reason", async () => {
+  await withSocketServer({ sequence: 24 }, async ({ baseDir, requests }) => {
+    await runCli(["reject", "thread-8", "needs another pass", "--base-dir", baseDir]);
+
+    nodeAssert.equal(requests.length, 1);
+    nodeAssert.equal(requests[0]?.method, "gate.reject");
+    nodeAssert.deepStrictEqual(requests[0]?.params, {
+      sessionId: "thread-8",
+      reason: "needs another pass",
+    });
+  });
+});
+
+vitestIt("routes `forge intervene` to channel.intervene", async () => {
+  await withSocketServer({ sequence: 25 }, async ({ baseDir, requests }) => {
+    await runCli(["intervene", "channel-7", "please reassess", "--base-dir", baseDir]);
+
+    nodeAssert.equal(requests.length, 1);
+    nodeAssert.equal(requests[0]?.method, "channel.intervene");
+    nodeAssert.deepStrictEqual(requests[0]?.params, {
+      channelId: "channel-7",
+      content: "please reassess",
+    });
+  });
+});
+
 vitestIt("routes `forge daemon stop` to daemon.stop", async () => {
   await withSocketServer(
     (request: JsonRpcRequest) =>

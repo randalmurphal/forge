@@ -371,6 +371,11 @@ const cliDaemonFlags = {
   baseDir: baseDirFlag,
 } as const;
 
+const phaseRunIdFlag = Flag.string("phase-run-id").pipe(
+  Flag.withDescription("Explicit phase run id when a session has multiple pending gates."),
+  Flag.optional,
+);
+
 const renderSessionLine = (session: SessionSummary) =>
   [
     session.threadId,
@@ -600,6 +605,81 @@ const correctCommand = Command.make("correct", {
   ),
 );
 
+const approveCommand = Command.make("approve", {
+  ...cliDaemonFlags,
+  sessionId: Argument.string("session-id"),
+  phaseRunId: phaseRunIdFlag,
+}).pipe(
+  Command.withDescription("Approve the current pending gate for a session."),
+  Command.withHandler((input) =>
+    Effect.gen(function* () {
+      const paths = yield* resolveCliPathsFromInput(input);
+      const result = yield* sendDaemonRpc({
+        socketPath: paths.socketPath,
+        method: "gate.approve",
+        params: {
+          sessionId: input.sessionId,
+          ...(Option.isSome(input.phaseRunId) ? { phaseRunId: input.phaseRunId.value } : {}),
+        },
+      });
+      yield* Console.log(queueSummary(`Queued gate approval for ${input.sessionId}`, result));
+    }),
+  ),
+);
+
+const rejectCommand = Command.make("reject", {
+  ...cliDaemonFlags,
+  sessionId: Argument.string("session-id"),
+  reason: Argument.string("reason").pipe(Argument.optional),
+  phaseRunId: phaseRunIdFlag,
+}).pipe(
+  Command.withDescription("Reject the current pending gate for a session."),
+  Command.withHandler((input) =>
+    Effect.gen(function* () {
+      const paths = yield* resolveCliPathsFromInput(input);
+      const result = yield* sendDaemonRpc({
+        socketPath: paths.socketPath,
+        method: "gate.reject",
+        params: {
+          sessionId: input.sessionId,
+          ...(Option.isSome(input.reason) ? { reason: input.reason.value } : {}),
+          ...(Option.isSome(input.phaseRunId) ? { phaseRunId: input.phaseRunId.value } : {}),
+        },
+      });
+      yield* Console.log(queueSummary(`Queued gate rejection for ${input.sessionId}`, result));
+    }),
+  ),
+);
+
+const interveneCommand = Command.make("intervene", {
+  ...cliDaemonFlags,
+  channelId: Argument.string("channel-id"),
+  message: Argument.string("message"),
+  fromRole: Flag.string("role").pipe(
+    Flag.withDescription("Optional human role label for the channel intervention."),
+    Flag.optional,
+  ),
+}).pipe(
+  Command.withDescription("Post a human intervention message to a channel."),
+  Command.withHandler((input) =>
+    Effect.gen(function* () {
+      const paths = yield* resolveCliPathsFromInput(input);
+      const result = yield* sendDaemonRpc({
+        socketPath: paths.socketPath,
+        method: "channel.intervene",
+        params: {
+          channelId: input.channelId,
+          content: input.message,
+          ...(Option.isSome(input.fromRole) ? { fromRole: input.fromRole.value } : {}),
+        },
+      });
+      yield* Console.log(
+        queueSummary(`Queued channel intervention for ${input.channelId}`, result),
+      );
+    }),
+  ),
+);
+
 const pauseCommand = Command.make("pause", {
   ...cliDaemonFlags,
   sessionId: Argument.string("session-id"),
@@ -766,6 +846,9 @@ export const cli = rootCommand.pipe(
     statusCommand,
     createCommand,
     correctCommand,
+    approveCommand,
+    rejectCommand,
+    interveneCommand,
     pauseCommand,
     resumeCommand,
     cancelCommand,
