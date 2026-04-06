@@ -1,4 +1,8 @@
 import type {
+  WorkflowBootstrapEvent,
+  WorkflowGateEvent,
+  WorkflowPhaseEvent,
+  WorkflowQualityCheckEvent,
   GateResult,
   PhaseRunId,
   PhaseRunStatus,
@@ -61,7 +65,7 @@ export type WorkflowTimelineRenderableOutput =
 
 export interface WorkflowTimelinePhaseItem {
   phaseRunId: PhaseRunId;
-  phaseId: string;
+  phaseId: WorkflowPhase["id"];
   phaseName: string;
   phaseType: PhaseType;
   iteration: number;
@@ -74,6 +78,52 @@ export interface WorkflowTimelinePhaseItem {
   gateResult: GateResult | null;
   childSessions: WorkflowTimelineChildSession[];
   isActive: boolean;
+}
+
+export interface WorkflowTimelineRuntimeState {
+  phaseEventsByPhaseRunId: Partial<Record<PhaseRunId, WorkflowPhaseEvent>>;
+  qualityChecksByPhaseRunId: Partial<Record<PhaseRunId, WorkflowQualityCheckEvent[]>>;
+  gateEventsByPhaseRunId: Partial<Record<PhaseRunId, WorkflowGateEvent>>;
+  bootstrapEvents: WorkflowBootstrapEvent[];
+  latestBootstrapEvent: WorkflowBootstrapEvent | null;
+}
+
+interface WorkflowTimelineTransitionBase {
+  anchorPhaseRunId: PhaseRunId | null;
+  phaseName: string | null;
+}
+
+export interface WorkflowTimelineQualityChecksTransitionState extends WorkflowTimelineTransitionBase {
+  kind: "quality-checks";
+  checks: WorkflowQualityCheckEvent[];
+}
+
+export interface WorkflowTimelineWaitingHumanTransitionState extends WorkflowTimelineTransitionBase {
+  kind: "waiting-human";
+}
+
+export interface WorkflowTimelinePhaseHandoffTransitionState extends WorkflowTimelineTransitionBase {
+  kind: "phase-handoff";
+  nextPhaseName: string;
+}
+
+export interface WorkflowTimelineBootstrapTransitionState extends WorkflowTimelineTransitionBase {
+  kind: "bootstrap";
+  nextPhaseName: string | null;
+  status: "running" | "completed" | "failed" | "skipped";
+  output: string;
+  error: string | null;
+}
+
+export type WorkflowTimelineTransitionState =
+  | WorkflowTimelineQualityChecksTransitionState
+  | WorkflowTimelineWaitingHumanTransitionState
+  | WorkflowTimelinePhaseHandoffTransitionState
+  | WorkflowTimelineBootstrapTransitionState;
+
+export interface WorkflowTimelineAutoNavigationThread {
+  threadId: ThreadId;
+  updatedAt: string | undefined;
 }
 
 export const workflowTimelineQueryKeys = {
@@ -105,6 +155,13 @@ function toSortableTimestamp(value: string | null | undefined): number {
 
   const parsed = Date.parse(value);
   return Number.isFinite(parsed) ? parsed : Number.POSITIVE_INFINITY;
+}
+
+function compareDescendingTimestamp(
+  left: { timestamp: string },
+  right: { timestamp: string },
+): number {
+  return toSortableTimestamp(right.timestamp) - toSortableTimestamp(left.timestamp);
 }
 
 function compareWorkflowTimelineRuns(
@@ -187,6 +244,251 @@ function resolveLatestAssistantMessage(
   }
 
   return null;
+}
+
+function selectLatestEvent<TEvent extends { timestamp: string }>(
+  events: readonly TEvent[],
+): TEvent | null {
+  return [...events].toSorted(compareDescendingTimestamp)[0] ?? null;
+}
+
+function compactEvents<TEvent>(events: ReadonlyArray<TEvent | undefined>): TEvent[] {
+  return events.filter((event): event is TEvent => event !== undefined);
+}
+
+function resolvePhaseMetadata(input: {
+  phaseRunId: PhaseRunId | null;
+  timeline: readonly WorkflowTimelinePhaseItem[];
+  runtime: WorkflowTimelineRuntimeState | null;
+}): { phaseId: WorkflowPhase["id"] | null; phaseName: string | null } {
+  if (input.phaseRunId === null) {
+    return { phaseId: null, phaseName: null };
+  }
+
+  const timelineItem = input.timeline.find(
+    (candidate) => candidate.phaseRunId === input.phaseRunId,
+  );
+  if (timelineItem) {
+    return {
+      phaseId: timelineItem.phaseId,
+      phaseName: timelineItem.phaseName,
+    };
+  }
+
+  const phaseEvent = input.runtime?.phaseEventsByPhaseRunId[input.phaseRunId];
+  return {
+    phaseId: phaseEvent?.phaseInfo.phaseId ?? null,
+    phaseName: phaseEvent?.phaseInfo.phaseName ?? null,
+  };
+}
+
+function resolveNextWorkflowPhase(
+  workflow: WorkflowDefinition | null,
+  phaseId: WorkflowPhase["id"] | null,
+): WorkflowPhase | null {
+  if (workflow === null || phaseId === null) {
+    return null;
+  }
+
+  const phaseIndex = workflow.phases.findIndex((phase) => phase.id === phaseId);
+  if (phaseIndex < 0) {
+    return null;
+  }
+
+  return workflow.phases[phaseIndex + 1] ?? null;
+}
+
+function buildBootstrapOutput(events: readonly WorkflowBootstrapEvent[]): string {
+  return events
+    .map((event) => event.data ?? "")
+    .filter((chunk) => chunk.length > 0)
+    .join("");
+}
+
+export function selectLatestWorkflowPhaseEvent(
+  runtime: WorkflowTimelineRuntimeState | null | undefined,
+): WorkflowPhaseEvent | null {
+  return selectLatestEvent(compactEvents(Object.values(runtime?.phaseEventsByPhaseRunId ?? {})));
+}
+
+function selectLatestStartedWorkflowPhaseEvent(
+  runtime: WorkflowTimelineRuntimeState | null | undefined,
+): WorkflowPhaseEvent | null {
+  return selectLatestEvent(
+    compactEvents(Object.values(runtime?.phaseEventsByPhaseRunId ?? {})).filter(
+      (event): event is WorkflowPhaseEvent => event.event === "started",
+    ),
+  );
+}
+
+function selectLatestWorkflowGateEvent(
+  runtime: WorkflowTimelineRuntimeState | null | undefined,
+): WorkflowGateEvent | null {
+  return selectLatestEvent(compactEvents(Object.values(runtime?.gateEventsByPhaseRunId ?? {})));
+}
+
+function selectLatestWorkflowBootstrapEvent(
+  runtime: WorkflowTimelineRuntimeState | null | undefined,
+): WorkflowBootstrapEvent | null {
+  return selectLatestEvent(runtime?.bootstrapEvents ?? []) ?? runtime?.latestBootstrapEvent ?? null;
+}
+
+function isSupersededByPhaseStart(
+  eventTimestamp: string,
+  latestPhaseEvent: WorkflowPhaseEvent | null,
+): boolean {
+  return (
+    latestPhaseEvent?.event === "started" &&
+    toSortableTimestamp(latestPhaseEvent.timestamp) > toSortableTimestamp(eventTimestamp)
+  );
+}
+
+export function resolveWorkflowTimelineTransitionState(input: {
+  workflow: WorkflowDefinition | null;
+  timeline: readonly WorkflowTimelinePhaseItem[];
+  runtime: WorkflowTimelineRuntimeState | null;
+}): WorkflowTimelineTransitionState | null {
+  const latestPhaseEvent = selectLatestWorkflowPhaseEvent(input.runtime);
+  const latestStartedPhaseEvent = selectLatestStartedWorkflowPhaseEvent(input.runtime);
+  const latestGateEvent = selectLatestWorkflowGateEvent(input.runtime);
+  const latestBootstrapEvent = selectLatestWorkflowBootstrapEvent(input.runtime);
+
+  if (
+    latestGateEvent?.status === "waiting-human" &&
+    !isSupersededByPhaseStart(latestGateEvent.timestamp, latestStartedPhaseEvent)
+  ) {
+    const phaseMetadata = resolvePhaseMetadata({
+      phaseRunId: latestGateEvent.phaseRunId,
+      timeline: input.timeline,
+      runtime: input.runtime,
+    });
+
+    return {
+      kind: "waiting-human",
+      anchorPhaseRunId: latestGateEvent.phaseRunId,
+      phaseName: phaseMetadata.phaseName,
+    };
+  }
+
+  if (
+    latestGateEvent?.status === "evaluating" &&
+    !isSupersededByPhaseStart(latestGateEvent.timestamp, latestStartedPhaseEvent)
+  ) {
+    const phaseMetadata = resolvePhaseMetadata({
+      phaseRunId: latestGateEvent.phaseRunId,
+      timeline: input.timeline,
+      runtime: input.runtime,
+    });
+
+    return {
+      kind: "quality-checks",
+      anchorPhaseRunId: latestGateEvent.phaseRunId,
+      phaseName: phaseMetadata.phaseName,
+      checks: [...(input.runtime?.qualityChecksByPhaseRunId[latestGateEvent.phaseRunId] ?? [])],
+    };
+  }
+
+  if (
+    latestBootstrapEvent &&
+    toSortableTimestamp(latestBootstrapEvent.timestamp) >=
+      Math.max(
+        toSortableTimestamp(latestPhaseEvent?.timestamp),
+        toSortableTimestamp(latestGateEvent?.timestamp),
+      )
+  ) {
+    const anchorPhaseRunId = latestGateEvent?.phaseRunId ?? latestPhaseEvent?.phaseRunId ?? null;
+    const phaseMetadata = resolvePhaseMetadata({
+      phaseRunId: anchorPhaseRunId,
+      timeline: input.timeline,
+      runtime: input.runtime,
+    });
+    const nextPhase = resolveNextWorkflowPhase(input.workflow, phaseMetadata.phaseId);
+
+    return {
+      kind: "bootstrap",
+      anchorPhaseRunId,
+      phaseName: phaseMetadata.phaseName,
+      nextPhaseName: nextPhase?.name ?? null,
+      status:
+        latestBootstrapEvent.event === "failed"
+          ? "failed"
+          : latestBootstrapEvent.event === "completed"
+            ? "completed"
+            : latestBootstrapEvent.event === "skipped"
+              ? "skipped"
+              : "running",
+      output: buildBootstrapOutput(input.runtime?.bootstrapEvents ?? []),
+      error: latestBootstrapEvent.error ?? null,
+    };
+  }
+
+  if (
+    latestGateEvent?.status === "passed" &&
+    !isSupersededByPhaseStart(latestGateEvent.timestamp, latestStartedPhaseEvent)
+  ) {
+    const phaseMetadata = resolvePhaseMetadata({
+      phaseRunId: latestGateEvent.phaseRunId,
+      timeline: input.timeline,
+      runtime: input.runtime,
+    });
+    const nextPhase = resolveNextWorkflowPhase(input.workflow, phaseMetadata.phaseId);
+    if (nextPhase) {
+      return {
+        kind: "phase-handoff",
+        anchorPhaseRunId: latestGateEvent.phaseRunId,
+        phaseName: phaseMetadata.phaseName,
+        nextPhaseName: nextPhase.name,
+      };
+    }
+  }
+
+  if (
+    latestPhaseEvent?.event === "completed" &&
+    !isSupersededByPhaseStart(latestPhaseEvent.timestamp, latestStartedPhaseEvent)
+  ) {
+    const nextPhase = resolveNextWorkflowPhase(input.workflow, latestPhaseEvent.phaseInfo.phaseId);
+    if (nextPhase) {
+      return {
+        kind: "phase-handoff",
+        anchorPhaseRunId: latestPhaseEvent.phaseRunId,
+        phaseName: latestPhaseEvent.phaseInfo.phaseName,
+        nextPhaseName: nextPhase.name,
+      };
+    }
+  }
+
+  return null;
+}
+
+export function resolveWorkflowAutoNavigationTarget(input: {
+  transitionState: WorkflowTimelineTransitionState | null;
+  latestPhaseEvent: WorkflowPhaseEvent | null;
+  previousChildThreadIds: readonly ThreadId[];
+  childThreads: readonly WorkflowTimelineAutoNavigationThread[];
+}): ThreadId | null {
+  const shouldAutoNavigate =
+    input.transitionState?.kind === "bootstrap" ||
+    input.transitionState?.kind === "phase-handoff" ||
+    input.latestPhaseEvent?.event === "started";
+
+  if (!shouldAutoNavigate) {
+    return null;
+  }
+
+  const previousIds = new Set(input.previousChildThreadIds);
+  const newChildThreads = input.childThreads.filter(
+    (childThread) => !previousIds.has(childThread.threadId),
+  );
+  const newestChildThread = [...newChildThreads].toSorted((left, right) => {
+    const timestampComparison =
+      toSortableTimestamp(right.updatedAt) - toSortableTimestamp(left.updatedAt);
+    if (timestampComparison !== 0) {
+      return timestampComparison;
+    }
+    return right.threadId.localeCompare(left.threadId);
+  })[0];
+
+  return newestChildThread?.threadId ?? null;
 }
 
 export function parseWorkflowChannelTranscript(

@@ -9,12 +9,12 @@ import {
   LoaderCircleIcon,
   XCircleIcon,
 } from "lucide-react";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import type { ThreadId, WorkflowPhase } from "@forgetools/contracts";
 import { cn } from "../lib/utils";
 import { useStore } from "../store";
 import { useProjectById, useThreadById } from "../storeSelectors";
-import { useWorkflow } from "../stores/workflowStore";
+import { useWorkflow, useWorkflowStore } from "../stores/workflowStore";
 import { getWsRpcClient } from "../wsRpcClient";
 import { GateApproval } from "./GateApproval";
 import {
@@ -27,14 +27,19 @@ import { QualityCheckResults } from "./QualityCheckResults";
 import { SidebarTrigger } from "./ui/sidebar";
 import {
   buildWorkflowTimeline,
+  resolveWorkflowAutoNavigationTarget,
+  resolveWorkflowTimelineTransitionState,
+  selectLatestWorkflowPhaseEvent,
   workflowTimelineQueryKeys,
   type WorkflowTimelineChildSession,
   type WorkflowTimelinePhaseOutputRecord,
 } from "./WorkflowTimeline.logic";
 import {
   WorkflowTimelineOutputBody,
+  WorkflowTimelineTransitionPanel,
   WorkflowTimelineTranscriptPanel,
 } from "./WorkflowTimeline.parts";
+import { useNavigate } from "@tanstack/react-router";
 
 const phaseStatusBadgeVariants = cva(
   "inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-[11px] font-medium tracking-[0.08em] uppercase",
@@ -103,11 +108,16 @@ function statusIconForPhase(status: string) {
 
 export function WorkflowTimeline({ threadId }: { threadId: ThreadId }) {
   const [expandedPhaseRunIds, setExpandedPhaseRunIds] = useState<Set<string>>(() => new Set());
+  const navigate = useNavigate();
   const thread = useThreadById(threadId);
   const project = useProjectById(thread?.projectId ?? null);
+  const workflowRuntime = useWorkflowStore((state) => state.runtimeByThreadId[threadId] ?? null);
   const childThreads = useStore((state) =>
     state.threads.filter((candidate) => candidate.parentThreadId === threadId),
   );
+  const knownChildThreadIdsRef = useRef<ThreadId[]>(thread?.childThreadIds ?? []);
+  const lastNavigatedChildThreadIdRef = useRef<ThreadId | null>(null);
+  const previousWorkflowThreadIdRef = useRef<ThreadId>(threadId);
   const workflowQuery = useWorkflow(thread?.workflowId ?? null);
   const phaseRunsQuery = useQuery({
     ...workflowPhaseRunsQueryOptions(threadId),
@@ -205,6 +215,19 @@ export function WorkflowTimeline({ threadId }: { threadId: ThreadId }) {
       }),
     [childSessionsByPhaseRunId, phaseOutputsByPhaseRunId, phaseRunsQuery.data, workflowQuery.data],
   );
+  const transitionState = useMemo(
+    () =>
+      resolveWorkflowTimelineTransitionState({
+        workflow: workflowQuery.data ?? null,
+        timeline,
+        runtime: workflowRuntime,
+      }),
+    [timeline, workflowQuery.data, workflowRuntime],
+  );
+  const latestPhaseEvent = useMemo(
+    () => selectLatestWorkflowPhaseEvent(workflowRuntime),
+    [workflowRuntime],
+  );
 
   const phaseOutputError = phaseOutputQueries.find((query) => query.error instanceof Error)?.error;
   const phaseOutputsLoading = phaseOutputQueries.some((query) => query.isPending);
@@ -220,6 +243,39 @@ export function WorkflowTimeline({ threadId }: { threadId: ThreadId }) {
         : phaseOutputError instanceof Error
           ? phaseOutputError
           : null;
+
+  if (previousWorkflowThreadIdRef.current !== threadId) {
+    previousWorkflowThreadIdRef.current = threadId;
+    knownChildThreadIdsRef.current = thread?.childThreadIds ?? [];
+    lastNavigatedChildThreadIdRef.current = null;
+  }
+
+  useEffect(() => {
+    const autoNavigationTarget = resolveWorkflowAutoNavigationTarget({
+      transitionState,
+      latestPhaseEvent,
+      previousChildThreadIds: knownChildThreadIdsRef.current,
+      childThreads: childThreads.map((childThread) => ({
+        threadId: childThread.id,
+        updatedAt: childThread.updatedAt,
+      })),
+    });
+
+    knownChildThreadIdsRef.current = thread?.childThreadIds ?? [];
+
+    if (
+      autoNavigationTarget === null ||
+      autoNavigationTarget === lastNavigatedChildThreadIdRef.current
+    ) {
+      return;
+    }
+
+    lastNavigatedChildThreadIdRef.current = autoNavigationTarget;
+    void navigate({
+      to: "/$threadId",
+      params: { threadId: autoNavigationTarget },
+    });
+  }, [childThreads, latestPhaseEvent, navigate, thread?.childThreadIds, transitionState]);
 
   if (!thread) {
     return (
@@ -276,10 +332,45 @@ export function WorkflowTimeline({ threadId }: { threadId: ThreadId }) {
               const expanded = phaseItem.isActive || expandedPhaseRunIds.has(phaseItem.phaseRunId);
               const StatusIcon = statusIconForPhase(phaseItem.status);
               const roleLabelCount = phaseItem.childSessions.length;
+              const runtimeGateEvent =
+                workflowRuntime?.gateEventsByPhaseRunId[phaseItem.phaseRunId] ?? null;
+              const gateStatus = runtimeGateEvent?.status ?? phaseItem.gateResult?.status ?? null;
+              const runtimeQualityChecks =
+                workflowRuntime?.qualityChecksByPhaseRunId[phaseItem.phaseRunId] ?? [];
               const gateQualityChecks = selectGateApprovalQualityChecks({
                 gateQualityCheckResults: phaseItem.gateResult?.qualityCheckResults,
-                phaseQualityChecks: phaseItem.qualityChecks,
+                phaseQualityChecks:
+                  phaseItem.qualityChecks.length > 0
+                    ? phaseItem.qualityChecks
+                    : runtimeQualityChecks
+                        .filter((check) => check.status !== "running")
+                        .map((check) => {
+                          const qualityCheck = {
+                            check: check.checkName,
+                            passed: check.status === "passed",
+                          } as {
+                            check: string;
+                            passed: boolean;
+                            output?: string;
+                          };
+
+                          if (check.output) {
+                            qualityCheck.output = check.output;
+                          }
+
+                          return qualityCheck;
+                        }),
               });
+              const phaseTransitionState =
+                transitionState !== null &&
+                transitionState.kind !== "waiting-human" &&
+                transitionState.anchorPhaseRunId === phaseItem.phaseRunId
+                  ? transitionState
+                  : null;
+              const shouldRenderGateApproval =
+                gateStatus === "waiting-human" ||
+                (transitionState?.kind === "waiting-human" &&
+                  transitionState.anchorPhaseRunId === phaseItem.phaseRunId);
 
               return (
                 <section key={phaseItem.phaseRunId} className="space-y-4">
@@ -361,7 +452,11 @@ export function WorkflowTimeline({ threadId }: { threadId: ThreadId }) {
 
                   <QualityCheckResults results={phaseItem.qualityChecks} />
 
-                  {phaseItem.gateResult?.status === "waiting-human" ? (
+                  {phaseTransitionState ? (
+                    <WorkflowTimelineTransitionPanel state={phaseTransitionState} />
+                  ) : null}
+
+                  {shouldRenderGateApproval ? (
                     <GateApproval
                       threadId={threadId}
                       phaseRunId={phaseItem.phaseRunId}

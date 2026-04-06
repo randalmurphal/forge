@@ -32,6 +32,7 @@ export interface WorkflowThreadRuntimeState {
   phaseOutputsByPhaseRunId: WorkflowPhaseOutputMap;
   qualityChecksByPhaseRunId: WorkflowQualityCheckMap;
   gateEventsByPhaseRunId: WorkflowGateEventMap;
+  bootstrapEvents: WorkflowBootstrapEvent[];
   latestBootstrapEvent: WorkflowBootstrapEvent | null;
 }
 
@@ -158,6 +159,7 @@ function workflowThreadRuntimeStateEquals(
       JSON.stringify(right.qualityChecksByPhaseRunId) &&
     JSON.stringify(left?.gateEventsByPhaseRunId ?? {}) ===
       JSON.stringify(right.gateEventsByPhaseRunId) &&
+    JSON.stringify(left?.bootstrapEvents ?? []) === JSON.stringify(right.bootstrapEvents) &&
     workflowPushEventsEqual(left?.latestBootstrapEvent, right.latestBootstrapEvent)
   );
 }
@@ -168,6 +170,7 @@ function getEmptyWorkflowThreadRuntimeState(): WorkflowThreadRuntimeState {
     phaseOutputsByPhaseRunId: {},
     qualityChecksByPhaseRunId: {},
     gateEventsByPhaseRunId: {},
+    bootstrapEvents: [],
     latestBootstrapEvent: null,
   };
 }
@@ -193,6 +196,31 @@ function mergeWorkflowQualityCheckEvents(
     }
     return left.timestamp.localeCompare(right.timestamp);
   });
+}
+
+function mergeWorkflowBootstrapEvents(
+  current: readonly WorkflowBootstrapEvent[],
+  event: WorkflowBootstrapEvent,
+): WorkflowBootstrapEvent[] {
+  if (event.event === "started") {
+    return [event];
+  }
+
+  if (
+    current.some(
+      (candidate) =>
+        candidate.timestamp === event.timestamp &&
+        candidate.event === event.event &&
+        candidate.data === event.data &&
+        candidate.error === event.error,
+    )
+  ) {
+    return [...current];
+  }
+
+  return [...current, event].toSorted((left, right) =>
+    left.timestamp.localeCompare(right.timestamp),
+  );
 }
 
 function updateWorkflowThreadRuntimeState(
@@ -313,11 +341,16 @@ export function applyWorkflowPushEventState(
         };
       }
       case "workflow.bootstrap":
-        if (workflowPushEventsEqual(runtime.latestBootstrapEvent, event)) {
+        const nextBootstrapEvents = mergeWorkflowBootstrapEvents(runtime.bootstrapEvents, event);
+        if (
+          workflowPushEventsEqual(runtime.latestBootstrapEvent, event) &&
+          workflowPushEventListsEqual(runtime.bootstrapEvents, nextBootstrapEvents)
+        ) {
           return runtime;
         }
         return {
           ...runtime,
+          bootstrapEvents: nextBootstrapEvents,
           latestBootstrapEvent: event,
         };
       case "workflow.gate":

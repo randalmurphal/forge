@@ -220,14 +220,31 @@ describe("workflow store state helpers", () => {
   });
 
   it("tracks latest bootstrap and gate events per workflow thread", () => {
-    const bootstrapEvent = makeWorkflowBootstrapEvent();
+    const bootstrapStartedEvent = makeWorkflowBootstrapEvent({
+      event: "started",
+      data: undefined,
+      timestamp: "2026-04-06T00:00:12.000Z",
+    });
+    const bootstrapOutputEvent = makeWorkflowBootstrapEvent({
+      event: "output",
+      data: "Installing dependencies...\n",
+      timestamp: "2026-04-06T00:00:13.000Z",
+    });
     const gateEvent = makeWorkflowGateEvent();
 
-    const withBootstrap = applyWorkflowPushEventState(initialWorkflowStoreState, bootstrapEvent);
-    const next = applyWorkflowPushEventState(withBootstrap, gateEvent);
-    const runtime = next.runtimeByThreadId[bootstrapEvent.threadId];
+    const withBootstrapStarted = applyWorkflowPushEventState(
+      initialWorkflowStoreState,
+      bootstrapStartedEvent,
+    );
+    const withBootstrapOutput = applyWorkflowPushEventState(
+      withBootstrapStarted,
+      bootstrapOutputEvent,
+    );
+    const next = applyWorkflowPushEventState(withBootstrapOutput, gateEvent);
+    const runtime = next.runtimeByThreadId[bootstrapStartedEvent.threadId];
 
-    expect(runtime?.latestBootstrapEvent).toEqual(bootstrapEvent);
+    expect(runtime?.bootstrapEvents).toEqual([bootstrapStartedEvent, bootstrapOutputEvent]);
+    expect(runtime?.latestBootstrapEvent).toEqual(bootstrapOutputEvent);
     expect(runtime?.gateEventsByPhaseRunId[gateEvent.phaseRunId]).toEqual(gateEvent);
   });
 });

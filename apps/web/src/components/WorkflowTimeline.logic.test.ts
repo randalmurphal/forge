@@ -1,4 +1,8 @@
 import {
+  type WorkflowBootstrapEvent,
+  type WorkflowGateEvent,
+  type WorkflowPhaseEvent,
+  type WorkflowQualityCheckEvent,
   PhaseRunId,
   ThreadId,
   WorkflowId,
@@ -11,9 +15,14 @@ import {
   buildWorkflowTimeline,
   isWorkflowContainerThread,
   parseWorkflowChannelTranscript,
+  resolveWorkflowAutoNavigationTarget,
+  resolveWorkflowTimelineTransitionState,
   resolveWorkflowTimelineOutput,
+  selectLatestWorkflowPhaseEvent,
+  type WorkflowTimelineAutoNavigationThread,
   type WorkflowTimelineChildSession,
   type WorkflowTimelinePhaseOutputRecord,
+  type WorkflowTimelineRuntimeState,
 } from "./WorkflowTimeline.logic";
 
 function makeWorkflowDefinition(): WorkflowDefinition {
@@ -134,6 +143,75 @@ function makeWorkflowContainerThread(overrides: Partial<Thread> = {}): Thread {
     worktreePath: null,
     turnDiffSummaries: [],
     activities: [],
+    ...overrides,
+  };
+}
+
+function makeWorkflowPhaseEvent(overrides: Partial<WorkflowPhaseEvent> = {}): WorkflowPhaseEvent {
+  return {
+    channel: "workflow.phase",
+    threadId: ThreadId.makeUnsafe("thread-workflow"),
+    phaseRunId: PhaseRunId.makeUnsafe("phase-run-implement"),
+    event: "completed",
+    phaseInfo: {
+      phaseId: WorkflowPhaseId.makeUnsafe("phase-implement"),
+      phaseName: "Implement",
+      phaseType: "single-agent",
+      iteration: 1,
+    },
+    timestamp: "2026-04-06T02:00:00.000Z",
+    ...overrides,
+  };
+}
+
+function makeWorkflowGateEvent(overrides: Partial<WorkflowGateEvent> = {}): WorkflowGateEvent {
+  return {
+    channel: "workflow.gate",
+    threadId: ThreadId.makeUnsafe("thread-workflow"),
+    phaseRunId: PhaseRunId.makeUnsafe("phase-run-implement"),
+    gateType: "quality-checks",
+    status: "evaluating",
+    timestamp: "2026-04-06T02:00:10.000Z",
+    ...overrides,
+  };
+}
+
+function makeWorkflowQualityCheckEvent(
+  overrides: Partial<WorkflowQualityCheckEvent> = {},
+): WorkflowQualityCheckEvent {
+  return {
+    channel: "workflow.quality-check",
+    threadId: ThreadId.makeUnsafe("thread-workflow"),
+    phaseRunId: PhaseRunId.makeUnsafe("phase-run-implement"),
+    checkName: "bun typecheck",
+    status: "running",
+    timestamp: "2026-04-06T02:00:11.000Z",
+    ...overrides,
+  };
+}
+
+function makeWorkflowBootstrapEvent(
+  overrides: Partial<WorkflowBootstrapEvent> = {},
+): WorkflowBootstrapEvent {
+  return {
+    channel: "workflow.bootstrap",
+    threadId: ThreadId.makeUnsafe("thread-workflow"),
+    event: "output",
+    data: "Installing packages...\n",
+    timestamp: "2026-04-06T02:00:20.000Z",
+    ...overrides,
+  };
+}
+
+function makeRuntimeState(
+  overrides: Partial<WorkflowTimelineRuntimeState> = {},
+): WorkflowTimelineRuntimeState {
+  return {
+    phaseEventsByPhaseRunId: {},
+    qualityChecksByPhaseRunId: {},
+    gateEventsByPhaseRunId: {},
+    bootstrapEvents: [],
+    latestBootstrapEvent: null,
     ...overrides,
   };
 }
@@ -304,6 +382,284 @@ describe("buildWorkflowTimeline", () => {
       kind: "conversation",
       markdown: "Streaming the active phase output.",
     });
+  });
+});
+
+describe("resolveWorkflowTimelineTransitionState", () => {
+  it("surfaces a quality-check transition while a gate is evaluating", () => {
+    const workflow = makeWorkflowDefinition();
+    const runtime = makeRuntimeState({
+      phaseEventsByPhaseRunId: {
+        [PhaseRunId.makeUnsafe("phase-run-implement")]: makeWorkflowPhaseEvent(),
+      },
+      gateEventsByPhaseRunId: {
+        [PhaseRunId.makeUnsafe("phase-run-implement")]: makeWorkflowGateEvent(),
+      },
+      qualityChecksByPhaseRunId: {
+        [PhaseRunId.makeUnsafe("phase-run-implement")]: [
+          makeWorkflowQualityCheckEvent(),
+          makeWorkflowQualityCheckEvent({
+            checkName: "bun lint",
+            status: "passed",
+            output: "0 issues",
+          }),
+        ],
+      },
+    });
+
+    const transitionState = resolveWorkflowTimelineTransitionState({
+      workflow,
+      timeline: [],
+      runtime,
+    });
+
+    expect(transitionState).toEqual({
+      kind: "quality-checks",
+      anchorPhaseRunId: PhaseRunId.makeUnsafe("phase-run-implement"),
+      phaseName: "Implement",
+      checks: [
+        makeWorkflowQualityCheckEvent(),
+        makeWorkflowQualityCheckEvent({
+          checkName: "bun lint",
+          status: "passed",
+          output: "0 issues",
+        }),
+      ],
+    });
+  });
+
+  it("surfaces waiting-human transitions before query state catches up", () => {
+    const transitionState = resolveWorkflowTimelineTransitionState({
+      workflow: makeWorkflowDefinition(),
+      timeline: [],
+      runtime: makeRuntimeState({
+        phaseEventsByPhaseRunId: {
+          [PhaseRunId.makeUnsafe("phase-run-implement")]: makeWorkflowPhaseEvent(),
+        },
+        gateEventsByPhaseRunId: {
+          [PhaseRunId.makeUnsafe("phase-run-implement")]: makeWorkflowGateEvent({
+            gateType: "human-approval",
+            status: "waiting-human",
+          }),
+        },
+      }),
+    });
+
+    expect(transitionState).toEqual({
+      kind: "waiting-human",
+      anchorPhaseRunId: PhaseRunId.makeUnsafe("phase-run-implement"),
+      phaseName: "Implement",
+    });
+  });
+
+  it("surfaces a handoff transition after a phase passes and before the next one starts", () => {
+    const workflow = makeWorkflowDefinition();
+    const transitionState = resolveWorkflowTimelineTransitionState({
+      workflow,
+      timeline: [],
+      runtime: makeRuntimeState({
+        gateEventsByPhaseRunId: {
+          [PhaseRunId.makeUnsafe("phase-run-plan")]: makeWorkflowGateEvent({
+            phaseRunId: PhaseRunId.makeUnsafe("phase-run-plan"),
+            status: "passed",
+            timestamp: "2026-04-06T02:00:15.000Z",
+          }),
+        },
+        phaseEventsByPhaseRunId: {
+          [PhaseRunId.makeUnsafe("phase-run-plan")]: makeWorkflowPhaseEvent({
+            phaseRunId: PhaseRunId.makeUnsafe("phase-run-plan"),
+            phaseInfo: {
+              phaseId: WorkflowPhaseId.makeUnsafe("phase-plan"),
+              phaseName: "Plan",
+              phaseType: "single-agent",
+              iteration: 1,
+            },
+            timestamp: "2026-04-06T02:00:05.000Z",
+          }),
+        },
+      }),
+    });
+
+    expect(transitionState).toEqual({
+      kind: "phase-handoff",
+      anchorPhaseRunId: PhaseRunId.makeUnsafe("phase-run-plan"),
+      phaseName: "Plan",
+      nextPhaseName: "Deliberate",
+    });
+  });
+
+  it("surfaces bootstrap progress with accumulated output", () => {
+    const workflow = makeWorkflowDefinition();
+    const bootstrapStarted = makeWorkflowBootstrapEvent({
+      event: "started",
+      data: undefined,
+      timestamp: "2026-04-06T02:00:16.000Z",
+    });
+    const bootstrapOutput = makeWorkflowBootstrapEvent({
+      event: "output",
+      data: "Installing packages...\n",
+      timestamp: "2026-04-06T02:00:18.000Z",
+    });
+    const bootstrapFailed = makeWorkflowBootstrapEvent({
+      event: "failed",
+      data: "bun install failed\n",
+      error: "exit code 1",
+      timestamp: "2026-04-06T02:00:19.000Z",
+    });
+
+    const transitionState = resolveWorkflowTimelineTransitionState({
+      workflow,
+      timeline: [],
+      runtime: makeRuntimeState({
+        gateEventsByPhaseRunId: {
+          [PhaseRunId.makeUnsafe("phase-run-plan")]: makeWorkflowGateEvent({
+            phaseRunId: PhaseRunId.makeUnsafe("phase-run-plan"),
+            status: "passed",
+            timestamp: "2026-04-06T02:00:15.000Z",
+          }),
+        },
+        phaseEventsByPhaseRunId: {
+          [PhaseRunId.makeUnsafe("phase-run-plan")]: makeWorkflowPhaseEvent({
+            phaseRunId: PhaseRunId.makeUnsafe("phase-run-plan"),
+            phaseInfo: {
+              phaseId: WorkflowPhaseId.makeUnsafe("phase-plan"),
+              phaseName: "Plan",
+              phaseType: "single-agent",
+              iteration: 1,
+            },
+            timestamp: "2026-04-06T02:00:05.000Z",
+          }),
+        },
+        bootstrapEvents: [bootstrapStarted, bootstrapOutput, bootstrapFailed],
+        latestBootstrapEvent: bootstrapFailed,
+      }),
+    });
+
+    expect(transitionState).toEqual({
+      kind: "bootstrap",
+      anchorPhaseRunId: PhaseRunId.makeUnsafe("phase-run-plan"),
+      phaseName: "Plan",
+      nextPhaseName: "Deliberate",
+      status: "failed",
+      output: "Installing packages...\nbun install failed\n",
+      error: "exit code 1",
+    });
+  });
+
+  it("drops stale transitions after a newer phase has started", () => {
+    const workflow = makeWorkflowDefinition();
+    const transitionState = resolveWorkflowTimelineTransitionState({
+      workflow,
+      timeline: [],
+      runtime: makeRuntimeState({
+        gateEventsByPhaseRunId: {
+          [PhaseRunId.makeUnsafe("phase-run-plan")]: makeWorkflowGateEvent({
+            phaseRunId: PhaseRunId.makeUnsafe("phase-run-plan"),
+            status: "passed",
+            timestamp: "2026-04-06T02:00:15.000Z",
+          }),
+        },
+        phaseEventsByPhaseRunId: {
+          [PhaseRunId.makeUnsafe("phase-run-deliberate")]: makeWorkflowPhaseEvent({
+            phaseRunId: PhaseRunId.makeUnsafe("phase-run-deliberate"),
+            event: "started",
+            phaseInfo: {
+              phaseId: WorkflowPhaseId.makeUnsafe("phase-deliberate"),
+              phaseName: "Deliberate",
+              phaseType: "multi-agent",
+              iteration: 1,
+            },
+            timestamp: "2026-04-06T02:00:20.000Z",
+          }),
+        },
+      }),
+    });
+
+    expect(transitionState).toBeNull();
+  });
+});
+
+describe("workflow timeline auto-navigation", () => {
+  it("navigates to a newly spawned child session once a transition is pending", () => {
+    const newChildThread: WorkflowTimelineAutoNavigationThread = {
+      threadId: ThreadId.makeUnsafe("child-new"),
+      updatedAt: "2026-04-06T02:00:25.000Z",
+    };
+
+    const target = resolveWorkflowAutoNavigationTarget({
+      transitionState: {
+        kind: "phase-handoff",
+        anchorPhaseRunId: PhaseRunId.makeUnsafe("phase-run-plan"),
+        phaseName: "Plan",
+        nextPhaseName: "Deliberate",
+      },
+      latestPhaseEvent: null,
+      previousChildThreadIds: [ThreadId.makeUnsafe("child-old")],
+      childThreads: [
+        {
+          threadId: ThreadId.makeUnsafe("child-old"),
+          updatedAt: "2026-04-06T02:00:10.000Z",
+        },
+        newChildThread,
+      ],
+    });
+
+    expect(target).toBe(newChildThread.threadId);
+  });
+
+  it("does not navigate when no new child session has appeared", () => {
+    expect(
+      resolveWorkflowAutoNavigationTarget({
+        transitionState: {
+          kind: "bootstrap",
+          anchorPhaseRunId: PhaseRunId.makeUnsafe("phase-run-plan"),
+          phaseName: "Plan",
+          nextPhaseName: "Deliberate",
+          status: "running",
+          output: "",
+          error: null,
+        },
+        latestPhaseEvent: makeWorkflowPhaseEvent({
+          event: "started",
+          timestamp: "2026-04-06T02:00:20.000Z",
+        }),
+        previousChildThreadIds: [ThreadId.makeUnsafe("child-existing")],
+        childThreads: [
+          {
+            threadId: ThreadId.makeUnsafe("child-existing"),
+            updatedAt: "2026-04-06T02:00:20.000Z",
+          },
+        ],
+      }),
+    ).toBeNull();
+  });
+});
+
+describe("selectLatestWorkflowPhaseEvent", () => {
+  it("returns the newest phase event by timestamp", () => {
+    const latestEvent = makeWorkflowPhaseEvent({
+      event: "started",
+      timestamp: "2026-04-06T02:00:30.000Z",
+    });
+
+    expect(
+      selectLatestWorkflowPhaseEvent(
+        makeRuntimeState({
+          phaseEventsByPhaseRunId: {
+            [PhaseRunId.makeUnsafe("phase-run-plan")]: makeWorkflowPhaseEvent({
+              phaseRunId: PhaseRunId.makeUnsafe("phase-run-plan"),
+              phaseInfo: {
+                phaseId: WorkflowPhaseId.makeUnsafe("phase-plan"),
+                phaseName: "Plan",
+                phaseType: "single-agent",
+                iteration: 1,
+              },
+            }),
+            [PhaseRunId.makeUnsafe("phase-run-implement")]: latestEvent,
+          },
+        }),
+      ),
+    ).toEqual(latestEvent);
   });
 });
 
