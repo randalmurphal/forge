@@ -7,5 +7,5 @@ export interface WorkflowReactorShape {
 }
 
 export class WorkflowReactor extends ServiceMap.Service<WorkflowReactor, WorkflowReactorShape>()(
-  "t3/orchestration/Services/WorkflowReactor",
+  "forge/orchestration/Services/WorkflowReactor",
 ) {}

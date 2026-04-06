@@ -25,5 +25,5 @@ export interface WorkflowRegistryShape {
 }
 
 export class WorkflowRegistry extends ServiceMap.Service<WorkflowRegistry, WorkflowRegistryShape>()(
-  "t3/workflow/Services/WorkflowRegistry",
+  "forge/workflow/Services/WorkflowRegistry",
 ) {}

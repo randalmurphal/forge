@@ -77,4 +77,4 @@ export interface ProjectionChannelRepositoryShape {
 export class ProjectionChannelRepository extends ServiceMap.Service<
   ProjectionChannelRepository,
   ProjectionChannelRepositoryShape
->()("t3/persistence/Services/ProjectionChannels/ProjectionChannelRepository") {}
+>()("forge/persistence/Services/ProjectionChannels/ProjectionChannelRepository") {}

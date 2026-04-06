@@ -97,5 +97,5 @@ export interface ChannelServiceShape {
 }
 
 export class ChannelService extends ServiceMap.Service<ChannelService, ChannelServiceShape>()(
-  "t3/channel/Services/ChannelService",
+  "forge/channel/Services/ChannelService",
 ) {}

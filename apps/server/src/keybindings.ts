@@ -522,7 +522,7 @@ export interface KeybindingsShape {
  * Keybindings - Service tag for keybinding configuration operations.
  */
 export class Keybindings extends ServiceMap.Service<Keybindings, KeybindingsShape>()(
-  "t3/keybindings",
+  "forge/keybindings",
 ) {}
 
 const makeKeybindings = Effect.gen(function* () {

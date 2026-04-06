@@ -94,4 +94,4 @@ export interface DeliberationEngineShape {
 export class DeliberationEngine extends ServiceMap.Service<
   DeliberationEngine,
   DeliberationEngineShape
->()("t3/channel/Services/DeliberationEngine") {}
+>()("forge/channel/Services/DeliberationEngine") {}

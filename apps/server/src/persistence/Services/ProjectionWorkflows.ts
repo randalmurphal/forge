@@ -98,4 +98,4 @@ export interface ProjectionWorkflowRepositoryShape {
 export class ProjectionWorkflowRepository extends ServiceMap.Service<
   ProjectionWorkflowRepository,
   ProjectionWorkflowRepositoryShape
->()("t3/persistence/Services/ProjectionWorkflows/ProjectionWorkflowRepository") {}
+>()("forge/persistence/Services/ProjectionWorkflows/ProjectionWorkflowRepository") {}

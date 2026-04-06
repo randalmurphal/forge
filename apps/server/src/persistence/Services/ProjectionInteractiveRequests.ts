@@ -121,5 +121,5 @@ export class ProjectionInteractiveRequestRepository extends ServiceMap.Service<
   ProjectionInteractiveRequestRepository,
   ProjectionInteractiveRequestRepositoryShape
 >()(
-  "t3/persistence/Services/ProjectionInteractiveRequests/ProjectionInteractiveRequestRepository",
+  "forge/persistence/Services/ProjectionInteractiveRequests/ProjectionInteractiveRequestRepository",
 ) {}

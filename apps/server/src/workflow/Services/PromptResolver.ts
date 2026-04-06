@@ -27,5 +27,5 @@ export interface PromptResolverShape {
 }
 
 export class PromptResolver extends ServiceMap.Service<PromptResolver, PromptResolverShape>()(
-  "t3/workflow/Services/PromptResolver",
+  "forge/workflow/Services/PromptResolver",
 ) {}

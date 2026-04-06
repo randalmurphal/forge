@@ -7,5 +7,5 @@ export interface BootstrapReactorShape {
 }
 
 export class BootstrapReactor extends ServiceMap.Service<BootstrapReactor, BootstrapReactorShape>()(
-  "t3/orchestration/Services/BootstrapReactor",
+  "forge/orchestration/Services/BootstrapReactor",
 ) {}

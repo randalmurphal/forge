@@ -109,4 +109,4 @@ export interface ProjectionPhaseRunRepositoryShape {
 export class ProjectionPhaseRunRepository extends ServiceMap.Service<
   ProjectionPhaseRunRepository,
   ProjectionPhaseRunRepositoryShape
->()("t3/persistence/Services/ProjectionPhaseRuns/ProjectionPhaseRunRepository") {}
+>()("forge/persistence/Services/ProjectionPhaseRuns/ProjectionPhaseRunRepository") {}

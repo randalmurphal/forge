@@ -28,5 +28,5 @@ export interface ProviderRegistryShape {
 }
 
 export class ProviderRegistry extends ServiceMap.Service<ProviderRegistry, ProviderRegistryShape>()(
-  "t3/provider/Services/ProviderRegistry",
+  "forge/provider/Services/ProviderRegistry",
 ) {}

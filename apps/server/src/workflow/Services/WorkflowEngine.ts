@@ -40,5 +40,5 @@ export interface WorkflowEngineShape {
 }
 
 export class WorkflowEngine extends ServiceMap.Service<WorkflowEngine, WorkflowEngineShape>()(
-  "t3/workflow/Services/WorkflowEngine",
+  "forge/workflow/Services/WorkflowEngine",
 ) {}

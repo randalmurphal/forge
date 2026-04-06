@@ -7,5 +7,5 @@ export interface ChannelReactorShape {
 }
 
 export class ChannelReactor extends ServiceMap.Service<ChannelReactor, ChannelReactorShape>()(
-  "t3/orchestration/Services/ChannelReactor",
+  "forge/orchestration/Services/ChannelReactor",
 ) {}

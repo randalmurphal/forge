@@ -20,4 +20,4 @@ export interface QualityCheckRunnerShape {
 export class QualityCheckRunner extends ServiceMap.Service<
   QualityCheckRunner,
   QualityCheckRunnerShape
->()("t3/workflow/Services/QualityCheckRunner") {}
+>()("forge/workflow/Services/QualityCheckRunner") {}

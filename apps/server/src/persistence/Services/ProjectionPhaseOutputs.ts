@@ -72,4 +72,4 @@ export interface ProjectionPhaseOutputRepositoryShape {
 export class ProjectionPhaseOutputRepository extends ServiceMap.Service<
   ProjectionPhaseOutputRepository,
   ProjectionPhaseOutputRepositoryShape
->()("t3/persistence/Services/ProjectionPhaseOutputs/ProjectionPhaseOutputRepository") {}
+>()("forge/persistence/Services/ProjectionPhaseOutputs/ProjectionPhaseOutputRepository") {}

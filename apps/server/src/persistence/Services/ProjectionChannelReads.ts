@@ -55,4 +55,4 @@ export interface ProjectionChannelReadRepositoryShape {
 export class ProjectionChannelReadRepository extends ServiceMap.Service<
   ProjectionChannelReadRepository,
   ProjectionChannelReadRepositoryShape
->()("t3/persistence/Services/ProjectionChannelReads/ProjectionChannelReadRepository") {}
+>()("forge/persistence/Services/ProjectionChannelReads/ProjectionChannelReadRepository") {}
