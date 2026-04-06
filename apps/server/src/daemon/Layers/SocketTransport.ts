@@ -1396,6 +1396,7 @@ const makeSocketTransport = Effect.gen(function* () {
       (_params) =>
         Effect.succeed({
           status: "ok" as const,
+          pid: process.pid,
         }),
     ],
     [

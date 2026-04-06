@@ -327,10 +327,11 @@ it("bind accepts daemon.ping JSON-RPC requests and returns status + uptime", asy
         socketPath,
         `${JSON.stringify({ jsonrpc: "2.0", id: "ping-1", method: "daemon.ping", params: {} })}\n`,
       )) as {
-        readonly result: { readonly status: string; readonly uptime: number };
+        readonly result: { readonly status: string; readonly pid: number; readonly uptime: number };
       };
 
       assert.equal(response.result.status, "ok");
+      assert.equal(response.result.pid, process.pid);
       assert.equal(typeof response.result.uptime, "number");
       expect(response.result.uptime).toBeGreaterThanOrEqual(0);
     } finally {
@@ -372,9 +373,10 @@ it("bind delays daemon.ping responses until the daemon runtime is ready", async 
       await Effect.runPromise(Deferred.succeed(ready, undefined));
 
       const response = (await responsePromise) as {
-        readonly result: { readonly status: string; readonly uptime: number };
+        readonly result: { readonly status: string; readonly pid: number; readonly uptime: number };
       };
       assert.equal(response.result.status, "ok");
+      assert.equal(response.result.pid, process.pid);
       assert.equal(typeof response.result.uptime, "number");
     } finally {
       await Effect.runPromise(binding.close.pipe(Effect.catch(() => Effect.void)));

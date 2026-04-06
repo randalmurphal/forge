@@ -299,22 +299,36 @@ const writeDaemonState = (
     );
   });
 
-const pingSocket = (
+interface SocketProbeResult {
+  readonly responsive: boolean;
+  readonly pid: number | undefined;
+}
+
+const isPositiveInteger = (value: unknown): value is number =>
+  typeof value === "number" && Number.isInteger(value) && value > 0;
+
+const pingSocketInfo = (
   socketPath: string,
   timeoutMs = DEFAULT_PING_TIMEOUT_MS,
-): Effect.Effect<boolean, never> =>
+): Effect.Effect<SocketProbeResult, never> =>
   Effect.tryPromise({
     try: async () => {
       try {
         const stat = await FSP.stat(socketPath);
         if (!stat.isSocket()) {
-          return false;
+          return {
+            responsive: false,
+            pid: undefined,
+          } satisfies SocketProbeResult;
         }
       } catch {
-        return false;
+        return {
+          responsive: false,
+          pid: undefined,
+        } satisfies SocketProbeResult;
       }
 
-      return await new Promise<boolean>((resolve) => {
+      return await new Promise<SocketProbeResult>((resolve) => {
         let settled = false;
         let timeout: NodeJS.Timeout | undefined;
         const socket = new Net.Socket();
@@ -323,7 +337,7 @@ const pingSocket = (
           crlfDelay: Infinity,
         });
 
-        const finish = (value: boolean) => {
+        const finish = (value: SocketProbeResult) => {
           if (settled) return;
           settled = true;
           if (timeout !== undefined) {
@@ -336,9 +350,21 @@ const pingSocket = (
           resolve(value);
         };
 
-        timeout = setTimeout(() => finish(false), timeoutMs);
+        timeout = setTimeout(
+          () =>
+            finish({
+              responsive: false,
+              pid: undefined,
+            }),
+          timeoutMs,
+        );
 
-        socket.once("error", () => finish(false));
+        socket.once("error", () =>
+          finish({
+            responsive: false,
+            pid: undefined,
+          }),
+        );
         socket.once("connect", () => {
           socket.write(
             `${JSON.stringify({ jsonrpc: "2.0", id: PING_REQUEST_ID, method: "daemon.ping" })}\n`,
@@ -350,17 +376,44 @@ const pingSocket = (
           try {
             const parsed = JSON.parse(line) as {
               readonly id?: string;
-              readonly result?: { readonly status?: string };
+              readonly result?: {
+                readonly status?: string;
+                readonly pid?: unknown;
+              };
             };
-            finish(parsed.id === PING_REQUEST_ID && parsed.result?.status === "ok");
+            const responsive = parsed.id === PING_REQUEST_ID && parsed.result?.status === "ok";
+            finish({
+              responsive,
+              pid:
+                responsive && isPositiveInteger(parsed.result?.pid) ? parsed.result.pid : undefined,
+            });
           } catch {
-            finish(false);
+            finish({
+              responsive: false,
+              pid: undefined,
+            });
           }
         });
       });
     },
-    catch: () => false,
-  }).pipe(Effect.catch(() => Effect.succeed(false)));
+    catch: () => ({
+      responsive: false,
+      pid: undefined,
+    }),
+  }).pipe(
+    Effect.catch(() =>
+      Effect.succeed({
+        responsive: false,
+        pid: undefined,
+      } satisfies SocketProbeResult),
+    ),
+  );
+
+const pingSocket = (
+  socketPath: string,
+  timeoutMs = DEFAULT_PING_TIMEOUT_MS,
+): Effect.Effect<boolean, never> =>
+  pingSocketInfo(socketPath, timeoutMs).pipe(Effect.map((result) => result.responsive));
 
 const resolveLockCommand = (
   lockPath: string,
@@ -602,21 +655,24 @@ const makeDaemonService = Effect.gen(function* () {
         paths.lockPath,
         Effect.gen(function* () {
           const existingPid = yield* readPidFile(paths.pidPath);
-          if (existingPid !== undefined && (yield* isProcessAlive(existingPid))) {
-            const existingInfo = yield* readDaemonInfo(paths.daemonInfoPath, paths.socketPath);
-            const responsive = yield* pingSocket(paths.socketPath, input.pingTimeoutMs);
-            if (responsive) {
+          const existingInfo = yield* readDaemonInfo(paths.daemonInfoPath, paths.socketPath);
+          const socketProbe = yield* pingSocketInfo(paths.socketPath, input.pingTimeoutMs);
+          if (socketProbe.responsive) {
+            const runningPid = socketProbe.pid ?? existingInfo?.pid ?? existingPid;
+            if (runningPid !== undefined) {
               return {
                 type: "already-running",
-                pid: existingPid,
+                pid: runningPid,
                 info:
-                  existingInfo !== undefined && existingInfo.pid === existingPid
+                  existingInfo !== undefined && existingInfo.pid === runningPid
                     ? existingInfo
                     : undefined,
                 paths,
               } as const;
             }
+          }
 
+          if (existingPid !== undefined && (yield* isProcessAlive(existingPid))) {
             const ownsExistingPid =
               (existingInfo !== undefined && existingInfo.pid === existingPid) ||
               (yield* isLikelyForgeDaemonProcess(existingPid, config.baseDir));
