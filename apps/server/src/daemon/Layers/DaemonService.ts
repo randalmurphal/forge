@@ -7,7 +7,7 @@ import * as Path from "node:path";
 import * as readline from "node:readline";
 import * as Util from "node:util";
 
-import { readTrustedDaemonManifest } from "@forgetools/shared/daemon";
+import { readTrustedDaemonManifest, readTrustedDaemonSocketStat } from "@forgetools/shared/daemon";
 import { Effect, Layer, Option, Ref } from "effect";
 
 import { ServerConfig } from "../../config.ts";
@@ -329,15 +329,10 @@ const pingSocketInfo = (
 ): Effect.Effect<SocketProbeResult, never> =>
   Effect.tryPromise({
     try: async () => {
-      try {
-        const stat = await FSP.stat(socketPath);
-        if (!stat.isSocket()) {
-          return {
-            responsive: false,
-            pid: undefined,
-          } satisfies SocketProbeResult;
-        }
-      } catch {
+      const trustedSocket = await readTrustedDaemonSocketStat(socketPath, {
+        requireOwnerOnlyPermissions: true,
+      });
+      if (trustedSocket === undefined) {
         return {
           responsive: false,
           pid: undefined,

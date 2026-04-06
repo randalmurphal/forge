@@ -335,6 +335,45 @@ it.effect(
     ),
 );
 
+it.effect("start replaces a symlinked forge.sock instead of probing through it", () =>
+  Effect.scoped(
+    Effect.gen(function* () {
+      const baseDir = FS.mkdtempSync(Path.join(OS.tmpdir(), "forge-daemon-symlink-socket-"));
+      yield* Effect.addFinalizer(() =>
+        Effect.sync(() => FS.rmSync(baseDir, { recursive: true, force: true })),
+      );
+
+      const targetSocketPath = Path.join(baseDir, "target.sock");
+      const targetServer = Net.createServer();
+
+      yield* Effect.promise(async () => {
+        await waitForSocketHandle(targetServer, targetSocketPath);
+        FS.chmodSync(targetSocketPath, 0o600);
+      });
+      FS.symlinkSync(targetSocketPath, Path.join(baseDir, "forge.sock"));
+
+      const result = yield* Effect.gen(function* () {
+        const daemon = yield* DaemonService;
+        return yield* daemon.start({
+          wsPort: 47833,
+          bindSocket: (socketPath) => makePingServer(socketPath),
+        });
+      }).pipe(Effect.provide(makeDaemonTestLayer(baseDir)));
+
+      if (result.type !== "started") {
+        assert.fail("expected daemon start to replace the symlinked socket path");
+      }
+
+      const socketPath = Path.join(baseDir, "forge.sock");
+      assert.equal(FS.lstatSync(socketPath).isSymbolicLink(), false);
+      assert.equal(FS.statSync(socketPath).isSocket(), true);
+
+      yield* result.stop;
+      yield* Effect.promise(() => closeServer(targetServer));
+    }),
+  ),
+);
+
 it.effect("start does not kill a live unrelated process referenced by a stale forge.pid", () =>
   Effect.scoped(
     Effect.gen(function* () {

@@ -212,6 +212,67 @@ describe("daemon process launch", () => {
 });
 
 describe("pingDaemon", () => {
+  it("rejects symlinked daemon socket paths instead of following them", async () => {
+    const baseDir = makeTempDir("forge-desktop-daemon-ping-symlink-");
+    const targetSocketPath = Path.join(baseDir, "target.sock");
+    const socketPath = Path.join(baseDir, "forge.sock");
+    const server = Net.createServer();
+
+    await new Promise<void>((resolve, reject) => {
+      server.once("error", reject);
+      server.listen(targetSocketPath, () => {
+        FS.chmodSync(targetSocketPath, 0o600);
+        resolve();
+      });
+    });
+    FS.symlinkSync(targetSocketPath, socketPath);
+
+    try {
+      await expect(pingDaemon(socketPath)).resolves.toBe(false);
+    } finally {
+      await new Promise<void>((resolve, reject) => {
+        server.close((error) => {
+          if (error) {
+            reject(error);
+            return;
+          }
+          resolve();
+        });
+      });
+      FS.rmSync(targetSocketPath, { force: true });
+      FS.rmSync(socketPath, { force: true });
+    }
+  });
+
+  it("rejects daemon socket paths whose permissions are broader than owner-only", async () => {
+    const baseDir = makeTempDir("forge-desktop-daemon-ping-perms-");
+    const socketPath = Path.join(baseDir, "forge.sock");
+    const server = Net.createServer();
+
+    await new Promise<void>((resolve, reject) => {
+      server.once("error", reject);
+      server.listen(socketPath, () => {
+        FS.chmodSync(socketPath, 0o666);
+        resolve();
+      });
+    });
+
+    try {
+      await expect(pingDaemon(socketPath)).resolves.toBe(false);
+    } finally {
+      await new Promise<void>((resolve, reject) => {
+        server.close((error) => {
+          if (error) {
+            reject(error);
+            return;
+          }
+          resolve();
+        });
+      });
+      FS.rmSync(socketPath, { force: true });
+    }
+  });
+
   it("rejects ping responses whose JSON-RPC id does not match the request", async () => {
     const baseDir = makeTempDir("forge-desktop-daemon-ping-");
     const socketPath = Path.join(baseDir, "forge.sock");

@@ -273,6 +273,85 @@ describe("buildDaemonLaunchPlan", () => {
 });
 
 describe("sendDaemonRpc", () => {
+  it("rejects symlinked daemon socket paths instead of following them", async () => {
+    const baseDir = makeTempDir("forge-cli-daemon-rpc-symlink-");
+    const targetSocketPath = Path.join(baseDir, "target.sock");
+    const socketPath = Path.join(baseDir, "forge.sock");
+    const server = Net.createServer();
+
+    await new Promise<void>((resolve, reject) => {
+      server.once("error", reject);
+      server.listen(targetSocketPath, () => {
+        FS.chmodSync(targetSocketPath, 0o600);
+        resolve();
+      });
+    });
+    FS.symlinkSync(targetSocketPath, socketPath);
+
+    try {
+      await expect(
+        Effect.runPromise(
+          sendDaemonRpc({
+            socketPath,
+            method: "session.list",
+          }),
+        ),
+      ).rejects.toMatchObject({
+        message: expect.stringContaining("Forge daemon is not running"),
+      });
+    } finally {
+      await new Promise<void>((resolve, reject) => {
+        server.close((error) => {
+          if (error) {
+            reject(error);
+            return;
+          }
+          resolve();
+        });
+      });
+      FS.rmSync(targetSocketPath, { force: true });
+      FS.rmSync(socketPath, { force: true });
+    }
+  });
+
+  it("rejects daemon socket paths whose permissions are broader than owner-only", async () => {
+    const baseDir = makeTempDir("forge-cli-daemon-rpc-perms-");
+    const socketPath = Path.join(baseDir, "forge.sock");
+    const server = Net.createServer();
+
+    await new Promise<void>((resolve, reject) => {
+      server.once("error", reject);
+      server.listen(socketPath, () => {
+        FS.chmodSync(socketPath, 0o666);
+        resolve();
+      });
+    });
+
+    try {
+      await expect(
+        Effect.runPromise(
+          sendDaemonRpc({
+            socketPath,
+            method: "session.list",
+          }),
+        ),
+      ).rejects.toMatchObject({
+        message: expect.stringContaining("Forge daemon is not running"),
+      });
+    } finally {
+      await new Promise<void>((resolve, reject) => {
+        server.close((error) => {
+          if (error) {
+            reject(error);
+            return;
+          }
+          resolve();
+        });
+      });
+      FS.rmSync(socketPath, { force: true });
+    }
+  });
+
   it("includes the daemon socket protocol version in each CLI request", async () => {
     const baseDir = makeTempDir("forge-cli-daemon-rpc-");
     const socketPath = Path.join(baseDir, "forge.sock");
@@ -296,7 +375,10 @@ describe("sendDaemonRpc", () => {
 
     await new Promise<void>((resolve, reject) => {
       server.once("error", reject);
-      server.listen(socketPath, resolve);
+      server.listen(socketPath, () => {
+        FS.chmodSync(socketPath, 0o600);
+        resolve();
+      });
     });
 
     try {
@@ -353,7 +435,10 @@ describe("sendDaemonRpc", () => {
 
     await new Promise<void>((resolve, reject) => {
       server.once("error", reject);
-      server.listen(socketPath, resolve);
+      server.listen(socketPath, () => {
+        FS.chmodSync(socketPath, 0o600);
+        resolve();
+      });
     });
 
     try {

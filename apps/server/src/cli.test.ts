@@ -58,7 +58,10 @@ const listenOnSocket = (
       });
     });
     server.once("error", reject);
-    server.listen(socketPath, () => resolve(server));
+    server.listen(socketPath, () => {
+      FS.chmodSync(socketPath, 0o600);
+      resolve(server);
+    });
   });
 
 const closeServer = (server: Net.Server) =>
@@ -514,7 +517,7 @@ vitestIt("routes `forge daemon restart` through stop then launch", async () => {
       "    });",
       "  });",
       "});",
-      "server.listen(socketPath);",
+      "server.listen(socketPath, () => FS.chmodSync(socketPath, 0o600));",
       "setTimeout(() => server.close(() => process.exit(0)), 5000);",
     ].join("\n"),
     "utf8",

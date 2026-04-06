@@ -21,6 +21,11 @@ export interface DaemonManifestTrustOptions {
   readonly platform?: NodeJS.Platform;
 }
 
+export interface DaemonSocketTrustOptions {
+  readonly requireOwnerOnlyPermissions?: boolean;
+  readonly platform?: NodeJS.Platform;
+}
+
 const DAEMON_WS_TOKEN_PATTERN = /^[0-9a-f]{64}$/i;
 const ISO_UTC_DATE_TIME_PATTERN = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/;
 const NOFOLLOW_OPEN_FLAG =
@@ -128,6 +133,33 @@ export const isTrustedDaemonManifest = (
   }
 
   return true;
+};
+
+export const isTrustedDaemonSocketStat = (
+  stat: FS.Stats,
+  options?: DaemonSocketTrustOptions,
+): boolean => {
+  if (!stat.isSocket()) {
+    return false;
+  }
+
+  if (shouldRequireOwnerOnlyPermissions(options) && !hasOwnerOnlyFileMode(stat.mode)) {
+    return false;
+  }
+
+  return true;
+};
+
+export const readTrustedDaemonSocketStat = async (
+  socketPath: string,
+  options?: DaemonSocketTrustOptions,
+): Promise<FS.Stats | undefined> => {
+  try {
+    const stat = await FSP.lstat(socketPath);
+    return isTrustedDaemonSocketStat(stat, options) ? stat : undefined;
+  } catch {
+    return undefined;
+  }
 };
 
 export const readTrustedDaemonManifest = async (

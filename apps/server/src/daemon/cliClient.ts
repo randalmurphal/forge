@@ -6,6 +6,7 @@ import * as Path from "node:path";
 import * as readline from "node:readline";
 
 import {
+  readTrustedDaemonSocketStat,
   readTrustedDaemonManifest,
   stripInheritedDaemonRuntimeEnv,
 } from "@forgetools/shared/daemon";
@@ -116,11 +117,8 @@ export const sendDaemonRpc = <Result = unknown>(input: {
 }) =>
   Effect.tryPromise({
     try: async () => {
-      const socketStat = await FSP.stat(input.socketPath).catch((cause: NodeJS.ErrnoException) => {
-        if (cause.code === "ENOENT") {
-          return undefined;
-        }
-        throw cause;
+      const socketStat = await readTrustedDaemonSocketStat(input.socketPath, {
+        requireOwnerOnlyPermissions: true,
       });
 
       if (socketStat === undefined || !socketStat.isSocket()) {

@@ -1,8 +1,10 @@
 import * as ChildProcess from "node:child_process";
 import * as Net from "node:net";
 import * as readline from "node:readline";
-import * as FSP from "node:fs/promises";
-import { stripInheritedDaemonRuntimeEnv } from "@forgetools/shared/daemon";
+import {
+  readTrustedDaemonSocketStat,
+  stripInheritedDaemonRuntimeEnv,
+} from "@forgetools/shared/daemon";
 import {
   buildDaemonWsUrl,
   readDaemonInfo,
@@ -71,16 +73,10 @@ export const pingDaemon = async (
   socketPath: string,
   timeoutMs = DEFAULT_PING_TIMEOUT_MS,
 ): Promise<boolean> => {
-  try {
-    const stat = await FSP.stat(socketPath);
-    if (!stat.isSocket()) {
-      return false;
-    }
-  } catch (error) {
-    const nodeError = error as NodeJS.ErrnoException;
-    if (nodeError.code === "ENOENT") {
-      return false;
-    }
+  const trustedSocket = await readTrustedDaemonSocketStat(socketPath, {
+    requireOwnerOnlyPermissions: true,
+  });
+  if (trustedSocket === undefined) {
     return false;
   }
 

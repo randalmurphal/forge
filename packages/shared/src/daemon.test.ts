@@ -1,4 +1,5 @@
 import * as FS from "node:fs";
+import * as Net from "node:net";
 import * as OS from "node:os";
 import * as Path from "node:path";
 
@@ -9,6 +10,7 @@ import {
   hasOwnerOnlyFileMode,
   isForgeDaemonWsToken,
   isTrustedDaemonManifest,
+  readTrustedDaemonSocketStat,
   OWNER_ONLY_FILE_MODE,
   parseDaemonManifest,
   readTrustedDaemonManifest,
@@ -40,6 +42,17 @@ const writeDaemonInfoFile = (path: string, socketPath: string, mode = 0o600): vo
   );
   FS.chmodSync(path, mode);
 };
+
+const closeServer = (server: Net.Server): Promise<void> =>
+  new Promise((resolve, reject) => {
+    server.close((error) => {
+      if (error) {
+        reject(error);
+        return;
+      }
+      resolve();
+    });
+  });
 
 afterEach(() => {
   for (const dir of tempDirs.splice(0, tempDirs.length)) {
@@ -205,6 +218,59 @@ describe("daemon manifest helpers", () => {
         requireOwnerOnlyPermissions: true,
       }),
     ).toBeUndefined();
+  });
+
+  it("rejects symlinked daemon socket paths during trusted socket reads", async () => {
+    const baseDir = makeTempDir("forge-shared-daemon-socket-link-");
+    const targetSocketPath = Path.join(baseDir, "target.sock");
+    const linkedSocketPath = Path.join(baseDir, "forge.sock");
+    const server = Net.createServer();
+
+    await new Promise<void>((resolve, reject) => {
+      server.once("error", reject);
+      server.listen(targetSocketPath, () => {
+        FS.chmodSync(targetSocketPath, 0o600);
+        resolve();
+      });
+    });
+    FS.symlinkSync(targetSocketPath, linkedSocketPath);
+
+    try {
+      await expect(
+        readTrustedDaemonSocketStat(linkedSocketPath, {
+          requireOwnerOnlyPermissions: true,
+        }),
+      ).resolves.toBeUndefined();
+    } finally {
+      await closeServer(server);
+      FS.rmSync(targetSocketPath, { force: true });
+      FS.rmSync(linkedSocketPath, { force: true });
+    }
+  });
+
+  it("rejects daemon socket paths whose permissions are broader than owner-only", async () => {
+    const baseDir = makeTempDir("forge-shared-daemon-socket-perms-");
+    const socketPath = Path.join(baseDir, "forge.sock");
+    const server = Net.createServer();
+
+    await new Promise<void>((resolve, reject) => {
+      server.once("error", reject);
+      server.listen(socketPath, () => {
+        FS.chmodSync(socketPath, 0o666);
+        resolve();
+      });
+    });
+
+    try {
+      await expect(
+        readTrustedDaemonSocketStat(socketPath, {
+          requireOwnerOnlyPermissions: true,
+        }),
+      ).resolves.toBeUndefined();
+    } finally {
+      await closeServer(server);
+      FS.rmSync(socketPath, { force: true });
+    }
   });
 
   it("strips inherited daemon runtime overrides before spawning a child daemon", () => {
