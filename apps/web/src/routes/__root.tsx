@@ -44,6 +44,7 @@ import { projectQueryKeys } from "../lib/projectReactQuery";
 import { collectActiveTerminalThreadIds } from "../lib/terminalStateCleanup";
 import { deriveOrchestrationBatchEffects } from "../orchestrationEventEffects";
 import { createOrchestrationRecoveryCoordinator } from "../orchestrationRecovery";
+import { routeChannelPushEvent, routeWorkflowPushEvent } from "../pushEventRouter";
 import { getWsRpcClient } from "~/wsRpcClient";
 
 export const Route = createRootRouteWithContext<{
@@ -573,6 +574,22 @@ function EventRouter() {
           hasRunningSubprocess,
         );
     });
+    const wsRpcClient = getWsRpcClient();
+    const handlePushDecodeFailure = (kind: "workflow" | "channel", error: unknown) => {
+      console.warn(`Rejected malformed ${kind} push payload`, error);
+    };
+    const unsubWorkflowPushEvent = wsRpcClient.workflow.onEvent({}, (event) => {
+      routeWorkflowPushEvent(event, {
+        queryClient,
+        onDecodeFailure: (failure) => handlePushDecodeFailure(failure.kind, failure.error),
+      });
+    });
+    const unsubChannelPushEvent = wsRpcClient.channel.onEvent({}, (event) => {
+      routeChannelPushEvent(event, {
+        queryClient,
+        onDecodeFailure: (failure) => handlePushDecodeFailure(failure.kind, failure.error),
+      });
+    });
     return () => {
       disposed = true;
       disposedRef.current = true;
@@ -582,6 +599,8 @@ function EventRouter() {
       queryInvalidationThrottler.cancel();
       unsubDomainEvent();
       unsubTerminalEvent();
+      unsubWorkflowPushEvent();
+      unsubChannelPushEvent();
     };
   }, [
     applyOrchestrationEvents,

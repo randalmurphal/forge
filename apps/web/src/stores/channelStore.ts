@@ -612,7 +612,6 @@ export function useChannelMessages(
 ) {
   const attachChannelSubscription = useChannelStore((state) => state.attachChannelSubscription);
   const detachChannelSubscription = useChannelStore((state) => state.detachChannelSubscription);
-  const applyChannelPushEvent = useChannelStore((state) => state.applyChannelPushEvent);
   const cacheChannelMessagesPage = useChannelStore((state) => state.cacheChannelMessagesPage);
   const requestedAfterSequence = useChannelStore(
     (state) =>
@@ -634,15 +633,11 @@ export function useChannelMessages(
     }
 
     attachChannelSubscription(channelId);
-    const unsubscribe = getWsRpcClient().channel.onEvent({ channelId }, (event) => {
-      applyChannelPushEvent(event);
-    });
 
     return () => {
-      unsubscribe();
       detachChannelSubscription(channelId);
     };
-  }, [applyChannelPushEvent, attachChannelSubscription, channelId, detachChannelSubscription]);
+  }, [attachChannelSubscription, channelId, detachChannelSubscription]);
 
   useEffect(() => {
     if (!channelId || !query.data) {

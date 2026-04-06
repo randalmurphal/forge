@@ -4,6 +4,7 @@ import type {
   PhaseRunStatus,
   PhaseType,
   QualityCheckResult,
+  ThreadId,
   WorkflowDefinition,
   WorkflowPhase,
 } from "@forgetools/contracts";
@@ -74,6 +75,15 @@ export interface WorkflowTimelinePhaseItem {
   childSessions: WorkflowTimelineChildSession[];
   isActive: boolean;
 }
+
+export const workflowTimelineQueryKeys = {
+  all: () => ["workflow-timeline"] as const,
+  phaseRuns: (threadId: ThreadId) => ["workflow-timeline", "phase-runs", threadId] as const,
+  phaseOutputPrefix: (phaseRunId: PhaseRunId) =>
+    ["workflow-timeline", "phase-output", phaseRunId] as const,
+  phaseOutput: (phaseRunId: PhaseRunId, outputKeys: readonly string[]) =>
+    [...workflowTimelineQueryKeys.phaseOutputPrefix(phaseRunId), outputKeys.join("|")] as const,
+};
 
 interface WorkflowTimelinePhaseRun {
   phaseRunId: PhaseRunId;

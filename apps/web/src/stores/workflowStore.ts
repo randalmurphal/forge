@@ -1,7 +1,15 @@
 import type {
+  PhaseOutputEntry,
+  PhaseRunId,
+  ThreadId,
+  WorkflowBootstrapEvent,
   ProjectId,
+  WorkflowGateEvent,
   WorkflowDefinition,
   WorkflowId,
+  WorkflowPhaseEvent,
+  WorkflowPushEvent,
+  WorkflowQualityCheckEvent,
   WorkflowSummary,
 } from "@forgetools/contracts";
 import { queryOptions, useQuery } from "@tanstack/react-query";
@@ -12,10 +20,25 @@ import { getWsRpcClient } from "../wsRpcClient";
 export type WorkflowEditScope = "global" | "project";
 
 type WorkflowDefinitionMap = Partial<Record<WorkflowId, WorkflowDefinition>>;
+type WorkflowThreadRuntimeMap = Partial<Record<ThreadId, WorkflowThreadRuntimeState>>;
+
+type WorkflowPhaseEventMap = Partial<Record<PhaseRunId, WorkflowPhaseEvent>>;
+type WorkflowQualityCheckMap = Partial<Record<PhaseRunId, WorkflowQualityCheckEvent[]>>;
+type WorkflowGateEventMap = Partial<Record<PhaseRunId, WorkflowGateEvent>>;
+type WorkflowPhaseOutputMap = Partial<Record<PhaseRunId, PhaseOutputEntry[]>>;
+
+export interface WorkflowThreadRuntimeState {
+  phaseEventsByPhaseRunId: WorkflowPhaseEventMap;
+  phaseOutputsByPhaseRunId: WorkflowPhaseOutputMap;
+  qualityChecksByPhaseRunId: WorkflowQualityCheckMap;
+  gateEventsByPhaseRunId: WorkflowGateEventMap;
+  latestBootstrapEvent: WorkflowBootstrapEvent | null;
+}
 
 export interface WorkflowStoreSnapshot {
   availableWorkflows: WorkflowSummary[];
   workflowsById: WorkflowDefinitionMap;
+  runtimeByThreadId: WorkflowThreadRuntimeMap;
   selectedWorkflowId: WorkflowId | null;
   editingWorkflowId: WorkflowId | null;
   editingWorkflowDraft: WorkflowDefinition | null;
@@ -35,6 +58,7 @@ export interface WorkflowEditingStateInput {
 export interface WorkflowStoreState extends WorkflowStoreSnapshot {
   setAvailableWorkflows: (workflows: readonly WorkflowSummary[]) => void;
   cacheWorkflow: (workflow: WorkflowDefinition) => void;
+  applyWorkflowPushEvent: (event: WorkflowPushEvent) => void;
   setSelectedWorkflowId: (workflowId: WorkflowId | null) => void;
   setEditingState: (input: WorkflowEditingStateInput) => void;
   setEditingDraft: (draft: WorkflowDefinition | null, options?: { dirty?: boolean }) => void;
@@ -52,6 +76,7 @@ export const workflowQueryKeys = {
 export const initialWorkflowStoreState: WorkflowStoreSnapshot = {
   availableWorkflows: [],
   workflowsById: {},
+  runtimeByThreadId: {},
   selectedWorkflowId: null,
   editingWorkflowId: null,
   editingWorkflowDraft: null,
@@ -92,6 +117,20 @@ function workflowDefinitionsEqual(
   return JSON.stringify(left) === JSON.stringify(right);
 }
 
+function workflowPushEventsEqual<TEvent extends { timestamp: string }>(
+  left: TEvent | null | undefined,
+  right: TEvent | null,
+): boolean {
+  return JSON.stringify(left ?? null) === JSON.stringify(right);
+}
+
+function workflowPushEventListsEqual<TEvent extends { timestamp: string }>(
+  left: readonly TEvent[] | undefined,
+  right: readonly TEvent[],
+): boolean {
+  return JSON.stringify(left ?? []) === JSON.stringify(right);
+}
+
 function workflowDefinitionMapsEqual(
   left: WorkflowDefinitionMap,
   right: WorkflowDefinitionMap,
@@ -104,6 +143,76 @@ function workflowDefinitionMapsEqual(
   return leftEntries.every(([workflowId, workflow]) =>
     workflowDefinitionsEqual(workflow ?? null, right[workflowId as WorkflowId] ?? null),
   );
+}
+
+function workflowThreadRuntimeStateEquals(
+  left: WorkflowThreadRuntimeState | undefined,
+  right: WorkflowThreadRuntimeState,
+): boolean {
+  return (
+    JSON.stringify(left?.phaseEventsByPhaseRunId ?? {}) ===
+      JSON.stringify(right.phaseEventsByPhaseRunId) &&
+    JSON.stringify(left?.phaseOutputsByPhaseRunId ?? {}) ===
+      JSON.stringify(right.phaseOutputsByPhaseRunId) &&
+    JSON.stringify(left?.qualityChecksByPhaseRunId ?? {}) ===
+      JSON.stringify(right.qualityChecksByPhaseRunId) &&
+    JSON.stringify(left?.gateEventsByPhaseRunId ?? {}) ===
+      JSON.stringify(right.gateEventsByPhaseRunId) &&
+    workflowPushEventsEqual(left?.latestBootstrapEvent, right.latestBootstrapEvent)
+  );
+}
+
+function getEmptyWorkflowThreadRuntimeState(): WorkflowThreadRuntimeState {
+  return {
+    phaseEventsByPhaseRunId: {},
+    phaseOutputsByPhaseRunId: {},
+    qualityChecksByPhaseRunId: {},
+    gateEventsByPhaseRunId: {},
+    latestBootstrapEvent: null,
+  };
+}
+
+function mergeWorkflowQualityCheckEvents(
+  current: readonly WorkflowQualityCheckEvent[],
+  event: WorkflowQualityCheckEvent,
+): WorkflowQualityCheckEvent[] {
+  const next = [...current];
+  const existingIndex = next.findIndex((entry) => entry.checkName === event.checkName);
+  if (existingIndex >= 0) {
+    next[existingIndex] = event;
+  } else {
+    next.push(event);
+  }
+
+  return next.toSorted((left, right) => {
+    const checkNameComparison = left.checkName.localeCompare(right.checkName, undefined, {
+      sensitivity: "base",
+    });
+    if (checkNameComparison !== 0) {
+      return checkNameComparison;
+    }
+    return left.timestamp.localeCompare(right.timestamp);
+  });
+}
+
+function updateWorkflowThreadRuntimeState(
+  state: WorkflowStoreSnapshot,
+  threadId: ThreadId,
+  updater: (runtime: WorkflowThreadRuntimeState) => WorkflowThreadRuntimeState,
+): WorkflowStoreSnapshot {
+  const currentRuntime = state.runtimeByThreadId[threadId] ?? getEmptyWorkflowThreadRuntimeState();
+  const nextRuntime = updater(currentRuntime);
+  if (workflowThreadRuntimeStateEquals(state.runtimeByThreadId[threadId], nextRuntime)) {
+    return state;
+  }
+
+  return {
+    ...state,
+    runtimeByThreadId: {
+      ...state.runtimeByThreadId,
+      [threadId]: nextRuntime,
+    },
+  };
 }
 
 export function syncAvailableWorkflowState(
@@ -147,6 +256,83 @@ export function cacheWorkflowDefinitionState(
     ...state,
     workflowsById: nextWorkflowsById,
   };
+}
+
+export function applyWorkflowPushEventState(
+  state: WorkflowStoreSnapshot,
+  event: WorkflowPushEvent,
+): WorkflowStoreSnapshot {
+  return updateWorkflowThreadRuntimeState(state, event.threadId, (runtime) => {
+    switch (event.channel) {
+      case "workflow.phase": {
+        const nextPhaseEventsByPhaseRunId = {
+          ...runtime.phaseEventsByPhaseRunId,
+          [event.phaseRunId]: event,
+        };
+        const nextPhaseOutputsByPhaseRunId =
+          event.outputs === undefined
+            ? runtime.phaseOutputsByPhaseRunId
+            : {
+                ...runtime.phaseOutputsByPhaseRunId,
+                [event.phaseRunId]: [...event.outputs],
+              };
+
+        if (
+          workflowPushEventsEqual(runtime.phaseEventsByPhaseRunId[event.phaseRunId], event) &&
+          JSON.stringify(runtime.phaseOutputsByPhaseRunId[event.phaseRunId] ?? []) ===
+            JSON.stringify(nextPhaseOutputsByPhaseRunId[event.phaseRunId] ?? [])
+        ) {
+          return runtime;
+        }
+
+        return {
+          ...runtime,
+          phaseEventsByPhaseRunId: nextPhaseEventsByPhaseRunId,
+          phaseOutputsByPhaseRunId: nextPhaseOutputsByPhaseRunId,
+        };
+      }
+      case "workflow.quality-check": {
+        const nextQualityChecks = mergeWorkflowQualityCheckEvents(
+          runtime.qualityChecksByPhaseRunId[event.phaseRunId] ?? [],
+          event,
+        );
+        if (
+          workflowPushEventListsEqual(
+            runtime.qualityChecksByPhaseRunId[event.phaseRunId],
+            nextQualityChecks,
+          )
+        ) {
+          return runtime;
+        }
+        return {
+          ...runtime,
+          qualityChecksByPhaseRunId: {
+            ...runtime.qualityChecksByPhaseRunId,
+            [event.phaseRunId]: nextQualityChecks,
+          },
+        };
+      }
+      case "workflow.bootstrap":
+        if (workflowPushEventsEqual(runtime.latestBootstrapEvent, event)) {
+          return runtime;
+        }
+        return {
+          ...runtime,
+          latestBootstrapEvent: event,
+        };
+      case "workflow.gate":
+        if (workflowPushEventsEqual(runtime.gateEventsByPhaseRunId[event.phaseRunId], event)) {
+          return runtime;
+        }
+        return {
+          ...runtime,
+          gateEventsByPhaseRunId: {
+            ...runtime.gateEventsByPhaseRunId,
+            [event.phaseRunId]: event,
+          },
+        };
+    }
+  });
 }
 
 export function setWorkflowEditingState(
@@ -205,6 +391,7 @@ export const useWorkflowStore = create<WorkflowStoreState>((set) => ({
   setAvailableWorkflows: (workflows) =>
     set((state) => syncAvailableWorkflowState(state, workflows)),
   cacheWorkflow: (workflow) => set((state) => cacheWorkflowDefinitionState(state, workflow)),
+  applyWorkflowPushEvent: (event) => set((state) => applyWorkflowPushEventState(state, event)),
   setSelectedWorkflowId: (workflowId) =>
     set((state) =>
       state.selectedWorkflowId === workflowId

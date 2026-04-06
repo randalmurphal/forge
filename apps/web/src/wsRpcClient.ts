@@ -131,6 +131,10 @@ export interface WsRpcClient {
     readonly get: RpcUnaryMethod<typeof WS_METHODS.workflowGet>;
     readonly create: RpcUnaryMethod<typeof WS_METHODS.workflowCreate>;
     readonly update: RpcUnaryMethod<typeof WS_METHODS.workflowUpdate>;
+    readonly onEvent: (
+      input: RpcInput<typeof WS_METHODS.subscribeWorkflowEvents>,
+      listener: (event: RpcStreamEvent<typeof WS_METHODS.subscribeWorkflowEvents>) => void,
+    ) => () => void;
   };
 }
 
@@ -275,6 +279,11 @@ export function createWsRpcClient(transport = new WsTransport()): WsRpcClient {
       get: (input) => transport.request((client) => client[WS_METHODS.workflowGet](input)),
       create: (input) => transport.request((client) => client[WS_METHODS.workflowCreate](input)),
       update: (input) => transport.request((client) => client[WS_METHODS.workflowUpdate](input)),
+      onEvent: (input, listener) =>
+        transport.subscribe(
+          (client) => client[WS_METHODS.subscribeWorkflowEvents](input),
+          listener,
+        ),
     },
   };
 }

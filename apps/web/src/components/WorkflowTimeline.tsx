@@ -27,6 +27,7 @@ import { QualityCheckResults } from "./QualityCheckResults";
 import { SidebarTrigger } from "./ui/sidebar";
 import {
   buildWorkflowTimeline,
+  workflowTimelineQueryKeys,
   type WorkflowTimelineChildSession,
   type WorkflowTimelinePhaseOutputRecord,
 } from "./WorkflowTimeline.logic";
@@ -34,12 +35,6 @@ import {
   WorkflowTimelineOutputBody,
   WorkflowTimelineTranscriptPanel,
 } from "./WorkflowTimeline.parts";
-
-const workflowTimelineQueryKeys = {
-  phaseRuns: (threadId: ThreadId) => ["workflow-timeline", "phase-runs", threadId] as const,
-  phaseOutput: (phaseRunId: string, outputKeys: readonly string[]) =>
-    ["workflow-timeline", "phase-output", phaseRunId, outputKeys.join("|")] as const,
-};
 
 const phaseStatusBadgeVariants = cva(
   "inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-[11px] font-medium tracking-[0.08em] uppercase",

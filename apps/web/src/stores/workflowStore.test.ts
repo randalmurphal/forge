@@ -1,5 +1,18 @@
-import type { WorkflowDefinition, WorkflowSummary } from "@forgetools/contracts";
-import { ProjectId, WorkflowId, WorkflowPhaseId } from "@forgetools/contracts";
+import type {
+  WorkflowBootstrapEvent,
+  WorkflowDefinition,
+  WorkflowGateEvent,
+  WorkflowPhaseEvent,
+  WorkflowQualityCheckEvent,
+  WorkflowSummary,
+} from "@forgetools/contracts";
+import {
+  PhaseRunId,
+  ProjectId,
+  ThreadId,
+  WorkflowId,
+  WorkflowPhaseId,
+} from "@forgetools/contracts";
 import { QueryClient } from "@tanstack/react-query";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -9,6 +22,7 @@ vi.mock("../wsRpcClient", () => ({
 
 import { getWsRpcClient } from "../wsRpcClient";
 import {
+  applyWorkflowPushEventState,
   cacheWorkflowDefinitionState,
   initialWorkflowStoreState,
   setWorkflowEditingState,
@@ -69,6 +83,70 @@ function resetWorkflowStore() {
   useWorkflowStore.setState(initialWorkflowStoreState);
 }
 
+function makeWorkflowPhaseEvent(overrides: Partial<WorkflowPhaseEvent> = {}): WorkflowPhaseEvent {
+  return {
+    channel: "workflow.phase",
+    threadId: ThreadId.makeUnsafe("thread-workflow"),
+    phaseRunId: PhaseRunId.makeUnsafe("phase-run-1"),
+    event: "completed",
+    phaseInfo: {
+      phaseId: WorkflowPhaseId.makeUnsafe("workflow-phase-1"),
+      phaseName: "Implement",
+      phaseType: "single-agent",
+      iteration: 1,
+    },
+    outputs: [
+      {
+        key: "output",
+        content: "Completed output",
+        sourceType: "conversation",
+      },
+    ],
+    timestamp: "2026-04-06T00:00:10.000Z",
+    ...overrides,
+  };
+}
+
+function makeWorkflowQualityCheckEvent(
+  overrides: Partial<WorkflowQualityCheckEvent> = {},
+): WorkflowQualityCheckEvent {
+  return {
+    channel: "workflow.quality-check",
+    threadId: ThreadId.makeUnsafe("thread-workflow"),
+    phaseRunId: PhaseRunId.makeUnsafe("phase-run-1"),
+    checkName: "typecheck",
+    status: "running",
+    timestamp: "2026-04-06T00:00:11.000Z",
+    ...overrides,
+  };
+}
+
+function makeWorkflowBootstrapEvent(
+  overrides: Partial<WorkflowBootstrapEvent> = {},
+): WorkflowBootstrapEvent {
+  return {
+    channel: "workflow.bootstrap",
+    threadId: ThreadId.makeUnsafe("thread-workflow"),
+    event: "output",
+    data: "Bootstrapping workspace",
+    timestamp: "2026-04-06T00:00:12.000Z",
+    ...overrides,
+  };
+}
+
+function makeWorkflowGateEvent(overrides: Partial<WorkflowGateEvent> = {}): WorkflowGateEvent {
+  return {
+    channel: "workflow.gate",
+    threadId: ThreadId.makeUnsafe("thread-workflow"),
+    phaseRunId: PhaseRunId.makeUnsafe("phase-run-1"),
+    gateType: "human-approval",
+    status: "waiting-human",
+    requestId: "interactive-request-1" as WorkflowGateEvent["requestId"],
+    timestamp: "2026-04-06T00:00:13.000Z",
+    ...overrides,
+  };
+}
+
 beforeEach(() => {
   resetWorkflowStore();
   vi.resetAllMocks();
@@ -114,6 +192,44 @@ describe("workflow store state helpers", () => {
     expect(next.editingProjectId).toBe(projectId);
     expect(next.editingDirty).toBe(true);
   });
+
+  it("records workflow phase push events and caches emitted outputs by phase run", () => {
+    const event = makeWorkflowPhaseEvent();
+
+    const next = applyWorkflowPushEventState(initialWorkflowStoreState, event);
+    const runtime = next.runtimeByThreadId[event.threadId];
+
+    expect(runtime?.phaseEventsByPhaseRunId[event.phaseRunId]).toEqual(event);
+    expect(runtime?.phaseOutputsByPhaseRunId[event.phaseRunId]).toEqual(event.outputs);
+  });
+
+  it("replaces prior quality-check state for the same check name", () => {
+    const runningEvent = makeWorkflowQualityCheckEvent();
+    const completedEvent = makeWorkflowQualityCheckEvent({
+      status: "failed",
+      output: "src/file.ts:4 error TS2322",
+      timestamp: "2026-04-06T00:00:14.000Z",
+    });
+
+    const seeded = applyWorkflowPushEventState(initialWorkflowStoreState, runningEvent);
+    const next = applyWorkflowPushEventState(seeded, completedEvent);
+
+    expect(next.runtimeByThreadId[runningEvent.threadId]?.qualityChecksByPhaseRunId).toEqual({
+      [runningEvent.phaseRunId]: [completedEvent],
+    });
+  });
+
+  it("tracks latest bootstrap and gate events per workflow thread", () => {
+    const bootstrapEvent = makeWorkflowBootstrapEvent();
+    const gateEvent = makeWorkflowGateEvent();
+
+    const withBootstrap = applyWorkflowPushEventState(initialWorkflowStoreState, bootstrapEvent);
+    const next = applyWorkflowPushEventState(withBootstrap, gateEvent);
+    const runtime = next.runtimeByThreadId[bootstrapEvent.threadId];
+
+    expect(runtime?.latestBootstrapEvent).toEqual(bootstrapEvent);
+    expect(runtime?.gateEventsByPhaseRunId[gateEvent.phaseRunId]).toEqual(gateEvent);
+  });
 });
 
 describe("useWorkflowStore actions", () => {
@@ -133,6 +249,21 @@ describe("useWorkflowStore actions", () => {
     useWorkflowStore.getState().setAvailableWorkflows(workflows);
 
     expect(useWorkflowStore.getState().availableWorkflows).toEqual(workflows);
+  });
+
+  it("applies workflow push events through the store action", () => {
+    const event = makeWorkflowPhaseEvent({
+      event: "started",
+      outputs: undefined,
+    });
+
+    useWorkflowStore.getState().applyWorkflowPushEvent(event);
+
+    expect(
+      useWorkflowStore.getState().runtimeByThreadId[event.threadId]?.phaseEventsByPhaseRunId[
+        event.phaseRunId
+      ],
+    ).toEqual(event);
   });
 });
 
