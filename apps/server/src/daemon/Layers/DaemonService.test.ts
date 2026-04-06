@@ -237,6 +237,54 @@ it.effect(
     ),
 );
 
+it.effect("start reuses a responsive daemon even when daemon.json is missing", () =>
+  Effect.scoped(
+    Effect.gen(function* () {
+      const baseDir = FS.mkdtempSync(Path.join(OS.tmpdir(), "forge-daemon-manifest-missing-"));
+      yield* Effect.addFinalizer(() =>
+        Effect.sync(() => FS.rmSync(baseDir, { recursive: true, force: true })),
+      );
+
+      const bindCalls = yield* Ref.make(0);
+
+      const startedResult = yield* Effect.gen(function* () {
+        const daemon = yield* DaemonService;
+        return yield* daemon.start({
+          wsPort: 47832,
+          bindSocket: (socketPath) => makePingServer(socketPath),
+        });
+      }).pipe(Effect.provide(makeDaemonTestLayer(baseDir)));
+
+      if (startedResult.type !== "started") {
+        assert.fail("expected initial daemon start to own the singleton");
+      }
+
+      FS.rmSync(Path.join(baseDir, "daemon.json"), { force: true });
+
+      const secondResult = yield* Effect.gen(function* () {
+        const daemon = yield* DaemonService;
+        return yield* daemon.start({
+          wsPort: 49999,
+          bindSocket: (socketPath) =>
+            Effect.gen(function* () {
+              yield* Ref.update(bindCalls, (count) => count + 1);
+              return yield* makePingServer(socketPath);
+            }),
+        });
+      }).pipe(Effect.provide(makeDaemonTestLayer(baseDir)));
+
+      if (secondResult.type !== "already-running") {
+        assert.fail("expected duplicate start to reuse the responsive daemon");
+      }
+      assert.equal(secondResult.pid, process.pid);
+      assert.equal(secondResult.info, undefined);
+      assert.equal(yield* Ref.get(bindCalls), 0);
+
+      yield* startedResult.stop;
+    }),
+  ),
+);
+
 it.effect("concurrent start serializes on the startup lock and reuses the winner", () =>
   Effect.scoped(
     Effect.gen(function* () {
@@ -281,9 +329,13 @@ it.effect("concurrent start serializes on the startup lock and reuses the winner
       if (startedResult.type !== "started") {
         assert.fail("expected one concurrent start to own the daemon");
       }
+      if (alreadyRunningResult.type !== "already-running") {
+        assert.fail("expected the second concurrent start to reuse the winner");
+      }
       assert.equal(startedResult.type, "started");
       assert.equal(alreadyRunningResult.type, "already-running");
-      assert.equal(alreadyRunningResult.info.wsPort, startedResult.info.wsPort);
+      assert.equal(alreadyRunningResult.info?.wsPort, startedResult.info.wsPort);
+      assert.equal(alreadyRunningResult.pid, startedResult.info.pid);
       assert.equal(yield* Ref.get(bindCalls), 1);
 
       yield* startedResult.stop;

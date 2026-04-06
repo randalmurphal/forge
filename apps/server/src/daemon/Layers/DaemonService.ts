@@ -5,7 +5,7 @@ import * as Net from "node:net";
 import * as Path from "node:path";
 import * as readline from "node:readline";
 
-import { parseDaemonManifest } from "@forgetools/shared/daemon";
+import { isTrustedDaemonManifest, parseDaemonManifest } from "@forgetools/shared/daemon";
 import { Effect, Layer, Option, Ref } from "effect";
 
 import { ServerConfig } from "../../config.ts";
@@ -138,19 +138,30 @@ const readPidFile = (path: string): Effect.Effect<number | undefined, never> =>
     }),
   );
 
-const readDaemonInfo = (path: string): Effect.Effect<DaemonInfo | undefined, never> =>
-  readFileStringOption(path).pipe(
-    Effect.flatMap((raw) => {
-      if (raw === undefined) return Effect.void.pipe(Effect.as(undefined));
-      return Effect.sync(() => {
-        try {
-          return parseDaemonManifest(JSON.parse(raw));
-        } catch {
+const readDaemonInfo = (
+  path: string,
+  expectedSocketPath: string,
+): Effect.Effect<DaemonInfo | undefined, never> =>
+  Effect.tryPromise({
+    try: async () => {
+      try {
+        const [raw, stat] = await Promise.all([FSP.readFile(path, "utf8"), FSP.stat(path)]);
+        const parsed = parseDaemonManifest(JSON.parse(raw));
+        if (parsed === undefined) {
           return undefined;
         }
-      });
-    }),
-  );
+        return isTrustedDaemonManifest(parsed, stat.mode, {
+          expectedSocketPath,
+          requireOwnerOnlyPermissions: true,
+        })
+          ? parsed
+          : undefined;
+      } catch {
+        return undefined;
+      }
+    },
+    catch: () => undefined,
+  }).pipe(Effect.catch(() => Effect.void.pipe(Effect.as(undefined))));
 
 const isProcessAlive = (pid: number): Effect.Effect<boolean, never> =>
   Effect.sync(() => {
@@ -542,18 +553,16 @@ const makeDaemonService = Effect.gen(function* () {
         if (existingPid !== undefined && (yield* isProcessAlive(existingPid))) {
           const responsive = yield* pingSocket(paths.socketPath, input.pingTimeoutMs);
           if (responsive) {
-            const existingInfo = yield* readDaemonInfo(paths.daemonInfoPath);
-            if (
-              existingInfo !== undefined &&
-              existingInfo.pid === existingPid &&
-              existingInfo.socketPath === paths.socketPath
-            ) {
-              return {
-                type: "already-running",
-                info: existingInfo,
-                paths,
-              } as const;
-            }
+            const existingInfo = yield* readDaemonInfo(paths.daemonInfoPath, paths.socketPath);
+            return {
+              type: "already-running",
+              pid: existingPid,
+              info:
+                existingInfo !== undefined && existingInfo.pid === existingPid
+                  ? existingInfo
+                  : undefined,
+              paths,
+            } as const;
           }
 
           yield* terminateProcess(existingPid);

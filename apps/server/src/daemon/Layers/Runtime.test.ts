@@ -169,6 +169,7 @@ describe("runDaemonModeServer", () => {
                 start: () =>
                   Effect.succeed({
                     type: "already-running" as const,
+                    pid: 123,
                     info: {
                       pid: 123,
                       wsPort: 4777,

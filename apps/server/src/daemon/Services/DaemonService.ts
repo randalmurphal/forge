@@ -38,7 +38,8 @@ export interface DaemonStartResultStarted {
 
 export interface DaemonStartResultAlreadyRunning {
   readonly type: "already-running";
-  readonly info: DaemonInfo;
+  readonly pid: number;
+  readonly info: DaemonInfo | undefined;
   readonly paths: DaemonPaths;
 }
 

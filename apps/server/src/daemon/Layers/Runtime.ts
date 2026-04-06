@@ -42,7 +42,7 @@ export const runDaemonModeServer = <A, E, R>(launchHttpServer: Effect.Effect<A, 
 
     if (startResult.type === "already-running") {
       yield* Effect.logInfo("forge daemon already running; skipping duplicate launch", {
-        pid: startResult.info.pid,
+        pid: startResult.pid,
         socketPath: startResult.paths.socketPath,
       });
       return "already-running" as const;
