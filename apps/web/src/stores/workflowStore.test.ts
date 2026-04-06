@@ -25,6 +25,7 @@ import {
   applyWorkflowPushEventState,
   cacheWorkflowDefinitionState,
   initialWorkflowStoreState,
+  setWorkflowEditingMetadataState,
   setWorkflowEditingState,
   syncAvailableWorkflowState,
   useWorkflowStore,
@@ -195,6 +196,30 @@ describe("workflow store state helpers", () => {
     expect(next.editingDirty).toBe(true);
   });
 
+  it("updates workflow editing metadata without replacing the draft", () => {
+    const workflow = makeWorkflowDefinition("workflow-edit");
+    const seeded = setWorkflowEditingState(initialWorkflowStoreState, {
+      workflowId: workflow.id,
+      draft: workflow,
+      scope: "global",
+      projectId: null,
+      dirty: false,
+    });
+    const projectId = ProjectId.makeUnsafe("project-2");
+
+    const next = setWorkflowEditingMetadataState(seeded, {
+      scope: "project",
+      projectId,
+      dirty: true,
+    });
+
+    expect(next.editingWorkflowId).toBe(workflow.id);
+    expect(next.editingWorkflowDraft).toEqual(workflow);
+    expect(next.editingScope).toBe("project");
+    expect(next.editingProjectId).toBe(projectId);
+    expect(next.editingDirty).toBe(true);
+  });
+
   it("records workflow phase push events and caches emitted outputs by phase run", () => {
     const event = makeWorkflowPhaseEvent();
 
@@ -268,6 +293,29 @@ describe("useWorkflowStore actions", () => {
     useWorkflowStore.getState().setAvailableWorkflows(workflows);
 
     expect(useWorkflowStore.getState().availableWorkflows).toEqual(workflows);
+  });
+
+  it("updates workflow editing metadata through the store action", () => {
+    const workflow = makeWorkflowDefinition("workflow-selected");
+    const projectId = ProjectId.makeUnsafe("project-4");
+
+    useWorkflowStore.getState().setEditingState({
+      workflowId: workflow.id,
+      draft: workflow,
+      scope: "global",
+      projectId: null,
+      dirty: false,
+    });
+    useWorkflowStore.getState().setEditingMetadata({
+      scope: "project",
+      projectId,
+      dirty: true,
+    });
+
+    expect(useWorkflowStore.getState().editingWorkflowDraft).toEqual(workflow);
+    expect(useWorkflowStore.getState().editingScope).toBe("project");
+    expect(useWorkflowStore.getState().editingProjectId).toBe(projectId);
+    expect(useWorkflowStore.getState().editingDirty).toBe(true);
   });
 
   it("applies workflow push events through the store action", () => {

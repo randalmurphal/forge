@@ -56,12 +56,19 @@ export interface WorkflowEditingStateInput {
   dirty?: boolean;
 }
 
+export interface WorkflowEditingMetadataInput {
+  scope?: WorkflowEditScope;
+  projectId?: ProjectId | null;
+  dirty?: boolean;
+}
+
 export interface WorkflowStoreState extends WorkflowStoreSnapshot {
   setAvailableWorkflows: (workflows: readonly WorkflowSummary[]) => void;
   cacheWorkflow: (workflow: WorkflowDefinition) => void;
   applyWorkflowPushEvent: (event: WorkflowPushEvent) => void;
   setSelectedWorkflowId: (workflowId: WorkflowId | null) => void;
   setEditingState: (input: WorkflowEditingStateInput) => void;
+  setEditingMetadata: (input: WorkflowEditingMetadataInput) => void;
   setEditingDraft: (draft: WorkflowDefinition | null, options?: { dirty?: boolean }) => void;
   resetEditingState: () => void;
 }
@@ -397,6 +404,19 @@ export function setWorkflowEditingState(
   };
 }
 
+export function setWorkflowEditingMetadataState(
+  state: WorkflowStoreSnapshot,
+  input: WorkflowEditingMetadataInput,
+): WorkflowStoreSnapshot {
+  return setWorkflowEditingState(state, {
+    workflowId: state.editingWorkflowId,
+    draft: state.editingWorkflowDraft,
+    scope: input.scope === undefined ? state.editingScope : input.scope,
+    projectId: input.projectId === undefined ? state.editingProjectId : input.projectId,
+    dirty: input.dirty === undefined ? state.editingDirty : input.dirty,
+  });
+}
+
 export function workflowListQueryOptions() {
   return queryOptions({
     queryKey: workflowQueryKeys.list(),
@@ -433,6 +453,7 @@ export const useWorkflowStore = create<WorkflowStoreState>((set) => ({
         : { ...state, selectedWorkflowId: workflowId },
     ),
   setEditingState: (input) => set((state) => setWorkflowEditingState(state, input)),
+  setEditingMetadata: (input) => set((state) => setWorkflowEditingMetadataState(state, input)),
   setEditingDraft: (draft, options) =>
     set((state) =>
       setWorkflowEditingState(state, {

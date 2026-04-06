@@ -6,13 +6,13 @@ import type {
 } from "@forgetools/contracts";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { PlusIcon } from "lucide-react";
-import { useEffect, useRef, useState } from "react";
+import { useEffect } from "react";
 import { useNavigate } from "@tanstack/react-router";
+import { useShallow } from "zustand/react/shallow";
 import { resolveAppModelSelectionState } from "../modelSelection";
 import { useServerConfig } from "../rpc/serverState";
 import { useStore } from "../store";
 import {
-  type WorkflowEditScope,
   useWorkflow,
   useWorkflowStore,
   useWorkflows,
@@ -102,23 +102,39 @@ export function WorkflowEditor(props: { workflowId: WorkflowId | null }) {
   const serverConfig = useServerConfig();
   const settings = useSettings();
   const projects = useStore((store) => store.projects);
-  const setEditingState = useWorkflowStore((state) => state.setEditingState);
-  const resetEditingState = useWorkflowStore((state) => state.resetEditingState);
-  const cachedWorkflowsById = useWorkflowStore((state) => state.workflowsById);
-  const cachedWorkflowSummaries = useWorkflowStore((state) => state.availableWorkflows);
+  const {
+    cachedWorkflowSummaries,
+    cachedWorkflowsById,
+    draft,
+    draftDirty,
+    editingWorkflowId,
+    projectId,
+    resetEditingState,
+    scope,
+    setEditingDraft,
+    setEditingMetadata,
+    setEditingState,
+  } = useWorkflowStore(
+    useShallow((state) => ({
+      cachedWorkflowSummaries: state.availableWorkflows,
+      cachedWorkflowsById: state.workflowsById,
+      draft: state.editingWorkflowDraft,
+      draftDirty: state.editingDirty,
+      editingWorkflowId: state.editingWorkflowId,
+      projectId: state.editingProjectId,
+      resetEditingState: state.resetEditingState,
+      scope: state.editingScope,
+      setEditingDraft: state.setEditingDraft,
+      setEditingMetadata: state.setEditingMetadata,
+      setEditingState: state.setEditingState,
+    })),
+  );
   const workflowListQuery = useWorkflows();
   const workflowDetailQuery = useWorkflow(props.workflowId);
-  const initialDraftRef = useRef(createEmptyWorkflowDefinition(new Date().toISOString()));
   const sourceWorkflow =
     (props.workflowId
       ? (workflowDetailQuery.data ?? cachedWorkflowsById[props.workflowId] ?? null)
       : null) ?? null;
-  const [draft, setDraft] = useState<WorkflowDefinition | null>(
-    props.workflowId ? null : initialDraftRef.current,
-  );
-  const [draftDirty, setDraftDirty] = useState(false);
-  const [scope, setScope] = useState<WorkflowEditScope>("global");
-  const [projectId, setProjectId] = useState<ProjectId | null>(projects[0]?.id ?? null);
   const providers = serverConfig?.providers ?? [];
   const resolvedProjectId = resolveWorkflowScopeProjectId(scope, projectId);
   const currentProject =
@@ -142,32 +158,72 @@ export function WorkflowEditor(props: { workflowId: WorkflowId | null }) {
     draft?.id === sourceWorkflow.id;
 
   useEffect(() => {
-    if (!props.workflowId || !sourceWorkflow) {
+    if (props.workflowId === null) {
+      if (editingWorkflowId === null && draft !== null) {
+        return;
+      }
+      setEditingState({
+        workflowId: null,
+        draft: createEmptyWorkflowDefinition(new Date().toISOString()),
+        scope: "global",
+        projectId: projects[0]?.id ?? null,
+        dirty: false,
+      });
       return;
     }
-    setDraft(sourceWorkflow);
-    setScope(sourceWorkflow.projectId === null ? "global" : "project");
-    setProjectId(sourceWorkflow.projectId);
-    setDraftDirty(false);
-  }, [props.workflowId, sourceWorkflow]);
+
+    if (!sourceWorkflow) {
+      return;
+    }
+
+    if (editingWorkflowId === props.workflowId && draftDirty) {
+      return;
+    }
+
+    setEditingState({
+      workflowId: props.workflowId,
+      draft: sourceWorkflow,
+      scope: sourceWorkflow.projectId === null ? "global" : "project",
+      projectId: sourceWorkflow.projectId,
+      dirty: false,
+    });
+  }, [
+    draft,
+    draftDirty,
+    editingWorkflowId,
+    projects,
+    props.workflowId,
+    setEditingState,
+    sourceWorkflow,
+  ]);
 
   useEffect(() => {
     if (scope === "project" && projectId === null && projects[0]?.id) {
-      setProjectId(projects[0].id);
+      setEditingMetadata({
+        projectId: projects[0].id,
+        dirty: draftDirty,
+      });
     }
-  }, [projectId, projects, scope]);
-
-  useEffect(() => {
-    setEditingState({
-      workflowId: props.workflowId,
-      draft,
-      scope,
-      projectId: resolvedProjectId,
-      dirty: draftDirty,
-    });
-  }, [draft, draftDirty, projectId, props.workflowId, resolvedProjectId, scope, setEditingState]);
+  }, [draftDirty, projectId, projects, scope, setEditingMetadata]);
 
   useEffect(() => () => resetEditingState(), [resetEditingState]);
+
+  const updateDraft = (updater: (current: WorkflowDefinition) => WorkflowDefinition) => {
+    if (!draft) {
+      return;
+    }
+
+    setEditingDraft(updater(draft), { dirty: true });
+  };
+
+  const updateEditingScope = (nextScope: "global" | "project", nextProjectId: ProjectId | null) => {
+    const normalizedProjectId = nextScope === "project" ? nextProjectId : null;
+    setEditingMetadata({
+      scope: nextScope,
+      projectId: normalizedProjectId,
+      dirty: draftDirty || scope !== nextScope || projectId !== normalizedProjectId,
+    });
+  };
 
   const saveMutation = useMutation({
     mutationFn: async () => {
@@ -198,8 +254,6 @@ export function WorkflowEditor(props: { workflowId: WorkflowId | null }) {
       };
     },
     onSuccess: async ({ kind, workflow }) => {
-      setDraft(workflow);
-      setDraftDirty(false);
       setEditingState({
         workflowId: workflow.id,
         draft: workflow,
@@ -313,41 +367,42 @@ export function WorkflowEditor(props: { workflowId: WorkflowId | null }) {
                 draftDirty={draftDirty}
                 sourceWorkflow={sourceWorkflow}
                 validationMessage={validationMessage}
-                onDraftNameChange={(name) => {
-                  setDraft((current) =>
-                    current
-                      ? {
-                          ...current,
-                          name,
-                        }
-                      : current,
-                  );
-                  setDraftDirty(true);
-                }}
-                onDraftDescriptionChange={(description) => {
-                  setDraft((current) =>
-                    current
-                      ? {
-                          ...current,
-                          description,
-                        }
-                      : current,
-                  );
-                  setDraftDirty(true);
-                }}
-                onScopeChange={setScope}
-                onProjectScopeRequest={() => {
-                  setScope("project");
-                  if (!projectId && projects[0]?.id) {
-                    setProjectId(projects[0].id);
-                  }
-                }}
+                onDraftNameChange={(name) =>
+                  updateDraft((current) => ({
+                    ...current,
+                    name,
+                  }))
+                }
+                onDraftDescriptionChange={(description) =>
+                  updateDraft((current) => ({
+                    ...current,
+                    description,
+                  }))
+                }
+                onScopeChange={(nextScope) =>
+                  updateEditingScope(
+                    nextScope,
+                    nextScope === "project" ? (projectId ?? projects[0]?.id ?? null) : null,
+                  )
+                }
+                onProjectScopeRequest={() =>
+                  updateEditingScope("project", projectId ?? projects[0]?.id ?? null)
+                }
                 onCloneBuiltIn={() => {
                   if (!sourceWorkflow) {
                     return;
                   }
-                  setDraft(cloneWorkflowForEditing(sourceWorkflow, new Date().toISOString()));
-                  setDraftDirty(true);
+                  const clonedWorkflow = cloneWorkflowForEditing(
+                    sourceWorkflow,
+                    new Date().toISOString(),
+                  );
+                  setEditingState({
+                    workflowId: props.workflowId,
+                    draft: clonedWorkflow,
+                    scope: clonedWorkflow.projectId === null ? "global" : "project",
+                    projectId: clonedWorkflow.projectId,
+                    dirty: true,
+                  });
                 }}
               />
 
@@ -366,10 +421,7 @@ export function WorkflowEditor(props: { workflowId: WorkflowId | null }) {
                       type="button"
                       variant="outline"
                       onClick={() => {
-                        setDraft((current) =>
-                          current ? appendWorkflowDraftPhase(current) : current,
-                        );
-                        setDraftDirty(true);
+                        updateDraft((current) => appendWorkflowDraftPhase(current));
                       }}
                       disabled={!draft || isReadOnlyBuiltIn}
                     >
@@ -393,41 +445,27 @@ export function WorkflowEditor(props: { workflowId: WorkflowId | null }) {
                       fallbackModelSelection={fallbackModelSelection}
                       disabled={isReadOnlyBuiltIn}
                       previousPhaseOptions={resolvePreviousPhaseOptions(draft.phases, phase.id)}
-                      onChange={(nextPhase) => {
-                        setDraft((current) =>
-                          current
-                            ? {
-                                ...current,
-                                phases: current.phases.map((candidate) =>
-                                  candidate.id === nextPhase.id ? nextPhase : candidate,
-                                ),
-                              }
-                            : current,
-                        );
-                        setDraftDirty(true);
-                      }}
-                      onDelete={() => {
-                        setDraft((current) =>
-                          current ? removeWorkflowDraftPhase(current, phase.id) : current,
-                        );
-                        setDraftDirty(true);
-                      }}
-                      onMoveUp={() => {
-                        setDraft((current) =>
-                          current
-                            ? reorderWorkflowDraftPhases(current, phaseIndex, phaseIndex - 1)
-                            : current,
-                        );
-                        setDraftDirty(true);
-                      }}
-                      onMoveDown={() => {
-                        setDraft((current) =>
-                          current
-                            ? reorderWorkflowDraftPhases(current, phaseIndex, phaseIndex + 1)
-                            : current,
-                        );
-                        setDraftDirty(true);
-                      }}
+                      onChange={(nextPhase) =>
+                        updateDraft((current) => ({
+                          ...current,
+                          phases: current.phases.map((candidate) =>
+                            candidate.id === nextPhase.id ? nextPhase : candidate,
+                          ),
+                        }))
+                      }
+                      onDelete={() =>
+                        updateDraft((current) => removeWorkflowDraftPhase(current, phase.id))
+                      }
+                      onMoveUp={() =>
+                        updateDraft((current) =>
+                          reorderWorkflowDraftPhases(current, phaseIndex, phaseIndex - 1),
+                        )
+                      }
+                      onMoveDown={() =>
+                        updateDraft((current) =>
+                          reorderWorkflowDraftPhases(current, phaseIndex, phaseIndex + 1),
+                        )
+                      }
                     />
                   ))}
                 </div>
