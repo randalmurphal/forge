@@ -5,6 +5,7 @@ import {
   compactWorkflowPickerSections,
   compareWorkflowSummariesForPicker,
   filterWorkflowSummariesForProject,
+  resolveWorkflowPickerCategory,
   resolveWorkflowPickerLabel,
   sortWorkflowSummariesForPicker,
 } from "./WorkflowPicker.logic";
@@ -96,17 +97,26 @@ describe("filterWorkflowSummariesForProject", () => {
 });
 
 describe("buildWorkflowPickerSections", () => {
-  it("groups workflows by built-in, project, and global scope", () => {
+  it("splits built-in workflows into implementation and thinking sections before scope buckets", () => {
     const sections = buildWorkflowPickerSections({
       projectId: ProjectId.makeUnsafe("project-1"),
       workflows: [
         makeWorkflowSummary("workflow-global"),
         makeWorkflowSummary("workflow-built-in", { builtIn: true }),
+        makeWorkflowSummary("workflow-built-in-interrogate", {
+          builtIn: true,
+          name: "interrogate",
+        }),
         makeWorkflowSummary("workflow-project", { projectId: ProjectId.makeUnsafe("project-1") }),
       ],
     });
 
-    expect(sections.map((section) => section.key)).toEqual(["built-in", "project", "global"]);
+    expect(sections.map((section) => section.key)).toEqual([
+      "built-in-implementation",
+      "built-in-thinking",
+      "project",
+      "global",
+    ]);
   });
 
   it("drops empty picker sections after grouping", () => {
@@ -119,9 +129,33 @@ describe("buildWorkflowPickerSections", () => {
 
     expect(sections).toEqual([
       expect.objectContaining({
-        key: "built-in",
+        key: "built-in-implementation",
       }),
     ]);
+  });
+});
+
+describe("resolveWorkflowPickerCategory", () => {
+  it("classifies built-in deliberation workflows as thinking patterns", () => {
+    expect(
+      resolveWorkflowPickerCategory(
+        makeWorkflowSummary("workflow-built-in-interrogate", {
+          builtIn: true,
+          name: "interrogate",
+        }),
+      ),
+    ).toBe("thinking");
+  });
+
+  it("keeps mixed or implementation workflows in the implementation category", () => {
+    expect(
+      resolveWorkflowPickerCategory(
+        makeWorkflowSummary("workflow-built-in-plan-then-implement", {
+          builtIn: true,
+          name: "plan-then-implement",
+        }),
+      ),
+    ).toBe("implementation");
   });
 });
 

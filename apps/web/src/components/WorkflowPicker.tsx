@@ -82,6 +82,15 @@ export function WorkflowPicker(props: {
     selectedWorkflowId: resolvedWorkflowId,
     workflows: selectableWorkflows,
   });
+  const selectWorkflow = (value: string) => {
+    const nextWorkflowId =
+      value === NO_WORKFLOW_VALUE
+        ? null
+        : (selectableWorkflows.find((workflow) => workflow.workflowId === value)?.workflowId ??
+          null);
+    setDraftThreadContext(props.threadId, { workflowId: nextWorkflowId });
+    setSelectedWorkflowId(nextWorkflowId);
+  };
 
   if (!draftThread) {
     return null;
@@ -112,15 +121,7 @@ export function WorkflowPicker(props: {
           <MenuGroupLabel>Workflow</MenuGroupLabel>
           <MenuRadioGroup
             value={resolvedWorkflowId ?? NO_WORKFLOW_VALUE}
-            onValueChange={(value) => {
-              const nextWorkflowId =
-                value === NO_WORKFLOW_VALUE
-                  ? null
-                  : (selectableWorkflows.find((workflow) => workflow.workflowId === value)
-                      ?.workflowId ?? null);
-              setDraftThreadContext(props.threadId, { workflowId: nextWorkflowId });
-              setSelectedWorkflowId(nextWorkflowId);
-            }}
+            onValueChange={selectWorkflow}
           >
             <MenuRadioItem value={NO_WORKFLOW_VALUE}>(none)</MenuRadioItem>
           </MenuRadioGroup>
@@ -130,19 +131,22 @@ export function WorkflowPicker(props: {
             <MenuGroupLabel>{section.label}</MenuGroupLabel>
             <MenuRadioGroup
               value={resolvedWorkflowId ?? NO_WORKFLOW_VALUE}
-              onValueChange={(value) => {
-                const nextWorkflowId =
-                  value === NO_WORKFLOW_VALUE
-                    ? null
-                    : (selectableWorkflows.find((workflow) => workflow.workflowId === value)
-                        ?.workflowId ?? null);
-                setDraftThreadContext(props.threadId, { workflowId: nextWorkflowId });
-                setSelectedWorkflowId(nextWorkflowId);
-              }}
+              onValueChange={selectWorkflow}
             >
               {section.workflows.map((workflow) => (
-                <MenuRadioItem key={workflow.workflowId} value={workflow.workflowId}>
-                  {workflow.name}
+                <MenuRadioItem
+                  key={workflow.workflowId}
+                  value={workflow.workflowId}
+                  className="min-h-11 items-start"
+                >
+                  <div className="flex min-w-0 flex-col gap-0.5 py-0.5">
+                    <span className="truncate font-medium text-foreground">{workflow.name}</span>
+                    {workflow.description.trim().length > 0 ? (
+                      <span className="line-clamp-2 text-xs text-muted-foreground">
+                        {workflow.description}
+                      </span>
+                    ) : null}
+                  </div>
                 </MenuRadioItem>
               ))}
             </MenuRadioGroup>
