@@ -91,6 +91,25 @@ describe("readDaemonInfoSync", () => {
     expect(readDaemonInfoSync(paths.daemonInfoPath)).toBeUndefined();
   });
 
+  it("rejects daemon.json when wsPort is outside the TCP port range", () => {
+    const baseDir = makeTempDir("forge-desktop-daemon-invalid-port-");
+    const paths = resolveDesktopDaemonPaths(baseDir);
+
+    FS.writeFileSync(
+      paths.daemonInfoPath,
+      JSON.stringify({
+        pid: 42,
+        wsPort: 70_000,
+        wsToken: "secret-token",
+        socketPath: paths.socketPath,
+        startedAt: "2026-04-06T12:00:00.000Z",
+      }),
+      "utf8",
+    );
+
+    expect(readDaemonInfoSync(paths.daemonInfoPath)).toBeUndefined();
+  });
+
   it("rejects daemon.json when the manifest socket path does not match Forge's socket", () => {
     const baseDir = makeTempDir("forge-desktop-daemon-mismatch-");
     const paths = resolveDesktopDaemonPaths(baseDir);

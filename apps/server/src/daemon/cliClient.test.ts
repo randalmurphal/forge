@@ -108,4 +108,30 @@ describe("readDaemonInfoFile", () => {
 
     expect(info).toBeUndefined();
   });
+
+  it("rejects daemon.json when wsPort is outside the TCP port range", async () => {
+    const baseDir = makeTempDir("forge-cli-daemon-info-invalid-port-");
+    const daemonInfoPath = Path.join(baseDir, "daemon.json");
+    const socketPath = Path.join(baseDir, "forge.sock");
+    FS.writeFileSync(
+      daemonInfoPath,
+      JSON.stringify({
+        pid: 42,
+        wsPort: 70_000,
+        wsToken: "secret-token",
+        socketPath,
+        startedAt: "2026-04-06T12:00:00.000Z",
+      }),
+      { encoding: "utf8", mode: 0o600 },
+    );
+    FS.chmodSync(daemonInfoPath, 0o600);
+
+    const info = await Effect.runPromise(
+      readDaemonInfoFile(daemonInfoPath, {
+        expectedSocketPath: socketPath,
+      }),
+    );
+
+    expect(info).toBeUndefined();
+  });
 });

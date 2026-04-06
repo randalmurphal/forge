@@ -63,6 +63,18 @@ describe("daemon manifest helpers", () => {
     ).toBeUndefined();
   });
 
+  it("rejects daemon manifests with out-of-range websocket ports", () => {
+    expect(
+      parseDaemonManifest({
+        pid: 42,
+        wsPort: 70_000,
+        wsToken: "secret-token",
+        socketPath: "/Users/randy/.forge/forge.sock",
+        startedAt: "2026-04-06T12:00:00.000Z",
+      }),
+    ).toBeUndefined();
+  });
+
   it("requires owner-only permissions on supported platforms by default", () => {
     expect(shouldRequireOwnerOnlyPermissions({ platform: "darwin" })).toBe(true);
     expect(shouldRequireOwnerOnlyPermissions({ platform: "win32" })).toBe(false);

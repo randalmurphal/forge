@@ -24,6 +24,9 @@ const isRecord = (value: unknown): value is Record<string, unknown> =>
 const isPositiveInteger = (value: unknown): value is number =>
   typeof value === "number" && Number.isInteger(value) && value > 0;
 
+const isPortNumber = (value: unknown): value is number =>
+  isPositiveInteger(value) && value <= 65_535;
+
 const isNonEmptyString = (value: unknown): value is string =>
   typeof value === "string" && value.length > 0;
 
@@ -52,7 +55,7 @@ export const parseDaemonManifest = (value: unknown): ForgeDaemonManifest | undef
 
   if (
     !isPositiveInteger(pid) ||
-    !isPositiveInteger(wsPort) ||
+    !isPortNumber(wsPort) ||
     !isNonEmptyString(wsToken) ||
     !isNonEmptyString(socketPath) ||
     !isNonEmptyString(startedAt)
