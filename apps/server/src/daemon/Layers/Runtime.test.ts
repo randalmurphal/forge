@@ -5,11 +5,12 @@ import { ThreadId, type ProviderSession } from "@forgetools/contracts";
 import { ServerConfig, type ServerConfigShape } from "../../config.ts";
 import { ProviderService } from "../../provider/Services/ProviderService.ts";
 import { ServerRuntimeStartup } from "../../serverRuntimeStartup.ts";
-import { runDaemonModeServer } from "./Runtime.ts";
 import type { DaemonServiceError } from "../Errors.ts";
 import { DaemonService } from "../Services/DaemonService.ts";
+import { DaemonRuntime } from "../Services/DaemonRuntime.ts";
 import { SocketTransport } from "../Services/SocketTransport.ts";
 import { NotificationReactor } from "../Services/NotificationReactor.ts";
+import { DaemonRuntimeLive } from "./Runtime.ts";
 
 const VALID_DAEMON_WS_TOKEN = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef";
 
@@ -50,7 +51,7 @@ const makeServerConfig = (): ServerConfigShape => ({
   logWebSocketEvents: false,
 });
 
-describe("runDaemonModeServer", () => {
+describe("DaemonRuntimeLive", () => {
   it("binds the daemon socket and stops the server when daemon.stop is requested", async () => {
     let stopDaemon: Effect.Effect<void, Error> | undefined;
     let requestedWsToken: string | undefined;
@@ -76,85 +77,87 @@ describe("runDaemonModeServer", () => {
     const launchStarted = Effect.runSync(Deferred.make<void>());
     const launchStopped = Effect.runSync(Deferred.make<void>());
 
+    const dependencies = Layer.mergeAll(
+      Layer.succeed(ServerConfig, makeServerConfig()),
+      Layer.succeed(ServerRuntimeStartup, {
+        awaitCommandReady: Effect.void,
+        awaitHttpListening: Effect.void,
+        markHttpListening: Effect.void,
+        enqueueCommand: (effect) => effect,
+      }),
+      Layer.succeed(DaemonService, {
+        getPaths: Effect.die("unused"),
+        probeSocket: () => Effect.succeed(true),
+        start: (input) =>
+          Effect.gen(function* () {
+            requestedWsToken = input.wsToken;
+            gracefulShutdown = input.gracefulShutdown;
+            yield* input.bindSocket("/tmp/forge-daemon-runtime/forge.sock");
+            return {
+              type: "started" as const,
+              info: {
+                pid: 123,
+                wsPort: 4777,
+                wsToken: VALID_DAEMON_WS_TOKEN,
+                socketPath: "/tmp/forge-daemon-runtime/forge.sock",
+                startedAt: "2026-04-06T00:00:00.000Z",
+              },
+              paths: {
+                lockPath: "/tmp/forge-daemon-runtime/forge.lock",
+                pidPath: "/tmp/forge-daemon-runtime/forge.pid",
+                socketPath: "/tmp/forge-daemon-runtime/forge.sock",
+                daemonInfoPath: "/tmp/forge-daemon-runtime/daemon.json",
+              },
+              stop: Effect.gen(function* () {
+                if (gracefulShutdown !== undefined) {
+                  yield* gracefulShutdown;
+                }
+                stop();
+              }),
+            };
+          }),
+      }),
+      Layer.succeed(ProviderService, {
+        startSession: () => Effect.die("unused"),
+        sendTurn: () => Effect.die("unused"),
+        interruptTurn: () => Effect.die("unused"),
+        respondToRequest: () => Effect.die("unused"),
+        respondToUserInput: () => Effect.die("unused"),
+        stopSession,
+        listSessions,
+        getCapabilities: () => Effect.die("unused"),
+        rollbackConversation: () => Effect.die("unused"),
+        streamEvents: Stream.empty,
+      }),
+      Layer.succeed(SocketTransport, {
+        bind: (input) =>
+          Effect.sync(() => {
+            stopDaemon = input.stopDaemon;
+            return { close: Effect.void };
+          }),
+      }),
+      Layer.succeed(NotificationReactor, {
+        start: () =>
+          Effect.sync(() => {
+            startNotifications();
+          }),
+        drain: Effect.suspend(() => drainNotifications()),
+      }),
+    );
+    const runtimeLayer = DaemonRuntimeLive.pipe(Layer.provide(dependencies));
+
     const daemonEffect = Effect.scoped(
-      runDaemonModeServer(
-        Effect.gen(function* () {
-          yield* Deferred.succeed(launchStarted, undefined);
-          return yield* Effect.never.pipe(
-            Effect.ensuring(Deferred.succeed(launchStopped, undefined).pipe(Effect.asVoid)),
-          );
-        }),
-      ).pipe(
-        Effect.provide(
-          Layer.mergeAll(
-            Layer.succeed(ServerConfig, makeServerConfig()),
-            Layer.succeed(ServerRuntimeStartup, {
-              awaitCommandReady: Effect.void,
-              awaitHttpListening: Effect.void,
-              markHttpListening: Effect.void,
-              enqueueCommand: (effect) => effect,
-            }),
-            Layer.succeed(DaemonService, {
-              getPaths: Effect.die("unused"),
-              probeSocket: () => Effect.succeed(true),
-              start: (input) =>
-                Effect.gen(function* () {
-                  requestedWsToken = input.wsToken;
-                  gracefulShutdown = input.gracefulShutdown;
-                  yield* input.bindSocket("/tmp/forge-daemon-runtime/forge.sock");
-                  return {
-                    type: "started" as const,
-                    info: {
-                      pid: 123,
-                      wsPort: 4777,
-                      wsToken: VALID_DAEMON_WS_TOKEN,
-                      socketPath: "/tmp/forge-daemon-runtime/forge.sock",
-                      startedAt: "2026-04-06T00:00:00.000Z",
-                    },
-                    paths: {
-                      lockPath: "/tmp/forge-daemon-runtime/forge.lock",
-                      pidPath: "/tmp/forge-daemon-runtime/forge.pid",
-                      socketPath: "/tmp/forge-daemon-runtime/forge.sock",
-                      daemonInfoPath: "/tmp/forge-daemon-runtime/daemon.json",
-                    },
-                    stop: Effect.gen(function* () {
-                      if (gracefulShutdown !== undefined) {
-                        yield* gracefulShutdown;
-                      }
-                      stop();
-                    }),
-                  };
-                }),
-            }),
-            Layer.succeed(ProviderService, {
-              startSession: () => Effect.die("unused"),
-              sendTurn: () => Effect.die("unused"),
-              interruptTurn: () => Effect.die("unused"),
-              respondToRequest: () => Effect.die("unused"),
-              respondToUserInput: () => Effect.die("unused"),
-              stopSession,
-              listSessions,
-              getCapabilities: () => Effect.die("unused"),
-              rollbackConversation: () => Effect.die("unused"),
-              streamEvents: Stream.empty,
-            }),
-            Layer.succeed(SocketTransport, {
-              bind: (input) =>
-                Effect.sync(() => {
-                  stopDaemon = input.stopDaemon;
-                  return { close: Effect.void };
-                }),
-            }),
-            Layer.succeed(NotificationReactor, {
-              start: () =>
-                Effect.sync(() => {
-                  startNotifications();
-                }),
-              drain: Effect.suspend(() => drainNotifications()),
-            }),
-          ),
-        ),
-      ),
+      Effect.gen(function* () {
+        const daemonRuntime = yield* DaemonRuntime;
+        return yield* daemonRuntime.run(
+          Effect.gen(function* () {
+            yield* Deferred.succeed(launchStarted, undefined);
+            return yield* Effect.never.pipe(
+              Effect.ensuring(Deferred.succeed(launchStopped, undefined).pipe(Effect.asVoid)),
+            );
+          }),
+        );
+      }).pipe(Effect.provide(runtimeLayer)),
     );
 
     const daemonPromise = Effect.runPromise(daemonEffect);
@@ -178,64 +181,71 @@ describe("runDaemonModeServer", () => {
 
     const result = await Effect.runPromise(
       Effect.scoped(
-        runDaemonModeServer(
-          Effect.sync(() => {
-            launchServer();
-          }),
-        ).pipe(
+        Effect.gen(function* () {
+          const daemonRuntime = yield* DaemonRuntime;
+          return yield* daemonRuntime.run(
+            Effect.sync(() => {
+              launchServer();
+            }),
+          );
+        }).pipe(
           Effect.provide(
-            Layer.mergeAll(
-              Layer.succeed(ServerConfig, makeServerConfig()),
-              Layer.succeed(ServerRuntimeStartup, {
-                awaitCommandReady: Effect.void,
-                awaitHttpListening: Effect.void,
-                markHttpListening: Effect.void,
-                enqueueCommand: (effect) => effect,
-              }),
-              Layer.succeed(DaemonService, {
-                getPaths: Effect.die("unused"),
-                probeSocket: () => Effect.succeed(true),
-                start: () =>
-                  Effect.succeed({
-                    type: "already-running" as const,
-                    pid: 123,
-                    info: {
-                      pid: 123,
-                      wsPort: 4777,
-                      wsToken: VALID_DAEMON_WS_TOKEN,
-                      socketPath: "/tmp/forge-daemon-runtime/forge.sock",
-                      startedAt: "2026-04-06T00:00:00.000Z",
-                    },
-                    paths: {
-                      lockPath: "/tmp/forge-daemon-runtime/forge.lock",
-                      pidPath: "/tmp/forge-daemon-runtime/forge.pid",
-                      socketPath: "/tmp/forge-daemon-runtime/forge.sock",
-                      daemonInfoPath: "/tmp/forge-daemon-runtime/daemon.json",
-                    },
+            DaemonRuntimeLive.pipe(
+              Layer.provide(
+                Layer.mergeAll(
+                  Layer.succeed(ServerConfig, makeServerConfig()),
+                  Layer.succeed(ServerRuntimeStartup, {
+                    awaitCommandReady: Effect.void,
+                    awaitHttpListening: Effect.void,
+                    markHttpListening: Effect.void,
+                    enqueueCommand: (effect) => effect,
                   }),
-              }),
-              Layer.succeed(ProviderService, {
-                startSession: () => Effect.die("unused"),
-                sendTurn: () => Effect.die("unused"),
-                interruptTurn: () => Effect.die("unused"),
-                respondToRequest: () => Effect.die("unused"),
-                respondToUserInput: () => Effect.die("unused"),
-                stopSession: () => Effect.die("unused"),
-                listSessions: () => Effect.succeed([]),
-                getCapabilities: () => Effect.die("unused"),
-                rollbackConversation: () => Effect.die("unused"),
-                streamEvents: Stream.empty,
-              }),
-              Layer.succeed(SocketTransport, {
-                bind: () => Effect.die("should not bind a duplicate daemon socket"),
-              }),
-              Layer.succeed(NotificationReactor, {
-                start: () =>
-                  Effect.sync(() => {
-                    startNotifications();
+                  Layer.succeed(DaemonService, {
+                    getPaths: Effect.die("unused"),
+                    probeSocket: () => Effect.succeed(true),
+                    start: () =>
+                      Effect.succeed({
+                        type: "already-running" as const,
+                        pid: 123,
+                        info: {
+                          pid: 123,
+                          wsPort: 4777,
+                          wsToken: VALID_DAEMON_WS_TOKEN,
+                          socketPath: "/tmp/forge-daemon-runtime/forge.sock",
+                          startedAt: "2026-04-06T00:00:00.000Z",
+                        },
+                        paths: {
+                          lockPath: "/tmp/forge-daemon-runtime/forge.lock",
+                          pidPath: "/tmp/forge-daemon-runtime/forge.pid",
+                          socketPath: "/tmp/forge-daemon-runtime/forge.sock",
+                          daemonInfoPath: "/tmp/forge-daemon-runtime/daemon.json",
+                        },
+                      }),
                   }),
-                drain: Effect.void,
-              }),
+                  Layer.succeed(ProviderService, {
+                    startSession: () => Effect.die("unused"),
+                    sendTurn: () => Effect.die("unused"),
+                    interruptTurn: () => Effect.die("unused"),
+                    respondToRequest: () => Effect.die("unused"),
+                    respondToUserInput: () => Effect.die("unused"),
+                    stopSession: () => Effect.die("unused"),
+                    listSessions: () => Effect.succeed([]),
+                    getCapabilities: () => Effect.die("unused"),
+                    rollbackConversation: () => Effect.die("unused"),
+                    streamEvents: Stream.empty,
+                  }),
+                  Layer.succeed(SocketTransport, {
+                    bind: () => Effect.die("should not bind a duplicate daemon socket"),
+                  }),
+                  Layer.succeed(NotificationReactor, {
+                    start: () =>
+                      Effect.sync(() => {
+                        startNotifications();
+                      }),
+                    drain: Effect.void,
+                  }),
+                ),
+              ),
             ),
           ),
         ),

@@ -65,8 +65,9 @@ import { WorkflowRegistryLive } from "./workflow/Layers/WorkflowRegistry";
 import { DaemonServiceLive } from "./daemon/Layers/DaemonService";
 import { NotificationDispatchLive } from "./daemon/Layers/NotificationDispatch";
 import { NotificationReactorLive } from "./daemon/Layers/NotificationReactor";
-import { runDaemonModeServer } from "./daemon/Layers/Runtime";
+import { DaemonRuntimeLive } from "./daemon/Layers/Runtime";
 import { SocketTransportLive } from "./daemon/Layers/SocketTransport";
+import { DaemonRuntime } from "./daemon/Services/DaemonRuntime";
 
 const PtyAdapterLive = Layer.unwrap(
   Effect.gen(function* () {
@@ -346,10 +347,15 @@ const NotificationReactorRuntimeLive = NotificationReactorLive.pipe(
   Layer.provide(NotificationDispatchLive),
 );
 
-const DaemonLayerLive = Layer.mergeAll(
+const DaemonInfrastructureLayerLive = Layer.mergeAll(
   DaemonServiceLive,
   SocketTransportLive,
   NotificationReactorRuntimeLive,
+);
+
+const DaemonLayerLive = Layer.mergeAll(
+  DaemonInfrastructureLayerLive,
+  DaemonRuntimeLive.pipe(Layer.provide(DaemonInfrastructureLayerLive)),
 );
 
 const DaemonRuntimeEnvironmentLive = DaemonLayerLive.pipe(
@@ -407,9 +413,10 @@ export const runServer = Effect.gen(function* () {
 
   if (config.mode === "daemon") {
     yield* Effect.scoped(
-      runDaemonModeServer(Layer.launch(makeServerLayer)).pipe(
-        Effect.provide(DaemonRuntimeEnvironmentLive),
-      ),
+      Effect.gen(function* () {
+        const daemonRuntime = yield* DaemonRuntime;
+        return yield* daemonRuntime.run(Layer.launch(makeServerLayer));
+      }).pipe(Effect.provide(DaemonRuntimeEnvironmentLive)),
     );
     return;
   }
