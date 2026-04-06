@@ -82,4 +82,30 @@ describe("readDaemonInfoFile", () => {
 
     expect(info).toBeUndefined();
   });
+
+  it("rejects daemon.json when required fields are empty", async () => {
+    const baseDir = makeTempDir("forge-cli-daemon-info-empty-fields-");
+    const daemonInfoPath = Path.join(baseDir, "daemon.json");
+    const socketPath = Path.join(baseDir, "forge.sock");
+    FS.writeFileSync(
+      daemonInfoPath,
+      JSON.stringify({
+        pid: 42,
+        wsPort: 3773,
+        wsToken: "",
+        socketPath,
+        startedAt: "2026-04-06T12:00:00.000Z",
+      }),
+      { encoding: "utf8", mode: 0o600 },
+    );
+    FS.chmodSync(daemonInfoPath, 0o600);
+
+    const info = await Effect.runPromise(
+      readDaemonInfoFile(daemonInfoPath, {
+        expectedSocketPath: socketPath,
+      }),
+    );
+
+    expect(info).toBeUndefined();
+  });
 });

@@ -5,7 +5,8 @@ import * as Net from "node:net";
 import * as Path from "node:path";
 import * as readline from "node:readline";
 
-import { Effect, Layer, Option, Ref, Schema } from "effect";
+import { parseDaemonManifest } from "@forgetools/shared/daemon";
+import { Effect, Layer, Option, Ref } from "effect";
 
 import { ServerConfig } from "../../config.ts";
 import {
@@ -16,9 +17,9 @@ import {
   type DaemonServiceError,
 } from "../Errors.ts";
 import {
-  DaemonInfo,
   DaemonService,
   type DaemonPaths,
+  type DaemonInfo,
   type DaemonSocketBinding,
   type DaemonStartInput,
   type DaemonStartResult,
@@ -137,15 +138,13 @@ const readPidFile = (path: string): Effect.Effect<number | undefined, never> =>
     }),
   );
 
-const decodeDaemonInfo = Schema.decodeUnknownSync(DaemonInfo);
-
 const readDaemonInfo = (path: string): Effect.Effect<DaemonInfo | undefined, never> =>
   readFileStringOption(path).pipe(
     Effect.flatMap((raw) => {
       if (raw === undefined) return Effect.void.pipe(Effect.as(undefined));
       return Effect.sync(() => {
         try {
-          return decodeDaemonInfo(JSON.parse(raw));
+          return parseDaemonManifest(JSON.parse(raw));
         } catch {
           return undefined;
         }

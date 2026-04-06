@@ -3,7 +3,12 @@ import * as FSP from "node:fs/promises";
 import * as OS from "node:os";
 import * as Path from "node:path";
 
-import { hasExpectedDaemonSocketPath, hasOwnerOnlyFileMode } from "@forgetools/shared/daemon";
+import {
+  isTrustedDaemonManifest,
+  parseDaemonManifest,
+  type DaemonManifestTrustOptions,
+  type ForgeDaemonManifest,
+} from "@forgetools/shared/daemon";
 
 export interface DesktopDaemonPaths {
   readonly baseDir: string;
@@ -11,34 +16,17 @@ export interface DesktopDaemonPaths {
   readonly daemonInfoPath: string;
 }
 
-export interface DesktopDaemonInfo {
-  readonly pid: number;
-  readonly wsPort: number;
-  readonly wsToken: string;
-  readonly socketPath: string;
-  readonly startedAt: string;
-}
+export type DesktopDaemonInfo = ForgeDaemonManifest;
 
 export interface DesktopWsUrlResolver {
   readonly getWsUrl: () => string | null;
   readonly prime: () => Promise<string | null>;
 }
 
-export interface DesktopDaemonReadOptions {
-  readonly expectedSocketPath?: string;
-  readonly requireOwnerOnlyPermissions?: boolean;
-  readonly platform?: NodeJS.Platform;
-}
+export interface DesktopDaemonReadOptions extends DaemonManifestTrustOptions {}
 
 const DEFAULT_DAEMON_INFO_TIMEOUT_MS = 1_500;
 const DEFAULT_DAEMON_INFO_POLL_INTERVAL_MS = 50;
-
-const isRecord = (value: unknown): value is Record<string, unknown> =>
-  typeof value === "object" && value !== null;
-const isPositiveInteger = (value: unknown): value is number =>
-  typeof value === "number" && Number.isInteger(value) && value > 0;
-const isNonEmptyString = (value: unknown): value is string =>
-  typeof value === "string" && value.length > 0;
 
 export const resolveDesktopBaseDir = (
   env: NodeJS.ProcessEnv = process.env,
@@ -56,58 +44,7 @@ export const resolveDesktopDaemonPaths = (
   daemonInfoPath: Path.join(baseDir, "daemon.json"),
 });
 
-export const toDesktopDaemonInfo = (value: unknown): DesktopDaemonInfo | undefined => {
-  if (!isRecord(value)) {
-    return undefined;
-  }
-
-  const pid = value.pid;
-  const wsPort = value.wsPort;
-  const wsToken = value.wsToken;
-  const socketPath = value.socketPath;
-  const startedAt = value.startedAt;
-
-  if (
-    !isPositiveInteger(pid) ||
-    !isPositiveInteger(wsPort) ||
-    !isNonEmptyString(wsToken) ||
-    !isNonEmptyString(socketPath) ||
-    !isNonEmptyString(startedAt)
-  ) {
-    return undefined;
-  }
-
-  return {
-    pid,
-    wsPort,
-    wsToken,
-    socketPath,
-    startedAt,
-  };
-};
-
-const shouldRequireOwnerOnlyPermissions = (options?: DesktopDaemonReadOptions): boolean =>
-  (options?.requireOwnerOnlyPermissions ?? true) &&
-  (options?.platform ?? process.platform) !== "win32";
-
-const isTrustedDaemonInfo = (
-  daemonInfo: DesktopDaemonInfo,
-  mode: number,
-  options?: DesktopDaemonReadOptions,
-): boolean => {
-  if (
-    options?.expectedSocketPath !== undefined &&
-    !hasExpectedDaemonSocketPath(daemonInfo, options.expectedSocketPath)
-  ) {
-    return false;
-  }
-
-  if (shouldRequireOwnerOnlyPermissions(options) && !hasOwnerOnlyFileMode(mode)) {
-    return false;
-  }
-
-  return true;
-};
+export const toDesktopDaemonInfo = parseDaemonManifest;
 
 export const readDaemonInfo = async (
   daemonInfoPath: string,
@@ -118,11 +55,11 @@ export const readDaemonInfo = async (
       FSP.readFile(daemonInfoPath, "utf8"),
       FSP.stat(daemonInfoPath),
     ]);
-    const daemonInfo = toDesktopDaemonInfo(JSON.parse(raw));
+    const daemonInfo = parseDaemonManifest(JSON.parse(raw));
     if (daemonInfo === undefined) {
       return undefined;
     }
-    return isTrustedDaemonInfo(daemonInfo, stat.mode, options) ? daemonInfo : undefined;
+    return isTrustedDaemonManifest(daemonInfo, stat.mode, options) ? daemonInfo : undefined;
   } catch {
     return undefined;
   }
@@ -135,11 +72,11 @@ export const readDaemonInfoSync = (
   try {
     const raw = FS.readFileSync(daemonInfoPath, "utf8");
     const stat = FS.statSync(daemonInfoPath);
-    const daemonInfo = toDesktopDaemonInfo(JSON.parse(raw));
+    const daemonInfo = parseDaemonManifest(JSON.parse(raw));
     if (daemonInfo === undefined) {
       return undefined;
     }
-    return isTrustedDaemonInfo(daemonInfo, stat.mode, options) ? daemonInfo : undefined;
+    return isTrustedDaemonManifest(daemonInfo, stat.mode, options) ? daemonInfo : undefined;
   } catch {
     return undefined;
   }

@@ -1,4 +1,5 @@
-import { Schema, ServiceMap, type Effect } from "effect";
+import type { ForgeDaemonManifest } from "@forgetools/shared/daemon";
+import { ServiceMap, type Effect } from "effect";
 
 import type { DaemonServiceError, DaemonShutdownError, DaemonSocketError } from "../Errors.ts";
 
@@ -9,14 +10,7 @@ export interface DaemonPaths {
   readonly daemonInfoPath: string;
 }
 
-export const DaemonInfo = Schema.Struct({
-  pid: Schema.Int,
-  wsPort: Schema.Int,
-  wsToken: Schema.String,
-  socketPath: Schema.String,
-  startedAt: Schema.String,
-});
-export type DaemonInfo = typeof DaemonInfo.Type;
+export type DaemonInfo = ForgeDaemonManifest;
 
 export interface DaemonSocketBinding {
   readonly close: Effect.Effect<void, DaemonSocketError>;

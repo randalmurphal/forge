@@ -5,11 +5,11 @@ import * as Net from "node:net";
 import * as Path from "node:path";
 import * as readline from "node:readline";
 
-import { hasExpectedDaemonSocketPath, hasOwnerOnlyFileMode } from "@forgetools/shared/daemon";
-import { Data, Effect, Schema } from "effect";
+import { isTrustedDaemonManifest, parseDaemonManifest } from "@forgetools/shared/daemon";
+import { Data, Effect } from "effect";
 
 import { resolveBaseDir } from "../os-jank.ts";
-import { DaemonInfo } from "./Services/DaemonService.ts";
+import type { DaemonInfo } from "./Services/DaemonService.ts";
 
 const DEFAULT_RPC_TIMEOUT_MS = 3_000;
 
@@ -66,8 +66,6 @@ export class ForgeDaemonCliError extends Data.TaggedError("ForgeDaemonCliError")
   readonly cause?: unknown;
 }> {}
 
-const decodeDaemonInfo = Schema.decodeUnknownSync(DaemonInfo);
-
 const toError = (cause: unknown): Error =>
   cause instanceof Error ? cause : new Error(String(cause));
 
@@ -82,29 +80,6 @@ const rpcError = (method: string, message: string, cause?: unknown) =>
     message: `Daemon RPC '${method}' failed: ${message}`,
     ...(cause === undefined ? {} : { cause: toError(cause) }),
   });
-
-const shouldRequireOwnerOnlyPermissions = (options?: CliDaemonInfoReadOptions): boolean =>
-  (options?.requireOwnerOnlyPermissions ?? true) &&
-  (options?.platform ?? process.platform) !== "win32";
-
-const isTrustedDaemonInfo = (
-  info: DaemonInfo,
-  mode: number,
-  options?: CliDaemonInfoReadOptions,
-): boolean => {
-  if (
-    options?.expectedSocketPath !== undefined &&
-    !hasExpectedDaemonSocketPath(info, options.expectedSocketPath)
-  ) {
-    return false;
-  }
-
-  if (shouldRequireOwnerOnlyPermissions(options) && !hasOwnerOnlyFileMode(mode)) {
-    return false;
-  }
-
-  return true;
-};
 
 export const resolveCliDaemonPaths = (rawBaseDir: string | undefined) =>
   Effect.gen(function* () {
@@ -125,8 +100,11 @@ export const readDaemonInfoFile = (daemonInfoPath: string, options?: CliDaemonIn
           FSP.readFile(daemonInfoPath, "utf8"),
           FSP.stat(daemonInfoPath),
         ]);
-        const info = decodeDaemonInfo(JSON.parse(raw));
-        return isTrustedDaemonInfo(info, stat.mode, options) ? info : undefined;
+        const info = parseDaemonManifest(JSON.parse(raw));
+        if (info === undefined) {
+          return undefined;
+        }
+        return isTrustedDaemonManifest(info, stat.mode, options) ? info : undefined;
       } catch (cause) {
         const nodeError = cause as NodeJS.ErrnoException | undefined;
         if (nodeError?.code === "ENOENT") {
