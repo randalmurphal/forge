@@ -93,6 +93,12 @@ export interface WsRpcClient {
     readonly replayEvents: RpcUnaryMethod<typeof ORCHESTRATION_WS_METHODS.replayEvents>;
     readonly onDomainEvent: RpcStreamMethod<typeof WS_METHODS.subscribeOrchestrationDomainEvents>;
   };
+  readonly workflow: {
+    readonly list: RpcUnaryNoArgMethod<typeof WS_METHODS.workflowList>;
+    readonly get: RpcUnaryMethod<typeof WS_METHODS.workflowGet>;
+    readonly create: RpcUnaryMethod<typeof WS_METHODS.workflowCreate>;
+    readonly update: RpcUnaryMethod<typeof WS_METHODS.workflowUpdate>;
+  };
 }
 
 let sharedWsRpcClient: WsRpcClient | null = null;
@@ -202,6 +208,12 @@ export function createWsRpcClient(transport = new WsTransport()): WsRpcClient {
           (client) => client[WS_METHODS.subscribeOrchestrationDomainEvents]({}),
           listener,
         ),
+    },
+    workflow: {
+      list: () => transport.request((client) => client[WS_METHODS.workflowList]({})),
+      get: (input) => transport.request((client) => client[WS_METHODS.workflowGet](input)),
+      create: (input) => transport.request((client) => client[WS_METHODS.workflowCreate](input)),
+      update: (input) => transport.request((client) => client[WS_METHODS.workflowUpdate](input)),
     },
   };
 }
