@@ -431,12 +431,27 @@ const renderSessionDetails = (session: SessionSummary) =>
     `Updated: ${session.updatedAt}`,
   ].join("\n");
 
-const renderDaemonStatus = (
+const TERMINAL_SESSION_STATUSES = new Set<SessionSummary["status"]>([
+  "completed",
+  "failed",
+  "cancelled",
+]);
+
+const renderDaemonSessionSection = (
+  label: string,
+  sessions: ReadonlyArray<SessionSummary>,
+): ReadonlyArray<string> =>
+  sessions.length === 0 ? [] : ["", `${label}:`, sessions.map(renderSessionLine).join("\n")];
+
+export const renderDaemonStatus = (
   status: DaemonStatusSnapshot,
   sessions: ReadonlyArray<SessionSummary>,
 ) => {
   const runningCount = sessions.filter((session) => session.status === "running").length;
   const attentionCount = sessions.filter((session) => session.status === "needs-attention").length;
+  const runningSessions = sessions.filter((session) => session.status === "running");
+  const attentionSessions = sessions.filter((session) => session.status === "needs-attention");
+  const openSessions = sessions.filter((session) => !TERMINAL_SESSION_STATUSES.has(session.status));
   return [
     `Daemon: ${status.running ? "running" : "stopped"}`,
     `Base dir: ${status.paths.baseDir}`,
@@ -448,6 +463,11 @@ const renderDaemonStatus = (
     `Sessions: ${sessions.length}`,
     `Running sessions: ${runningCount}`,
     `Needs attention: ${attentionCount}`,
+    ...renderDaemonSessionSection("Running session details", runningSessions),
+    ...renderDaemonSessionSection("Needs attention details", attentionSessions),
+    ...(runningSessions.length === 0 && attentionSessions.length === 0
+      ? renderDaemonSessionSection("Open session details", openSessions)
+      : []),
   ].join("\n");
 };
 

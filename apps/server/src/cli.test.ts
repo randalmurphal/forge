@@ -5,6 +5,7 @@ import * as OS from "node:os";
 import * as Path from "node:path";
 
 import * as NodeServices from "@effect/platform-node/NodeServices";
+import type { SessionSummary } from "@forgetools/contracts";
 import { NetService } from "@forgetools/shared/Net";
 import { assert, it } from "@effect/vitest";
 import * as Effect from "effect/Effect";
@@ -13,7 +14,7 @@ import * as CliError from "effect/unstable/cli/CliError";
 import { Command } from "effect/unstable/cli";
 import { it as vitestIt } from "vitest";
 
-import { cli } from "./cli.ts";
+import { cli, renderDaemonStatus } from "./cli.ts";
 import { ForgeDaemonCliError } from "./daemon/cliClient.ts";
 
 const CliRuntimeLayer = Layer.mergeAll(NodeServices.layer, NetService.layer);
@@ -77,6 +78,41 @@ const runCli = (args: ReadonlyArray<string>) =>
   Effect.runPromise(
     Command.runWith(cli, { version: "0.0.0" })([...args]).pipe(Effect.provide(CliRuntimeLayer)),
   );
+
+const makeSessionSummary = ({
+  threadId,
+  title,
+  status,
+  ...overrides
+}: Omit<Partial<SessionSummary>, "threadId" | "title" | "status"> & {
+  readonly threadId: string;
+  readonly title: string;
+  readonly status: SessionSummary["status"];
+}): SessionSummary => ({
+  threadId: threadId as SessionSummary["threadId"],
+  projectId: "project-1" as SessionSummary["projectId"],
+  parentThreadId: null,
+  sessionType: "agent",
+  title: title as SessionSummary["title"],
+  status,
+  role: null,
+  provider: "codex",
+  model: {
+    provider: "codex",
+    model: "gpt-5-codex",
+  },
+  runtimeMode: "full-access",
+  workflowId: null,
+  currentPhaseId: null,
+  patternId: null,
+  branch: null,
+  bootstrapStatus: null,
+  childThreadIds: [],
+  createdAt: "2026-04-06T00:00:00.000Z",
+  updatedAt: "2026-04-06T00:00:00.000Z",
+  archivedAt: null,
+  ...overrides,
+});
 
 const withSocketServer = async <A>(
   result: unknown | ((request: JsonRpcRequest) => unknown),
@@ -504,3 +540,83 @@ vitestIt("reports a friendly error when the daemon socket is missing", async () 
     FS.rmSync(baseDir, { recursive: true, force: true });
   }
 });
+
+vitestIt("renderDaemonStatus includes running and needs-attention session details", () => {
+  const output = renderDaemonStatus(
+    {
+      running: true,
+      paths: {
+        baseDir: "/tmp/forge",
+        socketPath: "/tmp/forge/forge.sock",
+        daemonInfoPath: "/tmp/forge/daemon.json",
+        worktreesDir: "/tmp/forge/worktrees",
+      },
+      info: {
+        pid: 4242,
+        wsPort: 3773,
+        wsToken: "a".repeat(64),
+        socketPath: "/tmp/forge/forge.sock",
+        startedAt: "2026-04-06T00:00:00.000Z",
+      },
+      ping: {
+        status: "ok",
+        uptime: 321,
+      },
+    },
+    [
+      makeSessionSummary({
+        threadId: "thread-running",
+        title: "Build loop",
+        status: "running",
+      }),
+      makeSessionSummary({
+        threadId: "thread-attention",
+        title: "Needs review",
+        status: "needs-attention",
+      }),
+      makeSessionSummary({
+        threadId: "thread-complete",
+        title: "Done",
+        status: "completed",
+      }),
+    ],
+  );
+
+  nodeAssert.match(output, /Running session details:/);
+  nodeAssert.match(output, /thread-running\s+running\s+agent\s+Build loop/);
+  nodeAssert.match(output, /Needs attention details:/);
+  nodeAssert.match(output, /thread-attention\s+needs-attention\s+agent\s+Needs review/);
+  nodeAssert.doesNotMatch(output, /thread-complete/);
+});
+
+vitestIt(
+  "renderDaemonStatus falls back to open session details when nothing is actively running",
+  () => {
+    const output = renderDaemonStatus(
+      {
+        running: true,
+        paths: {
+          baseDir: "/tmp/forge",
+          socketPath: "/tmp/forge/forge.sock",
+          daemonInfoPath: "/tmp/forge/daemon.json",
+          worktreesDir: "/tmp/forge/worktrees",
+        },
+        info: undefined,
+        ping: {
+          status: "ok",
+          uptime: 100,
+        },
+      },
+      [
+        makeSessionSummary({
+          threadId: "thread-paused",
+          title: "Waiting",
+          status: "paused",
+        }),
+      ],
+    );
+
+    nodeAssert.match(output, /Open session details:/);
+    nodeAssert.match(output, /thread-paused\s+paused\s+agent\s+Waiting/);
+  },
+);
