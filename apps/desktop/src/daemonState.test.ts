@@ -133,6 +133,25 @@ describe("readDaemonInfoSync", () => {
     expect(readDaemonInfoSync(paths.daemonInfoPath)).toBeUndefined();
   });
 
+  it("rejects daemon.json when startedAt is not a canonical ISO timestamp", () => {
+    const baseDir = makeTempDir("forge-desktop-daemon-invalid-started-at-");
+    const paths = resolveDesktopDaemonPaths(baseDir);
+
+    FS.writeFileSync(
+      paths.daemonInfoPath,
+      JSON.stringify({
+        pid: 42,
+        wsPort: 3773,
+        wsToken: VALID_DAEMON_WS_TOKEN,
+        socketPath: paths.socketPath,
+        startedAt: "2026-04-06T07:00:00-05:00",
+      }),
+      "utf8",
+    );
+
+    expect(readDaemonInfoSync(paths.daemonInfoPath)).toBeUndefined();
+  });
+
   it("rejects daemon.json when the manifest socket path does not match Forge's socket", () => {
     const baseDir = makeTempDir("forge-desktop-daemon-mismatch-");
     const paths = resolveDesktopDaemonPaths(baseDir);

@@ -19,6 +19,7 @@ export interface DaemonManifestTrustOptions {
 }
 
 const DAEMON_WS_TOKEN_PATTERN = /^[0-9a-f]{64}$/i;
+const ISO_UTC_DATE_TIME_PATTERN = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/;
 
 const INHERITED_DAEMON_RUNTIME_ENV_KEYS = [
   "FORGE_AUTH_TOKEN",
@@ -40,6 +41,14 @@ const isPortNumber = (value: unknown): value is number =>
 
 const isNonEmptyString = (value: unknown): value is string =>
   typeof value === "string" && value.length > 0;
+
+const isCanonicalIsoDateTime = (value: unknown): value is string => {
+  if (typeof value !== "string" || !ISO_UTC_DATE_TIME_PATTERN.test(value)) {
+    return false;
+  }
+
+  return new Date(value).toISOString() === value;
+};
 
 export const isForgeDaemonWsToken = (value: unknown): value is string =>
   typeof value === "string" && DAEMON_WS_TOKEN_PATTERN.test(value);
@@ -80,7 +89,7 @@ export const parseDaemonManifest = (value: unknown): ForgeDaemonManifest | undef
     !isPortNumber(wsPort) ||
     !isForgeDaemonWsToken(wsToken) ||
     !isNonEmptyString(socketPath) ||
-    !isNonEmptyString(startedAt)
+    !isCanonicalIsoDateTime(startedAt)
   ) {
     return undefined;
   }

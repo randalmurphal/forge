@@ -164,6 +164,32 @@ describe("readDaemonInfoFile", () => {
 
     expect(info).toBeUndefined();
   });
+
+  it("rejects daemon.json when startedAt is not a canonical ISO timestamp", async () => {
+    const baseDir = makeTempDir("forge-cli-daemon-info-invalid-started-at-");
+    const daemonInfoPath = Path.join(baseDir, "daemon.json");
+    const socketPath = Path.join(baseDir, "forge.sock");
+    FS.writeFileSync(
+      daemonInfoPath,
+      JSON.stringify({
+        pid: 42,
+        wsPort: 3773,
+        wsToken: VALID_DAEMON_WS_TOKEN,
+        socketPath,
+        startedAt: "2026-04-06T07:00:00-05:00",
+      }),
+      { encoding: "utf8", mode: 0o600 },
+    );
+    FS.chmodSync(daemonInfoPath, 0o600);
+
+    const info = await Effect.runPromise(
+      readDaemonInfoFile(daemonInfoPath, {
+        expectedSocketPath: socketPath,
+      }),
+    );
+
+    expect(info).toBeUndefined();
+  });
 });
 
 describe("buildDaemonLaunchPlan", () => {
