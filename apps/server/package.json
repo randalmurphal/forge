@@ -1,5 +1,5 @@
 {
-  "name": "t3",
+  "name": "@forgetools/server",
   "version": "0.0.15",
   "license": "MIT",
   "repository": {
@@ -8,7 +8,7 @@
     "directory": "apps/server"
   },
   "bin": {
-    "t3": "./dist/bin.mjs"
+    "forge": "./dist/bin.mjs"
   },
   "files": [
     "dist"
@@ -37,9 +37,9 @@
   "devDependencies": {
     "@effect/language-service": "catalog:",
     "@effect/vitest": "catalog:",
-    "@t3tools/contracts": "workspace:*",
-    "@t3tools/shared": "workspace:*",
-    "@t3tools/web": "workspace:*",
+    "@forgetools/contracts": "workspace:*",
+    "@forgetools/shared": "workspace:*",
+    "@forgetools/web": "workspace:*",
     "@types/bun": "catalog:",
     "@types/node": "catalog:",
     "tsdown": "catalog:",

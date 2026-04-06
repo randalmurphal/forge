@@ -7,8 +7,8 @@ import {
   ForgeProjectConfig,
   InteractiveRequestId,
   type ThreadId,
-} from "@t3tools/contracts";
-import { makeDrainableWorker } from "@t3tools/shared/DrainableWorker";
+} from "@forgetools/contracts";
+import { makeDrainableWorker } from "@forgetools/shared/DrainableWorker";
 import {
   Cause,
   Effect,

@@ -18,7 +18,7 @@ import {
   ServerSettings,
   ServerSettingsError,
   type ServerSettingsPatch,
-} from "@t3tools/contracts";
+} from "@forgetools/contracts";
 import {
   Cache,
   Deferred,
@@ -40,8 +40,8 @@ import {
 } from "effect";
 import * as Semaphore from "effect/Semaphore";
 import { ServerConfig } from "./config";
-import { type DeepPartial, deepMerge } from "@t3tools/shared/Struct";
-import { fromLenientJson } from "@t3tools/shared/schemaJson";
+import { type DeepPartial, deepMerge } from "@forgetools/shared/Struct";
+import { fromLenientJson } from "@forgetools/shared/schemaJson";
 
 export interface ServerSettingsShape {
   /** Start the settings runtime and attach file watching. */

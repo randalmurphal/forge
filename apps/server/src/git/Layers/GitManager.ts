@@ -9,14 +9,14 @@ import {
   GitRunStackedActionResult,
   GitStackedAction,
   ModelSelection,
-} from "@t3tools/contracts";
+} from "@forgetools/contracts";
 import {
   resolveAutoFeatureBranchName,
   sanitizeBranchFragment,
   sanitizeFeatureBranchName,
-} from "@t3tools/shared/git";
+} from "@forgetools/shared/git";
 
-import { GitManagerError } from "@t3tools/contracts";
+import { GitManagerError } from "@forgetools/contracts";
 import {
   GitManager,
   type GitActionProgressReporter,
@@ -28,7 +28,7 @@ import { GitHubCli, type GitHubPullRequestSummary } from "../Services/GitHubCli.
 import { TextGeneration } from "../Services/TextGeneration.ts";
 import { extractBranchNameFromRemoteRef } from "../remoteRefs.ts";
 import { ServerSettingsService } from "../../serverSettings.ts";
-import type { GitManagerServiceError } from "@t3tools/contracts";
+import type { GitManagerServiceError } from "@forgetools/contracts";
 
 const COMMIT_TIMEOUT_MS = 10 * 60_000;
 const MAX_PROGRESS_TEXT_LENGTH = 500;

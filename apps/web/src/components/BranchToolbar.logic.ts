@@ -1,9 +1,9 @@
-import type { GitBranch } from "@t3tools/contracts";
+import type { GitBranch } from "@forgetools/contracts";
 import { Schema } from "effect";
 export {
   dedupeRemoteBranchesWithLocalMatches,
   deriveLocalBranchNameFromRemoteRef,
-} from "@t3tools/shared/git";
+} from "@forgetools/shared/git";
 
 export const EnvMode = Schema.Literals(["local", "worktree"]);
 export type EnvMode = typeof EnvMode.Type;

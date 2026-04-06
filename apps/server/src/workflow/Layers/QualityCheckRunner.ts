@@ -4,7 +4,7 @@ import {
   ForgeProjectConfig,
   type ForgeProjectConfig as ForgeProjectConfigData,
   type QualityCheckResult,
-} from "@t3tools/contracts";
+} from "@forgetools/contracts";
 import { Effect, FileSystem, Layer, Option, Path, Schema } from "effect";
 
 import {

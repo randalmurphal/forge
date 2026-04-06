@@ -10,8 +10,8 @@ import {
   type OrchestrationCheckpointSummary,
   type OrchestrationThread,
   type OrchestrationSessionStatus,
-} from "@t3tools/contracts";
-import { resolveModelSlugForProvider } from "@t3tools/shared/model";
+} from "@forgetools/contracts";
+import { resolveModelSlugForProvider } from "@forgetools/shared/model";
 import { create } from "zustand";
 import {
   findLatestProposedPlan,

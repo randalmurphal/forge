@@ -5,7 +5,7 @@ import {
   ThreadId,
   createInitialDeliberationState,
   type ChannelMessage,
-} from "@t3tools/contracts";
+} from "@forgetools/contracts";
 import { it } from "@effect/vitest";
 import { Effect, Option } from "effect";
 import { vi } from "vitest";

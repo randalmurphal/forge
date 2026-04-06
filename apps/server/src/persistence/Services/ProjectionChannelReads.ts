@@ -5,7 +5,7 @@
  *
  * @module ProjectionChannelReadRepository
  */
-import { ChannelId, IsoDateTime, ThreadId } from "@t3tools/contracts";
+import { ChannelId, IsoDateTime, ThreadId } from "@forgetools/contracts";
 import { Option, Schema, ServiceMap } from "effect";
 import type { Effect } from "effect";
 

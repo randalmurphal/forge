@@ -9,7 +9,7 @@
  *
  * @module OrchestrationEventStore
  */
-import { ForgeEvent } from "@t3tools/contracts";
+import { ForgeEvent } from "@forgetools/contracts";
 import { ServiceMap } from "effect";
 import type { Effect, Stream } from "effect";
 

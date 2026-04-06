@@ -10,7 +10,7 @@ import {
   createInitialDeliberationState,
   type Channel,
   type OrchestrationReadModel,
-} from "@t3tools/contracts";
+} from "@forgetools/contracts";
 import { assert, it } from "@effect/vitest";
 import { Effect, Layer, ManagedRuntime, Option, Stream } from "effect";
 

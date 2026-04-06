@@ -1,4 +1,4 @@
-import { type GitActionProgressEvent, type GitStackedAction } from "@t3tools/contracts";
+import { type GitActionProgressEvent, type GitStackedAction } from "@forgetools/contracts";
 import {
   infiniteQueryOptions,
   mutationOptions,

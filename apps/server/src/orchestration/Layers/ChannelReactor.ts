@@ -8,8 +8,8 @@ import {
   type ForgeCommand,
   type ForgeEvent,
   ThreadId,
-} from "@t3tools/contracts";
-import { makeDrainableWorker } from "@t3tools/shared/DrainableWorker";
+} from "@forgetools/contracts";
+import { makeDrainableWorker } from "@forgetools/shared/DrainableWorker";
 import { Cause, Effect, Layer, Option, Stream } from "effect";
 
 import { DeliberationEngine } from "../../channel/Services/DeliberationEngine.ts";

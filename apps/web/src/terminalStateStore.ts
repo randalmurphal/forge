@@ -5,7 +5,7 @@
  * API constrained to store actions/selectors.
  */
 
-import type { TerminalEvent, ThreadId } from "@t3tools/contracts";
+import type { TerminalEvent, ThreadId } from "@forgetools/contracts";
 import { create } from "zustand";
 import { createJSONStorage, persist } from "zustand/middleware";
 import { resolveStorage } from "./lib/storage";

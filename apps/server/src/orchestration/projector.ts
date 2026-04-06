@@ -10,7 +10,7 @@ import type {
   QualityCheckResult,
   ThreadId,
   WorkflowId,
-} from "@t3tools/contracts";
+} from "@forgetools/contracts";
 import {
   CheckpointRef,
   ChannelId,
@@ -22,7 +22,7 @@ import {
   OrchestrationThread,
   PhaseRunId,
   WorkflowPhaseId,
-} from "@t3tools/contracts";
+} from "@forgetools/contracts";
 import { Effect, Schema } from "effect";
 
 import { toProjectorDecodeError, type OrchestrationProjectorDecodeError } from "./Errors.ts";

@@ -22,7 +22,7 @@ import {
   type WorkflowDefinition,
   WS_METHODS,
   WsRpcGroup,
-} from "@t3tools/contracts";
+} from "@forgetools/contracts";
 import { clamp } from "effect/Number";
 import { HttpRouter, HttpServerRequest, HttpServerResponse } from "effect/unstable/http";
 import { RpcSerialization, RpcServer } from "effect/unstable/rpc";

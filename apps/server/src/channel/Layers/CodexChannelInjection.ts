@@ -5,7 +5,7 @@ import {
   type InjectionState,
   type IsoDateTime,
   type ThreadId,
-} from "@t3tools/contracts";
+} from "@forgetools/contracts";
 import { Effect, Option } from "effect";
 
 import { ChannelService } from "../Services/ChannelService.ts";

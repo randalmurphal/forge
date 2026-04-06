@@ -1,5 +1,5 @@
-import { NetService } from "@t3tools/shared/Net";
-import { parsePersistedServerObservabilitySettings } from "@t3tools/shared/serverSettings";
+import { NetService } from "@forgetools/shared/Net";
+import { parsePersistedServerObservabilitySettings } from "@forgetools/shared/serverSettings";
 import { Config, Effect, FileSystem, LogLevel, Option, Path, Schema } from "effect";
 import { Command, Flag, GlobalFlag } from "effect/unstable/cli";
 
@@ -346,8 +346,8 @@ const commandFlags = {
   logWebSocketEvents: logWebSocketEventsFlag,
 } as const;
 
-const rootCommand = Command.make("t3", commandFlags).pipe(
-  Command.withDescription("Run the T3 Code server."),
+const rootCommand = Command.make("forge", commandFlags).pipe(
+  Command.withDescription("Run the Forge server."),
   Command.withHandler((flags) =>
     Effect.gen(function* () {
       const logLevel = yield* GlobalFlag.LogLevel;

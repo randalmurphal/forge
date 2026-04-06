@@ -8,7 +8,7 @@ import {
   TurnId,
   type OrchestrationEvent,
   type OrchestrationReadModel,
-} from "@t3tools/contracts";
+} from "@forgetools/contracts";
 import { describe, expect, it } from "vitest";
 
 import {

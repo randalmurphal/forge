@@ -10,7 +10,7 @@ import {
   WorkflowPhaseId,
   type ForgeEvent,
   type OrchestrationReadModel,
-} from "@t3tools/contracts";
+} from "@forgetools/contracts";
 import { Effect } from "effect";
 import { describe, expect, it } from "vitest";
 

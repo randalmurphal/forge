@@ -59,7 +59,7 @@ import {
   SessionCheckpointCapturedPayload as ContractsSessionCheckpointCapturedPayloadSchema,
   SessionCheckpointDiffCompletedPayload as ContractsSessionCheckpointDiffCompletedPayloadSchema,
   SessionCheckpointRevertedPayload as ContractsSessionCheckpointRevertedPayloadSchema,
-} from "@t3tools/contracts";
+} from "@forgetools/contracts";
 
 // Server-internal alias surface, backed by contract schemas as the source of truth.
 export const ProjectCreatedPayload = ContractsProjectCreatedPayloadSchema;

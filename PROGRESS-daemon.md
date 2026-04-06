@@ -19,10 +19,12 @@
 ## Completed Work Items
 
 - WI-1: Product identity -- base directory and paths
+- WI-2: Product identity -- package names and branding
 
 ## Iteration Log
 
 - 2026-04-06: Completed WI-1 by switching runtime/base-dir identity to Forge. Replaced `T3CODE_*` envs with `FORGE_*`, defaulted server/desktop/dev tooling to `~/.forge`, updated desktop protocol/app IDs to `forge://` and `com.forgetools.forge`, and added/updated tests covering the new defaults.
+- 2026-04-06: Completed WI-2 by renaming workspace packages to `@forgetools/*`, moving the server package/CLI command to `forge`, updating Turbo filters and workspace imports, and replacing remaining Forge-visible `T3 Code` branding across desktop, web, server, marketing, and runtime docs. Verified with `bun fmt`, `bun lint`, `bun typecheck`, `bun run test`, and a product-facing branding grep.
 
 ## Review Log
 

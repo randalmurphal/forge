@@ -10,7 +10,7 @@ import {
   InteractiveRequestId,
   ProjectId,
   ThreadId,
-} from "@t3tools/contracts";
+} from "@forgetools/contracts";
 import { Effect, Exit, Layer, ManagedRuntime, Option, Scope, Stream } from "effect";
 import { afterEach, describe, expect, it } from "vitest";
 

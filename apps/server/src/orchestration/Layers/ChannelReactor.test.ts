@@ -5,7 +5,7 @@ import {
   ThreadId,
   type DeliberationState,
   type ForgeEvent,
-} from "@t3tools/contracts";
+} from "@forgetools/contracts";
 import { Effect, Exit, Layer, ManagedRuntime, Option, PubSub, Scope, Stream } from "effect";
 import { afterEach, describe, expect, it } from "vitest";
 

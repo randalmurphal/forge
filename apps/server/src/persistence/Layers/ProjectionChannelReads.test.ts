@@ -1,4 +1,4 @@
-import { ChannelId, ThreadId } from "@t3tools/contracts";
+import { ChannelId, ThreadId } from "@forgetools/contracts";
 import { assert, it } from "@effect/vitest";
 import { Effect, Layer, Option } from "effect";
 

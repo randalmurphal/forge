@@ -1,4 +1,4 @@
-import { EDITORS, EditorId, NativeApi } from "@t3tools/contracts";
+import { EDITORS, EditorId, NativeApi } from "@forgetools/contracts";
 import { getLocalStorageItem, setLocalStorageItem, useLocalStorage } from "./hooks/useLocalStorage";
 import { useMemo } from "react";
 

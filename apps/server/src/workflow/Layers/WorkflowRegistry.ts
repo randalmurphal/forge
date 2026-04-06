@@ -1,4 +1,4 @@
-import { WorkflowDefinition } from "@t3tools/contracts";
+import { WorkflowDefinition } from "@forgetools/contracts";
 import { Effect, FileSystem, Layer, Option, Path, Schema } from "effect";
 import { fileURLToPath } from "node:url";
 import { parse as parseYaml } from "yaml";

@@ -1,4 +1,4 @@
-import { PromptTemplate, TrimmedNonEmptyString } from "@t3tools/contracts";
+import { PromptTemplate, TrimmedNonEmptyString } from "@forgetools/contracts";
 import { Schema, ServiceMap } from "effect";
 import type { Effect } from "effect";
 

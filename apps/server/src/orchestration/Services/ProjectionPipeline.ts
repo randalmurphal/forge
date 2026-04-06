@@ -6,7 +6,7 @@
  *
  * @module OrchestrationProjectionPipeline
  */
-import type { ForgeEvent } from "@t3tools/contracts";
+import type { ForgeEvent } from "@forgetools/contracts";
 import { ServiceMap } from "effect";
 import type { Effect } from "effect";
 

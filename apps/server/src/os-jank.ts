@@ -1,6 +1,6 @@
 import * as OS from "node:os";
 import { Effect, Path } from "effect";
-import { readPathFromLoginShell, resolveLoginShell } from "@t3tools/shared/shell";
+import { readPathFromLoginShell, resolveLoginShell } from "@forgetools/shared/shell";
 
 export function fixPath(
   options: {

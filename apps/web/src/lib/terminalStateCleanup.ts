@@ -1,4 +1,4 @@
-import type { ThreadId } from "@t3tools/contracts";
+import type { ThreadId } from "@forgetools/contracts";
 
 interface TerminalRetentionThread {
   id: ThreadId;

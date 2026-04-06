@@ -1,4 +1,4 @@
-import { TrimmedNonEmptyString, WorkflowDefinition, WorkflowId } from "@t3tools/contracts";
+import { TrimmedNonEmptyString, WorkflowDefinition, WorkflowId } from "@forgetools/contracts";
 import { Option, Schema, ServiceMap } from "effect";
 import type { Effect } from "effect";
 

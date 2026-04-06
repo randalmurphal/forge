@@ -1,5 +1,5 @@
 import * as OS from "node:os";
-import { PromptTemplate } from "@t3tools/contracts";
+import { PromptTemplate } from "@forgetools/contracts";
 import { Effect, FileSystem, Layer, Path, Schema } from "effect";
 import { fileURLToPath } from "node:url";
 import { parse as parseYaml } from "yaml";

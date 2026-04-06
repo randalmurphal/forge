@@ -4,7 +4,7 @@ import { homedir } from "node:os";
 
 import * as NodeRuntime from "@effect/platform-node/NodeRuntime";
 import * as NodeServices from "@effect/platform-node/NodeServices";
-import { NetService } from "@t3tools/shared/Net";
+import { NetService } from "@forgetools/shared/Net";
 import { Config, Data, Effect, Hash, Layer, Logger, Option, Path, Schema } from "effect";
 import { Argument, Command, Flag } from "effect/unstable/cli";
 import { ChildProcess } from "effect/unstable/process";
@@ -23,14 +23,20 @@ const MODE_ARGS = {
     "run",
     "dev",
     "--ui=tui",
-    "--filter=@t3tools/contracts",
-    "--filter=@t3tools/web",
-    "--filter=t3",
+    "--filter=@forgetools/contracts",
+    "--filter=@forgetools/web",
+    "--filter=@forgetools/server",
     "--parallel",
   ],
-  "dev:server": ["run", "dev", "--filter=t3"],
-  "dev:web": ["run", "dev", "--filter=@t3tools/web"],
-  "dev:desktop": ["run", "dev", "--filter=@t3tools/desktop", "--filter=@t3tools/web", "--parallel"],
+  "dev:server": ["run", "dev", "--filter=@forgetools/server"],
+  "dev:web": ["run", "dev", "--filter=@forgetools/web"],
+  "dev:desktop": [
+    "run",
+    "dev",
+    "--filter=@forgetools/desktop",
+    "--filter=@forgetools/web",
+    "--parallel",
+  ],
 } as const satisfies Record<string, ReadonlyArray<string>>;
 
 type DevMode = keyof typeof MODE_ARGS;
@@ -500,7 +506,7 @@ const devRunnerCli = Command.make("dev-runner", {
     Argument.withDescription("Development mode to run."),
   ),
   forgeHome: Flag.string("home-dir").pipe(
-    Flag.withDescription("Base directory for all T3 Code data (equivalent to FORGE_HOME)."),
+    Flag.withDescription("Base directory for all Forge data (equivalent to FORGE_HOME)."),
     Flag.withFallbackConfig(optionalStringConfig("FORGE_HOME")),
   ),
   authToken: Flag.string("auth-token").pipe(

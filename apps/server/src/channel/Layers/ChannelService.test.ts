@@ -7,7 +7,7 @@ import {
   PhaseRunId,
   ProjectId,
   ThreadId,
-} from "@t3tools/contracts";
+} from "@forgetools/contracts";
 import { assert, it } from "@effect/vitest";
 import { Effect, Layer, ManagedRuntime } from "effect";
 

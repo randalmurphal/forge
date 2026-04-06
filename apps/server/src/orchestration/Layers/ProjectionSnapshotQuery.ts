@@ -29,7 +29,7 @@ import {
   ModelSelection,
   ProjectId,
   ThreadId,
-} from "@t3tools/contracts";
+} from "@forgetools/contracts";
 import { Effect, Layer, Option, Schema, Struct } from "effect";
 import * as SqlClient from "effect/unstable/sql/SqlClient";
 import * as SqlSchema from "effect/unstable/sql/SqlSchema";

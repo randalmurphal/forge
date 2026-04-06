@@ -6,7 +6,7 @@
  *
  * @module ProjectionPhaseOutputRepository
  */
-import { IsoDateTime, PhaseRunId, TrimmedNonEmptyString } from "@t3tools/contracts";
+import { IsoDateTime, PhaseRunId, TrimmedNonEmptyString } from "@forgetools/contracts";
 import { Option, Schema, ServiceMap } from "effect";
 import type { Effect } from "effect";
 

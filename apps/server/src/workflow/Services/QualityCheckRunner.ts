@@ -1,4 +1,4 @@
-import { QualityCheckReference, QualityCheckResult } from "@t3tools/contracts";
+import { QualityCheckReference, QualityCheckResult } from "@forgetools/contracts";
 import { Schema, ServiceMap } from "effect";
 import type { Effect } from "effect";
 

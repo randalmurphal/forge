@@ -19,9 +19,9 @@ import {
   ProviderInteractionMode,
   RuntimeMode,
   TerminalOpenInput,
-} from "@t3tools/contracts";
-import { applyClaudePromptEffortPrefix, normalizeModelSlug } from "@t3tools/shared/model";
-import { truncate } from "@t3tools/shared/String";
+} from "@forgetools/contracts";
+import { applyClaudePromptEffortPrefix, normalizeModelSlug } from "@forgetools/shared/model";
+import { truncate } from "@forgetools/shared/String";
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useDebouncedValue } from "@tanstack/react-pacer";

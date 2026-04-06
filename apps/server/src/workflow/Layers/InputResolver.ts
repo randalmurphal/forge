@@ -1,4 +1,4 @@
-import { ThreadId, TrimmedNonEmptyString } from "@t3tools/contracts";
+import { ThreadId, TrimmedNonEmptyString } from "@forgetools/contracts";
 import { Effect, Option, Schema } from "effect";
 import * as SqlClient from "effect/unstable/sql/SqlClient";
 import * as SqlSchema from "effect/unstable/sql/SqlSchema";

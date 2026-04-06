@@ -1,7 +1,13 @@
 import { createHash } from "node:crypto";
 
 import { createSdkMcpServer, tool } from "@anthropic-ai/claude-agent-sdk";
-import { ChannelId, ChannelMessageId, CommandId, PositiveInt, ThreadId } from "@t3tools/contracts";
+import {
+  ChannelId,
+  ChannelMessageId,
+  CommandId,
+  PositiveInt,
+  ThreadId,
+} from "@forgetools/contracts";
 import { Effect, Schema } from "effect";
 import * as SqlClient from "effect/unstable/sql/SqlClient";
 import { z } from "zod/v4";

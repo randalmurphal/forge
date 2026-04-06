@@ -1,4 +1,4 @@
-import type { ChannelMessage } from "@t3tools/contracts";
+import type { ChannelMessage } from "@forgetools/contracts";
 
 type TranscriptMessage = Pick<ChannelMessage, "fromType" | "fromId" | "fromRole" | "content">;
 

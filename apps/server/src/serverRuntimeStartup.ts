@@ -4,7 +4,7 @@ import {
   type ModelSelection,
   ProjectId,
   ThreadId,
-} from "@t3tools/contracts";
+} from "@forgetools/contracts";
 import {
   Data,
   Deferred,

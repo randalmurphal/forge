@@ -7,7 +7,7 @@ import {
   type Channel,
   type ChannelMessage,
   type OrchestrationReadModel,
-} from "@t3tools/contracts";
+} from "@forgetools/contracts";
 import { assert, it } from "@effect/vitest";
 import { Effect, ManagedRuntime, Stream } from "effect";
 import * as SqlClient from "effect/unstable/sql/SqlClient";
