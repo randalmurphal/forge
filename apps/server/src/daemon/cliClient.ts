@@ -71,6 +71,9 @@ export class ForgeDaemonCliError extends Data.TaggedError("ForgeDaemonCliError")
   readonly cause?: unknown;
 }> {}
 
+const isRecord = (value: unknown): value is Record<string, unknown> =>
+  typeof value === "object" && value !== null;
+
 const toError = (cause: unknown): Error =>
   cause instanceof Error ? cause : new Error(String(cause));
 
@@ -195,12 +198,19 @@ export const sendDaemonRpc = <Result = unknown>(input: {
         socket.connect(input.socketPath);
 
         lines.once("line", (line) => {
-          let parsed: JsonRpcSuccess | JsonRpcFailure;
+          let parsed: unknown;
           try {
-            parsed = JSON.parse(line) as JsonRpcSuccess | JsonRpcFailure;
+            parsed = JSON.parse(line);
           } catch (cause) {
             finish(() =>
               reject(rpcError(input.method, "Received malformed JSON-RPC response.", cause)),
+            );
+            return;
+          }
+
+          if (!isRecord(parsed) || parsed.jsonrpc !== "2.0" || parsed.id !== requestId) {
+            finish(() =>
+              reject(rpcError(input.method, "Received mismatched JSON-RPC response id.")),
             );
             return;
           }
@@ -210,15 +220,15 @@ export const sendDaemonRpc = <Result = unknown>(input: {
               reject(
                 rpcError(
                   input.method,
-                  `${parsed.error.message} (code ${parsed.error.code})`,
-                  parsed.error.data,
+                  `${(parsed as JsonRpcFailure).error.message} (code ${(parsed as JsonRpcFailure).error.code})`,
+                  (parsed as JsonRpcFailure).error.data,
                 ),
               ),
             );
             return;
           }
 
-          finish(() => resolve(parsed.result as Result));
+          finish(() => resolve((parsed as JsonRpcSuccess).result as Result));
         });
       });
     },

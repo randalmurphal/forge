@@ -63,6 +63,7 @@ export interface DesktopUiReadinessInput {
 const DEFAULT_DAEMON_TIMEOUT_MS = 5_000;
 const DEFAULT_POLL_INTERVAL_MS = 100;
 const DEFAULT_PING_TIMEOUT_MS = 1_000;
+const DESKTOP_DAEMON_PING_REQUEST_ID = "forge-desktop-ping";
 
 const sleep = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms));
 
@@ -111,7 +112,7 @@ export const pingDaemon = async (
       socket.write(
         `${JSON.stringify({
           jsonrpc: "2.0",
-          id: "forge-desktop-ping",
+          id: DESKTOP_DAEMON_PING_REQUEST_ID,
           method: "daemon.ping",
           params: {},
         })}\n`,
@@ -121,8 +122,16 @@ export const pingDaemon = async (
 
     lines.once("line", (line) => {
       try {
-        const parsed = JSON.parse(line) as { readonly result?: { readonly status?: string } };
-        finish(parsed.result?.status === "ok");
+        const parsed = JSON.parse(line) as {
+          readonly jsonrpc?: string;
+          readonly id?: string;
+          readonly result?: { readonly status?: string };
+        };
+        finish(
+          parsed.jsonrpc === "2.0" &&
+            parsed.id === DESKTOP_DAEMON_PING_REQUEST_ID &&
+            parsed.result?.status === "ok",
+        );
       } catch {
         finish(false);
       }

@@ -1,4 +1,9 @@
-import { describe, expect, it, vi } from "vitest";
+import * as FS from "node:fs";
+import * as Net from "node:net";
+import * as OS from "node:os";
+import * as Path from "node:path";
+
+import { afterEach, describe, expect, it, vi } from "vitest";
 
 import type { DesktopDaemonInfo } from "./daemonLifecycle";
 import {
@@ -11,6 +16,7 @@ import {
   isDesktopUiReady,
   launchDetachedDaemon,
   parseSessionProtocolUrl,
+  pingDaemon,
   registerProtocolClient,
   requestSingleInstanceOrQuit,
 } from "./daemonLifecycle";
@@ -22,6 +28,20 @@ const daemonInfo: DesktopDaemonInfo = {
   socketPath: "/tmp/forge.sock",
   startedAt: "2026-04-06T12:00:00.000Z",
 };
+
+const tempDirs: string[] = [];
+
+const makeTempDir = (prefix: string): string => {
+  const dir = FS.mkdtempSync(Path.join(OS.tmpdir(), prefix));
+  tempDirs.push(dir);
+  return dir;
+};
+
+afterEach(() => {
+  for (const dir of tempDirs.splice(0, tempDirs.length)) {
+    FS.rmSync(dir, { recursive: true, force: true });
+  }
+});
 
 describe("ensureDaemonConnection", () => {
   it("discovers an existing daemon without spawning a new process", async () => {
@@ -188,6 +208,55 @@ describe("daemon process launch", () => {
       stdio: "ignore",
     });
     expect(unref).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("pingDaemon", () => {
+  it("rejects ping responses whose JSON-RPC id does not match the request", async () => {
+    const baseDir = makeTempDir("forge-desktop-daemon-ping-");
+    const socketPath = Path.join(baseDir, "forge.sock");
+    const server = Net.createServer((socket) => {
+      socket.setEncoding("utf8");
+      let buffer = "";
+      socket.on("data", (chunk) => {
+        buffer += chunk;
+        const newlineIndex = buffer.indexOf("\n");
+        if (newlineIndex === -1) {
+          return;
+        }
+
+        socket.write(
+          `${JSON.stringify({
+            jsonrpc: "2.0",
+            id: "different-request-id",
+            result: { status: "ok" },
+          })}\n`,
+        );
+      });
+    });
+
+    await new Promise<void>((resolve, reject) => {
+      server.once("error", reject);
+      server.listen(socketPath, () => {
+        FS.chmodSync(socketPath, 0o600);
+        resolve();
+      });
+    });
+
+    try {
+      await expect(pingDaemon(socketPath)).resolves.toBe(false);
+    } finally {
+      await new Promise<void>((resolve, reject) => {
+        server.close((error) => {
+          if (error) {
+            reject(error);
+            return;
+          }
+          resolve();
+        });
+      });
+      FS.rmSync(socketPath, { force: true });
+    }
   });
 });
 

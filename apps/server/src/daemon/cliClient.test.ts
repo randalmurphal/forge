@@ -309,4 +309,57 @@ describe("sendDaemonRpc", () => {
       FS.rmSync(socketPath, { force: true });
     }
   });
+
+  it("rejects responses whose JSON-RPC id does not match the request", async () => {
+    const baseDir = makeTempDir("forge-cli-daemon-rpc-mismatch-");
+    const socketPath = Path.join(baseDir, "forge.sock");
+    const server = Net.createServer((socket) => {
+      socket.setEncoding("utf8");
+      let buffer = "";
+      socket.on("data", (chunk) => {
+        buffer += chunk;
+        const newlineIndex = buffer.indexOf("\n");
+        if (newlineIndex === -1) {
+          return;
+        }
+
+        socket.write(
+          `${JSON.stringify({
+            jsonrpc: "2.0",
+            id: "different-request-id",
+            result: { ok: true },
+          })}\n`,
+        );
+      });
+    });
+
+    await new Promise<void>((resolve, reject) => {
+      server.once("error", reject);
+      server.listen(socketPath, resolve);
+    });
+
+    try {
+      await expect(
+        Effect.runPromise(
+          sendDaemonRpc<{ readonly ok: boolean }>({
+            socketPath,
+            method: "session.list",
+          }),
+        ),
+      ).rejects.toMatchObject({
+        message: expect.stringContaining("Received mismatched JSON-RPC response id."),
+      });
+    } finally {
+      await new Promise<void>((resolve, reject) => {
+        server.close((error) => {
+          if (error) {
+            reject(error);
+            return;
+          }
+          resolve();
+        });
+      });
+      FS.rmSync(socketPath, { force: true });
+    }
+  });
 });
