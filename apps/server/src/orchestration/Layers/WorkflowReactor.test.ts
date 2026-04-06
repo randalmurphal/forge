@@ -275,6 +275,9 @@ describe("WorkflowReactor", () => {
       publishEvent: async (event: any) => {
         eventSequence += 1;
         await publish(makeWorkflowEvent(event, eventSequence));
+        // PubSub publication can win the race against the reactor fiber's
+        // enqueue, so yield once before callers drain the worker.
+        await Effect.runPromise(Effect.sleep("0 millis"));
       },
       drain: () => Effect.runPromise(reactor.drain),
     };
