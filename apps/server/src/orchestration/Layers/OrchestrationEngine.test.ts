@@ -564,7 +564,7 @@ describe("OrchestrationEngine", () => {
         threadId: ThreadId.makeUnsafe("thread-turn-diff"),
         turnId: asTurnId("turn-1"),
         completedAt: createdAt,
-        checkpointRef: asCheckpointRef("refs/t3/checkpoints/thread-turn-diff/turn/1"),
+        checkpointRef: asCheckpointRef("refs/forge/checkpoints/thread-turn-diff/turn/1"),
         status: "ready",
         files: [],
         checkpointTurnCount: 1,
@@ -579,7 +579,7 @@ describe("OrchestrationEngine", () => {
       {
         turnId: asTurnId("turn-1"),
         checkpointTurnCount: 1,
-        checkpointRef: asCheckpointRef("refs/t3/checkpoints/thread-turn-diff/turn/1"),
+        checkpointRef: asCheckpointRef("refs/forge/checkpoints/thread-turn-diff/turn/1"),
         status: "ready",
         files: [],
         assistantMessageId: null,
