@@ -77,10 +77,36 @@ describe("ensureDaemonConnection", () => {
     expect(spawnDetachedDaemon).not.toHaveBeenCalled();
   });
 
+  it("does not spawn a detached daemon when an existing socket stays responsive but daemon.json never appears", async () => {
+    const spawnDetachedDaemon = vi.fn(async () => undefined);
+    const readDaemonInfo = vi.fn(async () => undefined);
+    const pingDaemon = vi.fn(async () => true);
+
+    await expect(
+      ensureDaemonConnection({
+        paths: {
+          baseDir: "/tmp/forge",
+          socketPath: daemonInfo.socketPath,
+          daemonInfoPath: "/tmp/forge/daemon.json",
+        },
+        spawnDetachedDaemon,
+        readDaemonInfo,
+        pingDaemon,
+        timeoutMs: 25,
+        pollIntervalMs: 0,
+      }),
+    ).rejects.toThrow(
+      "Forge daemon is responding on /tmp/forge.sock, but /tmp/forge/daemon.json did not become available within 25ms.",
+    );
+
+    expect(spawnDetachedDaemon).not.toHaveBeenCalled();
+  });
+
   it("spawns and waits for the daemon when none is running", async () => {
     const spawnDetachedDaemon = vi.fn(async () => undefined);
     const readDaemonInfo = vi
       .fn<(_: string) => Promise<DesktopDaemonInfo | undefined>>()
+      .mockResolvedValueOnce(undefined)
       .mockResolvedValueOnce(undefined)
       .mockResolvedValueOnce(daemonInfo);
     const pingDaemon = vi

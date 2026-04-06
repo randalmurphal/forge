@@ -187,6 +187,38 @@ export const ensureDaemonConnection = async (
     };
   };
 
+  const waitForResponsiveDaemonManifest = async (): Promise<{
+    readonly daemon: ConnectedDaemon | undefined;
+    readonly waitedOnResponsiveSocket: boolean;
+  }> => {
+    let waitedOnResponsiveSocket = false;
+
+    while (Date.now() < deadline) {
+      const readyExisting = await connectIfManifestReady("existing");
+      if (readyExisting !== undefined) {
+        return {
+          daemon: readyExisting,
+          waitedOnResponsiveSocket,
+        };
+      }
+
+      if (!(await ping(input.paths.socketPath))) {
+        return {
+          daemon: undefined,
+          waitedOnResponsiveSocket,
+        };
+      }
+
+      waitedOnResponsiveSocket = true;
+      await sleep(pollIntervalMs);
+    }
+
+    return {
+      daemon: undefined,
+      waitedOnResponsiveSocket,
+    };
+  };
+
   const existing = await connectIfManifestReady("existing");
   if (existing !== undefined) {
     return existing;
@@ -195,12 +227,19 @@ export const ensureDaemonConnection = async (
   // A responsive socket wins over a missing manifest. Wait for daemon.json to
   // appear before considering a detached relaunch, otherwise we can race a
   // healthy daemon that is still persisting its startup metadata.
-  while (Date.now() < deadline && (await ping(input.paths.socketPath))) {
-    const readyExisting = await connectIfManifestReady("existing");
-    if (readyExisting !== undefined) {
-      return readyExisting;
-    }
-    await sleep(pollIntervalMs);
+  const existingAfterWait = await waitForResponsiveDaemonManifest();
+  if (existingAfterWait.daemon !== undefined) {
+    return existingAfterWait.daemon;
+  }
+
+  if (existingAfterWait.waitedOnResponsiveSocket && (await ping(input.paths.socketPath))) {
+    throw new Error(
+      `Forge daemon is responding on ${input.paths.socketPath}, but ${input.paths.daemonInfoPath} did not become available within ${timeoutMs}ms.`,
+    );
+  }
+
+  if (Date.now() >= deadline) {
+    throw new Error(`Forge daemon did not become ready within ${timeoutMs}ms.`);
   }
 
   await input.spawnDetachedDaemon();
