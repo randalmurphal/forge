@@ -41,6 +41,19 @@ it.layer(NodeServices.layer)("server settings", (it) => {
           },
         },
       );
+
+      assert.deepEqual(
+        decodePatch({
+          notifications: {
+            sessionCompleted: false,
+          },
+        }),
+        {
+          notifications: {
+            sessionCompleted: false,
+          },
+        },
+      );
     }),
   );
 
@@ -185,6 +198,31 @@ it.layer(NodeServices.layer)("server settings", (it) => {
       assert.deepEqual(next.observability, {
         otlpTracesUrl: "http://localhost:4318/v1/traces",
         otlpMetricsUrl: "http://localhost:4318/v1/metrics",
+      });
+    }).pipe(Effect.provide(makeServerSettingsLayer())),
+  );
+
+  it.effect("deep merges notification settings updates without dropping siblings", () =>
+    Effect.gen(function* () {
+      const serverSettings = yield* ServerSettingsService;
+
+      yield* serverSettings.updateSettings({
+        notifications: {
+          sessionNeedsAttention: false,
+          sessionCompleted: false,
+        },
+      });
+
+      const next = yield* serverSettings.updateSettings({
+        notifications: {
+          deliberationConcluded: false,
+        },
+      });
+
+      assert.deepEqual(next.notifications, {
+        sessionNeedsAttention: false,
+        sessionCompleted: false,
+        deliberationConcluded: false,
       });
     }).pipe(Effect.provide(makeServerSettingsLayer())),
   );

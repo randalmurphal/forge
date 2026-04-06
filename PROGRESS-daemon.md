@@ -23,6 +23,7 @@
 - WI-3: Daemon process -- startup and singleton discovery
 - WI-4: Unix socket transport -- JSON-RPC server
 - WI-5: CLI client -- forge command
+- WI-6: Notification dispatch
 
 ## Iteration Log
 
@@ -31,6 +32,7 @@
 - 2026-04-06: Completed WI-3 by adding `DaemonService` under `apps/server/src/daemon/` with a tagged error surface, startup lock acquisition via `lockf`/`flock` helper processes, PID/socket/`daemon.json` discovery and stale-state cleanup, JSON-RPC `daemon.ping` socket probing, fresh-start manifest generation with `0600` permissions, idempotent stop cleanup, and focused tests covering fresh start, stop cleanup, stale PID recovery, and concurrent singleton startup. Verified with `bun fmt`, `bun lint`, `bun typecheck`, and `bun run test`.
 - 2026-04-06: Completed WI-4 by adding a daemon `SocketTransport` service/layer that binds a `0600` Unix socket, parses newline-delimited JSON-RPC 2.0 requests, maps the socket method registry onto orchestration/channel/workflow operations, and returns structured JSON-RPC errors for parse, invalid-request, invalid-params, and unknown-method failures. Added focused socket transport tests for success, method-not-found, parse errors, and channel intervention dispatch. Verified with `bun fmt`, `bun lint`, `bun typecheck`, and `bun run test`.
 - 2026-04-06: Completed WI-5 by adding a Forge CLI JSON-RPC client with detached daemon startup/status helpers, socket-path and daemon manifest resolution, empty worktree cleanup, and user-facing `forge` commands for session lifecycle, interactive answers, cleanup, and `daemon start|stop|status`. Added CLI routing tests for core commands and the missing-daemon error path, then verified with `bun fmt`, `bun lint`, `bun typecheck`, and `bun run test`.
+- 2026-04-06: Completed WI-6 by adding a daemon `NotificationDispatch` service/layer with typed Forge notification triggers, settings-backed notification preferences, argv-only backend execution for `terminal-notifier`, `osascript`, and `notify-send`, explicit `forge://session/{id}` click metadata where supported, and non-fatal fallback logging when desktop notification delivery is unavailable or fails. Added focused notification dispatch tests for macOS, Linux, missing backend, disabled triggers, special-character payloads, and exec failures, plus server-settings coverage for the new notification toggles. Verified with `bun fmt`, `bun lint`, `bun typecheck`, and `bun run test`.
 
 ## Review Log
 

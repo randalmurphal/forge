@@ -77,6 +77,13 @@ export const ObservabilitySettings = Schema.Struct({
 });
 export type ObservabilitySettings = typeof ObservabilitySettings.Type;
 
+export const NotificationSettings = Schema.Struct({
+  sessionNeedsAttention: Schema.Boolean.pipe(Schema.withDecodingDefault(() => true)),
+  sessionCompleted: Schema.Boolean.pipe(Schema.withDecodingDefault(() => true)),
+  deliberationConcluded: Schema.Boolean.pipe(Schema.withDecodingDefault(() => true)),
+});
+export type NotificationSettings = typeof NotificationSettings.Type;
+
 export const ServerSettings = Schema.Struct({
   enableAssistantStreaming: Schema.Boolean.pipe(Schema.withDecodingDefault(() => false)),
   defaultThreadEnvMode: ThreadEnvMode.pipe(
@@ -95,6 +102,7 @@ export const ServerSettings = Schema.Struct({
     claudeAgent: ClaudeSettings.pipe(Schema.withDecodingDefault(() => ({}))),
   }).pipe(Schema.withDecodingDefault(() => ({}))),
   observability: ObservabilitySettings.pipe(Schema.withDecodingDefault(() => ({}))),
+  notifications: NotificationSettings.pipe(Schema.withDecodingDefault(() => ({}))),
 });
 export type ServerSettings = typeof ServerSettings.Type;
 
@@ -169,6 +177,13 @@ export const ServerSettingsPatch = Schema.Struct({
     Schema.Struct({
       otlpTracesUrl: Schema.optionalKey(Schema.String),
       otlpMetricsUrl: Schema.optionalKey(Schema.String),
+    }),
+  ),
+  notifications: Schema.optionalKey(
+    Schema.Struct({
+      sessionNeedsAttention: Schema.optionalKey(Schema.Boolean),
+      sessionCompleted: Schema.optionalKey(Schema.Boolean),
+      deliberationConcluded: Schema.optionalKey(Schema.Boolean),
     }),
   ),
   providers: Schema.optionalKey(
