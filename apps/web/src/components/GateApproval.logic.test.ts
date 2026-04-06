@@ -45,6 +45,32 @@ describe("GateApproval.logic", () => {
     ).toEqual([{ check: "test", passed: false, output: "1 failed" }]);
   });
 
+  it("falls back to phase quality checks when gate-level results are absent", () => {
+    expect(
+      selectGateApprovalQualityChecks({
+        gateQualityCheckResults: [],
+        phaseQualityChecks: [{ check: "lint", passed: true }],
+      }),
+    ).toEqual([{ check: "lint", passed: true }]);
+  });
+
+  it("derives summaries from conversation and channel outputs", () => {
+    expect(
+      deriveGateApprovalSummaryMarkdown({
+        kind: "conversation",
+        markdown: "Ship the patch after one more lint pass.",
+      }),
+    ).toBe("Ship the patch after one more lint pass.");
+
+    expect(
+      deriveGateApprovalSummaryMarkdown({
+        kind: "channel",
+        messages: [],
+        rawTranscript: "[Advocate]\nShip it.",
+      }),
+    ).toBe("[Advocate]\nShip it.");
+  });
+
   it("filters keyboard shortcuts when focus is inside editable inputs", () => {
     expect(resolveGateApprovalShortcut({ key: "a" })).toBe("approve");
     expect(resolveGateApprovalShortcut({ key: "r" })).toBe("reject");
@@ -112,5 +138,35 @@ describe("GateApproval.logic", () => {
       threadId: ThreadId.makeUnsafe("thread-1"),
       phaseRunId: PhaseRunId.makeUnsafe("phase-1"),
     });
+  });
+
+  it("rejects blank rejection reasons and corrections", async () => {
+    const client = {
+      thread: {
+        correct: vi.fn(),
+      },
+      gate: {
+        approve: vi.fn(),
+        reject: vi.fn(),
+      },
+    };
+
+    await expect(
+      rejectGate({
+        client,
+        threadId: ThreadId.makeUnsafe("thread-1"),
+        phaseRunId: PhaseRunId.makeUnsafe("phase-1"),
+        reason: "   ",
+      }),
+    ).rejects.toThrow("A rejection reason is required.");
+
+    await expect(
+      correctGate({
+        client,
+        threadId: ThreadId.makeUnsafe("thread-1"),
+        phaseRunId: PhaseRunId.makeUnsafe("phase-1"),
+        correction: "   ",
+      }),
+    ).rejects.toThrow("A correction is required.");
   });
 });

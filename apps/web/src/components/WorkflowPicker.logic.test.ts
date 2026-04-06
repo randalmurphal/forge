@@ -2,6 +2,7 @@ import { ProjectId, WorkflowId, type WorkflowSummary } from "@forgetools/contrac
 import { describe, expect, it } from "vitest";
 import {
   buildWorkflowPickerSections,
+  compactWorkflowPickerSections,
   compareWorkflowSummariesForPicker,
   filterWorkflowSummariesForProject,
   resolveWorkflowPickerLabel,
@@ -106,6 +107,21 @@ describe("buildWorkflowPickerSections", () => {
     });
 
     expect(sections.map((section) => section.key)).toEqual(["built-in", "project", "global"]);
+  });
+
+  it("drops empty picker sections after grouping", () => {
+    const sections = compactWorkflowPickerSections(
+      buildWorkflowPickerSections({
+        projectId: null,
+        workflows: [makeWorkflowSummary("workflow-built-in", { builtIn: true })],
+      }),
+    );
+
+    expect(sections).toEqual([
+      expect.objectContaining({
+        key: "built-in",
+      }),
+    ]);
   });
 });
 

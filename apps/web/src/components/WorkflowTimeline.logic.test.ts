@@ -228,6 +228,12 @@ describe("parseWorkflowChannelTranscript", () => {
       { speaker: "Interrogator", content: "Why not stop?" },
     ]);
   });
+
+  it("falls back to a generic transcript speaker when blocks are unstructured", () => {
+    expect(parseWorkflowChannelTranscript("No brackets here.")).toEqual([
+      { speaker: "Transcript", content: "No brackets here." },
+    ]);
+  });
 });
 
 describe("resolveWorkflowTimelineOutput", () => {
@@ -260,6 +266,26 @@ describe("resolveWorkflowTimelineOutput", () => {
     });
   });
 
+  it("keeps raw text as the schema summary when the output is not JSON", () => {
+    const output = resolveWorkflowTimelineOutput({
+      phase: makeWorkflowDefinition().phases[0] ?? null,
+      phaseType: "single-agent",
+      phaseOutput: {
+        outputKey: "summary",
+        content: "Plain text fallback summary",
+        sourceType: "agent",
+      },
+      childSessions: [],
+    });
+
+    expect(output).toEqual({
+      kind: "schema",
+      summaryMarkdown: "Plain text fallback summary",
+      structuredData: null,
+      rawContent: "Plain text fallback summary",
+    });
+  });
+
   it("falls back to the latest assistant message for conversation phases without stored outputs", () => {
     expect(
       resolveWorkflowTimelineOutput({
@@ -285,6 +311,17 @@ describe("resolveWorkflowTimelineOutput", () => {
       kind: "conversation",
       markdown: "Implemented the patch.",
     });
+  });
+
+  it("returns an empty output when neither stored output nor assistant transcript is available", () => {
+    expect(
+      resolveWorkflowTimelineOutput({
+        phase: makeWorkflowDefinition().phases[2] ?? null,
+        phaseType: "single-agent",
+        phaseOutput: null,
+        childSessions: [],
+      }),
+    ).toEqual({ kind: "none" });
   });
 });
 

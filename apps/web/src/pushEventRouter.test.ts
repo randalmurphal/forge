@@ -157,6 +157,20 @@ describe("pushEventRouter", () => {
     });
   });
 
+  it("keeps running quality-check events in store state without invalidating queries", () => {
+    const event = makeWorkflowQualityCheckEvent({ status: "running" });
+
+    const accepted = routeWorkflowPushEvent(event, {
+      queryClient: { invalidateQueries },
+      workflowStore: { applyWorkflowPushEvent },
+      onDecodeFailure,
+    });
+
+    expect(accepted).toBe(true);
+    expect(applyWorkflowPushEvent).toHaveBeenCalledWith(event);
+    expect(invalidateQueries).not.toHaveBeenCalled();
+  });
+
   it("routes workflow bootstrap events without invalidating timeline queries", () => {
     const event = makeWorkflowBootstrapEvent();
 
@@ -220,6 +234,28 @@ describe("pushEventRouter", () => {
     expect(onDecodeFailure).toHaveBeenCalledTimes(1);
     expect(onDecodeFailure.mock.calls[0]?.[0]).toMatchObject({
       kind: "workflow",
+    });
+  });
+
+  it("rejects malformed channel payloads without updating the channel store", () => {
+    const accepted = routeChannelPushEvent(
+      {
+        channel: "channel.message",
+        channelId: "channel-1",
+      },
+      {
+        queryClient: { invalidateQueries },
+        channelStore: { applyChannelPushEvent },
+        onDecodeFailure,
+      },
+    );
+
+    expect(accepted).toBe(false);
+    expect(applyChannelPushEvent).not.toHaveBeenCalled();
+    expect(invalidateQueries).not.toHaveBeenCalled();
+    expect(onDecodeFailure).toHaveBeenCalledTimes(1);
+    expect(onDecodeFailure.mock.calls[0]?.[0]).toMatchObject({
+      kind: "channel",
     });
   });
 });
