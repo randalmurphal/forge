@@ -336,13 +336,13 @@ vitestIt(
           if (callCount === 1) {
             return {
               events: [{ sequence: 1, type: "thread.created" }],
-              nextSequenceExclusive: 1,
+              nextSequenceExclusive: 2,
               timedOut: false,
             };
           }
           return {
             events: [{ sequence: 2, type: "thread.completed" }],
-            nextSequenceExclusive: 2,
+            nextSequenceExclusive: 3,
             timedOut: false,
           };
         };
@@ -359,7 +359,7 @@ vitestIt(
         });
         nodeAssert.equal(requests[1]?.method, "events.subscribe");
         nodeAssert.deepStrictEqual(requests[1]?.params, {
-          afterSequence: 1,
+          afterSequence: 2,
           timeoutMs: 5000,
           limit: 1,
         });

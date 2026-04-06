@@ -1009,7 +1009,7 @@ it("events.subscribe replays ordered orchestration events", async () => {
         response.result.events.map((event) => event.sequence),
         [2, 3],
       );
-      assert.equal(response.result.nextSequenceExclusive, 3);
+      assert.equal(response.result.nextSequenceExclusive, 4);
       assert.equal(response.result.timedOut, false);
     } finally {
       await Effect.runPromise(binding.close.pipe(Effect.catch(() => Effect.void)));

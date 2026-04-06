@@ -1063,7 +1063,7 @@ const makeSocketTransport = Effect.gen(function* () {
       return {
         events,
         nextSequenceExclusive:
-          events.length === 0 ? afterSequence : events[events.length - 1]!.sequence,
+          events.length === 0 ? afterSequence : events[events.length - 1]!.sequence + 1,
         timedOut: events.length === 0,
       };
     });
