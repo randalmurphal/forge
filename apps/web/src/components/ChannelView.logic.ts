@@ -180,6 +180,19 @@ function buildParticipantSeedList(input: {
     });
   }
 
+  for (const childThread of input.childThreadsById.values()) {
+    const roleLabel = formatChannelRoleLabel(childThread.role ?? null);
+    pushSeed({
+      key: `agent:${childThread.id}`,
+      fromType: "agent",
+      fromId: childThread.id,
+      role: childThread.role ?? null,
+      threadId: childThread.id,
+      providerLabel: formatChannelProviderLabel(childThread.session?.provider ?? null),
+      label: roleLabel ?? childThread.title,
+    });
+  }
+
   return seeds;
 }
 

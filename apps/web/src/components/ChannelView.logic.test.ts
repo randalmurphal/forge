@@ -196,6 +196,66 @@ describe("buildChannelViewModel", () => {
       }),
     );
   });
+
+  it("seeds participants and transcript panes from child threads before channel messages exist", () => {
+    const advocateThreadId = ThreadId.makeUnsafe("thread-advocate");
+    const interrogatorThreadId = ThreadId.makeUnsafe("thread-interrogator");
+
+    const viewModel = buildChannelViewModel({
+      channel: {
+        id: ChannelId.makeUnsafe("channel-1"),
+        threadId: ThreadId.makeUnsafe("thread-parent"),
+        type: "deliberation",
+        status: "open",
+        createdAt: "2026-04-06T00:00:00.000Z",
+        updatedAt: "2026-04-06T00:00:00.000Z",
+      },
+      messages: [],
+      deliberationState: null,
+      thread: { title: "Evaluate the rollout" },
+      childThreads: [
+        makeChildThread({
+          id: advocateThreadId,
+          title: "Advocate transcript",
+          role: "advocate",
+          session: {
+            provider: "claudeAgent",
+            status: "running",
+            orchestrationStatus: "running",
+            createdAt: "2026-04-06T00:00:00.000Z",
+            updatedAt: "2026-04-06T00:00:00.000Z",
+          },
+        }),
+        makeChildThread({
+          id: interrogatorThreadId,
+          title: "Interrogator transcript",
+          role: "interrogator",
+        }),
+      ],
+    });
+
+    expect(viewModel.headline).toBe("Advocate vs Interrogator");
+    expect(viewModel.participants).toEqual([
+      expect.objectContaining({
+        label: "Advocate",
+        roleLabel: "Advocate",
+        providerLabel: "Claude",
+        threadId: advocateThreadId,
+        tone: "sky",
+      }),
+      expect.objectContaining({
+        label: "Interrogator",
+        roleLabel: "Interrogator",
+        providerLabel: "Codex",
+        threadId: interrogatorThreadId,
+        tone: "amber",
+      }),
+    ]);
+    expect(viewModel.transcriptPanes.map((pane) => pane.threadId)).toEqual([
+      advocateThreadId,
+      interrogatorThreadId,
+    ]);
+  });
 });
 
 describe("ChannelView keyboard helpers", () => {
