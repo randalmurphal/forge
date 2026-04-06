@@ -106,6 +106,13 @@ export interface WsRpcClient {
       listener: (event: RpcStreamEvent<typeof WS_METHODS.subscribeChannelMessages>) => void,
     ) => () => void;
   };
+  readonly phaseRun: {
+    readonly list: RpcUnaryMethod<typeof WS_METHODS.phaseRunList>;
+    readonly get: RpcUnaryMethod<typeof WS_METHODS.phaseRunGet>;
+  };
+  readonly phaseOutput: {
+    readonly get: RpcUnaryMethod<typeof WS_METHODS.phaseOutputGet>;
+  };
   readonly workflow: {
     readonly list: RpcUnaryNoArgMethod<typeof WS_METHODS.workflowList>;
     readonly get: RpcUnaryMethod<typeof WS_METHODS.workflowGet>;
@@ -232,6 +239,13 @@ export function createWsRpcClient(transport = new WsTransport()): WsRpcClient {
           (client) => client[WS_METHODS.subscribeChannelMessages](input),
           listener,
         ),
+    },
+    phaseRun: {
+      list: (input) => transport.request((client) => client[WS_METHODS.phaseRunList](input)),
+      get: (input) => transport.request((client) => client[WS_METHODS.phaseRunGet](input)),
+    },
+    phaseOutput: {
+      get: (input) => transport.request((client) => client[WS_METHODS.phaseOutputGet](input)),
     },
     workflow: {
       list: () => transport.request((client) => client[WS_METHODS.workflowList]({})),

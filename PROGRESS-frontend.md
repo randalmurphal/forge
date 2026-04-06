@@ -22,6 +22,7 @@
 - WI-2: Channel store
 - WI-3: Sidebar tree -- parent/child hierarchy
 - WI-4: Workflow picker in thread creation
+- WI-5: Workflow timeline view
 
 ## Iteration Log
 
@@ -29,6 +30,7 @@
 - 2026-04-06: Completed WI-2 by adding `apps/web/src/stores/channelStore.ts` with flat channel/message cache state, derived deliberation state, pagination/subscription helpers, and React Query hooks for channel detail/message pages. Extended `apps/web/src/wsRpcClient.ts` with channel fetch and push subscription methods used by the store. Added `apps/web/src/stores/channelStore.test.ts`. Validation passed: `bun fmt`, `bun lint`, `bun typecheck`, and `bun run test`.
 - 2026-04-06: Completed WI-3 by adding `apps/web/src/components/SidebarTree.logic.ts` and `apps/web/src/components/SidebarTree.tsx`, extending sidebar/store thread metadata for parent-child hierarchy rendering, and covering tree derivation in `apps/web/src/components/SidebarTree.logic.test.ts`. Sidebar thread rows now support bounded depth-two expansion, child metadata, propagated parent status, and priority sorting for needs-attention, running, paused, and completed threads. Validation passed: `bun fmt`, `bun lint`, `bun typecheck`, and `bun run test`.
 - 2026-04-06: Completed WI-4 by adding `apps/web/src/components/WorkflowPicker.tsx` plus `WorkflowPicker.logic.ts`/`.test.ts`, threading `workflowId` through persisted draft-thread state and local draft projection, and forwarding the selected workflow through the first-send `thread.create` path. Added store/browser coverage in `composerDraftStore.test.ts`, `ChatView.logic.test.ts`, and `ChatView.browser.tsx`. Validation passed: `bun fmt`, `bun lint`, `bun typecheck`, and `bun run test`. Non-built-in workflows currently share one alphabetical bucket after built-ins because the current `WorkflowSummary` contract only exposes `builtIn`, not project scope.
+- 2026-04-06: Completed WI-5 by adding `apps/web/src/components/WorkflowTimeline.tsx` plus `WorkflowTimeline.logic.ts`/`.test.ts`, extending `apps/web/src/wsRpcClient.ts` with `phaseRun` and `phaseOutput` RPC helpers, and dispatching workflow container threads to the timeline from `apps/web/src/routes/_chat.$threadId.tsx` while leaving `ChatView.tsx` unchanged for plain threads. The timeline now renders schema summaries, channel transcripts, conversation outputs, inline quality-check sections, and expandable child-session transcripts with active phase streaming. Validation passed: `bun fmt`, `bun lint`, `bun typecheck`, and `bun run test`. The route implementation uses the existing canonical `/$threadId` entrypoint because adding a separate `_workflow.$threadId` pathless route would collide with the current TanStack Router layout.
 
 ## Review Log
 
