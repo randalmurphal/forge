@@ -17,6 +17,7 @@ import { useCopyToClipboard } from "~/hooks/useCopyToClipboard";
 import { newCommandId, newProjectId, isMacPlatform, isLinuxPlatform } from "../../lib/utils";
 import { readNativeApi } from "../../nativeApi";
 import { toastManager } from "../ui/toast";
+import { isEditableKeyboardTarget } from "../../lib/keyboardTargets";
 import { isTerminalFocused } from "../../lib/terminalFocus";
 import {
   isContextMenuPointerDown,
@@ -752,6 +753,11 @@ export function useSidebarInteractions(input: {
     });
 
     const onWindowKeyDown = (event: globalThis.KeyboardEvent) => {
+      if (isEditableKeyboardTarget(event.target)) {
+        updateThreadJumpHintsVisibility(false);
+        return;
+      }
+
       updateThreadJumpHintsVisibility(
         shouldShowThreadJumpHints(event, keybindings, {
           platform,
@@ -800,6 +806,11 @@ export function useSidebarInteractions(input: {
     };
 
     const onWindowKeyUp = (event: globalThis.KeyboardEvent) => {
+      if (isEditableKeyboardTarget(event.target)) {
+        updateThreadJumpHintsVisibility(false);
+        return;
+      }
+
       updateThreadJumpHintsVisibility(
         shouldShowThreadJumpHints(event, keybindings, {
           platform,

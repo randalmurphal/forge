@@ -5,6 +5,7 @@ import type {
   ProviderKind,
   ThreadId,
 } from "@forgetools/contracts";
+import { isEditableKeyboardTarget } from "../lib/keyboardTargets";
 import type { ChannelDeliberationState } from "../stores/channelStore";
 import type { Thread } from "../types";
 
@@ -302,26 +303,6 @@ export function buildChannelViewModel(input: {
   };
 }
 
-function targetIsEditable(target: EventTarget | null | undefined): boolean {
-  if (typeof target !== "object" || target === null) {
-    return false;
-  }
-  const element = target as {
-    isContentEditable?: boolean;
-    tagName?: string;
-    closest?: (selector: string) => unknown;
-  };
-  if (element.isContentEditable) {
-    return true;
-  }
-  return (
-    element.tagName === "INPUT" ||
-    element.tagName === "TEXTAREA" ||
-    element.tagName === "SELECT" ||
-    element.closest?.("[contenteditable='true']") != null
-  );
-}
-
 function isBareKeypress(
   event: {
     key: string;
@@ -341,7 +322,7 @@ function isBareKeypress(
     !event.altKey &&
     !event.shiftKey &&
     event.key.toLowerCase() === key &&
-    !targetIsEditable(event.target)
+    !isEditableKeyboardTarget(event.target)
   );
 }
 

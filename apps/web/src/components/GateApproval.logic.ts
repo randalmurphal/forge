@@ -1,4 +1,5 @@
 import type { PhaseRunId, QualityCheckResult, ThreadId } from "@forgetools/contracts";
+import { isEditableKeyboardTargetDescriptor } from "../lib/keyboardTargets";
 import type { WorkflowTimelineRenderableOutput } from "./WorkflowTimeline.logic";
 
 export interface GateApprovalRpcClient {
@@ -101,12 +102,12 @@ export function resolveGateApprovalShortcut(input: {
     return null;
   }
 
-  if (input.isContentEditable) {
-    return null;
-  }
-
-  const targetTagName = input.targetTagName?.toLowerCase();
-  if (targetTagName === "input" || targetTagName === "textarea" || targetTagName === "select") {
+  if (
+    isEditableKeyboardTargetDescriptor({
+      tagName: input.targetTagName,
+      isContentEditable: input.isContentEditable,
+    })
+  ) {
     return null;
   }
 
