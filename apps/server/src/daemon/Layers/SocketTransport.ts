@@ -45,6 +45,7 @@ import {
   WorkspaceRootNotDirectoryError,
   WorkspaceRootNotExistsError,
 } from "../../workspace/Services/WorkspacePaths.ts";
+import { deriveForgeSessionType, isStandaloneAgentSession } from "../../sessionType";
 import { DaemonSocketError } from "../Errors.ts";
 import {
   DAEMON_SOCKET_PROTOCOL_VERSION,
@@ -300,13 +301,7 @@ function paginateEntries<T>(
 }
 
 function deriveSessionType(thread: OrchestrationThread): SessionSummary["sessionType"] {
-  if (thread.workflowId !== null && thread.parentThreadId === null) {
-    return "workflow";
-  }
-  if (thread.parentThreadId !== null || thread.phaseRunId !== null || thread.role !== null) {
-    return "agent";
-  }
-  return "chat";
+  return deriveForgeSessionType(thread);
 }
 
 function inferSessionType(input: {
@@ -1334,15 +1329,46 @@ const makeSocketTransport = Effect.gen(function* () {
       (params) =>
         Effect.gen(function* () {
           const input = decodeParams(SessionCorrectParams, params, "session.correct");
+          const snapshot = yield* loadSnapshot("Failed to resolve session correction target").pipe(
+            Effect.mapError(
+              (cause) =>
+                new OrchestrationDispatchCommandError({
+                  message: cause.message,
+                  ...(cause.cause ? { cause } : {}),
+                }),
+            ),
+          );
+          const thread = yield* requireThread(
+            snapshot,
+            input.sessionId,
+            `Failed to load session '${input.sessionId}' for session.correct.`,
+          ).pipe(
+            Effect.mapError(
+              (cause) =>
+                new OrchestrationDispatchCommandError({
+                  message: cause.message,
+                  ...(cause.cause ? { cause } : {}),
+                }),
+            ),
+          );
+          const treatAsUserTurn = isStandaloneAgentSession(thread);
           return yield* dispatchSocketCommand(
-            {
-              type: "thread.correct",
-              commandId: randomCommandId("thread.correct"),
-              threadId: input.sessionId,
-              content: input.content,
-              createdAt: nowIso(),
-            },
-            "Failed to queue session correction",
+            treatAsUserTurn
+              ? {
+                  type: "thread.send-turn",
+                  commandId: randomCommandId("thread.send-turn"),
+                  threadId: input.sessionId,
+                  content: input.content,
+                  createdAt: nowIso(),
+                }
+              : {
+                  type: "thread.correct",
+                  commandId: randomCommandId("thread.correct"),
+                  threadId: input.sessionId,
+                  content: input.content,
+                  createdAt: nowIso(),
+                },
+            treatAsUserTurn ? "Failed to send session turn" : "Failed to queue session correction",
           );
         }),
     ],

@@ -59,6 +59,7 @@ import { ProviderRegistry } from "./provider/Services/ProviderRegistry";
 import { ServerLifecycleEvents } from "./serverLifecycleEvents";
 import { ServerRuntimeStartup } from "./serverRuntimeStartup";
 import { ServerSettingsService } from "./serverSettings";
+import { deriveForgeSessionType } from "./sessionType";
 import { TerminalManager } from "./terminal/Services/Manager";
 import { WorkflowRegistry } from "./workflow/Services/WorkflowRegistry.ts";
 import { WorkspaceEntries } from "./workspace/Services/WorkspaceEntries";
@@ -117,13 +118,7 @@ function toTranscriptEntry(message: ProjectionThreadMessage) {
 }
 
 function deriveSessionType(thread: ProjectionThread) {
-  if (thread.workflowId !== null && thread.parentThreadId === null) {
-    return "workflow" as const;
-  }
-  if (thread.parentThreadId !== null || thread.phaseRunId !== null || thread.role !== null) {
-    return "agent" as const;
-  }
-  return "chat" as const;
+  return deriveForgeSessionType(thread);
 }
 
 function deriveSessionStatus(input: {

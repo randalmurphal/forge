@@ -364,6 +364,153 @@ it("bind returns method-not-found for unknown JSON-RPC methods", async () => {
   }
 });
 
+it("session.list classifies top-level direct sessions as agent sessions", async () => {
+  const socketDir = FS.mkdtempSync(Path.join(OS.tmpdir(), "forge-socket-transport-"));
+  const socketPath = Path.join(socketDir, "forge.sock");
+
+  try {
+    const transport = await Effect.runPromise(
+      Effect.service(SocketTransport).pipe(Effect.provide(makeTestLayer())),
+    );
+    const binding = await Effect.runPromise(transport.bind({ socketPath }));
+
+    try {
+      const response = (await sendRaw(
+        socketPath,
+        serializeRequest({ jsonrpc: "2.0", id: "session-list-1", method: "session.list" }),
+      )) as {
+        readonly result: ReadonlyArray<{ readonly threadId: string; readonly sessionType: string }>;
+      };
+
+      assert.equal(response.result[0]?.threadId, "thread-1");
+      assert.equal(response.result[0]?.sessionType, "agent");
+    } finally {
+      await Effect.runPromise(binding.close.pipe(Effect.catch(() => Effect.void)));
+    }
+  } finally {
+    FS.rmSync(socketDir, { recursive: true, force: true });
+  }
+});
+
+it("session.correct sends a new turn for standalone agent sessions", async () => {
+  const socketDir = FS.mkdtempSync(Path.join(OS.tmpdir(), "forge-socket-transport-"));
+  const socketPath = Path.join(socketDir, "forge.sock");
+  const dispatched: Array<unknown> = [];
+
+  try {
+    const transport = await Effect.runPromise(
+      Effect.service(SocketTransport).pipe(
+        Effect.provide(
+          makeTestLayer({
+            orchestrationEngine: {
+              dispatch: (command) =>
+                Effect.sync(() => {
+                  dispatched.push(command);
+                  return { sequence: 42 };
+                }),
+            },
+          }),
+        ),
+      ),
+    );
+    const binding = await Effect.runPromise(transport.bind({ socketPath }));
+
+    try {
+      const response = (await sendRaw(
+        socketPath,
+        serializeRequest({
+          jsonrpc: "2.0",
+          id: "session-correct-standalone",
+          method: "session.correct",
+          params: {
+            sessionId: "thread-1",
+            content: "retry with the previous constraints",
+          },
+        }),
+      )) as { readonly result: { readonly sequence: number } };
+
+      assert.equal(response.result.sequence, 42);
+      expect(dispatched[0]).toEqual({
+        type: "thread.send-turn",
+        commandId: expect.stringMatching(/^thread\.send-turn:/),
+        threadId: "thread-1",
+        content: "retry with the previous constraints",
+        createdAt: expect.any(String),
+      });
+    } finally {
+      await Effect.runPromise(binding.close.pipe(Effect.catch(() => Effect.void)));
+    }
+  } finally {
+    FS.rmSync(socketDir, { recursive: true, force: true });
+  }
+});
+
+it("session.correct queues guidance for workflow sessions", async () => {
+  const socketDir = FS.mkdtempSync(Path.join(OS.tmpdir(), "forge-socket-transport-"));
+  const socketPath = Path.join(socketDir, "forge.sock");
+  const dispatched: Array<unknown> = [];
+
+  try {
+    const baseSnapshot = makeSnapshot();
+    const workflowSnapshot = {
+      ...baseSnapshot,
+      threads: baseSnapshot.threads.map((thread) =>
+        Object.assign({}, thread, {
+          workflowId: "workflow-1" as never,
+          currentPhaseId: "phase-1" as never,
+          session: null,
+        }),
+      ),
+    };
+
+    const transport = await Effect.runPromise(
+      Effect.service(SocketTransport).pipe(
+        Effect.provide(
+          makeTestLayer({
+            snapshot: workflowSnapshot,
+            orchestrationEngine: {
+              dispatch: (command) =>
+                Effect.sync(() => {
+                  dispatched.push(command);
+                  return { sequence: 43 };
+                }),
+            },
+          }),
+        ),
+      ),
+    );
+    const binding = await Effect.runPromise(transport.bind({ socketPath }));
+
+    try {
+      const response = (await sendRaw(
+        socketPath,
+        serializeRequest({
+          jsonrpc: "2.0",
+          id: "session-correct-workflow",
+          method: "session.correct",
+          params: {
+            sessionId: "thread-1",
+            content: "please revise the workflow guidance",
+          },
+        }),
+      )) as { readonly result: { readonly sequence: number } };
+
+      assert.equal(response.result.sequence, 43);
+      expect(dispatched[0]).toEqual({
+        type: "thread.correct",
+        commandId: expect.stringMatching(/^thread\.correct:/),
+        threadId: "thread-1",
+        content: "please revise the workflow guidance",
+        createdAt: expect.any(String),
+      });
+    } finally {
+      await Effect.runPromise(binding.close.pipe(Effect.catch(() => Effect.void)));
+    }
+  } finally {
+    FS.rmSync(socketDir, { recursive: true, force: true });
+  }
+});
+
 it("bind rejects requests that omit the daemon protocol version handshake", async () => {
   const socketDir = FS.mkdtempSync(Path.join(OS.tmpdir(), "forge-socket-transport-"));
   const socketPath = Path.join(socketDir, "forge.sock");
