@@ -141,6 +141,10 @@ describe("daemon process launch", () => {
       cwd: "/Users/randy",
       execPath: "/Applications/Forge.app/Contents/MacOS/Forge",
       env: {
+        FORGE_AUTH_TOKEN: "pinned-token",
+        FORGE_BOOTSTRAP_FD: "3",
+        FORGE_MODE: "desktop",
+        FORGE_NO_BROWSER: "1",
         PATH: "/usr/bin",
       },
     });

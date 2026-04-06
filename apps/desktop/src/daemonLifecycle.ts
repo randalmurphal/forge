@@ -2,6 +2,7 @@ import * as ChildProcess from "node:child_process";
 import * as Net from "node:net";
 import * as readline from "node:readline";
 import * as FSP from "node:fs/promises";
+import { stripInheritedDaemonRuntimeEnv } from "@forgetools/shared/daemon";
 import {
   buildDaemonWsUrl,
   readDaemonInfo,
@@ -140,7 +141,7 @@ export const buildDetachedDaemonLaunchPlan = (input: {
   args: [input.entryScriptPath, "--mode", "daemon", "--no-browser", "--base-dir", input.baseDir],
   cwd: input.cwd,
   env: {
-    ...(input.env ?? process.env),
+    ...stripInheritedDaemonRuntimeEnv(input.env ?? process.env),
     ELECTRON_RUN_AS_NODE: "1",
   },
 });

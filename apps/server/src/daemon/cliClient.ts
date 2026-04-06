@@ -5,7 +5,11 @@ import * as Net from "node:net";
 import * as Path from "node:path";
 import * as readline from "node:readline";
 
-import { isTrustedDaemonManifest, parseDaemonManifest } from "@forgetools/shared/daemon";
+import {
+  isTrustedDaemonManifest,
+  parseDaemonManifest,
+  stripInheritedDaemonRuntimeEnv,
+} from "@forgetools/shared/daemon";
 import { Data, Effect } from "effect";
 
 import { resolveBaseDir } from "../os-jank.ts";
@@ -263,10 +267,7 @@ export const buildDaemonLaunchPlan = (input: {
     });
   }
 
-  const env = { ...process.env };
-  delete env.FORGE_AUTH_TOKEN;
-  delete env.FORGE_MODE;
-  delete env.FORGE_NO_BROWSER;
+  const env = stripInheritedDaemonRuntimeEnv(process.env);
 
   return {
     command: input.execPath ?? process.execPath,

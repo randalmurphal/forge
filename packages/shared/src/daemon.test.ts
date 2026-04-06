@@ -6,6 +6,7 @@ import {
   isTrustedDaemonManifest,
   OWNER_ONLY_FILE_MODE,
   parseDaemonManifest,
+  stripInheritedDaemonRuntimeEnv,
   shouldRequireOwnerOnlyPermissions,
 } from "./daemon";
 
@@ -99,5 +100,21 @@ describe("daemon manifest helpers", () => {
         platform: "linux",
       }),
     ).toBe(false);
+  });
+
+  it("strips inherited daemon runtime overrides before spawning a child daemon", () => {
+    expect(
+      stripInheritedDaemonRuntimeEnv({
+        PATH: "/usr/bin",
+        FORGE_AUTH_TOKEN: "pinned-token",
+        FORGE_BOOTSTRAP_FD: "3",
+        FORGE_HOST: "0.0.0.0",
+        FORGE_MODE: "desktop",
+        FORGE_NO_BROWSER: "1",
+        FORGE_PORT: "3773",
+      }),
+    ).toEqual({
+      PATH: "/usr/bin",
+    });
   });
 });

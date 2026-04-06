@@ -139,10 +139,12 @@ describe("readDaemonInfoFile", () => {
 describe("buildDaemonLaunchPlan", () => {
   it("clears inherited daemon auth token overrides so each daemon startup can rotate wsToken", () => {
     const originalAuthToken = process.env.FORGE_AUTH_TOKEN;
+    const originalBootstrapFd = process.env.FORGE_BOOTSTRAP_FD;
     const originalMode = process.env.FORGE_MODE;
     const originalNoBrowser = process.env.FORGE_NO_BROWSER;
 
     process.env.FORGE_AUTH_TOKEN = "pinned-token";
+    process.env.FORGE_BOOTSTRAP_FD = "9";
     process.env.FORGE_MODE = "desktop";
     process.env.FORGE_NO_BROWSER = "1";
 
@@ -167,6 +169,7 @@ describe("buildDaemonLaunchPlan", () => {
       });
       if (!(plan instanceof Error)) {
         expect(plan.env.FORGE_AUTH_TOKEN).toBeUndefined();
+        expect(plan.env.FORGE_BOOTSTRAP_FD).toBeUndefined();
         expect(plan.env.FORGE_MODE).toBeUndefined();
         expect(plan.env.FORGE_NO_BROWSER).toBeUndefined();
       }
@@ -175,6 +178,11 @@ describe("buildDaemonLaunchPlan", () => {
         delete process.env.FORGE_AUTH_TOKEN;
       } else {
         process.env.FORGE_AUTH_TOKEN = originalAuthToken;
+      }
+      if (originalBootstrapFd === undefined) {
+        delete process.env.FORGE_BOOTSTRAP_FD;
+      } else {
+        process.env.FORGE_BOOTSTRAP_FD = originalBootstrapFd;
       }
       if (originalMode === undefined) {
         delete process.env.FORGE_MODE;

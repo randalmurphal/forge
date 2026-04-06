@@ -18,6 +18,15 @@ export interface DaemonManifestTrustOptions {
   readonly platform?: NodeJS.Platform;
 }
 
+const INHERITED_DAEMON_RUNTIME_ENV_KEYS = [
+  "FORGE_AUTH_TOKEN",
+  "FORGE_BOOTSTRAP_FD",
+  "FORGE_HOST",
+  "FORGE_MODE",
+  "FORGE_NO_BROWSER",
+  "FORGE_PORT",
+] as const;
+
 const isRecord = (value: unknown): value is Record<string, unknown> =>
   typeof value === "object" && value !== null;
 
@@ -41,6 +50,14 @@ export const hasExpectedDaemonSocketPath = (
 export const shouldRequireOwnerOnlyPermissions = (options?: DaemonManifestTrustOptions): boolean =>
   (options?.requireOwnerOnlyPermissions ?? true) &&
   (options?.platform ?? process.platform) !== "win32";
+
+export const stripInheritedDaemonRuntimeEnv = (env: NodeJS.ProcessEnv): NodeJS.ProcessEnv => {
+  const sanitizedEnv = { ...env };
+  for (const key of INHERITED_DAEMON_RUNTIME_ENV_KEYS) {
+    delete sanitizedEnv[key];
+  }
+  return sanitizedEnv;
+};
 
 export const parseDaemonManifest = (value: unknown): ForgeDaemonManifest | undefined => {
   if (!isRecord(value)) {
