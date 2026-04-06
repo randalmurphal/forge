@@ -23,6 +23,7 @@ import { cn } from "../lib/utils";
 import ChatMarkdown from "./ChatMarkdown";
 import {
   buildChannelViewModel,
+  canInterveneInChannel,
   isChannelContainerThread,
   shouldFocusChannelIntervention,
   shouldToggleChannelSplitView,
@@ -65,6 +66,7 @@ export function ChannelView(props: { threadId: ThreadId }) {
     channelType: "deliberation",
   });
   const channel = channelQuery.data ?? null;
+  const canIntervene = canInterveneInChannel(channel);
   const messagesQuery = useChannelMessages(channel?.id ?? null);
   const storedMessages = useChannelStore(
     (state) => (channel ? state.messagesByChannelId[channel.id] : undefined) ?? [],
@@ -111,6 +113,15 @@ export function ChannelView(props: { threadId: ThreadId }) {
   );
 
   useEffect(() => {
+    if (canIntervene || !interventionOpen) {
+      return;
+    }
+
+    closeIntervention(false);
+    setInterventionText("");
+  }, [canIntervene, interventionOpen]);
+
+  useEffect(() => {
     const handler = (event: KeyboardEvent) => {
       if (shouldToggleChannelSplitView(event)) {
         event.preventDefault();
@@ -120,6 +131,9 @@ export function ChannelView(props: { threadId: ThreadId }) {
       }
 
       if (shouldFocusChannelIntervention(event)) {
+        if (!canIntervene) {
+          return;
+        }
         event.preventDefault();
         event.stopPropagation();
         setInterventionOpen(true);
@@ -138,7 +152,7 @@ export function ChannelView(props: { threadId: ThreadId }) {
 
     window.addEventListener("keydown", handler);
     return () => window.removeEventListener("keydown", handler);
-  }, [interventionOpen]);
+  }, [canIntervene, interventionOpen]);
 
   const openThread = (threadId: ThreadId) => {
     void navigate({
@@ -148,6 +162,10 @@ export function ChannelView(props: { threadId: ThreadId }) {
   };
 
   const submitIntervention = async () => {
+    if (!canIntervene) {
+      return;
+    }
+
     const content = interventionText.trim();
     if (!content) {
       return;
@@ -335,7 +353,7 @@ export function ChannelView(props: { threadId: ThreadId }) {
           </ScrollArea>
 
           <div className="border-t border-border/70 px-4 py-4">
-            {interventionOpen ? (
+            {interventionOpen && canIntervene ? (
               <div className="space-y-3">
                 <Textarea
                   id="channel-view-intervention-input"
@@ -384,8 +402,14 @@ export function ChannelView(props: { threadId: ThreadId }) {
                     ref={interventionTriggerRef}
                     variant="outline"
                     size="sm"
-                    onClick={() => setInterventionOpen(true)}
+                    onClick={() => {
+                      if (!canIntervene) {
+                        return;
+                      }
+                      setInterventionOpen(true);
+                    }}
                     aria-keyshortcuts="c"
+                    disabled={!canIntervene}
                   >
                     Intervene
                   </Button>

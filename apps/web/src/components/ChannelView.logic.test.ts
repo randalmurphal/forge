@@ -2,6 +2,7 @@ import { ChannelId, ChannelMessageId, ProjectId, ThreadId } from "@forgetools/co
 import { describe, expect, it } from "vitest";
 import {
   buildChannelViewModel,
+  canInterveneInChannel,
   isChannelContainerThread,
   shouldFocusChannelIntervention,
   shouldToggleChannelSplitView,
@@ -273,6 +274,15 @@ describe("ChannelView keyboard helpers", () => {
   it("opens the intervention composer only for the bare c shortcut", () => {
     expect(shouldFocusChannelIntervention({ key: "c" })).toBe(true);
     expect(shouldFocusChannelIntervention({ key: "c", ctrlKey: true })).toBe(false);
+  });
+});
+
+describe("canInterveneInChannel", () => {
+  it("allows intervention only while the channel remains open", () => {
+    expect(canInterveneInChannel(null)).toBe(false);
+    expect(canInterveneInChannel({ status: "open" })).toBe(true);
+    expect(canInterveneInChannel({ status: "concluded" })).toBe(false);
+    expect(canInterveneInChannel({ status: "closed" })).toBe(false);
   });
 });
 

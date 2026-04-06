@@ -1,4 +1,10 @@
-import type { Channel, ChannelMessage, ProviderKind, ThreadId } from "@forgetools/contracts";
+import type {
+  Channel,
+  ChannelMessage,
+  ChannelStatus,
+  ProviderKind,
+  ThreadId,
+} from "@forgetools/contracts";
 import type { ChannelDeliberationState } from "../stores/channelStore";
 import type { Thread } from "../types";
 
@@ -361,6 +367,12 @@ export function shouldFocusChannelIntervention(event: {
   target?: EventTarget | null;
 }): boolean {
   return isBareKeypress(event, "c");
+}
+
+export function canInterveneInChannel(
+  channel: Pick<Channel, "status"> | null | undefined,
+): channel is Pick<Channel, "status"> & { status: Extract<ChannelStatus, "open"> } {
+  return channel?.status === "open";
 }
 
 export function isChannelContainerThread(
