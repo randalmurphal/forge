@@ -128,7 +128,7 @@ function withTempCodexHome(configContent?: string) {
   return Effect.gen(function* () {
     const fileSystem = yield* FileSystem.FileSystem;
     const path = yield* Path.Path;
-    const tmpDir = yield* fileSystem.makeTempDirectoryScoped({ prefix: "t3-test-codex-" });
+    const tmpDir = yield* fileSystem.makeTempDirectoryScoped({ prefix: "forge-test-codex-" });
 
     yield* Effect.acquireRelease(
       Effect.sync(() => {
@@ -319,7 +319,7 @@ it.layer(Layer.mergeAll(NodeServices.layer, ServerSettingsService.layerTest()))(
             const fileSystem = yield* FileSystem.FileSystem;
             const path = yield* Path.Path;
             const binDir = yield* fileSystem.makeTempDirectoryScoped({
-              prefix: "t3-test-codex-bin-",
+              prefix: "forge-test-codex-bin-",
             });
             const codexPath = path.join(binDir, "codex");
             yield* fileSystem.writeFileString(
@@ -341,7 +341,7 @@ it.layer(Layer.mergeAll(NodeServices.layer, ServerSettingsService.layerTest()))(
             );
             yield* fileSystem.chmod(codexPath, 0o755);
             const customCodexHome = yield* fileSystem.makeTempDirectoryScoped({
-              prefix: "t3-test-codex-home-",
+              prefix: "forge-test-codex-home-",
             });
             const previousPath = process.env.PATH;
             process.env.PATH = binDir;

@@ -17,7 +17,7 @@ const TestLayer = Layer.empty.pipe(
   Layer.provideMerge(GitCoreLive),
   Layer.provide(
     ServerConfig.layerTest(process.cwd(), {
-      prefix: "t3-workspace-entries-test-",
+      prefix: "forge-workspace-entries-test-",
     }),
   ),
   Layer.provideMerge(NodeServices.layer),

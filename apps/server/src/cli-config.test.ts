@@ -23,7 +23,10 @@ it.layer(NodeServices.layer)("cli config resolution", (it) => {
 
   const openBootstrapFd = Effect.fn(function* (payload: Record<string, unknown>) {
     const fs = yield* FileSystem.FileSystem;
-    const filePath = yield* fs.makeTempFileScoped({ prefix: "t3-bootstrap-", suffix: ".ndjson" });
+    const filePath = yield* fs.makeTempFileScoped({
+      prefix: "forge-bootstrap-",
+      suffix: ".ndjson",
+    });
     yield* fs.writeFileString(filePath, `${JSON.stringify(payload)}\n`);
     const { fd } = yield* fs.open(filePath, { flag: "r" });
     return fd;
@@ -32,7 +35,7 @@ it.layer(NodeServices.layer)("cli config resolution", (it) => {
   it.effect("falls back to effect/config values when flags are omitted", () =>
     Effect.gen(function* () {
       const { join } = yield* Path.Path;
-      const baseDir = join(os.tmpdir(), "t3-cli-config-env-base");
+      const baseDir = join(os.tmpdir(), "forge-cli-config-env-base");
       const derivedPaths = yield* deriveServerPaths(baseDir, new URL("http://127.0.0.1:5173"));
       const resolved = yield* resolveServerConfig(
         {
@@ -94,7 +97,7 @@ it.layer(NodeServices.layer)("cli config resolution", (it) => {
   it.effect("uses CLI flags when provided", () =>
     Effect.gen(function* () {
       const { join } = yield* Path.Path;
-      const baseDir = join(os.tmpdir(), "t3-cli-config-flags-base");
+      const baseDir = join(os.tmpdir(), "forge-cli-config-flags-base");
       const derivedPaths = yield* deriveServerPaths(baseDir, new URL("http://127.0.0.1:4173"));
       const resolved = yield* resolveServerConfig(
         {
@@ -227,7 +230,7 @@ it.layer(NodeServices.layer)("cli config resolution", (it) => {
     Effect.gen(function* () {
       const fs = yield* FileSystem.FileSystem;
       const path = yield* Path.Path;
-      const baseDir = yield* fs.makeTempDirectoryScoped({ prefix: "t3-cli-config-dirs-" });
+      const baseDir = yield* fs.makeTempDirectoryScoped({ prefix: "forge-cli-config-dirs-" });
 
       const resolved = yield* resolveServerConfig(
         {
@@ -270,7 +273,7 @@ it.layer(NodeServices.layer)("cli config resolution", (it) => {
   it.effect("applies flag then env precedence over bootstrap envelope values", () =>
     Effect.gen(function* () {
       const { join } = yield* Path.Path;
-      const baseDir = join(os.tmpdir(), "t3-cli-config-env-wins");
+      const baseDir = join(os.tmpdir(), "forge-cli-config-env-wins");
       const fd = yield* openBootstrapFd({
         mode: "desktop",
         port: 4888,
@@ -341,7 +344,7 @@ it.layer(NodeServices.layer)("cli config resolution", (it) => {
     Effect.gen(function* () {
       const fs = yield* FileSystem.FileSystem;
       const path = yield* Path.Path;
-      const baseDir = yield* fs.makeTempDirectoryScoped({ prefix: "t3-cli-config-settings-" });
+      const baseDir = yield* fs.makeTempDirectoryScoped({ prefix: "forge-cli-config-settings-" });
       const derivedPaths = yield* deriveServerPaths(baseDir, undefined);
       yield* fs.makeDirectory(path.dirname(derivedPaths.settingsPath), { recursive: true });
       yield* fs.writeFileString(
