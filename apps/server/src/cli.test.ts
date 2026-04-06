@@ -368,18 +368,39 @@ vitestIt(
   },
 );
 
-vitestIt("routes `forge daemon stop` to daemon.stop", async () => {
-  await withSocketServer(
-    (request: JsonRpcRequest) =>
-      request.method === "daemon.ping" ? { status: "ok", uptime: 1 } : null,
-    async ({ baseDir, requests }) => {
-      await runCli(["daemon", "stop", "--base-dir", baseDir]);
+vitestIt("waits for `forge daemon stop` to observe daemon shutdown", async () => {
+  const baseDir = FS.mkdtempSync(Path.join(OS.tmpdir(), "forge-cli-daemon-stop-"));
+  const requests: Array<JsonRpcRequest> = [];
+  const socketPath = Path.join(baseDir, "forge.sock");
+  let serverClosed = false;
+  let server: Net.Server | undefined;
 
-      nodeAssert.equal(requests.length, 2);
-      nodeAssert.equal(requests[0]?.method, "daemon.ping");
-      nodeAssert.equal(requests[1]?.method, "daemon.stop");
-    },
-  );
+  server = await listenOnSocket(socketPath, requests, (request: JsonRpcRequest) => {
+    if (request.method === "daemon.ping") {
+      return { status: "ok", uptime: 1 };
+    }
+    if (request.method === "daemon.stop") {
+      setTimeout(() => {
+        void closeServer(server!).then(() => {
+          serverClosed = true;
+        });
+      }, 75);
+      return null;
+    }
+    return null;
+  });
+
+  try {
+    await runCli(["daemon", "stop", "--base-dir", baseDir]);
+
+    nodeAssert.equal(requests[0]?.method, "daemon.ping");
+    nodeAssert.equal(requests[1]?.method, "daemon.stop");
+    nodeAssert.equal(serverClosed, true);
+    nodeAssert.ok(requests.length >= 3);
+  } finally {
+    await closeServer(server).catch(() => undefined);
+    FS.rmSync(baseDir, { recursive: true, force: true });
+  }
 });
 
 vitestIt("routes `forge daemon restart` through stop then launch", async () => {
@@ -452,9 +473,9 @@ vitestIt("routes `forge daemon restart` through stop then launch", async () => {
 
     await runCli(["daemon", "restart", "--base-dir", baseDir]);
 
-    nodeAssert.equal(requests.length, 2);
     nodeAssert.equal(requests[0]?.method, "daemon.ping");
     nodeAssert.equal(requests[1]?.method, "daemon.stop");
+    nodeAssert.ok(requests.length >= 2);
     await sleep(300);
   } finally {
     if (originalArgv1 === undefined) {

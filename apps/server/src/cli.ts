@@ -616,22 +616,32 @@ const startDaemonFromCli = (paths: CliDaemonPaths) =>
     yield* Console.log(renderDaemonStatus(outcome.value.readyStatus, sessions));
   });
 
-const restartDaemonFromCli = (paths: CliDaemonPaths) =>
+const stopDaemonFromCli = (paths: CliDaemonPaths) =>
   Effect.gen(function* () {
     const status = yield* getDaemonStatusSnapshot(paths);
-    if (status.running) {
-      yield* sendDaemonRpc({
-        socketPath: paths.socketPath,
-        method: "daemon.stop",
-      });
-      const stopped = yield* waitForDaemonStopped(paths);
-      if (!stopped) {
-        return yield* new ForgeDaemonCliError({
-          message: `Forge daemon did not stop within 5000ms at ${paths.socketPath}.`,
-        });
-      }
+    if (!status.running) {
+      yield* Console.log("Forge daemon is already stopped.");
+      return false as const;
     }
 
+    yield* sendDaemonRpc({
+      socketPath: paths.socketPath,
+      method: "daemon.stop",
+    });
+    const stopped = yield* waitForDaemonStopped(paths);
+    if (!stopped) {
+      return yield* new ForgeDaemonCliError({
+        message: `Forge daemon did not stop within 5000ms at ${paths.socketPath}.`,
+      });
+    }
+
+    yield* Console.log("Forge daemon stopped.");
+    return true as const;
+  });
+
+const restartDaemonFromCli = (paths: CliDaemonPaths) =>
+  Effect.gen(function* () {
+    yield* stopDaemonFromCli(paths);
     yield* startDaemonFromCli(paths);
   });
 
@@ -1070,16 +1080,7 @@ const daemonStopCommand = Command.make("stop", cliDaemonFlags).pipe(
   Command.withHandler((input) =>
     Effect.gen(function* () {
       const paths = yield* resolveCliPathsFromInput(input);
-      const status = yield* getDaemonStatusSnapshot(paths);
-      if (!status.running) {
-        yield* Console.log("Forge daemon is already stopped.");
-        return;
-      }
-      yield* sendDaemonRpc({
-        socketPath: paths.socketPath,
-        method: "daemon.stop",
-      });
-      yield* Console.log("Queued daemon stop.");
+      yield* stopDaemonFromCli(paths);
     }),
   ),
 );
