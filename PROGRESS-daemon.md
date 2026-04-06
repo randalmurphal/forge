@@ -16,6 +16,7 @@
 
 (Issues moved here after being fixed and committed.)
 
+- 2026-04-06: Fixed a daemon manifest trust gap found during the Security review sweep. Desktop and CLI were accepting any readable `daemon.json` contents without validating owner-only permissions or the expected Forge socket path, which could trust a stale or tampered WebSocket token manifest. The fix adds shared daemon-manifest validation, enforces `0600` manifest permissions before token use on supported platforms, verifies `socketPath` matches the expected `~/.forge/forge.sock`, and adds regression coverage in shared, desktop, and server tests.
 - 2026-04-06: Fixed a daemon startup readiness race discovered during the Spec Compliance review sweep. The Unix socket could answer `daemon.ping` before the daemon WebSocket listener was actually accepting connections, which let desktop discovery succeed and then race a dead `ws://127.0.0.1:{port}` on first connect. The fix exposes HTTP-listener readiness from `ServerRuntimeStartup`, gates daemon socket RPC execution on that readiness, and adds regression coverage for delayed `daemon.ping` responses until the runtime is ready.
 
 ## Completed Work Items
@@ -47,3 +48,4 @@
 (Entries added during review phase.)
 
 - 2026-04-06: Review Category 1 -- Spec Compliance. Verified daemon/desktop lifecycle behavior against `design/07-daemon-mode.md` and fixed the daemon readiness race so socket discovery now reflects actual WebSocket availability. Verified with `bun fmt`, `bun lint`, `bun typecheck`, and `bun run test`.
+- 2026-04-06: Review Category 2 -- Security. Tightened daemon manifest trust so desktop/CLI only accept owner-only `daemon.json` files whose `socketPath` matches Forge's expected socket, reducing stale-manifest and local tampering exposure around `wsToken`. Verified with `bun fmt`, `bun lint`, `bun typecheck`, and `bun run test`.

@@ -5,6 +5,7 @@ import * as Net from "node:net";
 import * as Path from "node:path";
 import * as readline from "node:readline";
 
+import { hasExpectedDaemonSocketPath, hasOwnerOnlyFileMode } from "@forgetools/shared/daemon";
 import { Data, Effect, Schema } from "effect";
 
 import { resolveBaseDir } from "../os-jank.ts";
@@ -33,6 +34,12 @@ export interface CliDaemonPaths {
   readonly socketPath: string;
   readonly daemonInfoPath: string;
   readonly worktreesDir: string;
+}
+
+export interface CliDaemonInfoReadOptions {
+  readonly expectedSocketPath?: string;
+  readonly requireOwnerOnlyPermissions?: boolean;
+  readonly platform?: NodeJS.Platform;
 }
 
 export interface DaemonStatusSnapshot {
@@ -76,6 +83,29 @@ const rpcError = (method: string, message: string, cause?: unknown) =>
     ...(cause === undefined ? {} : { cause: toError(cause) }),
   });
 
+const shouldRequireOwnerOnlyPermissions = (options?: CliDaemonInfoReadOptions): boolean =>
+  (options?.requireOwnerOnlyPermissions ?? true) &&
+  (options?.platform ?? process.platform) !== "win32";
+
+const isTrustedDaemonInfo = (
+  info: DaemonInfo,
+  mode: number,
+  options?: CliDaemonInfoReadOptions,
+): boolean => {
+  if (
+    options?.expectedSocketPath !== undefined &&
+    !hasExpectedDaemonSocketPath(info, options.expectedSocketPath)
+  ) {
+    return false;
+  }
+
+  if (shouldRequireOwnerOnlyPermissions(options) && !hasOwnerOnlyFileMode(mode)) {
+    return false;
+  }
+
+  return true;
+};
+
 export const resolveCliDaemonPaths = (rawBaseDir: string | undefined) =>
   Effect.gen(function* () {
     const baseDir = yield* resolveBaseDir(rawBaseDir);
@@ -87,12 +117,16 @@ export const resolveCliDaemonPaths = (rawBaseDir: string | undefined) =>
     } satisfies CliDaemonPaths;
   });
 
-export const readDaemonInfoFile = (daemonInfoPath: string) =>
+export const readDaemonInfoFile = (daemonInfoPath: string, options?: CliDaemonInfoReadOptions) =>
   Effect.tryPromise({
     try: async () => {
       try {
-        const raw = await FSP.readFile(daemonInfoPath, "utf8");
-        return decodeDaemonInfo(JSON.parse(raw));
+        const [raw, stat] = await Promise.all([
+          FSP.readFile(daemonInfoPath, "utf8"),
+          FSP.stat(daemonInfoPath),
+        ]);
+        const info = decodeDaemonInfo(JSON.parse(raw));
+        return isTrustedDaemonInfo(info, stat.mode, options) ? info : undefined;
       } catch (cause) {
         const nodeError = cause as NodeJS.ErrnoException | undefined;
         if (nodeError?.code === "ENOENT") {
@@ -212,7 +246,10 @@ export const sendDaemonRpc = <Result = unknown>(input: {
 
 export const getDaemonStatusSnapshot = (paths: CliDaemonPaths) =>
   Effect.gen(function* () {
-    const info = yield* readDaemonInfoFile(paths.daemonInfoPath);
+    const info = yield* readDaemonInfoFile(paths.daemonInfoPath, {
+      expectedSocketPath: paths.socketPath,
+      requireOwnerOnlyPermissions: true,
+    });
     const ping = yield* sendDaemonRpc<{ readonly status: string; readonly uptime: number }>({
       socketPath: paths.socketPath,
       method: "daemon.ping",

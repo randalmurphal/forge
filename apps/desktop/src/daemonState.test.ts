@@ -29,6 +29,11 @@ const makeDaemonInfo = (socketPath: string): DesktopDaemonInfo => ({
   startedAt: "2026-04-06T12:00:00.000Z",
 });
 
+const writeDaemonInfoFile = (path: string, daemonInfo: DesktopDaemonInfo, mode = 0o600): void => {
+  FS.writeFileSync(path, JSON.stringify(daemonInfo), { encoding: "utf8", mode });
+  FS.chmodSync(path, mode);
+};
+
 afterEach(() => {
   for (const dir of tempDirs.splice(0, tempDirs.length)) {
     FS.rmSync(dir, { recursive: true, force: true });
@@ -53,7 +58,7 @@ describe("readDaemonInfoSync", () => {
     const paths = resolveDesktopDaemonPaths(baseDir);
     const daemonInfo = makeDaemonInfo(paths.socketPath);
 
-    FS.writeFileSync(paths.daemonInfoPath, JSON.stringify(daemonInfo), "utf8");
+    writeDaemonInfoFile(paths.daemonInfoPath, daemonInfo);
 
     expect(readDaemonInfoSync(paths.daemonInfoPath)).toEqual(daemonInfo);
   });
@@ -66,6 +71,30 @@ describe("readDaemonInfoSync", () => {
 
     expect(readDaemonInfoSync(paths.daemonInfoPath)).toBeUndefined();
   });
+
+  it("rejects daemon.json when the manifest socket path does not match Forge's socket", () => {
+    const baseDir = makeTempDir("forge-desktop-daemon-mismatch-");
+    const paths = resolveDesktopDaemonPaths(baseDir);
+    const daemonInfo = makeDaemonInfo("/tmp/other-daemon.sock");
+
+    writeDaemonInfoFile(paths.daemonInfoPath, daemonInfo);
+
+    expect(
+      readDaemonInfoSync(paths.daemonInfoPath, {
+        expectedSocketPath: paths.socketPath,
+      }),
+    ).toBeUndefined();
+  });
+
+  it("rejects daemon.json when permissions are broader than owner-only", () => {
+    const baseDir = makeTempDir("forge-desktop-daemon-perms-");
+    const paths = resolveDesktopDaemonPaths(baseDir);
+    const daemonInfo = makeDaemonInfo(paths.socketPath);
+
+    writeDaemonInfoFile(paths.daemonInfoPath, daemonInfo, 0o644);
+
+    expect(readDaemonInfoSync(paths.daemonInfoPath)).toBeUndefined();
+  });
 });
 
 describe("createDesktopWsUrlResolver", () => {
@@ -74,7 +103,7 @@ describe("createDesktopWsUrlResolver", () => {
     const paths = resolveDesktopDaemonPaths(baseDir);
     const daemonInfo = makeDaemonInfo(paths.socketPath);
 
-    FS.writeFileSync(paths.daemonInfoPath, JSON.stringify(daemonInfo), "utf8");
+    writeDaemonInfoFile(paths.daemonInfoPath, daemonInfo);
 
     const resolver = createDesktopWsUrlResolver({ paths });
 
@@ -96,7 +125,7 @@ describe("createDesktopWsUrlResolver", () => {
     expect(resolver.getWsUrl()).toBeNull();
 
     const writeTimer = setTimeout(() => {
-      FS.writeFileSync(paths.daemonInfoPath, JSON.stringify(daemonInfo), "utf8");
+      writeDaemonInfoFile(paths.daemonInfoPath, daemonInfo);
     }, 10);
 
     try {
@@ -105,5 +134,17 @@ describe("createDesktopWsUrlResolver", () => {
     } finally {
       clearTimeout(writeTimer);
     }
+  });
+
+  it("ignores daemon.json files with mismatched socket paths when resolving the websocket URL", () => {
+    const baseDir = makeTempDir("forge-desktop-daemon-resolver-mismatch-");
+    const paths = resolveDesktopDaemonPaths(baseDir);
+    const daemonInfo = makeDaemonInfo("/tmp/other-daemon.sock");
+
+    writeDaemonInfoFile(paths.daemonInfoPath, daemonInfo);
+
+    const resolver = createDesktopWsUrlResolver({ paths });
+
+    expect(resolver.getWsUrl()).toBeNull();
   });
 });

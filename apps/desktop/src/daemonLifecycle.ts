@@ -5,6 +5,7 @@ import * as FSP from "node:fs/promises";
 import {
   buildDaemonWsUrl,
   readDaemonInfo,
+  type DesktopDaemonReadOptions,
   type DesktopDaemonInfo,
   type DesktopDaemonPaths,
 } from "./daemonState";
@@ -30,7 +31,10 @@ export interface EnsureDaemonConnectionInput {
   readonly spawnDetachedDaemon: () => Promise<void>;
   readonly timeoutMs?: number;
   readonly pollIntervalMs?: number;
-  readonly readDaemonInfo?: (daemonInfoPath: string) => Promise<DesktopDaemonInfo | undefined>;
+  readonly readDaemonInfo?: (
+    daemonInfoPath: string,
+    options?: DesktopDaemonReadOptions,
+  ) => Promise<DesktopDaemonInfo | undefined>;
   readonly pingDaemon?: (socketPath: string) => Promise<boolean>;
 }
 
@@ -154,8 +158,12 @@ export const ensureDaemonConnection = async (
 ): Promise<ConnectedDaemon> => {
   const readInfo = input.readDaemonInfo ?? readDaemonInfo;
   const ping = input.pingDaemon ?? pingDaemon;
+  const readOptions = {
+    expectedSocketPath: input.paths.socketPath,
+    requireOwnerOnlyPermissions: true,
+  } satisfies DesktopDaemonReadOptions;
 
-  const existing = await readInfo(input.paths.daemonInfoPath);
+  const existing = await readInfo(input.paths.daemonInfoPath, readOptions);
   if (existing !== undefined && (await ping(input.paths.socketPath))) {
     return {
       info: existing,
@@ -168,7 +176,7 @@ export const ensureDaemonConnection = async (
 
   const deadline = Date.now() + (input.timeoutMs ?? DEFAULT_DAEMON_TIMEOUT_MS);
   while (Date.now() < deadline) {
-    const nextInfo = await readInfo(input.paths.daemonInfoPath);
+    const nextInfo = await readInfo(input.paths.daemonInfoPath, readOptions);
     if (nextInfo !== undefined && (await ping(input.paths.socketPath))) {
       return {
         info: nextInfo,
