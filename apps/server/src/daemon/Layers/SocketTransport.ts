@@ -1323,13 +1323,15 @@ const makeSocketTransport = Effect.gen(function* () {
 
               const handler = registry.get(parsed.request.method);
               if (handler === undefined) {
-                writeResponse(
-                  encodeError(
-                    parsed.request.id ?? null,
-                    -32601,
-                    `Method '${parsed.request.method}' not found`,
-                  ),
-                );
+                if (parsed.request.id !== undefined) {
+                  writeResponse(
+                    encodeError(
+                      parsed.request.id,
+                      -32601,
+                      `Method '${parsed.request.method}' not found`,
+                    ),
+                  );
+                }
                 continue;
               }
 
@@ -1388,13 +1390,15 @@ const makeSocketTransport = Effect.gen(function* () {
                           cause: toError(cause),
                         });
 
-                  writeResponse(
-                    encodeError(
-                      parsed.request.id ?? null,
-                      error.message.startsWith("Invalid params") ? -32602 : -32000,
-                      error.message,
-                    ),
-                  );
+                  if (parsed.request.id !== undefined) {
+                    writeResponse(
+                      encodeError(
+                        parsed.request.id,
+                        error.message.startsWith("Invalid params") ? -32602 : -32000,
+                        error.message,
+                      ),
+                    );
+                  }
                 },
               );
             }

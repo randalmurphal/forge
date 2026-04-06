@@ -141,6 +141,38 @@ const sendRaw = (socketPath: string, payload: string): Promise<unknown> =>
     });
   });
 
+const sendRawExpectSilence = (
+  socketPath: string,
+  payload: string,
+  timeoutMs = 75,
+): Promise<"silent"> =>
+  new Promise((resolve, reject) => {
+    const socket = Net.createConnection(socketPath);
+    socket.setEncoding("utf8");
+
+    const timeout = setTimeout(() => {
+      socket.end();
+      resolve("silent");
+    }, timeoutMs);
+
+    socket.once("error", (error) => {
+      clearTimeout(timeout);
+      reject(error);
+    });
+    socket.once("connect", () => {
+      socket.write(payload);
+    });
+    socket.on("data", (chunk) => {
+      clearTimeout(timeout);
+      socket.end();
+      reject(new Error(`expected no response, received: ${chunk}`));
+    });
+    socket.on("end", () => {
+      clearTimeout(timeout);
+      resolve("silent");
+    });
+  });
+
 const makeTestLayer = (options?: {
   snapshot?: OrchestrationReadModel;
   orchestrationEngine?: Partial<OrchestrationEngineShape>;
@@ -331,6 +363,62 @@ it("bind returns parse errors for malformed JSON input", async () => {
   }
 });
 
+it("bind does not respond to unknown-method notifications with no id", async () => {
+  const socketDir = FS.mkdtempSync(Path.join(OS.tmpdir(), "forge-socket-transport-"));
+  const socketPath = Path.join(socketDir, "forge.sock");
+
+  try {
+    const transport = await Effect.runPromise(
+      Effect.service(SocketTransport).pipe(Effect.provide(makeTestLayer())),
+    );
+    const binding = await Effect.runPromise(transport.bind({ socketPath }));
+
+    try {
+      const result = await sendRawExpectSilence(
+        socketPath,
+        `${JSON.stringify({ jsonrpc: "2.0", method: "unknown.method", params: {} })}\n`,
+      );
+
+      assert.equal(result, "silent");
+    } finally {
+      await Effect.runPromise(binding.close.pipe(Effect.catch(() => Effect.void)));
+    }
+  } finally {
+    FS.rmSync(socketDir, { recursive: true, force: true });
+  }
+});
+
+it("bind does not respond to invalid-param notifications with no id", async () => {
+  const socketDir = FS.mkdtempSync(Path.join(OS.tmpdir(), "forge-socket-transport-"));
+  const socketPath = Path.join(socketDir, "forge.sock");
+
+  try {
+    const transport = await Effect.runPromise(
+      Effect.service(SocketTransport).pipe(Effect.provide(makeTestLayer())),
+    );
+    const binding = await Effect.runPromise(transport.bind({ socketPath }));
+
+    try {
+      const result = await sendRawExpectSilence(
+        socketPath,
+        `${JSON.stringify({
+          jsonrpc: "2.0",
+          method: "channel.intervene",
+          params: {
+            channelId: "channel-1",
+          },
+        })}\n`,
+      );
+
+      assert.equal(result, "silent");
+    } finally {
+      await Effect.runPromise(binding.close.pipe(Effect.catch(() => Effect.void)));
+    }
+  } finally {
+    FS.rmSync(socketDir, { recursive: true, force: true });
+  }
+});
+
 it("channel.intervene maps to channel.post-message orchestration commands", async () => {
   const socketDir = FS.mkdtempSync(Path.join(OS.tmpdir(), "forge-socket-transport-"));
   const socketPath = Path.join(socketDir, "forge.sock");
@@ -389,6 +477,52 @@ it("channel.intervene maps to channel.post-message orchestration commands", asyn
           content: "please re-evaluate",
         },
       );
+    } finally {
+      await Effect.runPromise(binding.close.pipe(Effect.catch(() => Effect.void)));
+    }
+  } finally {
+    FS.rmSync(socketDir, { recursive: true, force: true });
+  }
+});
+
+it("daemon.stop returns a response before invoking the async shutdown hook", async () => {
+  const socketDir = FS.mkdtempSync(Path.join(OS.tmpdir(), "forge-socket-transport-"));
+  const socketPath = Path.join(socketDir, "forge.sock");
+
+  try {
+    const stopStarted = await Effect.runPromise(Deferred.make<void, Error>());
+    const stopRelease = await Effect.runPromise(Deferred.make<void, Error>());
+    const stopCompleted = await Effect.runPromise(Ref.make(false));
+    const transport = await Effect.runPromise(
+      Effect.service(SocketTransport).pipe(Effect.provide(makeTestLayer())),
+    );
+    const binding = await Effect.runPromise(
+      transport.bind({
+        socketPath,
+        stopDaemon: Deferred.succeed(stopStarted, undefined).pipe(
+          Effect.andThen(Deferred.await(stopRelease)),
+          Effect.andThen(Ref.set(stopCompleted, true)),
+        ),
+      }),
+    );
+
+    try {
+      const responsePromise = sendRaw(
+        socketPath,
+        `${JSON.stringify({ jsonrpc: "2.0", id: "stop-1", method: "daemon.stop", params: {} })}\n`,
+      );
+
+      await Effect.runPromise(Deferred.await(stopStarted));
+
+      const response = (await responsePromise) as {
+        readonly result: null;
+      };
+      assert.equal(response.result, null);
+      assert.equal(await Effect.runPromise(Ref.get(stopCompleted)), false);
+
+      await Effect.runPromise(Deferred.succeed(stopRelease, undefined));
+      await Effect.runPromise(Effect.sleep("25 millis"));
+      assert.equal(await Effect.runPromise(Ref.get(stopCompleted)), true);
     } finally {
       await Effect.runPromise(binding.close.pipe(Effect.catch(() => Effect.void)));
     }
