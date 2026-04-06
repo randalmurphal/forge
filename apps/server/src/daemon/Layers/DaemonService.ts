@@ -593,99 +593,105 @@ const makeDaemonService = Effect.gen(function* () {
     pingSocket(socketPath, timeoutMs);
 
   const start = (input: DaemonStartInput): Effect.Effect<DaemonStartResult, DaemonServiceError> =>
-    withStartupLock(
-      paths.lockPath,
-      Effect.gen(function* () {
-        yield* ensureParentDirectory(paths.lockPath);
+    Effect.gen(function* () {
+      // The startup lock lives under the Forge base dir, so first-run daemon
+      // startup must create that directory before flock/lockf can succeed.
+      yield* ensureParentDirectory(paths.lockPath);
 
-        const existingPid = yield* readPidFile(paths.pidPath);
-        if (existingPid !== undefined && (yield* isProcessAlive(existingPid))) {
-          const existingInfo = yield* readDaemonInfo(paths.daemonInfoPath, paths.socketPath);
-          const responsive = yield* pingSocket(paths.socketPath, input.pingTimeoutMs);
-          if (responsive) {
-            return {
-              type: "already-running",
-              pid: existingPid,
-              info:
-                existingInfo !== undefined && existingInfo.pid === existingPid
-                  ? existingInfo
-                  : undefined,
-              paths,
-            } as const;
+      return yield* withStartupLock(
+        paths.lockPath,
+        Effect.gen(function* () {
+          const existingPid = yield* readPidFile(paths.pidPath);
+          if (existingPid !== undefined && (yield* isProcessAlive(existingPid))) {
+            const existingInfo = yield* readDaemonInfo(paths.daemonInfoPath, paths.socketPath);
+            const responsive = yield* pingSocket(paths.socketPath, input.pingTimeoutMs);
+            if (responsive) {
+              return {
+                type: "already-running",
+                pid: existingPid,
+                info:
+                  existingInfo !== undefined && existingInfo.pid === existingPid
+                    ? existingInfo
+                    : undefined,
+                paths,
+              } as const;
+            }
+
+            const ownsExistingPid =
+              (existingInfo !== undefined && existingInfo.pid === existingPid) ||
+              (yield* isLikelyForgeDaemonProcess(existingPid, config.baseDir));
+            if (ownsExistingPid) {
+              yield* terminateProcess(existingPid);
+            }
+            yield* cleanupDaemonArtifacts(paths);
+          } else if (existingPid !== undefined) {
+            yield* cleanupDaemonArtifacts(paths);
+          } else {
+            yield* removeIfExists(paths.daemonInfoPath, "remove-daemon-info");
+            yield* removeIfExists(paths.socketPath, "remove-socket");
           }
 
-          const ownsExistingPid =
-            (existingInfo !== undefined && existingInfo.pid === existingPid) ||
-            (yield* isLikelyForgeDaemonProcess(existingPid, config.baseDir));
-          if (ownsExistingPid) {
-            yield* terminateProcess(existingPid);
-          }
-          yield* cleanupDaemonArtifacts(paths);
-        } else if (existingPid !== undefined) {
-          yield* cleanupDaemonArtifacts(paths);
-        } else {
-          yield* removeIfExists(paths.daemonInfoPath, "remove-daemon-info");
-          yield* removeIfExists(paths.socketPath, "remove-socket");
-        }
+          const binding = yield* input
+            .bindSocket(paths.socketPath)
+            .pipe(
+              Effect.mapError((cause) =>
+                makeSocketError(paths.socketPath, "bind", "Failed to bind daemon socket.", cause),
+              ),
+            );
 
-        const binding = yield* input
-          .bindSocket(paths.socketPath)
-          .pipe(
-            Effect.mapError((cause) =>
-              makeSocketError(paths.socketPath, "bind", "Failed to bind daemon socket.", cause),
+          yield* Effect.tryPromise({
+            try: async () => {
+              await FSP.chmod(paths.socketPath, SOCKET_PERMISSIONS);
+            },
+            catch: (cause) =>
+              makeSocketError(
+                paths.socketPath,
+                "chmod",
+                "Failed to set daemon socket permissions.",
+                cause,
+              ),
+          }).pipe(
+            Effect.catch((error) =>
+              closeSocketBinding(paths.socketPath, binding).pipe(
+                Effect.andThen(Effect.fail(error)),
+              ),
             ),
           );
 
-        yield* Effect.tryPromise({
-          try: async () => {
-            await FSP.chmod(paths.socketPath, SOCKET_PERMISSIONS);
-          },
-          catch: (cause) =>
-            makeSocketError(
-              paths.socketPath,
-              "chmod",
-              "Failed to set daemon socket permissions.",
-              cause,
+          const info = {
+            pid: process.pid,
+            wsPort: input.wsPort,
+            wsToken: input.wsToken ?? Crypto.randomBytes(32).toString("hex"),
+            socketPath: paths.socketPath,
+            startedAt: input.startedAt ?? new Date().toISOString(),
+          } satisfies DaemonInfo;
+
+          yield* writeDaemonState(paths, info).pipe(
+            Effect.catch((error) =>
+              closeSocketBinding(paths.socketPath, binding).pipe(
+                Effect.andThen(cleanupDaemonArtifacts(paths)),
+                Effect.andThen(Effect.fail(error)),
+              ),
             ),
-        }).pipe(
-          Effect.catch((error) =>
-            closeSocketBinding(paths.socketPath, binding).pipe(Effect.andThen(Effect.fail(error))),
-          ),
-        );
+          );
 
-        const info = {
-          pid: process.pid,
-          wsPort: input.wsPort,
-          wsToken: input.wsToken ?? Crypto.randomBytes(32).toString("hex"),
-          socketPath: paths.socketPath,
-          startedAt: input.startedAt ?? new Date().toISOString(),
-        } satisfies DaemonInfo;
+          const stop = yield* createStopEffect({
+            binding,
+            paths,
+            gracefulShutdown: input.gracefulShutdown ?? Effect.void,
+            forceShutdown: input.forceShutdown ?? Effect.void,
+            shutdownTimeoutMs: input.shutdownTimeoutMs ?? DEFAULT_SHUTDOWN_TIMEOUT_MS,
+          });
 
-        yield* writeDaemonState(paths, info).pipe(
-          Effect.catch((error) =>
-            closeSocketBinding(paths.socketPath, binding).pipe(
-              Effect.andThen(cleanupDaemonArtifacts(paths)),
-              Effect.andThen(Effect.fail(error)),
-            ),
-          ),
-        );
-
-        const stop = yield* createStopEffect({
-          binding,
-          paths,
-          gracefulShutdown: input.gracefulShutdown ?? Effect.void,
-          forceShutdown: input.forceShutdown ?? Effect.void,
-          shutdownTimeoutMs: input.shutdownTimeoutMs ?? DEFAULT_SHUTDOWN_TIMEOUT_MS,
-        });
-
-        return {
-          type: "started",
-          info,
-          paths,
-          stop,
-        } as const;
-      }),
-    );
+          return {
+            type: "started",
+            info,
+            paths,
+            stop,
+          } as const;
+        }),
+      );
+    });
 
   return {
     getPaths,

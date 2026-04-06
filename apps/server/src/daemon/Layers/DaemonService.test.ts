@@ -162,6 +162,39 @@ it.effect("start creates forge.pid, forge.sock, and daemon.json with owner-only 
   ),
 );
 
+it.effect("start succeeds on first run when the forge base directory does not exist yet", () =>
+  Effect.scoped(
+    Effect.gen(function* () {
+      const parentDir = FS.mkdtempSync(Path.join(OS.tmpdir(), "forge-daemon-missing-base-"));
+      const baseDir = Path.join(parentDir, "forge-home");
+      yield* Effect.addFinalizer(() =>
+        Effect.sync(() => FS.rmSync(parentDir, { recursive: true, force: true })),
+      );
+
+      assert.equal(FS.existsSync(baseDir), false);
+
+      const result = yield* Effect.gen(function* () {
+        const daemon = yield* DaemonService;
+        return yield* daemon.start({
+          wsPort: 47828,
+          bindSocket: (socketPath) => makePingServer(socketPath),
+        });
+      }).pipe(Effect.provide(makeDaemonTestLayer(baseDir)));
+
+      if (result.type !== "started") {
+        assert.fail("expected first-run daemon start to create the forge base directory");
+      }
+
+      assert.equal(FS.existsSync(baseDir), true);
+      assert.equal(FS.existsSync(Path.join(baseDir, "forge.pid")), true);
+      assert.equal(FS.existsSync(Path.join(baseDir, "daemon.json")), true);
+      assert.equal(FS.existsSync(Path.join(baseDir, "forge.sock")), true);
+
+      yield* result.stop;
+    }),
+  ),
+);
+
 it.effect("start persists the configured websocket auth token to daemon.json", () =>
   Effect.scoped(
     Effect.gen(function* () {
