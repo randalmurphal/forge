@@ -23,6 +23,7 @@ import { cn } from "../lib/utils";
 import ChatMarkdown from "./ChatMarkdown";
 import {
   buildChannelViewModel,
+  canToggleChannelSplitView,
   canInterveneInChannel,
   isChannelContainerThread,
   shouldFocusChannelIntervention,
@@ -105,6 +106,7 @@ export function ChannelView(props: { threadId: ThreadId }) {
       }),
     [channel, childThreads, deliberationState, storedMessages, thread],
   );
+  const canToggleSplitView = canToggleChannelSplitView(viewModel.transcriptPanes);
 
   const interveneMutation = useMutation(
     channelInterveneMutationOptions({
@@ -122,8 +124,17 @@ export function ChannelView(props: { threadId: ThreadId }) {
   }, [canIntervene, interventionOpen]);
 
   useEffect(() => {
+    if (!canToggleSplitView && splitView) {
+      setSplitView(false);
+    }
+  }, [canToggleSplitView, splitView]);
+
+  useEffect(() => {
     const handler = (event: KeyboardEvent) => {
       if (shouldToggleChannelSplitView(event)) {
+        if (!canToggleSplitView) {
+          return;
+        }
         event.preventDefault();
         event.stopPropagation();
         setSplitView((current) => !current);
@@ -152,7 +163,7 @@ export function ChannelView(props: { threadId: ThreadId }) {
 
     window.addEventListener("keydown", handler);
     return () => window.removeEventListener("keydown", handler);
-  }, [canIntervene, interventionOpen]);
+  }, [canIntervene, canToggleSplitView, interventionOpen]);
 
   const openThread = (threadId: ThreadId) => {
     void navigate({
@@ -246,6 +257,12 @@ export function ChannelView(props: { threadId: ThreadId }) {
               onClick={() => setSplitView((current) => !current)}
               aria-pressed={splitView}
               aria-keyshortcuts="d"
+              disabled={!canToggleSplitView}
+              title={
+                canToggleSplitView
+                  ? undefined
+                  : "Split view becomes available once both participant transcripts are ready."
+              }
             >
               <ArrowRightLeftIcon className="size-4" />
               Split View
@@ -284,7 +301,7 @@ export function ChannelView(props: { threadId: ThreadId }) {
       <div
         className={cn(
           "grid min-h-0 flex-1 gap-4 p-4 sm:p-5",
-          splitView && viewModel.transcriptPanes.length === 2
+          splitView && canToggleSplitView
             ? "grid-cols-1 xl:grid-cols-[minmax(18rem,1fr)_minmax(0,1.4fr)_minmax(18rem,1fr)]"
             : "grid-cols-1",
         )}

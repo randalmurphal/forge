@@ -357,6 +357,12 @@ export function shouldToggleChannelSplitView(event: {
   return isBareKeypress(event, "d");
 }
 
+export function canToggleChannelSplitView(
+  transcriptPanes: ReadonlyArray<ChannelTranscriptPane>,
+): boolean {
+  return transcriptPanes.length === 2;
+}
+
 export function shouldFocusChannelIntervention(event: {
   key: string;
   ctrlKey?: boolean;

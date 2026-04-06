@@ -2,6 +2,7 @@ import { ChannelId, ChannelMessageId, ProjectId, ThreadId } from "@forgetools/co
 import { describe, expect, it } from "vitest";
 import {
   buildChannelViewModel,
+  canToggleChannelSplitView,
   canInterveneInChannel,
   isChannelContainerThread,
   shouldFocusChannelIntervention,
@@ -274,6 +275,43 @@ describe("ChannelView keyboard helpers", () => {
   it("opens the intervention composer only for the bare c shortcut", () => {
     expect(shouldFocusChannelIntervention({ key: "c" })).toBe(true);
     expect(shouldFocusChannelIntervention({ key: "c", ctrlKey: true })).toBe(false);
+  });
+});
+
+describe("canToggleChannelSplitView", () => {
+  it("requires both participant transcript panes before enabling split view", () => {
+    const advocateThreadId = ThreadId.makeUnsafe("thread-advocate");
+    const interrogatorThreadId = ThreadId.makeUnsafe("thread-interrogator");
+
+    const viewModel = buildChannelViewModel({
+      channel: {
+        id: ChannelId.makeUnsafe("channel-1"),
+        threadId: ThreadId.makeUnsafe("thread-parent"),
+        type: "deliberation",
+        status: "open",
+        createdAt: "2026-04-06T00:00:00.000Z",
+        updatedAt: "2026-04-06T00:00:00.000Z",
+      },
+      messages: [],
+      deliberationState: null,
+      thread: { title: "Evaluate the rollout" },
+      childThreads: [
+        makeChildThread({
+          id: advocateThreadId,
+          title: "Advocate transcript",
+          role: "advocate",
+        }),
+        makeChildThread({
+          id: interrogatorThreadId,
+          title: "Interrogator transcript",
+          role: "interrogator",
+        }),
+      ],
+    });
+
+    expect(canToggleChannelSplitView(viewModel.transcriptPanes)).toBe(true);
+    expect(canToggleChannelSplitView(viewModel.transcriptPanes.slice(0, 1))).toBe(false);
+    expect(canToggleChannelSplitView([])).toBe(false);
   });
 });
 
