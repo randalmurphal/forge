@@ -652,3 +652,25 @@ vitestIt(
     nodeAssert.match(output, /thread-paused\s+paused\s+agent\s+Waiting/);
   },
 );
+
+vitestIt("renderDaemonStatus omits stale daemon metadata when the daemon is stopped", () => {
+  const output = renderDaemonStatus(
+    {
+      running: false,
+      paths: {
+        baseDir: "/tmp/forge",
+        socketPath: "/tmp/forge/forge.sock",
+        daemonInfoPath: "/tmp/forge/daemon.json",
+        worktreesDir: "/tmp/forge/worktrees",
+      },
+      info: undefined,
+      ping: undefined,
+    },
+    [],
+  );
+
+  nodeAssert.match(output, /^Daemon: stopped$/m);
+  nodeAssert.match(output, /^PID: -$/m);
+  nodeAssert.match(output, /^WebSocket port: -$/m);
+  nodeAssert.match(output, /^Started: -$/m);
+});

@@ -6,7 +6,12 @@ import * as Path from "node:path";
 import { Effect } from "effect";
 import { afterEach, describe, expect, it } from "vitest";
 
-import { buildDaemonLaunchPlan, readDaemonInfoFile, sendDaemonRpc } from "./cliClient.ts";
+import {
+  buildDaemonLaunchPlan,
+  getDaemonStatusSnapshot,
+  readDaemonInfoFile,
+  sendDaemonRpc,
+} from "./cliClient.ts";
 import { DAEMON_SOCKET_PROTOCOL_VERSION } from "./protocol.ts";
 
 const VALID_DAEMON_WS_TOKEN = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef";
@@ -207,6 +212,35 @@ describe("readDaemonInfoFile", () => {
     );
 
     expect(info).toBeUndefined();
+  });
+});
+
+describe("getDaemonStatusSnapshot", () => {
+  it("does not surface stale daemon.json metadata when the daemon is not responding", async () => {
+    const baseDir = makeTempDir("forge-cli-daemon-status-stale-");
+    const socketPath = Path.join(baseDir, "forge.sock");
+    const daemonInfoPath = Path.join(baseDir, "daemon.json");
+    writeDaemonInfo(daemonInfoPath, socketPath);
+
+    const status = await Effect.runPromise(
+      getDaemonStatusSnapshot({
+        baseDir,
+        socketPath,
+        daemonInfoPath,
+        worktreesDir: Path.join(baseDir, "worktrees"),
+      }),
+    );
+
+    expect(status).toMatchObject({
+      running: false,
+      info: undefined,
+      ping: undefined,
+      paths: {
+        baseDir,
+        socketPath,
+        daemonInfoPath,
+      },
+    });
   });
 });
 

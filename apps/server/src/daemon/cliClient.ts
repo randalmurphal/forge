@@ -219,7 +219,7 @@ export const sendDaemonRpc = <Result = unknown>(input: {
 
 export const getDaemonStatusSnapshot = (paths: CliDaemonPaths) =>
   Effect.gen(function* () {
-    const info = yield* readDaemonInfoFile(paths.daemonInfoPath, {
+    const manifestInfo = yield* readDaemonInfoFile(paths.daemonInfoPath, {
       expectedSocketPath: paths.socketPath,
       requireOwnerOnlyPermissions: true,
     });
@@ -233,7 +233,7 @@ export const getDaemonStatusSnapshot = (paths: CliDaemonPaths) =>
       return {
         running: false,
         paths,
-        info,
+        info: undefined,
         ping: undefined,
       } satisfies DaemonStatusSnapshot;
     }
@@ -241,7 +241,7 @@ export const getDaemonStatusSnapshot = (paths: CliDaemonPaths) =>
     return {
       running: true,
       paths,
-      info,
+      info: manifestInfo,
       ping: ping.value,
     } satisfies DaemonStatusSnapshot;
   });
