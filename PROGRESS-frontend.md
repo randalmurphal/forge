@@ -25,6 +25,7 @@
 - WI-5: Workflow timeline view
 - WI-6: Channel view
 - WI-7: Quality check results component
+- WI-8: Gate approval component
 
 ## Iteration Log
 
@@ -35,6 +36,7 @@
 - 2026-04-06: Completed WI-5 by adding `apps/web/src/components/WorkflowTimeline.tsx` plus `WorkflowTimeline.logic.ts`/`.test.ts`, extending `apps/web/src/wsRpcClient.ts` with `phaseRun` and `phaseOutput` RPC helpers, and dispatching workflow container threads to the timeline from `apps/web/src/routes/_chat.$threadId.tsx` while leaving `ChatView.tsx` unchanged for plain threads. The timeline now renders schema summaries, channel transcripts, conversation outputs, inline quality-check sections, and expandable child-session transcripts with active phase streaming. Validation passed: `bun fmt`, `bun lint`, `bun typecheck`, and `bun run test`. The route implementation uses the existing canonical `/$threadId` entrypoint because adding a separate `_workflow.$threadId` pathless route would collide with the current TanStack Router layout.
 - 2026-04-06: Completed WI-6 by adding `apps/web/src/components/ChannelView.tsx` plus `ChannelView.logic.ts`/`.test.ts`, extending the thread mapping with `patternId` so deliberation container sessions can dispatch from the canonical `/$threadId` route, and widening `apps/web/src/stores/channelStore.ts`/`.test.ts` with thread-to-channel lookup and intervention mutation helpers. Standalone deliberation sessions now render a live channel view with per-participant color coding, turn counts, inline intervention UI, clickable participant transcript panes, and a split-view toggle while leaving `ChatView.tsx` unchanged for plain threads. Validation passed: `bun fmt`, `bun lint`, `bun typecheck`, and `bun run test`.
 - 2026-04-06: Completed WI-7 by adding `apps/web/src/components/QualityCheckResults.tsx` plus `QualityCheckResults.test.tsx`, extracting workflow quality-check rendering out of `apps/web/src/components/WorkflowTimeline.tsx`, and keeping the timeline component under the 500-line limit while preserving the existing inline placement between phases. Quality checks now render pass/fail rows with expandable output, passing checks stay collapsed by default, and failures default open. Validation passed: `bun fmt`, `bun lint`, `bun typecheck`, and `bun run test`.
+- 2026-04-06: Completed WI-8 by adding `apps/web/src/components/GateApproval.tsx` plus `GateApproval.logic.ts`/`.test.ts` and `GateApproval.test.tsx`, exposing the existing `thread.correct`, `gate.approve`, and `gate.reject` socket methods through the frontend RPC client, and wiring waiting-human workflow phases to render the inline gate UI from `apps/web/src/components/WorkflowTimeline.tsx`. Human gates now show summary, quality checks, unresolved items, changes, keyboard shortcuts (`a`/`r`), and the three approve/fail/correct actions without modifying server code. Validation passed: `bun fmt`, `bun lint`, `bun typecheck`, and `bun run test`.
 
 ## Review Log
 

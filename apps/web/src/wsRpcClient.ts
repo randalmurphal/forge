@@ -4,6 +4,8 @@ import {
   type GitRunStackedActionResult,
   type NativeApi,
   ORCHESTRATION_WS_METHODS,
+  type PhaseRunId,
+  type ThreadId,
   type ServerSettingsPatch,
   WS_METHODS,
 } from "@forgetools/contracts";
@@ -42,6 +44,9 @@ interface GitRunStackedActionOptions {
 
 export interface WsRpcClient {
   readonly dispose: () => Promise<void>;
+  readonly thread: {
+    readonly correct: (input: { threadId: ThreadId; content: string }) => Promise<unknown>;
+  };
   readonly terminal: {
     readonly open: RpcUnaryMethod<typeof WS_METHODS.terminalOpen>;
     readonly write: RpcUnaryMethod<typeof WS_METHODS.terminalWrite>;
@@ -98,6 +103,14 @@ export interface WsRpcClient {
     readonly replayEvents: RpcUnaryMethod<typeof ORCHESTRATION_WS_METHODS.replayEvents>;
     readonly onDomainEvent: RpcStreamMethod<typeof WS_METHODS.subscribeOrchestrationDomainEvents>;
   };
+  readonly gate: {
+    readonly approve: (input: { threadId: ThreadId; phaseRunId: PhaseRunId }) => Promise<unknown>;
+    readonly reject: (input: {
+      threadId: ThreadId;
+      phaseRunId: PhaseRunId;
+      correction?: string;
+    }) => Promise<unknown>;
+  };
   readonly channel: {
     readonly getMessages: RpcUnaryMethod<typeof WS_METHODS.channelGetMessages>;
     readonly getChannel: RpcUnaryMethod<typeof WS_METHODS.channelGetChannel>;
@@ -139,6 +152,10 @@ export async function __resetWsRpcClientForTests() {
 export function createWsRpcClient(transport = new WsTransport()): WsRpcClient {
   return {
     dispose: () => transport.dispose(),
+    thread: {
+      correct: (input) =>
+        transport.request((client) => (client as any)[WS_METHODS.threadCorrect](input)),
+    },
     terminal: {
       open: (input) => transport.request((client) => client[WS_METHODS.terminalOpen](input)),
       write: (input) => transport.request((client) => client[WS_METHODS.terminalWrite](input)),
@@ -228,6 +245,12 @@ export function createWsRpcClient(transport = new WsTransport()): WsRpcClient {
           (client) => client[WS_METHODS.subscribeOrchestrationDomainEvents]({}),
           listener,
         ),
+    },
+    gate: {
+      approve: (input) =>
+        transport.request((client) => (client as any)[WS_METHODS.gateApprove](input)),
+      reject: (input) =>
+        transport.request((client) => (client as any)[WS_METHODS.gateReject](input)),
     },
     channel: {
       getMessages: (input) =>

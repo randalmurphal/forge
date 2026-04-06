@@ -1,5 +1,6 @@
 import type {
   GateResult,
+  PhaseRunId,
   PhaseRunStatus,
   PhaseType,
   QualityCheckResult,
@@ -58,7 +59,7 @@ export type WorkflowTimelineRenderableOutput =
   | WorkflowTimelineRenderableEmptyOutput;
 
 export interface WorkflowTimelinePhaseItem {
-  phaseRunId: string;
+  phaseRunId: PhaseRunId;
   phaseId: string;
   phaseName: string;
   phaseType: PhaseType;
@@ -75,7 +76,7 @@ export interface WorkflowTimelinePhaseItem {
 }
 
 interface WorkflowTimelinePhaseRun {
-  phaseRunId: string;
+  phaseRunId: PhaseRunId;
   phaseId: WorkflowPhase["id"];
   phaseName: string;
   phaseType: PhaseType;

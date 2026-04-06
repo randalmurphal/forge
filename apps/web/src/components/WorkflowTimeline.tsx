@@ -7,17 +7,22 @@ import {
   CircleAlertIcon,
   CircleDashedIcon,
   LoaderCircleIcon,
-  MessagesSquareIcon,
   XCircleIcon,
 } from "lucide-react";
 import { useMemo, useState } from "react";
 import type { ThreadId, WorkflowPhase } from "@forgetools/contracts";
+import { cn } from "../lib/utils";
 import { useStore } from "../store";
 import { useProjectById, useThreadById } from "../storeSelectors";
 import { useWorkflow } from "../stores/workflowStore";
 import { getWsRpcClient } from "../wsRpcClient";
-import { cn } from "../lib/utils";
-import ChatMarkdown from "./ChatMarkdown";
+import { GateApproval } from "./GateApproval";
+import {
+  deriveGateApprovalChangesSummary,
+  deriveGateApprovalSummaryMarkdown,
+  deriveGateApprovalUnresolvedItems,
+  selectGateApprovalQualityChecks,
+} from "./GateApproval.logic";
 import { QualityCheckResults } from "./QualityCheckResults";
 import { SidebarTrigger } from "./ui/sidebar";
 import {
@@ -25,6 +30,10 @@ import {
   type WorkflowTimelineChildSession,
   type WorkflowTimelinePhaseOutputRecord,
 } from "./WorkflowTimeline.logic";
+import {
+  WorkflowTimelineOutputBody,
+  WorkflowTimelineTranscriptPanel,
+} from "./WorkflowTimeline.parts";
 
 const workflowTimelineQueryKeys = {
   phaseRuns: (threadId: ThreadId) => ["workflow-timeline", "phase-runs", threadId] as const,
@@ -78,18 +87,6 @@ function resolvePhaseOutputCandidateKeys(
   return ["output", "summary"];
 }
 
-function formatRoleLabel(role: string | null | undefined): string | null {
-  if (!role) {
-    return null;
-  }
-
-  return role
-    .split(/[-_\s]+/)
-    .filter(Boolean)
-    .map((part) => part[0]?.toUpperCase() + part.slice(1))
-    .join(" ");
-}
-
 function formatPhaseTypeLabel(phaseType: string): string {
   return phaseType.replace(/-/g, " ");
 }
@@ -106,126 +103,6 @@ function statusIconForPhase(status: string) {
       return CircleAlertIcon;
     default:
       return CircleDashedIcon;
-  }
-}
-
-function PhaseTranscriptPanel(props: {
-  childSessions: readonly WorkflowTimelineChildSession[];
-  markdownCwd: string | undefined;
-  emptyLabel: string;
-}) {
-  if (props.childSessions.length === 0) {
-    return (
-      <div className="rounded-xl border border-dashed border-border/70 bg-background/60 px-4 py-3 text-sm text-muted-foreground">
-        {props.emptyLabel}
-      </div>
-    );
-  }
-
-  return (
-    <div className="space-y-3">
-      {props.childSessions.map((childSession) => {
-        const roleLabel = formatRoleLabel(childSession.role);
-        const providerLabel =
-          childSession.provider === "claudeAgent"
-            ? "Claude"
-            : childSession.provider === "codex"
-              ? "Codex"
-              : null;
-
-        return (
-          <section
-            key={childSession.threadId}
-            className="rounded-xl border border-border/70 bg-background/70"
-          >
-            <header className="flex items-center justify-between gap-3 border-b border-border/70 px-4 py-3">
-              <div className="min-w-0">
-                <p className="truncate text-sm font-medium text-foreground">{childSession.title}</p>
-                <div className="mt-1 flex flex-wrap items-center gap-2 text-[11px] text-muted-foreground uppercase tracking-[0.08em]">
-                  {roleLabel ? <span>{roleLabel}</span> : null}
-                  {providerLabel ? <span>{providerLabel}</span> : null}
-                </div>
-              </div>
-            </header>
-
-            <div className="space-y-3 px-4 py-4">
-              {childSession.messages.length > 0 ? (
-                childSession.messages.map((message) => (
-                  <article
-                    key={message.id}
-                    className={cn(
-                      "rounded-xl px-4 py-3",
-                      message.role === "assistant"
-                        ? "bg-card text-card-foreground"
-                        : message.role === "system"
-                          ? "border border-dashed border-border bg-muted/40 text-muted-foreground"
-                          : "bg-primary/8 text-foreground",
-                    )}
-                  >
-                    <div className="mb-2 text-[11px] font-medium uppercase tracking-[0.08em] text-muted-foreground">
-                      {message.role}
-                      {message.streaming ? " • streaming" : ""}
-                    </div>
-                    <ChatMarkdown
-                      text={message.text}
-                      cwd={props.markdownCwd}
-                      isStreaming={message.streaming}
-                    />
-                  </article>
-                ))
-              ) : (
-                <p className="text-sm text-muted-foreground">Waiting for transcript output.</p>
-              )}
-            </div>
-          </section>
-        );
-      })}
-    </div>
-  );
-}
-
-function PhaseOutputBody(props: {
-  output: ReturnType<typeof buildWorkflowTimeline>[number]["output"];
-  markdownCwd: string | undefined;
-}) {
-  switch (props.output.kind) {
-    case "schema":
-      return (
-        <div className="space-y-3">
-          <ChatMarkdown text={props.output.summaryMarkdown} cwd={props.markdownCwd} />
-          {props.output.structuredData ? (
-            <details className="overflow-hidden rounded-xl border border-border/70 bg-background/60">
-              <summary className="cursor-pointer px-4 py-3 text-xs font-medium text-muted-foreground">
-                Structured output
-              </summary>
-              <pre className="overflow-auto border-t border-border/70 px-4 py-3 text-xs text-foreground/85">
-                {JSON.stringify(props.output.structuredData, null, 2)}
-              </pre>
-            </details>
-          ) : null}
-        </div>
-      );
-    case "channel":
-      return (
-        <div className="space-y-3">
-          {props.output.messages.map((message) => (
-            <article
-              key={`${message.speaker}:${message.content}`}
-              className="rounded-xl bg-card px-4 py-3"
-            >
-              <div className="mb-2 flex items-center gap-2 text-[11px] font-medium uppercase tracking-[0.08em] text-muted-foreground">
-                <MessagesSquareIcon className="size-3.5" />
-                <span>{message.speaker}</span>
-              </div>
-              <ChatMarkdown text={message.content} cwd={props.markdownCwd} />
-            </article>
-          ))}
-        </div>
-      );
-    case "conversation":
-      return <ChatMarkdown text={props.output.markdown} cwd={props.markdownCwd} />;
-    case "none":
-      return <p className="text-sm text-muted-foreground">No persisted output yet.</p>;
   }
 }
 
@@ -404,6 +281,10 @@ export function WorkflowTimeline({ threadId }: { threadId: ThreadId }) {
               const expanded = phaseItem.isActive || expandedPhaseRunIds.has(phaseItem.phaseRunId);
               const StatusIcon = statusIconForPhase(phaseItem.status);
               const roleLabelCount = phaseItem.childSessions.length;
+              const gateQualityChecks = selectGateApprovalQualityChecks({
+                gateQualityCheckResults: phaseItem.gateResult?.qualityCheckResults,
+                phaseQualityChecks: phaseItem.qualityChecks,
+              });
 
               return (
                 <section key={phaseItem.phaseRunId} className="space-y-4">
@@ -462,12 +343,15 @@ export function WorkflowTimeline({ threadId }: { threadId: ThreadId }) {
                     </button>
 
                     <div className="border-t border-border/70 px-4 py-4 sm:px-5">
-                      <PhaseOutputBody output={phaseItem.output} markdownCwd={project?.cwd} />
+                      <WorkflowTimelineOutputBody
+                        output={phaseItem.output}
+                        markdownCwd={project?.cwd}
+                      />
                     </div>
 
                     {expanded ? (
                       <div className="border-t border-border/70 bg-background/35 px-4 py-4 sm:px-5">
-                        <PhaseTranscriptPanel
+                        <WorkflowTimelineTranscriptPanel
                           childSessions={phaseItem.childSessions}
                           markdownCwd={project?.cwd}
                           emptyLabel={
@@ -481,6 +365,19 @@ export function WorkflowTimeline({ threadId }: { threadId: ThreadId }) {
                   </article>
 
                   <QualityCheckResults results={phaseItem.qualityChecks} />
+
+                  {phaseItem.gateResult?.status === "waiting-human" ? (
+                    <GateApproval
+                      threadId={threadId}
+                      phaseRunId={phaseItem.phaseRunId}
+                      phaseName={phaseItem.phaseName}
+                      summaryMarkdown={deriveGateApprovalSummaryMarkdown(phaseItem.output)}
+                      qualityCheckResults={gateQualityChecks}
+                      unresolvedItems={deriveGateApprovalUnresolvedItems(phaseItem.output)}
+                      changesSummary={deriveGateApprovalChangesSummary(phaseItem.output)}
+                      markdownCwd={project?.cwd}
+                    />
+                  ) : null}
                 </section>
               );
             })
