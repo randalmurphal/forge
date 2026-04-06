@@ -1,28 +1,36 @@
 import type { Channel, ChannelMessage, ChannelPushEvent } from "@forgetools/contracts";
-import { ChannelId, ChannelMessageId, ThreadId } from "@forgetools/contracts";
+import { ChannelId, ChannelMessageId, PhaseRunId, ThreadId } from "@forgetools/contracts";
 import { QueryClient } from "@tanstack/react-query";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 vi.mock("../wsRpcClient", () => ({
   getWsRpcClient: vi.fn(),
 }));
+vi.mock("../nativeApi", () => ({
+  ensureNativeApi: vi.fn(),
+}));
 
+import { ensureNativeApi } from "../nativeApi";
 import { getWsRpcClient } from "../wsRpcClient";
 import {
   advanceChannelMessagePaginationState,
   appendChannelMessageState,
   applyChannelPushEventState,
   cacheChannelState,
+  channelInterveneMutationOptions,
   channelMessagesQueryOptions,
   channelQueryKeys,
   channelQueryOptions,
   deriveChannelDeliberationState,
+  findThreadChannel,
   initialChannelStoreState,
   syncChannelMessagesPageState,
+  threadChannelQueryOptions,
   useChannelStore,
 } from "./channelStore";
 
 const getWsRpcClientMock = vi.mocked(getWsRpcClient);
+const ensureNativeApiMock = vi.mocked(ensureNativeApi);
 
 function makeChannel(channelId = "channel-1", overrides: Partial<Channel> = {}): Channel {
   return {
@@ -55,6 +63,34 @@ function makeChannelMessage(
 
 function resetChannelStore() {
   useChannelStore.setState(initialChannelStoreState);
+}
+
+function mockWsRpcClient(
+  overrides: {
+    getChannel?: ReturnType<typeof vi.fn>;
+    getMessages?: ReturnType<typeof vi.fn>;
+    getSnapshot?: ReturnType<typeof vi.fn>;
+  } = {},
+) {
+  getWsRpcClientMock.mockReturnValue({
+    channel: {
+      getChannel: overrides.getChannel ?? vi.fn(),
+      getMessages: overrides.getMessages ?? vi.fn(),
+      onEvent: vi.fn(),
+    },
+    orchestration: {
+      getSnapshot: overrides.getSnapshot ?? vi.fn(),
+    },
+  } as unknown as ReturnType<typeof getWsRpcClient>);
+}
+
+function mockNativeApiDispatch(dispatchCommand = vi.fn()) {
+  ensureNativeApiMock.mockReturnValue({
+    orchestration: {
+      dispatchCommand,
+    },
+  } as unknown as ReturnType<typeof ensureNativeApi>);
+  return dispatchCommand;
 }
 
 beforeEach(() => {
@@ -202,6 +238,37 @@ describe("channel store state helpers", () => {
       ],
     });
   });
+
+  it("finds the deliberation channel for a thread and prefers an exact phase run match", () => {
+    const threadId = ThreadId.makeUnsafe("thread-parent");
+    const exact = makeChannel("channel-exact", {
+      threadId,
+      phaseRunId: "phase-run-2",
+      type: "deliberation",
+    });
+    const fallback = makeChannel("channel-fallback", {
+      threadId,
+      phaseRunId: "phase-run-1",
+      type: "deliberation",
+    });
+
+    const result = findThreadChannel(
+      {
+        channels: [
+          makeChannel("channel-guidance", { threadId, type: "guidance" }),
+          fallback,
+          exact,
+        ],
+      },
+      {
+        threadId,
+        phaseRunId: PhaseRunId.makeUnsafe("phase-run-2"),
+        channelType: "deliberation",
+      },
+    );
+
+    expect(result).toEqual(exact);
+  });
 });
 
 describe("useChannelStore actions", () => {
@@ -229,13 +296,7 @@ describe("channel query options", () => {
   it("fetches a channel with a typed result", async () => {
     const channel = makeChannel();
     const getChannel = vi.fn().mockResolvedValue({ channel });
-    getWsRpcClientMock.mockReturnValue({
-      channel: {
-        getChannel,
-        getMessages: vi.fn(),
-        onEvent: vi.fn(),
-      },
-    } as unknown as ReturnType<typeof getWsRpcClient>);
+    mockWsRpcClient({ getChannel });
 
     const queryClient = new QueryClient();
     const result = await queryClient.fetchQuery(channelQueryOptions(channel.id));
@@ -251,13 +312,7 @@ describe("channel query options", () => {
       messages,
       total: 2,
     });
-    getWsRpcClientMock.mockReturnValue({
-      channel: {
-        getChannel: vi.fn(),
-        getMessages,
-        onEvent: vi.fn(),
-      },
-    } as unknown as ReturnType<typeof getWsRpcClient>);
+    mockWsRpcClient({ getMessages });
 
     const queryClient = new QueryClient();
     const result = await queryClient.fetchQuery(
@@ -290,6 +345,60 @@ describe("channel query options", () => {
         channelId: ChannelId.makeUnsafe("channel-1"),
         afterSequence: 2,
         limit: 50,
+      }),
+    );
+  });
+
+  it("fetches a deliberation channel by thread id through the snapshot query", async () => {
+    const threadId = ThreadId.makeUnsafe("thread-parent");
+    const channel = makeChannel("channel-lookup", {
+      threadId,
+      type: "deliberation",
+    });
+    const getSnapshot = vi.fn().mockResolvedValue({
+      snapshotSequence: 1,
+      projects: [],
+      threads: [],
+      phaseRuns: [],
+      channels: [channel],
+      pendingRequests: [],
+      workflows: [],
+      updatedAt: "2026-04-06T00:00:00.000Z",
+    });
+    mockWsRpcClient({ getSnapshot });
+
+    const queryClient = new QueryClient();
+    const result = await queryClient.fetchQuery(
+      threadChannelQueryOptions({
+        threadId,
+        channelType: "deliberation",
+      }),
+    );
+
+    expect(result).toEqual(channel);
+    expect(getSnapshot).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("channel mutation options", () => {
+  it("posts human interventions through the orchestration command api", async () => {
+    const dispatchCommand = mockNativeApiDispatch(vi.fn().mockResolvedValue({ ok: true }));
+    const channelId = ChannelId.makeUnsafe("channel-1");
+
+    const options = channelInterveneMutationOptions({
+      channelId,
+      fromRole: "human-reviewer",
+    });
+    await options.mutationFn?.("Please test the rollback path.", {} as never);
+
+    expect(dispatchCommand).toHaveBeenCalledWith(
+      expect.objectContaining({
+        type: "channel.post-message",
+        channelId,
+        fromType: "human",
+        fromId: "human",
+        content: "Please test the rollback path.",
+        fromRole: "human-reviewer",
       }),
     );
   });

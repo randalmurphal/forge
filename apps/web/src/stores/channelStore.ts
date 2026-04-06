@@ -1,7 +1,18 @@
-import type { Channel, ChannelId, ChannelMessage, ChannelPushEvent } from "@forgetools/contracts";
-import { queryOptions, useQuery } from "@tanstack/react-query";
+import type {
+  Channel,
+  ChannelId,
+  ChannelMessage,
+  ChannelPushEvent,
+  ChannelType,
+  OrchestrationReadModel,
+  PhaseRunId,
+  ThreadId,
+} from "@forgetools/contracts";
+import { mutationOptions, queryOptions, useQuery } from "@tanstack/react-query";
 import { useEffect } from "react";
 import { create } from "zustand";
+import { newCommandId, newMessageId } from "../lib/utils";
+import { ensureNativeApi } from "../nativeApi";
 import { getWsRpcClient } from "../wsRpcClient";
 
 export type ChannelSubscriptionStatus = "idle" | "subscribed";
@@ -69,8 +80,25 @@ const DEFAULT_CHANNEL_MESSAGE_LIMIT = 50;
 export const channelQueryKeys = {
   all: ["channels"] as const,
   detail: (channelId: ChannelId | null) => ["channels", "detail", channelId] as const,
+  byThread: (input: {
+    threadId: ThreadId | null;
+    phaseRunId?: PhaseRunId | null;
+    channelType?: ChannelType | null;
+  }) =>
+    [
+      "channels",
+      "by-thread",
+      input.threadId,
+      input.phaseRunId ?? null,
+      input.channelType ?? null,
+    ] as const,
   messages: (input: { channelId: ChannelId | null; afterSequence: number | null; limit: number }) =>
     ["channels", "messages", input.channelId, input.afterSequence, input.limit] as const,
+};
+
+export const channelMutationKeys = {
+  intervene: (channelId: ChannelId | null) =>
+    ["channels", "mutation", "intervene", channelId] as const,
 };
 
 export const initialChannelStoreState: ChannelStoreSnapshot = {
@@ -217,6 +245,39 @@ export function deriveChannelDeliberationState(
     turnCount: messages.filter((message) => message.fromType !== "system").length,
     participants: [...participants.values()],
   };
+}
+
+export function findThreadChannel(
+  snapshot: Pick<OrchestrationReadModel, "channels">,
+  input: {
+    threadId: ThreadId;
+    phaseRunId?: PhaseRunId | null;
+    channelType?: ChannelType | null;
+  },
+): Channel | null {
+  if (input.phaseRunId !== undefined && input.phaseRunId !== null) {
+    const phaseChannel = snapshot.channels.find(
+      (channel) =>
+        channel.threadId === input.threadId &&
+        channel.phaseRunId === input.phaseRunId &&
+        (input.channelType === undefined || input.channelType === null
+          ? true
+          : channel.type === input.channelType),
+    );
+    if (phaseChannel) {
+      return phaseChannel;
+    }
+  }
+
+  return (
+    snapshot.channels.find(
+      (channel) =>
+        channel.threadId === input.threadId &&
+        (input.channelType === undefined || input.channelType === null
+          ? true
+          : channel.type === input.channelType),
+    ) ?? null
+  );
 }
 
 function updateSubscriptionState(
@@ -418,6 +479,31 @@ export function channelQueryOptions(channelId: ChannelId | null) {
   });
 }
 
+export function threadChannelQueryOptions(input: {
+  threadId: ThreadId | null;
+  phaseRunId?: PhaseRunId | null;
+  channelType?: ChannelType | null;
+}) {
+  return queryOptions({
+    queryKey: channelQueryKeys.byThread(input),
+    queryFn: async () => {
+      if (!input.threadId) {
+        throw new Error("Thread channel is unavailable.");
+      }
+
+      const snapshot = await getWsRpcClient().orchestration.getSnapshot();
+      return findThreadChannel(snapshot, {
+        threadId: input.threadId,
+        ...(input.phaseRunId === undefined ? {} : { phaseRunId: input.phaseRunId }),
+        ...(input.channelType === undefined ? {} : { channelType: input.channelType }),
+      });
+    },
+    enabled: input.threadId !== null,
+    staleTime: DEFAULT_CHANNEL_MESSAGES_STALE_TIME,
+    placeholderData: (previous) => previous ?? null,
+  });
+}
+
 export function channelMessagesQueryOptions(input: {
   channelId: ChannelId | null;
   afterSequence?: number | null;
@@ -449,6 +535,33 @@ export function channelMessagesQueryOptions(input: {
   });
 }
 
+export function channelInterveneMutationOptions(input: {
+  channelId: ChannelId | null;
+  fromRole?: string | null;
+}) {
+  return mutationOptions({
+    mutationKey: channelMutationKeys.intervene(input.channelId),
+    mutationFn: async (content: string) => {
+      if (!input.channelId) {
+        throw new Error("Channel intervention is unavailable.");
+      }
+
+      const api = ensureNativeApi();
+      return api.orchestration.dispatchCommand({
+        type: "channel.post-message",
+        commandId: newCommandId(),
+        channelId: input.channelId,
+        messageId: newMessageId(),
+        fromType: "human",
+        fromId: "human",
+        content,
+        ...(input.fromRole ? { fromRole: input.fromRole } : {}),
+        createdAt: new Date().toISOString(),
+      } as unknown as Parameters<typeof api.orchestration.dispatchCommand>[0]);
+    },
+  });
+}
+
 export const useChannelStore = create<ChannelStoreState>((set) => ({
   ...initialChannelStoreState,
   cacheChannel: (channel) => set((state) => cacheChannelState(state, channel)),
@@ -466,6 +579,23 @@ export const useChannelStore = create<ChannelStoreState>((set) => ({
 export function useChannel(channelId: ChannelId | null) {
   const cacheChannel = useChannelStore((state) => state.cacheChannel);
   const query = useQuery(channelQueryOptions(channelId));
+
+  useEffect(() => {
+    if (query.data) {
+      cacheChannel(query.data);
+    }
+  }, [cacheChannel, query.data]);
+
+  return query;
+}
+
+export function useThreadChannel(input: {
+  threadId: ThreadId | null;
+  phaseRunId?: PhaseRunId | null;
+  channelType?: ChannelType | null;
+}) {
+  const cacheChannel = useChannelStore((state) => state.cacheChannel);
+  const query = useQuery(threadChannelQueryOptions(input));
 
   useEffect(() => {
     if (query.data) {

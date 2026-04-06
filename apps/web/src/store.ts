@@ -166,6 +166,7 @@ function mapThread(thread: OrchestrationThread): Thread {
     interactionMode: thread.interactionMode,
     workflowId: thread.workflowId ?? null,
     currentPhaseId: thread.currentPhaseId ?? null,
+    patternId: thread.patternId ?? null,
     role: thread.role ?? null,
     childThreadIds: [...(thread.childThreadIds ?? [])],
     session: thread.session ? mapSession(thread.session) : null,
@@ -671,6 +672,7 @@ export function applyOrchestrationEvent(state: AppState, event: OrchestrationEve
           | "phaseRunId"
           | "workflowId"
           | "currentPhaseId"
+          | "patternId"
           | "role"
           | "childThreadIds"
         >
@@ -681,6 +683,7 @@ export function applyOrchestrationEvent(state: AppState, event: OrchestrationEve
       const workflowId: OrchestrationThread["workflowId"] = stagedThreadPayload.workflowId ?? null;
       const currentPhaseId: OrchestrationThread["currentPhaseId"] =
         stagedThreadPayload.currentPhaseId ?? null;
+      const patternId: OrchestrationThread["patternId"] = stagedThreadPayload.patternId ?? null;
       const role: OrchestrationThread["role"] = stagedThreadPayload.role ?? null;
       const childThreadIds: OrchestrationThread["childThreadIds"] =
         stagedThreadPayload.childThreadIds ?? [];
@@ -702,7 +705,7 @@ export function applyOrchestrationEvent(state: AppState, event: OrchestrationEve
         phaseRunId,
         workflowId,
         currentPhaseId,
-        patternId: null,
+        patternId,
         role,
         childThreadIds,
         bootstrapStatus: null,
