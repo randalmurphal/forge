@@ -1019,6 +1019,93 @@ it("events.subscribe replays ordered orchestration events", async () => {
   }
 });
 
+it("events.subscribe accepts documented cursor aliases", async () => {
+  const socketDir = FS.mkdtempSync(Path.join(OS.tmpdir(), "forge-socket-transport-"));
+  const socketPath = Path.join(socketDir, "forge.sock");
+
+  try {
+    const transport = await Effect.runPromise(
+      Effect.service(SocketTransport).pipe(
+        Effect.provide(
+          makeTestLayer({
+            orchestrationEngine: {
+              readEvents: () => Stream.fromIterable([makeEvent(5)]),
+              streamDomainEvents: Stream.empty,
+            },
+          }),
+        ),
+      ),
+    );
+    const binding = await Effect.runPromise(transport.bind({ socketPath }));
+
+    try {
+      const response = (await sendRaw(
+        socketPath,
+        serializeRequest({
+          jsonrpc: "2.0",
+          id: "events-alias-1",
+          method: "events.subscribe",
+          params: { fromSequenceExclusive: 4, timeoutMs: 50 },
+        }),
+      )) as {
+        readonly result: {
+          readonly events: ReadonlyArray<{ readonly sequence: number }>;
+          readonly nextSequenceExclusive: number;
+          readonly timedOut: boolean;
+        };
+      };
+
+      assert.deepEqual(
+        response.result.events.map((event) => event.sequence),
+        [5],
+      );
+      assert.equal(response.result.nextSequenceExclusive, 6);
+      assert.equal(response.result.timedOut, false);
+    } finally {
+      await Effect.runPromise(binding.close.pipe(Effect.catch(() => Effect.void)));
+    }
+  } finally {
+    FS.rmSync(socketDir, { recursive: true, force: true });
+  }
+});
+
+it("events.subscribe rejects conflicting cursor aliases", async () => {
+  const socketDir = FS.mkdtempSync(Path.join(OS.tmpdir(), "forge-socket-transport-"));
+  const socketPath = Path.join(socketDir, "forge.sock");
+
+  try {
+    const transport = await Effect.runPromise(
+      Effect.service(SocketTransport).pipe(Effect.provide(makeTestLayer())),
+    );
+    const binding = await Effect.runPromise(transport.bind({ socketPath }));
+
+    try {
+      const response = (await sendRaw(
+        socketPath,
+        serializeRequest({
+          jsonrpc: "2.0",
+          id: "events-conflict-1",
+          method: "events.subscribe",
+          params: { afterSequence: 2, fromSequenceExclusive: 3 },
+        }),
+      )) as {
+        readonly error: {
+          readonly code: number;
+          readonly message: string;
+        };
+      };
+
+      assert.equal(response.error.code, -32602);
+      assert.match(response.error.message, /events\.subscribe/i);
+      assert.match(response.error.message, /must match/i);
+    } finally {
+      await Effect.runPromise(binding.close.pipe(Effect.catch(() => Effect.void)));
+    }
+  } finally {
+    FS.rmSync(socketDir, { recursive: true, force: true });
+  }
+});
+
 it("events.subscribe returns an empty batch after timing out", async () => {
   const socketDir = FS.mkdtempSync(Path.join(OS.tmpdir(), "forge-socket-transport-"));
   const socketPath = Path.join(socketDir, "forge.sock");

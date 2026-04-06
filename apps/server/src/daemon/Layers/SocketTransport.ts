@@ -199,6 +199,8 @@ const WorkflowGetParams = Schema.Struct({
 
 const EventsSubscribeParams = Schema.Struct({
   afterSequence: Schema.optional(NonNegativeInt),
+  fromSequence: Schema.optional(NonNegativeInt),
+  fromSequenceExclusive: Schema.optional(NonNegativeInt),
   limit: Schema.optional(PositiveInt),
   timeoutMs: Schema.optional(NonNegativeInt),
 });
@@ -518,6 +520,45 @@ function decodeParams<A>(schema: Schema.Schema<A>, params: unknown, method: stri
       cause: toError(cause),
     });
   }
+}
+
+function resolveEventsSubscribeCursor(input: {
+  readonly afterSequence?: number | undefined;
+  readonly fromSequence?: number | undefined;
+  readonly fromSequenceExclusive?: number | undefined;
+}): number {
+  const cursorEntries = [
+    ["afterSequence", input.afterSequence],
+    ["fromSequence", input.fromSequence],
+    ["fromSequenceExclusive", input.fromSequenceExclusive],
+  ] as const;
+  let resolvedCursor: number | undefined = undefined;
+  const definedFields: Array<string> = [];
+
+  for (const [field, cursor] of cursorEntries) {
+    if (cursor === undefined) {
+      continue;
+    }
+    definedFields.push(field);
+
+    if (resolvedCursor === undefined) {
+      resolvedCursor = cursor;
+      continue;
+    }
+
+    if (cursor !== resolvedCursor) {
+      throw new OrchestrationGetSnapshotError({
+        message:
+          "Invalid params for 'events.subscribe'. afterSequence, fromSequence, and " +
+          "fromSequenceExclusive must match when more than one is provided.",
+        cause: new Error(
+          `Conflicting event subscription cursors across ${definedFields.join(", ")}.`,
+        ),
+      });
+    }
+  }
+
+  return resolvedCursor ?? 0;
 }
 
 function toSocketError(
@@ -1046,7 +1087,7 @@ const makeSocketTransport = Effect.gen(function* () {
   const handleEventsSubscribe = (params: unknown) =>
     Effect.gen(function* () {
       const input = decodeParams(EventsSubscribeParams, params, "events.subscribe");
-      const afterSequence = input.afterSequence ?? 0;
+      const afterSequence = resolveEventsSubscribeCursor(input);
       const limit = input.limit ?? 1;
       const timeoutMs = input.timeoutMs ?? 5_000;
 
