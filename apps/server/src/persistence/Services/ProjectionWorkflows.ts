@@ -8,6 +8,7 @@
  */
 import {
   IsoDateTime,
+  ProjectId,
   TrimmedNonEmptyString,
   WorkflowCompletionConfig,
   WorkflowId,
@@ -24,6 +25,7 @@ export const ProjectionWorkflow = Schema.Struct({
   description: Schema.String,
   phases: Schema.Array(WorkflowPhase),
   builtIn: Schema.Boolean,
+  projectId: Schema.NullOr(ProjectId),
   onCompletion: Schema.optional(WorkflowCompletionConfig),
   createdAt: IsoDateTime,
   updatedAt: IsoDateTime,
@@ -37,6 +39,7 @@ export type QueryProjectionWorkflowByIdInput = typeof QueryProjectionWorkflowByI
 
 export const QueryProjectionWorkflowByNameInput = Schema.Struct({
   name: TrimmedNonEmptyString,
+  projectId: Schema.optional(ProjectId),
 });
 export type QueryProjectionWorkflowByNameInput = typeof QueryProjectionWorkflowByNameInput.Type;
 

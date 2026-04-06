@@ -22,6 +22,7 @@ const workflowSnapshot = {
   id: WorkflowId.makeUnsafe("workflow-thread-projection"),
   name: "implement",
   description: "Thread workflow snapshot",
+  projectId: null,
   phases: [
     {
       id: WorkflowPhaseId.makeUnsafe("phase-thread-projection"),

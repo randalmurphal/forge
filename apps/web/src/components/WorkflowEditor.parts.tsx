@@ -4,6 +4,7 @@ import type { WorkflowDefinition, WorkflowId } from "@forgetools/contracts";
 import type { WorkflowEditScope } from "../stores/workflowStore";
 import { Link2Icon, PlusIcon, SaveIcon, SparklesIcon } from "lucide-react";
 import { cn } from "~/lib/utils";
+import { resolveWorkflowScopeLabel } from "./WorkflowEditor.logic";
 import { Button } from "./ui/button";
 import { Input } from "./ui/input";
 import { SidebarTrigger } from "./ui/sidebar";
@@ -76,7 +77,7 @@ export function WorkflowEditorSidebar(props: {
           <p className="text-xs font-semibold uppercase tracking-[0.08em] text-muted-foreground">
             Workflows
           </p>
-          <p className="text-xs text-muted-foreground">Built-in first, then custom.</p>
+          <p className="text-xs text-muted-foreground">Built-in, then project, then global.</p>
         </div>
         <Button type="button" size="xs" variant="outline" onClick={props.onCreateNew}>
           <PlusIcon className="size-3.5" />
@@ -87,6 +88,7 @@ export function WorkflowEditorSidebar(props: {
         <div className="space-y-1">
           {props.workflows.map((workflow) => {
             const active = props.activeWorkflowId === workflow.id;
+            const scopeLabel = resolveWorkflowScopeLabel(workflow);
             return (
               <Button
                 key={workflow.id}
@@ -101,11 +103,9 @@ export function WorkflowEditorSidebar(props: {
                 <div className="min-w-0">
                   <div className="flex items-center gap-2">
                     <span className="truncate font-medium">{workflow.name}</span>
-                    {workflow.builtIn ? (
-                      <span className="rounded-full border border-amber-500/20 bg-amber-500/10 px-2 py-0.5 text-[10px] uppercase tracking-[0.08em] text-amber-700 dark:text-amber-300">
-                        Built-in
-                      </span>
-                    ) : null}
+                    <span className="rounded-full border border-border/70 bg-background px-2 py-0.5 text-[10px] uppercase tracking-[0.08em] text-muted-foreground">
+                      {scopeLabel}
+                    </span>
                   </div>
                   <p className="mt-1 line-clamp-2 text-xs text-muted-foreground">
                     {workflow.description || "No description"}
@@ -245,9 +245,8 @@ export function WorkflowEditorFootnote() {
       <div className="flex items-start gap-3">
         <Link2Icon className="mt-0.5 size-4 shrink-0" />
         <p>
-          Built-in workflows stay read-only. Clone them to customize, then save as a new workflow.
-          The project scope toggle is preserved in editor state so the UI is ready for
-          project-backed workflow persistence as the backend catches up.
+          Built-in workflows stay read-only. Clone them to customize, then save them globally or for
+          a single project from the scope controls above.
         </p>
       </div>
     </section>

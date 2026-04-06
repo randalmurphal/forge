@@ -31,6 +31,7 @@ function makeWorkflowDefinition(): WorkflowDefinition {
     name: "Build Loop",
     description: "Workflow description",
     builtIn: true,
+    projectId: null,
     createdAt: "2026-04-06T00:00:00.000Z",
     updatedAt: "2026-04-06T00:00:00.000Z",
     phases: [

@@ -916,6 +916,7 @@ const WsRpcLayer = WsRpcGroup.toLayer(
         description: persistedWorkflow.description,
         phases: persistedWorkflow.phases,
         builtIn: false,
+        projectId: persistedWorkflow.projectId,
         ...(persistedWorkflow.onCompletion ? { onCompletion: persistedWorkflow.onCompletion } : {}),
         createdAt: persistedWorkflow.createdAt,
         updatedAt: persistedWorkflow.updatedAt,
@@ -1142,6 +1143,7 @@ const WsRpcLayer = WsRpcGroup.toLayer(
                 name: workflow.name,
                 description: workflow.description,
                 builtIn: workflow.builtIn,
+                projectId: workflow.projectId,
               })),
             })),
             Effect.mapError(

@@ -99,7 +99,8 @@ function workflowSummariesEqual(
         candidate.workflowId === workflow.workflowId &&
         candidate.name === workflow.name &&
         candidate.description === workflow.description &&
-        candidate.builtIn === workflow.builtIn
+        candidate.builtIn === workflow.builtIn &&
+        candidate.projectId === workflow.projectId
       );
     })
   );

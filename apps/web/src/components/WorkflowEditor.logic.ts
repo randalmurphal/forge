@@ -50,6 +50,16 @@ export const WORKFLOW_EXECUTION_KIND_OPTIONS = [
 export type WorkflowExecutionKind = (typeof WORKFLOW_EXECUTION_KIND_OPTIONS)[number]["value"];
 export type WorkflowMutationKind = "create" | "update";
 
+function workflowEditorScopeRank(input: { builtIn: boolean; projectId: ProjectId | null }): number {
+  if (input.builtIn) {
+    return 0;
+  }
+  if (input.projectId !== null) {
+    return 1;
+  }
+  return 2;
+}
+
 function newWorkflowId() {
   return WorkflowId.makeUnsafe(`workflow-${randomUUID()}`);
 }
@@ -213,6 +223,7 @@ export function createEmptyWorkflowDefinition(now: string): WorkflowDefinition {
     name: "",
     description: "",
     builtIn: false,
+    projectId: null,
     phases: [createDefaultWorkflowPhase()],
     createdAt: now,
     updatedAt: now,
@@ -228,6 +239,7 @@ export function cloneWorkflowForEditing(
     id: newWorkflowId(),
     name: `${workflow.name} copy`,
     builtIn: false,
+    projectId: workflow.projectId,
     phases: workflow.phases.map((phase) => ({
       ...phase,
       id: newWorkflowPhaseId(),
@@ -241,8 +253,9 @@ export function sortWorkflowDefinitionsForEditor(
   workflows: readonly WorkflowDefinition[],
 ): WorkflowDefinition[] {
   return [...workflows].toSorted((left, right) => {
-    if (left.builtIn !== right.builtIn) {
-      return left.builtIn ? -1 : 1;
+    const rankDifference = workflowEditorScopeRank(left) - workflowEditorScopeRank(right);
+    if (rankDifference !== 0) {
+      return rankDifference;
     }
 
     const byName = left.name.localeCompare(right.name, undefined, { sensitivity: "base" });
@@ -260,7 +273,21 @@ export function toWorkflowSummaryRecord(workflow: WorkflowDefinition): WorkflowS
     name: workflow.name,
     description: workflow.description,
     builtIn: workflow.builtIn,
+    projectId: workflow.projectId,
   };
+}
+
+export function resolveWorkflowScopeLabel(input: {
+  builtIn: boolean;
+  projectId: ProjectId | null;
+}): string {
+  if (input.builtIn) {
+    return "Built-in";
+  }
+  if (input.projectId !== null) {
+    return "Project";
+  }
+  return "Global";
 }
 
 export function resolveWorkflowExecutionKind(
@@ -528,9 +555,11 @@ export function resolveWorkflowMutationKind(input: {
 export function buildWorkflowMutationDefinition(
   draft: WorkflowDefinition,
   updatedAt: string,
+  projectId: ProjectId | null,
 ): WorkflowDefinition {
   return {
     ...draft,
+    projectId,
     phases: draft.phases.map(normalizeWorkflowPhaseChecks),
     updatedAt,
   };

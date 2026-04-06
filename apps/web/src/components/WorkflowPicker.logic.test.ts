@@ -1,7 +1,9 @@
-import { WorkflowId, type WorkflowSummary } from "@forgetools/contracts";
+import { ProjectId, WorkflowId, type WorkflowSummary } from "@forgetools/contracts";
 import { describe, expect, it } from "vitest";
 import {
+  buildWorkflowPickerSections,
   compareWorkflowSummariesForPicker,
+  filterWorkflowSummariesForProject,
   resolveWorkflowPickerLabel,
   sortWorkflowSummariesForPicker,
 } from "./WorkflowPicker.logic";
@@ -15,14 +17,16 @@ function makeWorkflowSummary(
     name: workflowId,
     description: `${workflowId} description`,
     builtIn: false,
+    projectId: null,
     ...overrides,
   };
 }
 
 describe("sortWorkflowSummariesForPicker", () => {
-  it("sorts built-in workflows ahead of non-built-in workflows", () => {
+  it("sorts built-in workflows ahead of project and global workflows", () => {
     const workflows = sortWorkflowSummariesForPicker([
       makeWorkflowSummary("project-review"),
+      makeWorkflowSummary("project-checklist", { projectId: ProjectId.makeUnsafe("project-1") }),
       makeWorkflowSummary("build-loop", { builtIn: true }),
       makeWorkflowSummary("code-review", { builtIn: true }),
     ]);
@@ -30,6 +34,7 @@ describe("sortWorkflowSummariesForPicker", () => {
     expect(workflows.map((workflow) => workflow.workflowId)).toEqual([
       WorkflowId.makeUnsafe("build-loop"),
       WorkflowId.makeUnsafe("code-review"),
+      WorkflowId.makeUnsafe("project-checklist"),
       WorkflowId.makeUnsafe("project-review"),
     ]);
   });
@@ -55,6 +60,52 @@ describe("compareWorkflowSummariesForPicker", () => {
         makeWorkflowSummary("workflow-built-in", { builtIn: true }),
       ),
     ).toBeGreaterThan(0);
+  });
+
+  it("prefers project workflows over global custom workflows", () => {
+    expect(
+      compareWorkflowSummariesForPicker(
+        makeWorkflowSummary("workflow-global"),
+        makeWorkflowSummary("workflow-project", { projectId: ProjectId.makeUnsafe("project-1") }),
+      ),
+    ).toBeGreaterThan(0);
+  });
+});
+
+describe("filterWorkflowSummariesForProject", () => {
+  it("keeps built-in, global, and matching-project workflows", () => {
+    const workflows = filterWorkflowSummariesForProject(
+      [
+        makeWorkflowSummary("workflow-built-in", { builtIn: true }),
+        makeWorkflowSummary("workflow-global"),
+        makeWorkflowSummary("workflow-project", { projectId: ProjectId.makeUnsafe("project-1") }),
+        makeWorkflowSummary("workflow-other-project", {
+          projectId: ProjectId.makeUnsafe("project-2"),
+        }),
+      ],
+      ProjectId.makeUnsafe("project-1"),
+    );
+
+    expect(workflows.map((workflow) => workflow.workflowId)).toEqual([
+      WorkflowId.makeUnsafe("workflow-built-in"),
+      WorkflowId.makeUnsafe("workflow-global"),
+      WorkflowId.makeUnsafe("workflow-project"),
+    ]);
+  });
+});
+
+describe("buildWorkflowPickerSections", () => {
+  it("groups workflows by built-in, project, and global scope", () => {
+    const sections = buildWorkflowPickerSections({
+      projectId: ProjectId.makeUnsafe("project-1"),
+      workflows: [
+        makeWorkflowSummary("workflow-global"),
+        makeWorkflowSummary("workflow-built-in", { builtIn: true }),
+        makeWorkflowSummary("workflow-project", { projectId: ProjectId.makeUnsafe("project-1") }),
+      ],
+    });
+
+    expect(sections.map((section) => section.key)).toEqual(["built-in", "project", "global"]);
   });
 });
 

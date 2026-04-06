@@ -1090,16 +1090,32 @@ const makeSocketTransport = Effect.gen(function* () {
       });
 
       let workflowOption = Option.none<WorkflowDefinition>();
-      if (input.workflow !== undefined) {
-        workflowOption = yield* workflowRegistry.queryByName({ name: input.workflow }).pipe(
+      const projectOption = yield* projectionSnapshotQuery
+        .getActiveProjectByWorkspaceRoot(input.projectPath)
+        .pipe(
           Effect.mapError(
             (cause) =>
               new OrchestrationDispatchCommandError({
-                message: "Failed to resolve workflow for session.create.",
+                message: "Failed to resolve project for session.create.",
                 cause: cause instanceof Error ? cause : new Error(String(cause)),
               }),
           ),
         );
+      if (input.workflow !== undefined) {
+        workflowOption = yield* workflowRegistry
+          .queryByName({
+            name: input.workflow,
+            ...(Option.isSome(projectOption) ? { projectId: projectOption.value.id } : {}),
+          })
+          .pipe(
+            Effect.mapError(
+              (cause) =>
+                new OrchestrationDispatchCommandError({
+                  message: "Failed to resolve workflow for session.create.",
+                  cause: cause instanceof Error ? cause : new Error(String(cause)),
+                }),
+            ),
+          );
       }
 
       if (input.workflow !== undefined && Option.isNone(workflowOption)) {
@@ -1208,6 +1224,7 @@ const makeSocketTransport = Effect.gen(function* () {
             name: workflow.name,
             description: workflow.description,
             builtIn: workflow.builtIn,
+            projectId: workflow.projectId,
           }),
         ),
       })),

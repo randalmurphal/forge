@@ -2751,6 +2751,7 @@ it.effect("round-trips the spec-defined ForgeReadModel contracts", () =>
           name: "Review Workflow",
           description: "Runs review stages",
           builtIn: true,
+          projectId: null,
         },
       ],
       updatedAt: "2026-01-01T03:03:00.000Z",
@@ -2922,6 +2923,7 @@ it.effect("round-trips the spec-defined ForgeClientSnapshot contracts", () =>
           name: "Review Workflow",
           description: "",
           builtIn: false,
+          projectId: null,
         },
       ],
       updatedAt: "2026-01-01T03:13:00.000Z",
@@ -3036,6 +3038,7 @@ it.effect("round-trips the spec-defined workflow summary contract", () =>
       name: "foundation-loop",
       description: "Builds Forge foundation contracts and projections.",
       builtIn: true,
+      projectId: null,
     } as const;
 
     const { parsed, encoded } = yield* roundTrip(WorkflowSummary, input);

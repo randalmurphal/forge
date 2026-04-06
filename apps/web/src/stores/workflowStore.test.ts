@@ -44,6 +44,7 @@ function makeWorkflowSummary(
     name: `${workflowId}-name`,
     description: `${workflowId} description`,
     builtIn: true,
+    projectId: null,
     ...overrides,
   };
 }
@@ -57,6 +58,7 @@ function makeWorkflowDefinition(
     name: `${workflowId}-name`,
     description: `${workflowId} description`,
     builtIn: true,
+    projectId: null,
     phases: [
       {
         id: WorkflowPhaseId.makeUnsafe(`${workflowId}-phase-1`),

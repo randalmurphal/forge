@@ -15,9 +15,10 @@ import {
   MenuTrigger,
 } from "./ui/menu";
 import {
+  buildWorkflowPickerSections,
+  compactWorkflowPickerSections,
   NO_WORKFLOW_VALUE,
   resolveWorkflowPickerLabel,
-  sortWorkflowSummariesForPicker,
 } from "./WorkflowPicker.logic";
 import { cn } from "~/lib/utils";
 
@@ -32,9 +33,20 @@ export function WorkflowPicker(props: {
   const selectedWorkflowId = useWorkflowStore((store) => store.selectedWorkflowId);
   const setSelectedWorkflowId = useWorkflowStore((store) => store.setSelectedWorkflowId);
   const workflowQuery = useWorkflows();
-  const availableWorkflows = useMemo(
-    () => sortWorkflowSummariesForPicker(workflowQuery.data ?? storedWorkflows),
-    [storedWorkflows, workflowQuery.data],
+  const availableWorkflows = workflowQuery.data ?? storedWorkflows;
+  const workflowSections = useMemo(
+    () =>
+      compactWorkflowPickerSections(
+        buildWorkflowPickerSections({
+          projectId: draftThread?.projectId ?? null,
+          workflows: availableWorkflows,
+        }),
+      ),
+    [availableWorkflows, draftThread?.projectId],
+  );
+  const selectableWorkflows = useMemo(
+    () => workflowSections.flatMap((section) => section.workflows),
+    [workflowSections],
   );
 
   useEffect(() => {
@@ -51,24 +63,24 @@ export function WorkflowPicker(props: {
     if (!workflowQuery.isSuccess) {
       return;
     }
-    if (availableWorkflows.some((workflow) => workflow.workflowId === draftThread.workflowId)) {
+    if (selectableWorkflows.some((workflow) => workflow.workflowId === draftThread.workflowId)) {
       return;
     }
     setDraftThreadContext(props.threadId, { workflowId: null });
     setSelectedWorkflowId(null);
   }, [
-    availableWorkflows,
     draftThread?.workflowId,
     props.threadId,
     setDraftThreadContext,
     setSelectedWorkflowId,
+    selectableWorkflows,
     workflowQuery.isSuccess,
   ]);
 
   const resolvedWorkflowId = draftThread?.workflowId ?? null;
   const triggerLabel = resolveWorkflowPickerLabel({
     selectedWorkflowId: resolvedWorkflowId,
-    workflows: availableWorkflows,
+    workflows: selectableWorkflows,
   });
 
   if (!draftThread) {
@@ -104,20 +116,38 @@ export function WorkflowPicker(props: {
               const nextWorkflowId =
                 value === NO_WORKFLOW_VALUE
                   ? null
-                  : (availableWorkflows.find((workflow) => workflow.workflowId === value)
+                  : (selectableWorkflows.find((workflow) => workflow.workflowId === value)
                       ?.workflowId ?? null);
               setDraftThreadContext(props.threadId, { workflowId: nextWorkflowId });
               setSelectedWorkflowId(nextWorkflowId);
             }}
           >
             <MenuRadioItem value={NO_WORKFLOW_VALUE}>(none)</MenuRadioItem>
-            {availableWorkflows.map((workflow) => (
-              <MenuRadioItem key={workflow.workflowId} value={workflow.workflowId}>
-                {workflow.name}
-              </MenuRadioItem>
-            ))}
           </MenuRadioGroup>
         </MenuGroup>
+        {workflowSections.map((section) => (
+          <MenuGroup key={section.key}>
+            <MenuGroupLabel>{section.label}</MenuGroupLabel>
+            <MenuRadioGroup
+              value={resolvedWorkflowId ?? NO_WORKFLOW_VALUE}
+              onValueChange={(value) => {
+                const nextWorkflowId =
+                  value === NO_WORKFLOW_VALUE
+                    ? null
+                    : (selectableWorkflows.find((workflow) => workflow.workflowId === value)
+                        ?.workflowId ?? null);
+                setDraftThreadContext(props.threadId, { workflowId: nextWorkflowId });
+                setSelectedWorkflowId(nextWorkflowId);
+              }}
+            >
+              {section.workflows.map((workflow) => (
+                <MenuRadioItem key={workflow.workflowId} value={workflow.workflowId}>
+                  {workflow.name}
+                </MenuRadioItem>
+              ))}
+            </MenuRadioGroup>
+          </MenuGroup>
+        ))}
         {workflowQuery.isPending ? (
           <>
             <MenuSeparator />

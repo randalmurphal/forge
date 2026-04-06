@@ -29,6 +29,7 @@ function makeWorkflow(overrides: Partial<WorkflowDefinition> = {}): WorkflowDefi
     name: "build-loop",
     description: "Workflow description",
     builtIn: false,
+    projectId: null,
     phases: [
       {
         id: WorkflowPhaseId.makeUnsafe("phase-1"),
@@ -155,8 +156,10 @@ describe("workflow editor draft helpers", () => {
         ],
       }),
       "2026-04-06T15:00:00.000Z",
+      ProjectId.makeUnsafe("project-1"),
     );
 
+    expect(updated.projectId).toBe(ProjectId.makeUnsafe("project-1"));
     expect(updated.updatedAt).toBe("2026-04-06T15:00:00.000Z");
     expect(updated.phases[0]?.gate.qualityChecks).toEqual([{ check: "test", required: true }]);
   });

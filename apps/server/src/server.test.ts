@@ -1732,6 +1732,7 @@ it.layer(NodeServices.layer)("server router seam", (it) => {
         name: "Query Workflow",
         description: "workflow used by ws query tests",
         builtIn: false,
+        projectId: null,
         createdAt: now,
         updatedAt: now,
         phases: [

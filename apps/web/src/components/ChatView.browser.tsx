@@ -2284,6 +2284,7 @@ describe("ChatView timeline estimator parity (full app)", () => {
                 name: "Build Loop",
                 description: "Implement with quality checks",
                 builtIn: true,
+                projectId: null,
               },
             ],
           };

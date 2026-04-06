@@ -1,4 +1,9 @@
-import { TrimmedNonEmptyString, WorkflowDefinition, WorkflowId } from "@forgetools/contracts";
+import {
+  ProjectId,
+  TrimmedNonEmptyString,
+  WorkflowDefinition,
+  WorkflowId,
+} from "@forgetools/contracts";
 import { Option, Schema, ServiceMap } from "effect";
 import type { Effect } from "effect";
 
@@ -11,6 +16,7 @@ export type QueryWorkflowByIdInput = typeof QueryWorkflowByIdInput.Type;
 
 export const QueryWorkflowByNameInput = Schema.Struct({
   name: TrimmedNonEmptyString,
+  projectId: Schema.optional(ProjectId),
 });
 export type QueryWorkflowByNameInput = typeof QueryWorkflowByNameInput.Type;
 

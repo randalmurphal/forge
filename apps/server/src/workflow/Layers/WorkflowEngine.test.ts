@@ -31,6 +31,7 @@ const buildLoopWorkflow: WorkflowDefinition = {
   name: "build-loop",
   description: "Build loop",
   builtIn: true,
+  projectId: null,
   createdAt: "2026-04-05T12:00:00.000Z",
   updatedAt: "2026-04-05T12:00:00.000Z",
   phases: [

@@ -529,6 +529,7 @@ it("session.create accepts an explicit workflow type when it matches the request
         },
       ],
       builtIn: true,
+      projectId: null,
       createdAt: "2026-04-06T18:00:00.000Z",
       updatedAt: "2026-04-06T18:00:00.000Z",
     } as const;
@@ -628,6 +629,7 @@ it("session.create rejects an explicit agent type when a workflow is requested",
                           },
                         ],
                         builtIn: true,
+                        projectId: null,
                         createdAt: "2026-04-06T18:00:00.000Z",
                         updatedAt: "2026-04-06T18:00:00.000Z",
                       })

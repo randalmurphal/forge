@@ -1,4 +1,4 @@
-import { WorkflowId, WorkflowPhaseId } from "@forgetools/contracts";
+import { ProjectId, WorkflowId, WorkflowPhaseId } from "@forgetools/contracts";
 import { assert, it } from "@effect/vitest";
 import { Effect, Layer, Option, Schema } from "effect";
 import * as SqlClient from "effect/unstable/sql/SqlClient";
@@ -40,6 +40,7 @@ layer("ProjectionWorkflowRepository", (it) => {
           },
         ],
         builtIn: true,
+        projectId: null,
         onCompletion: {
           autoCommit: true,
           autoPush: true,
@@ -69,6 +70,7 @@ layer("ProjectionWorkflowRepository", (it) => {
           },
         ],
         builtIn: false,
+        projectId: null,
         onCompletion: {
           createPr: true,
         },
@@ -100,6 +102,7 @@ layer("ProjectionWorkflowRepository", (it) => {
           },
         ],
         builtIn: true,
+        projectId: null,
         onCompletion: {
           autoCommit: true,
           autoPush: true,
@@ -142,6 +145,7 @@ layer("ProjectionWorkflowRepository", (it) => {
           },
         ],
         builtIn: true,
+        projectId: null,
         onCompletion: {
           autoPush: true,
         },
@@ -169,6 +173,7 @@ layer("ProjectionWorkflowRepository", (it) => {
           },
         ],
         builtIn: false,
+        projectId: null,
         onCompletion: {
           createPr: true,
         },
@@ -202,6 +207,103 @@ layer("ProjectionWorkflowRepository", (it) => {
         workflowId: WorkflowId.makeUnsafe("workflow-alpha"),
       });
       assert.deepStrictEqual(Option.getOrNull(deletedWorkflow), null);
+    }),
+  );
+
+  it.effect("prefers a matching project-scoped workflow when querying by name", () =>
+    Effect.gen(function* () {
+      const repository = yield* ProjectionWorkflowRepository;
+      const projectId = ProjectId.makeUnsafe("project-1");
+
+      yield* repository.upsert({
+        workflowId: WorkflowId.makeUnsafe("workflow-built-in-review"),
+        name: "review",
+        description: "Built-in review",
+        phases: [
+          {
+            id: WorkflowPhaseId.makeUnsafe("phase-built-in-review"),
+            name: "review",
+            type: "single-agent",
+            agent: {
+              prompt: "review",
+              output: { type: "conversation" },
+            },
+            gate: {
+              after: "done",
+              onFail: "stop",
+              maxRetries: 0,
+            },
+          },
+        ],
+        builtIn: true,
+        projectId: null,
+        createdAt: "2026-04-05T12:00:00.000Z",
+        updatedAt: "2026-04-05T12:00:00.000Z",
+      });
+
+      yield* repository.upsert({
+        workflowId: WorkflowId.makeUnsafe("workflow-global-review"),
+        name: "review",
+        description: "Global review",
+        phases: [
+          {
+            id: WorkflowPhaseId.makeUnsafe("phase-global-review"),
+            name: "review",
+            type: "single-agent",
+            agent: {
+              prompt: "review",
+              output: { type: "conversation" },
+            },
+            gate: {
+              after: "done",
+              onFail: "retry",
+              maxRetries: 1,
+            },
+          },
+        ],
+        builtIn: false,
+        projectId: null,
+        createdAt: "2026-04-05T12:01:00.000Z",
+        updatedAt: "2026-04-05T12:01:00.000Z",
+      });
+
+      yield* repository.upsert({
+        workflowId: WorkflowId.makeUnsafe("workflow-project-review"),
+        name: "review",
+        description: "Project review",
+        phases: [
+          {
+            id: WorkflowPhaseId.makeUnsafe("phase-project-review"),
+            name: "review",
+            type: "single-agent",
+            agent: {
+              prompt: "review",
+              output: { type: "conversation" },
+            },
+            gate: {
+              after: "done",
+              onFail: "retry",
+              maxRetries: 2,
+            },
+          },
+        ],
+        builtIn: false,
+        projectId,
+        createdAt: "2026-04-05T12:02:00.000Z",
+        updatedAt: "2026-04-05T12:02:00.000Z",
+      });
+
+      const scoped = yield* repository.queryByName({ name: "review", projectId });
+      const unscoped = yield* repository.queryByName({ name: "review" });
+
+      assert.strictEqual(
+        Option.getOrNull(scoped)?.workflowId,
+        WorkflowId.makeUnsafe("workflow-project-review"),
+      );
+      assert.strictEqual(
+        Option.getOrNull(unscoped)?.workflowId,
+        WorkflowId.makeUnsafe("workflow-global-review"),
+      );
     }),
   );
 

@@ -93,6 +93,7 @@ it.effect("loads built-in workflow YAML files and materializes them into the wor
         },
       ],
       builtIn: true,
+      projectId: null,
       onCompletion: {
         autoCommit: true,
         createPr: true,
@@ -133,6 +134,7 @@ it.effect("resolves workflows by name with user-defined precedence over built-in
           },
         ],
         builtIn: false,
+        projectId: null,
         onCompletion: {
           autoPush: true,
         },

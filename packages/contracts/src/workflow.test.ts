@@ -162,6 +162,7 @@ it.effect("decodes workflow definitions with description defaults", () =>
 
     assert.strictEqual(parsed.name, "Full Build");
     assert.strictEqual(parsed.description, "");
+    assert.strictEqual(parsed.projectId, null);
     assert.strictEqual(parsed.phases.length, 1);
     assert.strictEqual(parsed.onCompletion?.autoCommit, true);
   }),

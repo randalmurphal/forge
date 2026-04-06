@@ -1,4 +1,4 @@
-import { WorkflowCompletionConfig, WorkflowPhase } from "@forgetools/contracts";
+import { ProjectId, WorkflowCompletionConfig, WorkflowPhase } from "@forgetools/contracts";
 import { Effect, Layer, Option, Schema, Struct } from "effect";
 import * as SqlClient from "effect/unstable/sql/SqlClient";
 import * as SqlSchema from "effect/unstable/sql/SqlSchema";
@@ -17,6 +17,7 @@ const ProjectionWorkflowDbRow = ProjectionWorkflow.mapFields(
   Struct.assign({
     phases: Schema.fromJsonString(Schema.Array(WorkflowPhase)),
     builtIn: Schema.Number,
+    projectId: Schema.NullOr(ProjectId),
     onCompletion: Schema.NullOr(Schema.fromJsonString(WorkflowCompletionConfig)),
   }),
 );
@@ -29,6 +30,7 @@ function toProjectionWorkflow(row: ProjectionWorkflowDbRow): ProjectionWorkflow 
     description: row.description,
     phases: row.phases,
     builtIn: row.builtIn === 1,
+    projectId: row.projectId,
     ...(row.onCompletion !== null ? { onCompletion: row.onCompletion } : {}),
     createdAt: row.createdAt,
     updatedAt: row.updatedAt,
@@ -48,6 +50,7 @@ const makeProjectionWorkflowRepository = Effect.gen(function* () {
           description,
           phases_json,
           built_in,
+          project_id,
           on_completion_json,
           created_at,
           updated_at
@@ -58,6 +61,7 @@ const makeProjectionWorkflowRepository = Effect.gen(function* () {
           ${row.description},
           ${JSON.stringify(row.phases)},
           ${row.builtIn ? 1 : 0},
+          ${row.projectId},
           ${row.onCompletion ? JSON.stringify(row.onCompletion) : null},
           ${row.createdAt},
           ${row.updatedAt}
@@ -68,6 +72,7 @@ const makeProjectionWorkflowRepository = Effect.gen(function* () {
           description = excluded.description,
           phases_json = excluded.phases_json,
           built_in = excluded.built_in,
+          project_id = excluded.project_id,
           on_completion_json = excluded.on_completion_json,
           created_at = excluded.created_at,
           updated_at = excluded.updated_at
@@ -85,6 +90,7 @@ const makeProjectionWorkflowRepository = Effect.gen(function* () {
           description,
           phases_json AS "phases",
           built_in AS "builtIn",
+          project_id AS "projectId",
           on_completion_json AS "onCompletion",
           created_at AS "createdAt",
           updated_at AS "updatedAt"
@@ -97,22 +103,51 @@ const makeProjectionWorkflowRepository = Effect.gen(function* () {
   const queryProjectionWorkflowByNameRow = SqlSchema.findOneOption({
     Request: QueryProjectionWorkflowByNameInput,
     Result: ProjectionWorkflowDbRow,
-    execute: ({ name }) =>
-      sql`
+    execute: ({ name, projectId }) => {
+      if (projectId === undefined) {
+        return sql`
+          SELECT
+            workflow_id AS "workflowId",
+            name,
+            description,
+            phases_json AS "phases",
+            built_in AS "builtIn",
+            project_id AS "projectId",
+            on_completion_json AS "onCompletion",
+            created_at AS "createdAt",
+            updated_at AS "updatedAt"
+          FROM workflows
+          WHERE name = ${name}
+            AND (built_in = 1 OR project_id IS NULL)
+          ORDER BY built_in ASC, workflow_id ASC
+          LIMIT 1
+        `;
+      }
+
+      return sql`
         SELECT
           workflow_id AS "workflowId",
           name,
           description,
           phases_json AS "phases",
           built_in AS "builtIn",
+          project_id AS "projectId",
           on_completion_json AS "onCompletion",
           created_at AS "createdAt",
           updated_at AS "updatedAt"
         FROM workflows
         WHERE name = ${name}
-        ORDER BY built_in ASC, workflow_id ASC
+          AND (built_in = 1 OR project_id IS NULL OR project_id = ${projectId})
+        ORDER BY
+          CASE
+            WHEN project_id = ${projectId} THEN 0
+            WHEN built_in = 0 AND project_id IS NULL THEN 1
+            ELSE 2
+          END ASC,
+          workflow_id ASC
         LIMIT 1
-      `,
+      `;
+    },
   });
 
   const queryAllProjectionWorkflowRows = SqlSchema.findAll({
@@ -126,11 +161,16 @@ const makeProjectionWorkflowRepository = Effect.gen(function* () {
           description,
           phases_json AS "phases",
           built_in AS "builtIn",
+          project_id AS "projectId",
           on_completion_json AS "onCompletion",
           created_at AS "createdAt",
           updated_at AS "updatedAt"
         FROM workflows
-        ORDER BY name ASC, built_in ASC, workflow_id ASC
+        ORDER BY
+          built_in DESC,
+          CASE WHEN project_id IS NOT NULL THEN 0 ELSE 1 END ASC,
+          name ASC,
+          workflow_id ASC
       `,
   });
 

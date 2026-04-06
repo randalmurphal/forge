@@ -146,6 +146,8 @@ export function WorkflowEditor(props: { workflowId: WorkflowId | null }) {
       return;
     }
     setDraft(sourceWorkflow);
+    setScope(sourceWorkflow.projectId === null ? "global" : "project");
+    setProjectId(sourceWorkflow.projectId);
     setDraftDirty(false);
   }, [props.workflowId, sourceWorkflow]);
 
@@ -173,7 +175,11 @@ export function WorkflowEditor(props: { workflowId: WorkflowId | null }) {
         throw new Error("Workflow draft is unavailable.");
       }
 
-      const workflow = buildWorkflowMutationDefinition(draft, new Date().toISOString());
+      const workflow = buildWorkflowMutationDefinition(
+        draft,
+        new Date().toISOString(),
+        resolvedProjectId,
+      );
       const kind = resolveWorkflowMutationKind({
         routeWorkflowId: props.workflowId,
         sourceWorkflow,
@@ -239,6 +245,7 @@ export function WorkflowEditor(props: { workflowId: WorkflowId | null }) {
           name: summary.name,
           description: summary.description,
           builtIn: summary.builtIn,
+          projectId: summary.projectId,
           phases: [],
           createdAt: "",
           updatedAt: "",

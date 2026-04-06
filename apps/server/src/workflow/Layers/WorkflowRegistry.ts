@@ -28,6 +28,7 @@ function toWorkflowDefinition(row: ProjectionWorkflow): WorkflowDefinition {
     description: row.description,
     phases: row.phases,
     builtIn: row.builtIn,
+    projectId: row.projectId,
     ...(row.onCompletion ? { onCompletion: row.onCompletion } : {}),
     createdAt: row.createdAt,
     updatedAt: row.updatedAt,
@@ -140,6 +141,7 @@ const makeWorkflowRegistry = Effect.fn("makeWorkflowRegistry")(function* (
             description: workflow.description,
             phases: workflow.phases,
             builtIn: true,
+            projectId: null,
             ...(workflow.onCompletion ? { onCompletion: workflow.onCompletion } : {}),
             createdAt: workflow.createdAt,
             updatedAt: workflow.updatedAt,
@@ -165,6 +167,7 @@ const makeWorkflowRegistry = Effect.fn("makeWorkflowRegistry")(function* (
     repository
       .queryByName({
         name: input.name,
+        ...(input.projectId === undefined ? {} : { projectId: input.projectId }),
       })
       .pipe(Effect.map(Option.map(toWorkflowDefinition)));
 

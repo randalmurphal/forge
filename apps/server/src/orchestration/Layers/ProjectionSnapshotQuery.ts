@@ -138,6 +138,7 @@ const ProjectionWorkflowDbRowSchema = Schema.Struct({
   description: Schema.String,
   phases: Schema.fromJsonString(Schema.Array(WorkflowPhase)),
   builtIn: Schema.Number,
+  projectId: Schema.NullOr(ProjectId),
   createdAt: IsoDateTime,
   updatedAt: IsoDateTime,
 });
@@ -436,10 +437,15 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
           description,
           phases_json AS "phases",
           built_in AS "builtIn",
+          project_id AS "projectId",
           created_at AS "createdAt",
           updated_at AS "updatedAt"
         FROM workflows
-        ORDER BY name ASC, built_in ASC, workflow_id ASC
+        ORDER BY
+          built_in DESC,
+          CASE WHEN project_id IS NOT NULL THEN 0 ELSE 1 END ASC,
+          name ASC,
+          workflow_id ASC
       `,
   });
 
@@ -978,6 +984,7 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
             name: row.name,
             description: row.description,
             builtIn: row.builtIn === 1,
+            projectId: row.projectId,
           }));
 
           const snapshot = {

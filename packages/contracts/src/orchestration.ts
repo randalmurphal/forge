@@ -411,6 +411,7 @@ export const WorkflowSummary = Schema.Struct({
   name: TrimmedNonEmptyString,
   description: Schema.String,
   builtIn: Schema.Boolean,
+  projectId: Schema.NullOr(ProjectId).pipe(Schema.withDecodingDefault(() => null)),
 });
 export type WorkflowSummary = typeof WorkflowSummary.Type;
 
