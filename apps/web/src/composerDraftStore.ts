@@ -11,6 +11,7 @@ import {
   RuntimeMode,
   type ServerProvider,
   ThreadId,
+  WorkflowId,
 } from "@forgetools/contracts";
 import * as Schema from "effect/Schema";
 import * as Equal from "effect/Equal";
@@ -144,6 +145,7 @@ const PersistedDraftThreadState = Schema.Struct({
   createdAt: Schema.String,
   runtimeMode: RuntimeMode,
   interactionMode: ProviderInteractionMode,
+  workflowId: Schema.NullOr(WorkflowId),
   branch: Schema.NullOr(Schema.String),
   worktreePath: Schema.NullOr(Schema.String),
   envMode: DraftThreadEnvModeSchema,
@@ -183,6 +185,7 @@ export interface DraftThreadState {
   createdAt: string;
   runtimeMode: RuntimeMode;
   interactionMode: ProviderInteractionMode;
+  workflowId: WorkflowId | null;
   branch: string | null;
   worktreePath: string | null;
   envMode: DraftThreadEnvMode;
@@ -210,6 +213,7 @@ interface ComposerDraftStoreState {
       envMode?: DraftThreadEnvMode;
       runtimeMode?: RuntimeMode;
       interactionMode?: ProviderInteractionMode;
+      workflowId?: WorkflowId | null;
     },
   ) => void;
   setDraftThreadContext: (
@@ -222,6 +226,7 @@ interface ComposerDraftStoreState {
       envMode?: DraftThreadEnvMode;
       runtimeMode?: RuntimeMode;
       interactionMode?: ProviderInteractionMode;
+      workflowId?: WorkflowId | null;
     },
   ) => void;
   clearProjectDraftThreadId: (projectId: ProjectId) => void;
@@ -780,6 +785,7 @@ function normalizePersistedDraftThreads(
       const candidateDraftThread = rawDraftThread as Record<string, unknown>;
       const projectId = candidateDraftThread.projectId;
       const createdAt = candidateDraftThread.createdAt;
+      const workflowId = candidateDraftThread.workflowId;
       const branch = candidateDraftThread.branch;
       const worktreePath = candidateDraftThread.worktreePath;
       const normalizedWorktreePath = typeof worktreePath === "string" ? worktreePath : null;
@@ -802,6 +808,10 @@ function normalizePersistedDraftThreads(
           candidateDraftThread.interactionMode === "default"
             ? candidateDraftThread.interactionMode
             : DEFAULT_INTERACTION_MODE,
+        workflowId:
+          typeof workflowId === "string" && workflowId.length > 0
+            ? (workflowId as WorkflowId)
+            : null,
         branch: typeof branch === "string" ? branch : null,
         worktreePath: normalizedWorktreePath,
         envMode: normalizeDraftThreadEnvMode(candidateDraftThread.envMode, normalizedWorktreePath),
@@ -830,6 +840,7 @@ function normalizePersistedDraftThreads(
             createdAt: new Date().toISOString(),
             runtimeMode: DEFAULT_RUNTIME_MODE,
             interactionMode: DEFAULT_INTERACTION_MODE,
+            workflowId: null,
             branch: null,
             worktreePath: null,
             envMode: "local",
@@ -1320,6 +1331,10 @@ export const useComposerDraftStore = create<ComposerDraftStoreState>()(
               options?.interactionMode ??
               existingThread?.interactionMode ??
               DEFAULT_INTERACTION_MODE,
+            workflowId:
+              options?.workflowId === undefined
+                ? (existingThread?.workflowId ?? null)
+                : (options.workflowId ?? null),
             branch:
               options?.branch === undefined
                 ? (existingThread?.branch ?? null)
@@ -1336,6 +1351,7 @@ export const useComposerDraftStore = create<ComposerDraftStoreState>()(
             existingThread.createdAt === nextDraftThread.createdAt &&
             existingThread.runtimeMode === nextDraftThread.runtimeMode &&
             existingThread.interactionMode === nextDraftThread.interactionMode &&
+            existingThread.workflowId === nextDraftThread.workflowId &&
             existingThread.branch === nextDraftThread.branch &&
             existingThread.worktreePath === nextDraftThread.worktreePath &&
             existingThread.envMode === nextDraftThread.envMode;
@@ -1394,6 +1410,8 @@ export const useComposerDraftStore = create<ComposerDraftStoreState>()(
                 : options.createdAt || existing.createdAt,
             runtimeMode: options.runtimeMode ?? existing.runtimeMode,
             interactionMode: options.interactionMode ?? existing.interactionMode,
+            workflowId:
+              options.workflowId === undefined ? existing.workflowId : (options.workflowId ?? null),
             branch: options.branch === undefined ? existing.branch : (options.branch ?? null),
             worktreePath: nextWorktreePath,
             envMode:
@@ -1404,6 +1422,7 @@ export const useComposerDraftStore = create<ComposerDraftStoreState>()(
             nextDraftThread.createdAt === existing.createdAt &&
             nextDraftThread.runtimeMode === existing.runtimeMode &&
             nextDraftThread.interactionMode === existing.interactionMode &&
+            nextDraftThread.workflowId === existing.workflowId &&
             nextDraftThread.branch === existing.branch &&
             nextDraftThread.worktreePath === existing.worktreePath &&
             nextDraftThread.envMode === existing.envMode;

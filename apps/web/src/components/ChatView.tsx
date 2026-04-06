@@ -90,6 +90,7 @@ import BranchToolbar from "./BranchToolbar";
 import { resolveShortcutCommand, shortcutLabelForCommand } from "../keybindings";
 import PlanSidebar from "./PlanSidebar";
 import ThreadTerminalDrawer from "./ThreadTerminalDrawer";
+import { WorkflowPicker } from "./WorkflowPicker";
 import {
   BotIcon,
   ChevronDownIcon,
@@ -3014,6 +3015,7 @@ export default function ChatView({ threadId }: ChatViewProps) {
           threadId: threadIdForSend,
           projectId: activeProject.id,
           title,
+          ...(activeThread.workflowId ? { workflowId: activeThread.workflowId } : {}),
           modelSelection: threadCreateModelSelection,
           runtimeMode,
           interactionMode,
@@ -4232,6 +4234,14 @@ export default function ChatView({ threadId }: ChatViewProps) {
                             : "gap-1 overflow-x-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden sm:min-w-max sm:overflow-visible",
                         )}
                       >
+                        {isLocalDraftThread ? (
+                          <WorkflowPicker
+                            threadId={threadId}
+                            compact={isComposerFooterCompact}
+                            disabled={isConnecting || isSendBusy}
+                          />
+                        ) : null}
+
                         {/* Provider/model picker */}
                         <ProviderModelPicker
                           compact={isComposerFooterCompact}

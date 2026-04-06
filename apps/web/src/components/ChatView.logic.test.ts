@@ -1,9 +1,10 @@
-import { ProjectId, ThreadId, TurnId } from "@forgetools/contracts";
+import { ProjectId, ThreadId, TurnId, WorkflowId } from "@forgetools/contracts";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { useStore } from "../store";
 
 import {
   MAX_HIDDEN_MOUNTED_TERMINAL_THREADS,
+  buildLocalDraftThread,
   buildExpiredTerminalContextToastCopy,
   buildTemporaryWorktreeBranchName,
   createLocalDispatchSnapshot,
@@ -12,6 +13,32 @@ import {
   reconcileMountedTerminalThreadIds,
   waitForStartedServerThread,
 } from "./ChatView.logic";
+
+describe("buildLocalDraftThread", () => {
+  it("projects workflow selection from the draft thread", () => {
+    const workflowId = WorkflowId.makeUnsafe("workflow-build-loop");
+    const thread = buildLocalDraftThread(
+      ThreadId.makeUnsafe("draft-thread"),
+      {
+        projectId: ProjectId.makeUnsafe("project-1"),
+        createdAt: "2026-04-06T00:00:00.000Z",
+        runtimeMode: "full-access",
+        interactionMode: "default",
+        workflowId,
+        branch: null,
+        worktreePath: null,
+        envMode: "local",
+      },
+      {
+        provider: "codex",
+        model: "gpt-5.4",
+      },
+      null,
+    );
+
+    expect(thread.workflowId).toBe(workflowId);
+  });
+});
 
 describe("deriveComposerSendState", () => {
   it("treats expired terminal pills as non-sendable content", () => {

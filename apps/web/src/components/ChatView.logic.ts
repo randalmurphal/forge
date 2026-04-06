@@ -30,6 +30,7 @@ export function buildLocalDraftThread(
     modelSelection: fallbackModelSelection,
     runtimeMode: draftThread.runtimeMode,
     interactionMode: draftThread.interactionMode,
+    workflowId: draftThread.workflowId,
     session: null,
     messages: [],
     error,

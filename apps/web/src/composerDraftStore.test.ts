@@ -3,6 +3,7 @@ import {
   ThreadId,
   type ModelSelection,
   type ProviderModelOptions,
+  WorkflowId,
 } from "@forgetools/contracts";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -486,6 +487,7 @@ describe("composerDraftStore project draft thread mapping", () => {
     expect(store.getDraftThread(threadId)).toBeNull();
 
     store.setProjectDraftThreadId(projectId, threadId, {
+      workflowId: WorkflowId.makeUnsafe("workflow-build-loop"),
       branch: "feature/test",
       worktreePath: "/tmp/worktree-test",
       createdAt: "2026-01-01T00:00:00.000Z",
@@ -493,6 +495,7 @@ describe("composerDraftStore project draft thread mapping", () => {
     expect(useComposerDraftStore.getState().getDraftThreadByProjectId(projectId)).toEqual({
       threadId,
       projectId,
+      workflowId: WorkflowId.makeUnsafe("workflow-build-loop"),
       branch: "feature/test",
       worktreePath: "/tmp/worktree-test",
       envMode: "worktree",
@@ -502,12 +505,26 @@ describe("composerDraftStore project draft thread mapping", () => {
     });
     expect(useComposerDraftStore.getState().getDraftThread(threadId)).toEqual({
       projectId,
+      workflowId: WorkflowId.makeUnsafe("workflow-build-loop"),
       branch: "feature/test",
       worktreePath: "/tmp/worktree-test",
       envMode: "worktree",
       runtimeMode: "full-access",
       interactionMode: "default",
       createdAt: "2026-01-01T00:00:00.000Z",
+    });
+  });
+
+  it("updates workflow selection on an existing draft thread", () => {
+    const store = useComposerDraftStore.getState();
+    store.setProjectDraftThreadId(projectId, threadId);
+    store.setDraftThreadContext(threadId, {
+      workflowId: WorkflowId.makeUnsafe("workflow-code-review"),
+    });
+
+    expect(useComposerDraftStore.getState().getDraftThread(threadId)).toMatchObject({
+      projectId,
+      workflowId: WorkflowId.makeUnsafe("workflow-code-review"),
     });
   });
 

@@ -13,6 +13,7 @@ import {
   type ServerLifecycleWelcomePayload,
   type ThreadId,
   type TurnId,
+  WorkflowId,
   WS_METHODS,
   OrchestrationSessionStatus,
   DEFAULT_SERVER_SETTINGS,
@@ -469,6 +470,7 @@ function setDraftThreadWithoutWorktree(): void {
         createdAt: NOW_ISO,
         runtimeMode: "full-access",
         interactionMode: "default",
+        workflowId: null,
         branch: null,
         worktreePath: null,
         envMode: "local",
@@ -695,6 +697,11 @@ function resolveWsRpc(body: NormalizedWsRpcRequestBody): unknown {
     return {
       entries: [],
       truncated: false,
+    };
+  }
+  if (tag === WS_METHODS.workflowList) {
+    return {
+      workflows: [],
     };
   }
   if (tag === WS_METHODS.shellOpenInEditor) {
@@ -1605,6 +1612,7 @@ describe("ChatView timeline estimator parity (full app)", () => {
           createdAt: NOW_ISO,
           runtimeMode: "full-access",
           interactionMode: "default",
+          workflowId: null,
           branch: null,
           worktreePath: null,
           envMode: "local",
@@ -1681,6 +1689,7 @@ describe("ChatView timeline estimator parity (full app)", () => {
           createdAt: NOW_ISO,
           runtimeMode: "full-access",
           interactionMode: "default",
+          workflowId: null,
           branch: "feature/draft",
           worktreePath: "/repo/worktrees/feature-draft",
           envMode: "worktree",
@@ -1744,6 +1753,7 @@ describe("ChatView timeline estimator parity (full app)", () => {
           createdAt: NOW_ISO,
           runtimeMode: "full-access",
           interactionMode: "default",
+          workflowId: null,
           branch: null,
           worktreePath: null,
           envMode: "local",
@@ -2252,6 +2262,79 @@ describe("ChatView timeline estimator parity (full app)", () => {
         .element(page.getByText("Send a message to start the conversation."))
         .toBeInTheDocument();
       await expect.element(page.getByTestId("composer-editor")).toBeInTheDocument();
+    } finally {
+      await mounted.cleanup();
+    }
+  });
+
+  it("includes the selected workflow in the first thread.create command for a draft thread", async () => {
+    const workflowId = WorkflowId.makeUnsafe("workflow-build-loop");
+    const mounted = await mountChatView({
+      viewport: DEFAULT_VIEWPORT,
+      snapshot: createSnapshotForTargetUser({
+        targetMessageId: "msg-user-workflow-picker" as MessageId,
+        targetText: "workflow picker target",
+      }),
+      resolveRpc: (body) => {
+        if (body._tag === WS_METHODS.workflowList) {
+          return {
+            workflows: [
+              {
+                workflowId,
+                name: "Build Loop",
+                description: "Implement with quality checks",
+                builtIn: true,
+              },
+            ],
+          };
+        }
+        return undefined;
+      },
+    });
+
+    try {
+      const newThreadButton = page.getByTestId("new-thread-button");
+      await expect.element(newThreadButton).toBeInTheDocument();
+      await newThreadButton.click();
+
+      const newThreadPath = await waitForURL(
+        mounted.router,
+        (path) => UUID_ROUTE_RE.test(path),
+        "Route should have changed to a new draft thread UUID.",
+      );
+      const newThreadId = newThreadPath.slice(1) as ThreadId;
+
+      await waitForComposerEditor();
+      await page.getByTestId("workflow-picker-trigger").click();
+      await page.getByText("Build Loop").click();
+
+      await vi.waitFor(
+        () => {
+          expect(useComposerDraftStore.getState().getDraftThread(newThreadId)?.workflowId).toBe(
+            workflowId,
+          );
+        },
+        { timeout: 8_000, interval: 16 },
+      );
+
+      useComposerDraftStore.getState().setPrompt(newThreadId, "Run the build loop");
+      const sendButton = await waitForSendButton();
+      await expect.element(sendButton).toBeEnabled();
+      sendButton.click();
+
+      await vi.waitFor(
+        () => {
+          const request = wsRequests.find(
+            (candidate) =>
+              candidate._tag === ORCHESTRATION_WS_METHODS.dispatchCommand &&
+              candidate.type === "thread.create" &&
+              candidate.threadId === newThreadId,
+          );
+          expect(request).toBeTruthy();
+          expect(request?.workflowId).toBe(workflowId);
+        },
+        { timeout: 8_000, interval: 16 },
+      );
     } finally {
       await mounted.cleanup();
     }
