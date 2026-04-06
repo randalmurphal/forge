@@ -27,6 +27,7 @@ import { autoUpdater } from "electron-updater";
 import type { ContextMenuItem } from "@forgetools/contracts";
 import { RotatingFileSink } from "@forgetools/shared/logging";
 import { showDesktopConfirmDialog } from "./confirmDialog";
+import { resolveDesktopBaseDir, resolveDesktopDaemonPaths } from "./daemonState";
 import {
   buildDesktopWindowUrl,
   buildDetachedDaemonLaunchPlan,
@@ -67,8 +68,8 @@ const UPDATE_GET_STATE_CHANNEL = "desktop:update-get-state";
 const UPDATE_DOWNLOAD_CHANNEL = "desktop:update-download";
 const UPDATE_INSTALL_CHANNEL = "desktop:update-install";
 const UPDATE_CHECK_CHANNEL = "desktop:update-check";
-const GET_WS_URL_CHANNEL = "desktop:get-ws-url";
-const BASE_DIR = process.env.FORGE_HOME?.trim() || Path.join(OS.homedir(), ".forge");
+const BASE_DIR = resolveDesktopBaseDir(process.env);
+const DAEMON_PATHS = resolveDesktopDaemonPaths(BASE_DIR);
 const STATE_DIR = Path.join(BASE_DIR, "userdata");
 const DESKTOP_SCHEME = "forge";
 const ROOT_DIR = Path.resolve(__dirname, "../../..");
@@ -1016,11 +1017,7 @@ async function ensureDaemonReady(): Promise<void> {
   writeDesktopLogHeader(`resolving daemon connection baseDir=${BASE_DIR}`);
 
   const daemon = await ensureDaemonConnection({
-    paths: {
-      baseDir: BASE_DIR,
-      socketPath: Path.join(BASE_DIR, "forge.sock"),
-      daemonInfoPath: Path.join(BASE_DIR, "daemon.json"),
-    },
+    paths: DAEMON_PATHS,
     spawnDetachedDaemon: async () => {
       const launchPlan = buildDetachedDaemonLaunchPlan({
         baseDir: BASE_DIR,
@@ -1043,11 +1040,6 @@ async function ensureDaemonReady(): Promise<void> {
 }
 
 function registerIpcHandlers(): void {
-  ipcMain.removeAllListeners(GET_WS_URL_CHANNEL);
-  ipcMain.on(GET_WS_URL_CHANNEL, (event) => {
-    event.returnValue = backendWsUrl;
-  });
-
   ipcMain.removeHandler(PICK_FOLDER_CHANNEL);
   ipcMain.handle(PICK_FOLDER_CHANNEL, async () => {
     const owner = BrowserWindow.getFocusedWindow() ?? mainWindow;

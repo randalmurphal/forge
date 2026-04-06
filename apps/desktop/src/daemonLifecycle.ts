@@ -1,21 +1,16 @@
 import * as ChildProcess from "node:child_process";
-import * as FSP from "node:fs/promises";
 import * as Net from "node:net";
 import * as readline from "node:readline";
+import * as FSP from "node:fs/promises";
+import {
+  buildDaemonWsUrl,
+  readDaemonInfo,
+  type DesktopDaemonInfo,
+  type DesktopDaemonPaths,
+} from "./daemonState";
 
-export interface DesktopDaemonPaths {
-  readonly baseDir: string;
-  readonly socketPath: string;
-  readonly daemonInfoPath: string;
-}
-
-export interface DesktopDaemonInfo {
-  readonly pid: number;
-  readonly wsPort: number;
-  readonly wsToken: string;
-  readonly socketPath: string;
-  readonly startedAt: string;
-}
+export { buildDaemonWsUrl, readDaemonInfo };
+export type { DesktopDaemonInfo, DesktopDaemonPaths };
 
 export interface DetachedDaemonLaunchPlan {
   readonly command: string;
@@ -59,59 +54,7 @@ const DEFAULT_DAEMON_TIMEOUT_MS = 5_000;
 const DEFAULT_POLL_INTERVAL_MS = 100;
 const DEFAULT_PING_TIMEOUT_MS = 1_000;
 
-const isRecord = (value: unknown): value is Record<string, unknown> =>
-  typeof value === "object" && value !== null;
-const isPositiveInteger = (value: unknown): value is number =>
-  typeof value === "number" && Number.isInteger(value) && value > 0;
-const isNonEmptyString = (value: unknown): value is string =>
-  typeof value === "string" && value.length > 0;
-
-const toDesktopDaemonInfo = (value: unknown): DesktopDaemonInfo | undefined => {
-  if (!isRecord(value)) {
-    return undefined;
-  }
-
-  const pid = value.pid;
-  const wsPort = value.wsPort;
-  const wsToken = value.wsToken;
-  const socketPath = value.socketPath;
-  const startedAt = value.startedAt;
-
-  if (
-    !isPositiveInteger(pid) ||
-    !isPositiveInteger(wsPort) ||
-    !isNonEmptyString(wsToken) ||
-    !isNonEmptyString(socketPath) ||
-    !isNonEmptyString(startedAt)
-  ) {
-    return undefined;
-  }
-
-  return {
-    pid,
-    wsPort,
-    wsToken,
-    socketPath,
-    startedAt,
-  };
-};
-
 const sleep = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms));
-
-export const readDaemonInfo = async (
-  daemonInfoPath: string,
-): Promise<DesktopDaemonInfo | undefined> => {
-  try {
-    const raw = await FSP.readFile(daemonInfoPath, "utf8");
-    return toDesktopDaemonInfo(JSON.parse(raw));
-  } catch (error) {
-    const nodeError = error as NodeJS.ErrnoException;
-    if (nodeError.code === "ENOENT") {
-      return undefined;
-    }
-    return undefined;
-  }
-};
 
 export const pingDaemon = async (
   socketPath: string,
@@ -176,9 +119,6 @@ export const pingDaemon = async (
     });
   });
 };
-
-export const buildDaemonWsUrl = (info: DesktopDaemonInfo): string =>
-  `ws://127.0.0.1:${info.wsPort}/?token=${encodeURIComponent(info.wsToken)}`;
 
 export const buildDetachedDaemonLaunchPlan = (input: {
   readonly baseDir: string;

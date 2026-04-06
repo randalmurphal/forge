@@ -1,5 +1,6 @@
 import { contextBridge, ipcRenderer } from "electron";
 import type { DesktopBridge } from "@forgetools/contracts";
+import { createDesktopWsUrlResolver } from "./daemonState";
 
 const PICK_FOLDER_CHANNEL = "desktop:pick-folder";
 const CONFIRM_CHANNEL = "desktop:confirm";
@@ -12,13 +13,12 @@ const UPDATE_GET_STATE_CHANNEL = "desktop:update-get-state";
 const UPDATE_CHECK_CHANNEL = "desktop:update-check";
 const UPDATE_DOWNLOAD_CHANNEL = "desktop:update-download";
 const UPDATE_INSTALL_CHANNEL = "desktop:update-install";
-const GET_WS_URL_CHANNEL = "desktop:get-ws-url";
+
+const wsUrlResolver = createDesktopWsUrlResolver();
+void wsUrlResolver.prime();
 
 contextBridge.exposeInMainWorld("desktopBridge", {
-  getWsUrl: () => {
-    const result = ipcRenderer.sendSync(GET_WS_URL_CHANNEL);
-    return typeof result === "string" ? result : null;
-  },
+  getWsUrl: () => wsUrlResolver.getWsUrl(),
   pickFolder: () => ipcRenderer.invoke(PICK_FOLDER_CHANNEL),
   confirm: (message) => ipcRenderer.invoke(CONFIRM_CHANNEL, message),
   setTheme: (theme) => ipcRenderer.invoke(SET_THEME_CHANNEL, theme),
