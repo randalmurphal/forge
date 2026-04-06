@@ -163,38 +163,63 @@ export const ensureDaemonConnection = async (
 ): Promise<ConnectedDaemon> => {
   const readInfo = input.readDaemonInfo ?? readDaemonInfo;
   const ping = input.pingDaemon ?? pingDaemon;
+  const timeoutMs = input.timeoutMs ?? DEFAULT_DAEMON_TIMEOUT_MS;
+  const pollIntervalMs = input.pollIntervalMs ?? DEFAULT_POLL_INTERVAL_MS;
   const readOptions = {
     expectedSocketPath: input.paths.socketPath,
     requireOwnerOnlyPermissions: true,
   } satisfies DesktopDaemonReadOptions;
 
-  const existing = await readInfo(input.paths.daemonInfoPath, readOptions);
-  if (existing !== undefined && (await ping(input.paths.socketPath))) {
+  const deadline = Date.now() + timeoutMs;
+
+  const connectIfManifestReady = async (
+    source: ConnectedDaemon["source"],
+  ): Promise<ConnectedDaemon | undefined> => {
+    const daemonInfo = await readInfo(input.paths.daemonInfoPath, readOptions);
+    if (daemonInfo === undefined || !(await ping(input.paths.socketPath))) {
+      return undefined;
+    }
+
     return {
-      info: existing,
-      source: "existing",
-      wsUrl: buildDaemonWsUrl(existing),
+      info: daemonInfo,
+      source,
+      wsUrl: buildDaemonWsUrl(daemonInfo),
     };
+  };
+
+  const existing = await connectIfManifestReady("existing");
+  if (existing !== undefined) {
+    return existing;
+  }
+
+  // A responsive socket wins over a missing manifest. Wait for daemon.json to
+  // appear before considering a detached relaunch, otherwise we can race a
+  // healthy daemon that is still persisting its startup metadata.
+  while (Date.now() < deadline && (await ping(input.paths.socketPath))) {
+    const readyExisting = await connectIfManifestReady("existing");
+    if (readyExisting !== undefined) {
+      return readyExisting;
+    }
+    await sleep(pollIntervalMs);
   }
 
   await input.spawnDetachedDaemon();
 
-  const deadline = Date.now() + (input.timeoutMs ?? DEFAULT_DAEMON_TIMEOUT_MS);
   while (Date.now() < deadline) {
-    const nextInfo = await readInfo(input.paths.daemonInfoPath, readOptions);
-    if (nextInfo !== undefined && (await ping(input.paths.socketPath))) {
-      return {
-        info: nextInfo,
-        source: "spawned",
-        wsUrl: buildDaemonWsUrl(nextInfo),
-      };
+    const spawned = await connectIfManifestReady("spawned");
+    if (spawned !== undefined) {
+      return spawned;
     }
-    await sleep(input.pollIntervalMs ?? DEFAULT_POLL_INTERVAL_MS);
+    await sleep(pollIntervalMs);
   }
 
-  throw new Error(
-    `Forge daemon did not become ready within ${input.timeoutMs ?? DEFAULT_DAEMON_TIMEOUT_MS}ms.`,
-  );
+  if (await ping(input.paths.socketPath)) {
+    throw new Error(
+      `Forge daemon is responding on ${input.paths.socketPath}, but ${input.paths.daemonInfoPath} did not become available within ${timeoutMs}ms.`,
+    );
+  }
+
+  throw new Error(`Forge daemon did not become ready within ${timeoutMs}ms.`);
 };
 
 export const requestSingleInstanceOrQuit = (app: SingleInstanceAppLike): boolean => {

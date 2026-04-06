@@ -48,13 +48,45 @@ describe("ensureDaemonConnection", () => {
     expect(spawnDetachedDaemon).not.toHaveBeenCalled();
   });
 
+  it("waits for daemon.json from a responsive existing daemon instead of spawning a duplicate", async () => {
+    const spawnDetachedDaemon = vi.fn(async () => undefined);
+    const readDaemonInfo = vi
+      .fn<(_: string) => Promise<DesktopDaemonInfo | undefined>>()
+      .mockResolvedValueOnce(undefined)
+      .mockResolvedValueOnce(daemonInfo);
+    const pingDaemon = vi.fn(async () => true);
+
+    const result = await ensureDaemonConnection({
+      paths: {
+        baseDir: "/tmp/forge",
+        socketPath: daemonInfo.socketPath,
+        daemonInfoPath: "/tmp/forge/daemon.json",
+      },
+      spawnDetachedDaemon,
+      readDaemonInfo,
+      pingDaemon,
+      timeoutMs: 100,
+      pollIntervalMs: 0,
+    });
+
+    expect(result).toEqual({
+      info: daemonInfo,
+      source: "existing",
+      wsUrl: "ws://127.0.0.1:3773/?token=secret-token",
+    });
+    expect(spawnDetachedDaemon).not.toHaveBeenCalled();
+  });
+
   it("spawns and waits for the daemon when none is running", async () => {
     const spawnDetachedDaemon = vi.fn(async () => undefined);
     const readDaemonInfo = vi
       .fn<(_: string) => Promise<DesktopDaemonInfo | undefined>>()
       .mockResolvedValueOnce(undefined)
       .mockResolvedValueOnce(daemonInfo);
-    const pingDaemon = vi.fn<(_: string) => Promise<boolean>>().mockResolvedValueOnce(true);
+    const pingDaemon = vi
+      .fn<(_: string) => Promise<boolean>>()
+      .mockResolvedValueOnce(false)
+      .mockResolvedValueOnce(true);
 
     const result = await ensureDaemonConnection({
       paths: {
