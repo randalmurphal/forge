@@ -3,6 +3,7 @@ import * as Exit from "effect/Exit";
 import * as Fiber from "effect/Fiber";
 
 import { ServerConfig } from "../../config.ts";
+import { ProviderService } from "../../provider/Services/ProviderService.ts";
 import { ServerRuntimeStartup } from "../../serverRuntimeStartup.ts";
 import { NotificationDispatch } from "../Services/NotificationDispatch.ts";
 import { NotificationReactor } from "../Services/NotificationReactor.ts";
@@ -16,12 +17,36 @@ export const runDaemonModeServer = <A, E, R>(launchHttpServer: Effect.Effect<A, 
   Effect.gen(function* () {
     const config = yield* ServerConfig;
     const daemonService = yield* DaemonService;
+    const providerService = yield* ProviderService;
     const socketTransport = yield* SocketTransport;
     const startup = yield* ServerRuntimeStartup;
     const notificationReactor = yield* NotificationReactor;
 
     // Materialize the notification service so daemon mode includes the runtime dependency.
     yield* NotificationDispatch;
+
+    const gracefulShutdown = Effect.gen(function* () {
+      const activeSessions = yield* providerService.listSessions();
+      if (activeSessions.length > 0) {
+        yield* Effect.logInfo("stopping active provider sessions before daemon shutdown", {
+          sessionCount: activeSessions.length,
+        });
+      }
+      yield* Effect.forEach(
+        activeSessions,
+        (session) =>
+          providerService.stopSession({ threadId: session.threadId }).pipe(
+            Effect.catch((cause) =>
+              Effect.logWarning("failed to stop provider session during daemon shutdown", {
+                threadId: session.threadId,
+                cause: toError(cause),
+              }),
+            ),
+          ),
+        { concurrency: "unbounded", discard: true },
+      );
+      yield* notificationReactor.drain;
+    });
 
     const shutdownRequested = yield* Deferred.make<void>();
     const startedAt = new Date().toISOString();
@@ -36,7 +61,7 @@ export const runDaemonModeServer = <A, E, R>(launchHttpServer: Effect.Effect<A, 
           awaitReady: startup.awaitHttpListening.pipe(Effect.mapError(toError)),
           stopDaemon: Deferred.succeed(shutdownRequested, undefined).pipe(Effect.asVoid),
         }),
-      gracefulShutdown: Effect.void,
+      gracefulShutdown,
       forceShutdown: Effect.void,
     });
 

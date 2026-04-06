@@ -1,9 +1,12 @@
 import { describe, expect, it, vi } from "vitest";
-import { Deferred, Effect, Layer } from "effect";
+import { Deferred, Effect, Layer, Stream } from "effect";
+import { ThreadId, type ProviderSession } from "@forgetools/contracts";
 
 import { ServerConfig, type ServerConfigShape } from "../../config.ts";
+import { ProviderService } from "../../provider/Services/ProviderService.ts";
 import { ServerRuntimeStartup } from "../../serverRuntimeStartup.ts";
 import { runDaemonModeServer } from "./Runtime.ts";
+import type { DaemonServiceError } from "../Errors.ts";
 import { DaemonService } from "../Services/DaemonService.ts";
 import { SocketTransport } from "../Services/SocketTransport.ts";
 import { NotificationDispatch } from "../Services/NotificationDispatch.ts";
@@ -50,8 +53,25 @@ describe("runDaemonModeServer", () => {
   it("binds the daemon socket and stops the server when daemon.stop is requested", async () => {
     let stopDaemon: Effect.Effect<void, Error> | undefined;
     let requestedWsToken: string | undefined;
+    let gracefulShutdown: Effect.Effect<void, DaemonServiceError> | undefined;
+    const activeProviderSessions: ReadonlyArray<ProviderSession> = [
+      {
+        threadId: ThreadId.makeUnsafe("thread-1"),
+        provider: "codex",
+        runtimeMode: "full-access",
+        model: "gpt-5-codex",
+        createdAt: "2026-04-06T00:00:00.000Z",
+        updatedAt: "2026-04-06T00:00:00.000Z",
+        status: "running",
+      },
+    ];
     const stop = vi.fn();
+    const stopSession = vi.fn(() => Effect.void);
+    const listSessions = vi.fn(
+      (): Effect.Effect<ReadonlyArray<ProviderSession>> => Effect.succeed(activeProviderSessions),
+    );
     const startNotifications = vi.fn();
+    const drainNotifications = vi.fn(() => Effect.void);
     const launchStarted = Effect.runSync(Deferred.make<void>());
     const launchStopped = Effect.runSync(Deferred.make<void>());
 
@@ -79,6 +99,7 @@ describe("runDaemonModeServer", () => {
               start: (input) =>
                 Effect.gen(function* () {
                   requestedWsToken = input.wsToken;
+                  gracefulShutdown = input.gracefulShutdown;
                   yield* input.bindSocket("/tmp/forge-daemon-runtime/forge.sock");
                   return {
                     type: "started" as const,
@@ -95,11 +116,26 @@ describe("runDaemonModeServer", () => {
                       socketPath: "/tmp/forge-daemon-runtime/forge.sock",
                       daemonInfoPath: "/tmp/forge-daemon-runtime/daemon.json",
                     },
-                    stop: Effect.sync(() => {
+                    stop: Effect.gen(function* () {
+                      if (gracefulShutdown !== undefined) {
+                        yield* gracefulShutdown;
+                      }
                       stop();
                     }),
                   };
                 }),
+            }),
+            Layer.succeed(ProviderService, {
+              startSession: () => Effect.die("unused"),
+              sendTurn: () => Effect.die("unused"),
+              interruptTurn: () => Effect.die("unused"),
+              respondToRequest: () => Effect.die("unused"),
+              respondToUserInput: () => Effect.die("unused"),
+              stopSession,
+              listSessions,
+              getCapabilities: () => Effect.die("unused"),
+              rollbackConversation: () => Effect.die("unused"),
+              streamEvents: Stream.empty,
             }),
             Layer.succeed(SocketTransport, {
               bind: (input) =>
@@ -125,7 +161,7 @@ describe("runDaemonModeServer", () => {
                 Effect.sync(() => {
                   startNotifications();
                 }),
-              drain: Effect.void,
+              drain: Effect.suspend(() => drainNotifications()),
             }),
           ),
         ),
@@ -139,6 +175,10 @@ describe("runDaemonModeServer", () => {
     await expect(daemonPromise).resolves.toBe("stopped");
     await Effect.runPromise(Deferred.await(launchStopped));
     expect(requestedWsToken).toBe("token");
+    expect(listSessions).toHaveBeenCalledTimes(1);
+    expect(stopSession).toHaveBeenCalledTimes(1);
+    expect(stopSession).toHaveBeenCalledWith({ threadId: "thread-1" });
+    expect(drainNotifications).toHaveBeenCalledTimes(1);
     expect(stop).toHaveBeenCalledTimes(1);
     expect(startNotifications).toHaveBeenCalledTimes(1);
   });
@@ -184,6 +224,18 @@ describe("runDaemonModeServer", () => {
                       daemonInfoPath: "/tmp/forge-daemon-runtime/daemon.json",
                     },
                   }),
+              }),
+              Layer.succeed(ProviderService, {
+                startSession: () => Effect.die("unused"),
+                sendTurn: () => Effect.die("unused"),
+                interruptTurn: () => Effect.die("unused"),
+                respondToRequest: () => Effect.die("unused"),
+                respondToUserInput: () => Effect.die("unused"),
+                stopSession: () => Effect.die("unused"),
+                listSessions: () => Effect.succeed([]),
+                getCapabilities: () => Effect.die("unused"),
+                rollbackConversation: () => Effect.die("unused"),
+                streamEvents: Stream.empty,
               }),
               Layer.succeed(SocketTransport, {
                 bind: () => Effect.die("should not bind a duplicate daemon socket"),
