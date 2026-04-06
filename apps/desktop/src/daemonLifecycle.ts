@@ -54,6 +54,11 @@ export interface BeforeQuitHandlers {
   readonly stopDaemon?: () => void;
 }
 
+export interface DesktopUiReadinessInput {
+  readonly appReady: boolean;
+  readonly backendWsUrl: string;
+}
+
 const DEFAULT_DAEMON_TIMEOUT_MS = 5_000;
 const DEFAULT_POLL_INTERVAL_MS = 100;
 const DEFAULT_PING_TIMEOUT_MS = 1_000;
@@ -202,6 +207,9 @@ export const requestSingleInstanceOrQuit = (app: SingleInstanceAppLike): boolean
 
 export const registerProtocolClient = (app: ProtocolClientAppLike, scheme: string): boolean =>
   app.setAsDefaultProtocolClient(scheme);
+
+export const isDesktopUiReady = (input: DesktopUiReadinessInput): boolean =>
+  input.appReady && input.backendWsUrl.trim().length > 0;
 
 export const extractProtocolUrlFromArgv = (
   argv: ReadonlyArray<string>,

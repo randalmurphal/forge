@@ -34,6 +34,7 @@ import {
   ensureDaemonConnection,
   extractProtocolUrlFromArgv,
   handleDesktopBeforeQuit,
+  isDesktopUiReady,
   launchDetachedDaemon,
   parseSessionProtocolUrl,
   registerProtocolClient,
@@ -413,8 +414,10 @@ function updateDaemonStatus(nextStatus: DaemonStatus, detail?: string): void {
       {
         label: "Show Forge",
         click: () => {
-          const window = mainWindow ?? createWindow();
-          mainWindow = window;
+          const window = mainWindow ?? getOrCreateDesktopWindow("tray-menu-show");
+          if (!window) {
+            return;
+          }
           window.show();
           window.focus();
         },
@@ -442,8 +445,10 @@ function ensureDaemonTray(): void {
 
   daemonTray = new Tray(iconPath);
   daemonTray.on("click", () => {
-    const window = mainWindow ?? createWindow();
-    mainWindow = window;
+    const window = mainWindow ?? getOrCreateDesktopWindow("tray-click");
+    if (!window) {
+      return;
+    }
     window.show();
     window.focus();
   });
@@ -556,7 +561,10 @@ function registerDesktopProtocol(): void {
 function dispatchMenuAction(action: string): void {
   const existingWindow =
     BrowserWindow.getFocusedWindow() ?? mainWindow ?? BrowserWindow.getAllWindows()[0];
-  const targetWindow = existingWindow ?? createWindow();
+  const targetWindow = existingWindow ?? getOrCreateDesktopWindow(`menu-action:${action}`);
+  if (!targetWindow) {
+    return;
+  }
   if (!existingWindow) {
     mainWindow = targetWindow;
   }
@@ -599,7 +607,11 @@ function handleCheckForUpdatesMenuClick(): void {
   }
 
   if (!BrowserWindow.getAllWindows().length) {
-    mainWindow = createWindow();
+    const window = getOrCreateDesktopWindow("menu-check-updates");
+    if (!window) {
+      return;
+    }
+    mainWindow = window;
   }
   void checkForUpdatesFromMenu();
 }
@@ -1215,14 +1227,37 @@ function focusWindow(window: BrowserWindow): void {
   window.focus();
 }
 
+function getOrCreateDesktopWindow(reason: string): BrowserWindow | null {
+  if (mainWindow && !mainWindow.isDestroyed()) {
+    return mainWindow;
+  }
+
+  if (
+    !isDesktopUiReady({
+      appReady: app.isReady(),
+      backendWsUrl,
+    })
+  ) {
+    writeDesktopLogHeader(`window creation deferred reason=${reason} daemonReady=false`);
+    return null;
+  }
+
+  const window = createWindow();
+  mainWindow = window;
+  return window;
+}
+
 function openSessionFromProtocolUrl(rawUrl: string): void {
   const target = parseSessionProtocolUrl(rawUrl, DESKTOP_SCHEME);
   if (!target) {
     return;
   }
 
-  const window = mainWindow ?? createWindow();
-  mainWindow = window;
+  const window = mainWindow ?? getOrCreateDesktopWindow("protocol-open");
+  if (!window) {
+    pendingProtocolUrl = rawUrl;
+    return;
+  }
   pendingProtocolUrl = undefined;
   void window.loadURL(
     buildDesktopWindowUrl({
@@ -1239,7 +1274,12 @@ function handlePotentialProtocolUrl(rawUrl: string | undefined): void {
     return;
   }
 
-  if (!app.isReady() || backendWsUrl.length === 0) {
+  if (
+    !isDesktopUiReady({
+      appReady: app.isReady(),
+      backendWsUrl,
+    })
+  ) {
     pendingProtocolUrl = rawUrl;
     return;
   }
@@ -1407,7 +1447,10 @@ app
 
     app.on("activate", () => {
       if (BrowserWindow.getAllWindows().length === 0) {
-        mainWindow = createWindow();
+        const window = getOrCreateDesktopWindow("app-activate");
+        if (window) {
+          mainWindow = window;
+        }
       } else if (mainWindow) {
         focusWindow(mainWindow);
       }

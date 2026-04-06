@@ -8,6 +8,7 @@ import {
   ensureDaemonConnection,
   extractProtocolUrlFromArgv,
   handleDesktopBeforeQuit,
+  isDesktopUiReady,
   launchDetachedDaemon,
   parseSessionProtocolUrl,
   registerProtocolClient,
@@ -164,6 +165,29 @@ describe("single-instance and protocol helpers", () => {
     expect(parseSessionProtocolUrl(protocolUrl!, "forge")).toEqual({
       threadId: "thread-123",
     });
+  });
+});
+
+describe("desktop UI readiness", () => {
+  it("requires the app to be ready and the daemon websocket URL to exist", () => {
+    expect(
+      isDesktopUiReady({
+        appReady: true,
+        backendWsUrl: "ws://127.0.0.1:3773/?token=secret-token",
+      }),
+    ).toBe(true);
+    expect(
+      isDesktopUiReady({
+        appReady: false,
+        backendWsUrl: "ws://127.0.0.1:3773/?token=secret-token",
+      }),
+    ).toBe(false);
+    expect(
+      isDesktopUiReady({
+        appReady: true,
+        backendWsUrl: "   ",
+      }),
+    ).toBe(false);
   });
 });
 
