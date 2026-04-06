@@ -1,6 +1,7 @@
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import { assert, it, expect } from "@effect/vitest";
 import { Effect, Fiber, Layer, Ref } from "effect";
+import * as ChildProcess from "node:child_process";
 import * as FS from "node:fs";
 import * as Net from "node:net";
 import * as OS from "node:os";
@@ -33,6 +34,30 @@ const closeServer = (server: Net.Server): Promise<void> =>
       resolve();
     });
   });
+
+const spawnIdleProcess = (): number => {
+  const stdout = ChildProcess.execFileSync(
+    "sh",
+    ["-c", "node -e 'setInterval(() => {}, 1000)' >/dev/null 2>&1 & echo $!"],
+    {
+      encoding: "utf8",
+    },
+  ).trim();
+  const pid = Number.parseInt(stdout, 10);
+  if (!Number.isInteger(pid) || pid <= 0) {
+    throw new Error(`Failed to spawn idle process. Received pid output: ${stdout}`);
+  }
+  return pid;
+};
+
+const isPidAlive = (pid: number): boolean => {
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch {
+    return false;
+  }
+};
 
 const toSocketError = (socketPath: string, operation: string, cause: unknown): DaemonSocketError =>
   new DaemonSocketError({
@@ -235,6 +260,44 @@ it.effect(
         yield* result.stop;
       }),
     ),
+);
+
+it.effect("start does not kill a live unrelated process referenced by a stale forge.pid", () =>
+  Effect.scoped(
+    Effect.gen(function* () {
+      const baseDir = FS.mkdtempSync(Path.join(OS.tmpdir(), "forge-daemon-stale-live-pid-"));
+      yield* Effect.addFinalizer(() =>
+        Effect.sync(() => FS.rmSync(baseDir, { recursive: true, force: true })),
+      );
+
+      const childPid = spawnIdleProcess();
+      yield* Effect.addFinalizer(() =>
+        Effect.sync(() => {
+          if (isPidAlive(childPid)) {
+            process.kill(childPid, "SIGTERM");
+          }
+        }),
+      );
+
+      FS.writeFileSync(Path.join(baseDir, "forge.pid"), `${childPid}\n`);
+
+      const result = yield* Effect.gen(function* () {
+        const daemon = yield* DaemonService;
+        return yield* daemon.start({
+          wsPort: 47832,
+          bindSocket: (socketPath) => makePingServer(socketPath),
+        });
+      }).pipe(Effect.provide(makeDaemonTestLayer(baseDir)));
+
+      if (result.type !== "started") {
+        assert.fail("expected stale live pid state to be replaced with a fresh daemon");
+      }
+
+      assert.equal(isPidAlive(childPid), true);
+
+      yield* result.stop;
+    }),
+  ),
 );
 
 it.effect("start reuses a responsive daemon even when daemon.json is missing", () =>

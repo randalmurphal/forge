@@ -4,6 +4,7 @@ import * as FSP from "node:fs/promises";
 import * as Net from "node:net";
 import * as Path from "node:path";
 import * as readline from "node:readline";
+import * as Util from "node:util";
 
 import { isTrustedDaemonManifest, parseDaemonManifest } from "@forgetools/shared/daemon";
 import { Effect, Layer, Option, Ref } from "effect";
@@ -29,12 +30,14 @@ const DEFAULT_PING_TIMEOUT_MS = 1_000;
 const DEFAULT_SHUTDOWN_TIMEOUT_MS = 30_000;
 const LOCK_READY_LINE = "ready";
 const LOCK_HELPER_READY_TIMEOUT_MS = 5_000;
+const PROCESS_COMMAND_TIMEOUT_MS = 1_000;
 const WEDGED_PROCESS_TERMINATE_TIMEOUT_MS = 2_000;
 const PING_REQUEST_ID = "forge-daemon-ping";
 const SOCKET_PERMISSIONS = 0o600;
 const STATE_FILE_PERMISSIONS = 0o600;
 const LOCK_READY_SCRIPT =
   'process.stdout.write("ready\\n");process.stdin.resume();process.stdin.on("end",()=>process.exit(0));';
+const execFileAsync = Util.promisify(ChildProcess.execFile);
 
 interface LockHandle {
   readonly release: Effect.Effect<void, DaemonLockError>;
@@ -179,6 +182,41 @@ const isProcessAlive = (pid: number): Effect.Effect<boolean, never> =>
     }
   });
 
+const readProcessCommandLine = (pid: number): Effect.Effect<string | undefined, never> =>
+  Effect.tryPromise({
+    try: async () => {
+      if (!Number.isInteger(pid) || pid <= 0) {
+        return undefined;
+      }
+      try {
+        const { stdout } = await execFileAsync("ps", ["-ww", "-p", String(pid), "-o", "command="], {
+          timeout: PROCESS_COMMAND_TIMEOUT_MS,
+          maxBuffer: 1024 * 1024,
+        });
+        const commandLine = stdout.trim();
+        return commandLine.length > 0 ? commandLine : undefined;
+      } catch {
+        return undefined;
+      }
+    },
+    catch: () => undefined,
+  }).pipe(Effect.catch(() => Effect.void.pipe(Effect.as(undefined))));
+
+const isLikelyForgeDaemonProcess = (pid: number, baseDir: string): Effect.Effect<boolean, never> =>
+  readProcessCommandLine(pid).pipe(
+    Effect.map((commandLine) => {
+      if (commandLine === undefined) {
+        return false;
+      }
+      const hasDaemonModeFlag =
+        commandLine.includes("--mode daemon") || commandLine.includes("--mode=daemon");
+      const hasBaseDirFlag =
+        (commandLine.includes("--base-dir ") || commandLine.includes("--base-dir=")) &&
+        commandLine.includes(baseDir);
+      return hasDaemonModeFlag && hasBaseDirFlag;
+    }),
+  );
+
 const waitForProcessExit = (pid: number, timeoutMs: number): Effect.Effect<boolean, never> =>
   Effect.gen(function* () {
     const deadline = Date.now() + timeoutMs;
@@ -266,11 +304,20 @@ const pingSocket = (
   timeoutMs = DEFAULT_PING_TIMEOUT_MS,
 ): Effect.Effect<boolean, never> =>
   Effect.tryPromise({
-    try: () =>
-      new Promise<boolean>((resolve) => {
+    try: async () => {
+      try {
+        const stat = await FSP.stat(socketPath);
+        if (!stat.isSocket()) {
+          return false;
+        }
+      } catch {
+        return false;
+      }
+
+      return await new Promise<boolean>((resolve) => {
         let settled = false;
         let timeout: NodeJS.Timeout | undefined;
-        const socket = Net.createConnection(socketPath);
+        const socket = new Net.Socket();
         const input = readline.createInterface({
           input: socket,
           crlfDelay: Infinity,
@@ -297,6 +344,7 @@ const pingSocket = (
             `${JSON.stringify({ jsonrpc: "2.0", id: PING_REQUEST_ID, method: "daemon.ping" })}\n`,
           );
         });
+        socket.connect(socketPath);
 
         input.once("line", (line) => {
           try {
@@ -309,7 +357,8 @@ const pingSocket = (
             finish(false);
           }
         });
-      }),
+      });
+    },
     catch: () => false,
   }).pipe(Effect.catch(() => Effect.succeed(false)));
 
@@ -551,9 +600,9 @@ const makeDaemonService = Effect.gen(function* () {
 
         const existingPid = yield* readPidFile(paths.pidPath);
         if (existingPid !== undefined && (yield* isProcessAlive(existingPid))) {
+          const existingInfo = yield* readDaemonInfo(paths.daemonInfoPath, paths.socketPath);
           const responsive = yield* pingSocket(paths.socketPath, input.pingTimeoutMs);
           if (responsive) {
-            const existingInfo = yield* readDaemonInfo(paths.daemonInfoPath, paths.socketPath);
             return {
               type: "already-running",
               pid: existingPid,
@@ -565,7 +614,12 @@ const makeDaemonService = Effect.gen(function* () {
             } as const;
           }
 
-          yield* terminateProcess(existingPid);
+          const ownsExistingPid =
+            (existingInfo !== undefined && existingInfo.pid === existingPid) ||
+            (yield* isLikelyForgeDaemonProcess(existingPid, config.baseDir));
+          if (ownsExistingPid) {
+            yield* terminateProcess(existingPid);
+          }
           yield* cleanupDaemonArtifacts(paths);
         } else if (existingPid !== undefined) {
           yield* cleanupDaemonArtifacts(paths);
