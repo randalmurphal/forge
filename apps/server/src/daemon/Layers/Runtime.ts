@@ -5,7 +5,6 @@ import * as Fiber from "effect/Fiber";
 import { ServerConfig } from "../../config.ts";
 import { ProviderService } from "../../provider/Services/ProviderService.ts";
 import { ServerRuntimeStartup } from "../../serverRuntimeStartup.ts";
-import { NotificationDispatch } from "../Services/NotificationDispatch.ts";
 import { NotificationReactor } from "../Services/NotificationReactor.ts";
 import { DaemonService } from "../Services/DaemonService.ts";
 import { SocketTransport } from "../Services/SocketTransport.ts";
@@ -21,9 +20,6 @@ export const runDaemonModeServer = <A, E, R>(launchHttpServer: Effect.Effect<A, 
     const socketTransport = yield* SocketTransport;
     const startup = yield* ServerRuntimeStartup;
     const notificationReactor = yield* NotificationReactor;
-
-    // Materialize the notification service so daemon mode includes the runtime dependency.
-    yield* NotificationDispatch;
 
     const gracefulShutdown = Effect.gen(function* () {
       const activeSessions = yield* providerService.listSessions();

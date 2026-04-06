@@ -349,7 +349,6 @@ const NotificationReactorRuntimeLive = NotificationReactorLive.pipe(
 const DaemonLayerLive = Layer.mergeAll(
   DaemonServiceLive,
   SocketTransportLive,
-  NotificationDispatchLive,
   NotificationReactorRuntimeLive,
 );
 

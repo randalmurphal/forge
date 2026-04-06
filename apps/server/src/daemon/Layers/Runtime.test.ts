@@ -9,7 +9,6 @@ import { runDaemonModeServer } from "./Runtime.ts";
 import type { DaemonServiceError } from "../Errors.ts";
 import { DaemonService } from "../Services/DaemonService.ts";
 import { SocketTransport } from "../Services/SocketTransport.ts";
-import { NotificationDispatch } from "../Services/NotificationDispatch.ts";
 import { NotificationReactor } from "../Services/NotificationReactor.ts";
 
 const VALID_DAEMON_WS_TOKEN = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef";
@@ -146,18 +145,6 @@ describe("runDaemonModeServer", () => {
                   return { close: Effect.void };
                 }),
             }),
-            Layer.succeed(NotificationDispatch, {
-              getPreferences: Effect.succeed({
-                sessionNeedsAttention: true,
-                sessionCompleted: true,
-                deliberationConcluded: true,
-              }),
-              dispatch: () =>
-                Effect.succeed({
-                  status: "skipped" as const,
-                  reason: "backend-unavailable" as const,
-                }),
-            }),
             Layer.succeed(NotificationReactor, {
               start: () =>
                 Effect.sync(() => {
@@ -241,18 +228,6 @@ describe("runDaemonModeServer", () => {
               }),
               Layer.succeed(SocketTransport, {
                 bind: () => Effect.die("should not bind a duplicate daemon socket"),
-              }),
-              Layer.succeed(NotificationDispatch, {
-                getPreferences: Effect.succeed({
-                  sessionNeedsAttention: true,
-                  sessionCompleted: true,
-                  deliberationConcluded: true,
-                }),
-                dispatch: () =>
-                  Effect.succeed({
-                    status: "skipped" as const,
-                    reason: "backend-unavailable" as const,
-                  }),
               }),
               Layer.succeed(NotificationReactor, {
                 start: () =>
