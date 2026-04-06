@@ -1,6 +1,6 @@
 import * as Crypto from "node:crypto";
 
-import type { SessionSummary } from "@forgetools/contracts";
+import type { ModelSelection, SessionSummary } from "@forgetools/contracts";
 import { NetService } from "@forgetools/shared/Net";
 import { parsePersistedServerObservabilitySettings } from "@forgetools/shared/serverSettings";
 import { Config, Console, Effect, FileSystem, LogLevel, Option, Path, Schema } from "effect";
@@ -371,6 +371,13 @@ const cliDaemonFlags = {
   baseDir: baseDirFlag,
 } as const;
 
+const modelFlag = Flag.string("model").pipe(
+  Flag.withDescription(
+    "Provider/model selector in the form `codex:gpt-5-codex` or `claude:claude-sonnet-4-5`.",
+  ),
+  Flag.optional,
+);
+
 const phaseRunIdFlag = Flag.string("phase-run-id").pipe(
   Flag.withDescription("Explicit phase run id when a session has multiple pending gates."),
   Flag.optional,
@@ -437,6 +444,46 @@ const queueSummary = (label: string, result: unknown) => {
       : undefined;
   return sequence === undefined ? `${label}.` : `${label} Receipt sequence=${String(sequence)}.`;
 };
+
+const normalizeModelProvider = (provider: string): ModelSelection["provider"] | undefined => {
+  switch (provider.trim().toLowerCase()) {
+    case "codex":
+      return "codex";
+    case "claude":
+    case "claudeagent":
+    case "claude-agent":
+      return "claudeAgent";
+    default:
+      return undefined;
+  }
+};
+
+const parseCliModelSelection = (
+  rawModel: string,
+): Effect.Effect<ModelSelection, ForgeDaemonCliError> =>
+  Effect.sync(() => {
+    const separatorIndex = rawModel.indexOf(":");
+    if (separatorIndex <= 0 || separatorIndex === rawModel.length - 1) {
+      throw new ForgeDaemonCliError({
+        message:
+          "Invalid --model value. Expected `provider:model`, for example `codex:gpt-5-codex` or `claude:claude-sonnet-4-5`.",
+      });
+    }
+
+    const provider = normalizeModelProvider(rawModel.slice(0, separatorIndex));
+    const model = rawModel.slice(separatorIndex + 1).trim();
+    if (provider === undefined || model.length === 0) {
+      throw new ForgeDaemonCliError({
+        message:
+          "Invalid --model value. Expected `provider:model`, for example `codex:gpt-5-codex` or `claude:claude-sonnet-4-5`.",
+      });
+    }
+
+    return {
+      provider,
+      model,
+    } satisfies ModelSelection;
+  });
 
 const startDaemonFromCli = (paths: CliDaemonPaths) =>
   Effect.gen(function* () {
@@ -563,12 +610,16 @@ const createCommand = Command.make("create", {
   title: Argument.string("title"),
   workflow: Flag.string("workflow").pipe(Flag.optional),
   project: Flag.string("project").pipe(Flag.withDescription("Project path.")),
+  model: modelFlag,
 }).pipe(
   Command.withDescription("Create a new session through the daemon socket API."),
   Command.withHandler((input) =>
     Effect.gen(function* () {
       const paths = yield* resolveCliPathsFromInput(input);
       const path = yield* Path.Path;
+      const model = Option.isSome(input.model)
+        ? yield* parseCliModelSelection(input.model.value)
+        : undefined;
       const result = yield* sendDaemonRpc({
         socketPath: paths.socketPath,
         method: "session.create",
@@ -576,6 +627,7 @@ const createCommand = Command.make("create", {
           title: input.title,
           ...(Option.isSome(input.workflow) ? { workflow: input.workflow.value } : {}),
           projectPath: path.resolve(input.project),
+          ...(model === undefined ? {} : { model }),
         },
       });
       yield* Console.log(queueSummary(`Queued session.create for '${input.title}'`, result));

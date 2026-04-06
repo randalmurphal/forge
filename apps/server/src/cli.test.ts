@@ -156,6 +156,67 @@ vitestIt("routes `forge create` to session.create with the expected payload", as
   });
 });
 
+vitestIt(
+  "routes `forge create --model claude:...` using the daemon model selection shape",
+  async () => {
+    await withSocketServer({ sequence: 13 }, async ({ baseDir, requests }) => {
+      await runCli([
+        "create",
+        "Review bootstrap failure",
+        "--project",
+        ".",
+        "--model",
+        "claude:claude-sonnet-4-5",
+        "--base-dir",
+        baseDir,
+      ]);
+
+      nodeAssert.equal(requests.length, 1);
+      nodeAssert.equal(requests[0]?.method, "session.create");
+      nodeAssert.deepStrictEqual(requests[0]?.params, {
+        title: "Review bootstrap failure",
+        projectPath: process.cwd(),
+        model: {
+          provider: "claudeAgent",
+          model: "claude-sonnet-4-5",
+        },
+      });
+    });
+  },
+);
+
+vitestIt(
+  "rejects `forge create --model` values that are missing the provider:model format",
+  async () => {
+    const baseDir = FS.mkdtempSync(Path.join(OS.tmpdir(), "forge-cli-create-model-error-"));
+    try {
+      await nodeAssert.rejects(
+        runCli([
+          "create",
+          "Bad model",
+          "--project",
+          ".",
+          "--model",
+          "claude",
+          "--base-dir",
+          baseDir,
+        ]),
+        (error) => {
+          nodeAssert.equal(error instanceof ForgeDaemonCliError, true);
+          nodeAssert.equal(
+            error instanceof ForgeDaemonCliError &&
+              error.message.includes("Invalid --model value. Expected `provider:model`"),
+            true,
+          );
+          return true;
+        },
+      );
+    } finally {
+      FS.rmSync(baseDir, { recursive: true, force: true });
+    }
+  },
+);
+
 vitestIt("routes `forge answer` to request.resolve with a user-input resolution", async () => {
   await withSocketServer({ sequence: 19 }, async ({ baseDir, requests }) => {
     await runCli(["answer", "request-7", "--input", "ship it", "--base-dir", baseDir]);
