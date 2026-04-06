@@ -81,6 +81,41 @@ export function useSidebarInteractions(input: {
   sidebarProjectSortOrder: import("@forgetools/contracts/settings").SidebarProjectSortOrder;
   sidebarThreadSortOrder: import("@forgetools/contracts/settings").SidebarThreadSortOrder;
 }) {
+  const {
+    archiveThread,
+    clearComposerDraftForThread,
+    clearProjectDraftThreadId,
+    clearSelection,
+    confirmThreadDelete,
+    defaultThreadEnvMode,
+    deleteThread,
+    getDraftThreadByProjectId,
+    handleNewThread,
+    keybindings,
+    markThreadUnread,
+    navigate,
+    orderedSidebarThreadIds,
+    platform,
+    projectCwdById,
+    projects,
+    rangeSelectTo,
+    removeFromSelection,
+    reorderProjects,
+    routeTerminalOpen,
+    routeThreadId,
+    selectedThreadIds,
+    setExpandedSidebarTreeThreadIds,
+    setExpandedThreadListsByProject,
+    setSelectionAnchor,
+    sidebarProjectSortOrder,
+    sidebarThreadSortOrder,
+    sidebarThreadsById,
+    threadIdsByProjectId,
+    threadJumpThreadIds,
+    toggleProject,
+    toggleThreadSelection,
+    updateThreadJumpHintsVisibility,
+  } = input;
   const [addingProject, setAddingProject] = useState(false);
   const [newCwd, setNewCwd] = useState("");
   const [isPickingFolder, setIsPickingFolder] = useState(false);
@@ -125,7 +160,7 @@ export function useSidebarInteractions(input: {
   const attemptArchiveThread = useCallback(
     async (threadId: ThreadId) => {
       try {
-        await input.archiveThread(threadId);
+        await archiveThread(threadId);
       } catch (error) {
         toastManager.add({
           type: "error",
@@ -134,31 +169,26 @@ export function useSidebarInteractions(input: {
         });
       }
     },
-    [input.archiveThread],
+    [archiveThread],
   );
 
   const focusMostRecentThreadForProject = useCallback(
     (projectId: ProjectId) => {
       const latestThread = sortThreadsForSidebar(
-        (input.threadIdsByProjectId[projectId] ?? [])
-          .map((threadId) => input.sidebarThreadsById[threadId])
+        (threadIdsByProjectId[projectId] ?? [])
+          .map((threadId) => sidebarThreadsById[threadId])
           .filter((thread): thread is NonNullable<typeof thread> => thread !== undefined)
           .filter((thread) => thread.archivedAt === null),
-        input.sidebarThreadSortOrder,
+        sidebarThreadSortOrder,
       )[0];
       if (!latestThread) return;
 
-      void input.navigate({
+      void navigate({
         to: "/$threadId",
         params: { threadId: latestThread.id },
       });
     },
-    [
-      input.navigate,
-      input.sidebarThreadSortOrder,
-      input.sidebarThreadsById,
-      input.threadIdsByProjectId,
-    ],
+    [navigate, sidebarThreadSortOrder, sidebarThreadsById, threadIdsByProjectId],
   );
 
   const addProjectFromPath = useCallback(
@@ -176,7 +206,7 @@ export function useSidebarInteractions(input: {
         setAddingProject(false);
       };
 
-      const existing = input.projects.find((project) => project.cwd === cwd);
+      const existing = projects.find((project) => project.cwd === cwd);
       if (existing) {
         focusMostRecentThreadForProject(existing.id);
         finishAddingProject();
@@ -199,11 +229,9 @@ export function useSidebarInteractions(input: {
           },
           createdAt,
         });
-        await input
-          .handleNewThread(projectId, {
-            envMode: input.defaultThreadEnvMode,
-          })
-          .catch(() => undefined);
+        await handleNewThread(projectId, {
+          envMode: defaultThreadEnvMode,
+        }).catch(() => undefined);
       } catch (error) {
         const description =
           error instanceof Error ? error.message : "An error occurred while adding the project.";
@@ -222,11 +250,11 @@ export function useSidebarInteractions(input: {
       finishAddingProject();
     },
     [
+      defaultThreadEnvMode,
       focusMostRecentThreadForProject,
-      input.defaultThreadEnvMode,
-      input.handleNewThread,
-      input.projects,
+      handleNewThread,
       isAddingProject,
+      projects,
       shouldBrowseForProjectImmediately,
     ],
   );
@@ -361,10 +389,10 @@ export function useSidebarInteractions(input: {
     async (threadId: ThreadId, position: { x: number; y: number }) => {
       const api = readNativeApi();
       if (!api) return;
-      const thread = input.sidebarThreadsById[threadId];
+      const thread = sidebarThreadsById[threadId];
       if (!thread) return;
       const threadWorkspacePath =
-        thread.worktreePath ?? input.projectCwdById.get(thread.projectId) ?? null;
+        thread.worktreePath ?? projectCwdById.get(thread.projectId) ?? null;
       const clicked = await api.contextMenu.show(
         [
           { id: "rename", label: "Rename thread" },
@@ -384,7 +412,7 @@ export function useSidebarInteractions(input: {
       }
 
       if (clicked === "mark-unread") {
-        input.markThreadUnread(threadId, thread.latestTurn?.completedAt);
+        markThreadUnread(threadId, thread.latestTurn?.completedAt);
         return;
       }
       if (clicked === "copy-path") {
@@ -404,7 +432,7 @@ export function useSidebarInteractions(input: {
         return;
       }
       if (clicked !== "delete") return;
-      if (input.confirmThreadDelete) {
+      if (confirmThreadDelete) {
         const confirmed = await api.dialogs.confirm(
           [
             `Delete thread "${thread.title}"?`,
@@ -415,16 +443,16 @@ export function useSidebarInteractions(input: {
           return;
         }
       }
-      await input.deleteThread(threadId);
+      await deleteThread(threadId);
     },
     [
+      confirmThreadDelete,
       copyPathToClipboard,
       copyThreadIdToClipboard,
-      input.confirmThreadDelete,
-      input.deleteThread,
-      input.markThreadUnread,
-      input.projectCwdById,
-      input.sidebarThreadsById,
+      deleteThread,
+      markThreadUnread,
+      projectCwdById,
+      sidebarThreadsById,
     ],
   );
 
@@ -432,7 +460,7 @@ export function useSidebarInteractions(input: {
     async (position: { x: number; y: number }) => {
       const api = readNativeApi();
       if (!api) return;
-      const ids = [...input.selectedThreadIds];
+      const ids = [...selectedThreadIds];
       if (ids.length === 0) return;
       const count = ids.length;
 
@@ -446,16 +474,16 @@ export function useSidebarInteractions(input: {
 
       if (clicked === "mark-unread") {
         for (const id of ids) {
-          const thread = input.sidebarThreadsById[id];
-          input.markThreadUnread(id, thread?.latestTurn?.completedAt);
+          const thread = sidebarThreadsById[id];
+          markThreadUnread(id, thread?.latestTurn?.completedAt);
         }
-        input.clearSelection();
+        clearSelection();
         return;
       }
 
       if (clicked !== "delete") return;
 
-      if (input.confirmThreadDelete) {
+      if (confirmThreadDelete) {
         const confirmed = await api.dialogs.confirm(
           [
             `Delete ${count} thread${count === 1 ? "" : "s"}?`,
@@ -467,18 +495,18 @@ export function useSidebarInteractions(input: {
 
       const deletedIds = new Set<ThreadId>(ids);
       for (const id of ids) {
-        await input.deleteThread(id, { deletedThreadIds: deletedIds });
+        await deleteThread(id, { deletedThreadIds: deletedIds });
       }
-      input.removeFromSelection(ids);
+      removeFromSelection(ids);
     },
     [
-      input.clearSelection,
-      input.confirmThreadDelete,
-      input.deleteThread,
-      input.markThreadUnread,
-      input.removeFromSelection,
-      input.selectedThreadIds,
-      input.sidebarThreadsById,
+      clearSelection,
+      confirmThreadDelete,
+      deleteThread,
+      markThreadUnread,
+      removeFromSelection,
+      selectedThreadIds,
+      sidebarThreadsById,
     ],
   );
 
@@ -490,47 +518,47 @@ export function useSidebarInteractions(input: {
 
       if (isModClick) {
         event.preventDefault();
-        input.toggleThreadSelection(threadId);
+        toggleThreadSelection(threadId);
         return;
       }
 
       if (isShiftClick) {
         event.preventDefault();
-        input.rangeSelectTo(threadId, orderedProjectThreadIds);
+        rangeSelectTo(threadId, orderedProjectThreadIds);
         return;
       }
 
-      if (input.selectedThreadIds.size > 0) {
-        input.clearSelection();
+      if (selectedThreadIds.size > 0) {
+        clearSelection();
       }
-      input.setSelectionAnchor(threadId);
-      void input.navigate({
+      setSelectionAnchor(threadId);
+      void navigate({
         to: "/$threadId",
         params: { threadId },
       });
     },
     [
-      input.clearSelection,
-      input.navigate,
-      input.rangeSelectTo,
-      input.selectedThreadIds.size,
-      input.setSelectionAnchor,
-      input.toggleThreadSelection,
+      clearSelection,
+      navigate,
+      rangeSelectTo,
+      selectedThreadIds.size,
+      setSelectionAnchor,
+      toggleThreadSelection,
     ],
   );
 
   const navigateToThread = useCallback(
     (threadId: ThreadId) => {
-      if (input.selectedThreadIds.size > 0) {
-        input.clearSelection();
+      if (selectedThreadIds.size > 0) {
+        clearSelection();
       }
-      input.setSelectionAnchor(threadId);
-      void input.navigate({
+      setSelectionAnchor(threadId);
+      void navigate({
         to: "/$threadId",
         params: { threadId },
       });
     },
-    [input.clearSelection, input.navigate, input.selectedThreadIds.size, input.setSelectionAnchor],
+    [clearSelection, navigate, selectedThreadIds.size, setSelectionAnchor],
   );
 
   const handleProjectContextMenu = useCallback(
@@ -538,7 +566,7 @@ export function useSidebarInteractions(input: {
       const api = readNativeApi();
       if (!api) return;
       suppressProjectClickForContextMenuRef.current = true;
-      const project = input.projects.find((entry) => entry.id === projectId);
+      const project = projects.find((entry) => entry.id === projectId);
       if (!project) return;
 
       const clicked = await api.contextMenu.show(
@@ -554,7 +582,7 @@ export function useSidebarInteractions(input: {
       }
       if (clicked !== "delete") return;
 
-      const projectThreadIds = input.threadIdsByProjectId[projectId] ?? [];
+      const projectThreadIds = threadIdsByProjectId[projectId] ?? [];
       if (projectThreadIds.length > 0) {
         toastManager.add({
           type: "warning",
@@ -568,11 +596,11 @@ export function useSidebarInteractions(input: {
       if (!confirmed) return;
 
       try {
-        const projectDraftThread = input.getDraftThreadByProjectId(projectId);
+        const projectDraftThread = getDraftThreadByProjectId(projectId);
         if (projectDraftThread) {
-          input.clearComposerDraftForThread(projectDraftThread.threadId);
+          clearComposerDraftForThread(projectDraftThread.threadId);
         }
-        input.clearProjectDraftThreadId(projectId);
+        clearProjectDraftThreadId(projectId);
         await api.orchestration.dispatchCommand({
           type: "project.delete",
           commandId: newCommandId(),
@@ -589,38 +617,38 @@ export function useSidebarInteractions(input: {
       }
     },
     [
+      clearComposerDraftForThread,
+      clearProjectDraftThreadId,
       copyPathToClipboard,
-      input.clearComposerDraftForThread,
-      input.clearProjectDraftThreadId,
-      input.getDraftThreadByProjectId,
-      input.projects,
-      input.threadIdsByProjectId,
+      getDraftThreadByProjectId,
+      projects,
+      threadIdsByProjectId,
     ],
   );
 
   const handleProjectDragEnd = useCallback(
     (event: DragEndEvent) => {
-      if (input.sidebarProjectSortOrder !== "manual") {
+      if (sidebarProjectSortOrder !== "manual") {
         dragInProgressRef.current = false;
         return;
       }
       dragInProgressRef.current = false;
       const { active, over } = event;
       if (!over || active.id === over.id) return;
-      input.reorderProjects(active.id as ProjectId, over.id as ProjectId);
+      reorderProjects(active.id as ProjectId, over.id as ProjectId);
     },
-    [input.reorderProjects, input.sidebarProjectSortOrder],
+    [reorderProjects, sidebarProjectSortOrder],
   );
 
   const handleProjectDragStart = useCallback(
     (_event: DragStartEvent) => {
-      if (input.sidebarProjectSortOrder !== "manual") {
+      if (sidebarProjectSortOrder !== "manual") {
         return;
       }
       dragInProgressRef.current = true;
       suppressProjectClickAfterDragRef.current = true;
     },
-    [input.sidebarProjectSortOrder],
+    [sidebarProjectSortOrder],
   );
 
   const handleProjectDragCancel = useCallback((_event: DragCancelEvent) => {
@@ -664,12 +692,12 @@ export function useSidebarInteractions(input: {
         event.stopPropagation();
         return;
       }
-      if (input.selectedThreadIds.size > 0) {
-        input.clearSelection();
+      if (selectedThreadIds.size > 0) {
+        clearSelection();
       }
-      input.toggleProject(projectId);
+      toggleProject(projectId);
     },
-    [input.clearSelection, input.selectedThreadIds.size, input.toggleProject],
+    [clearSelection, selectedThreadIds.size, toggleProject],
   );
 
   const handleProjectTitleKeyDown = useCallback(
@@ -679,54 +707,54 @@ export function useSidebarInteractions(input: {
       if (dragInProgressRef.current) {
         return;
       }
-      input.toggleProject(projectId);
+      toggleProject(projectId);
     },
-    [input.toggleProject],
+    [toggleProject],
   );
 
   const expandThreadListForProject = useCallback(
     (projectId: ProjectId) => {
-      input.setExpandedThreadListsByProject((current) => {
+      setExpandedThreadListsByProject((current) => {
         if (current.has(projectId)) return current;
         const next = new Set(current);
         next.add(projectId);
         return next;
       });
     },
-    [input],
+    [setExpandedThreadListsByProject],
   );
 
   const collapseThreadListForProject = useCallback(
     (projectId: ProjectId) => {
-      input.setExpandedThreadListsByProject((current) => {
+      setExpandedThreadListsByProject((current) => {
         if (!current.has(projectId)) return current;
         const next = new Set(current);
         next.delete(projectId);
         return next;
       });
     },
-    [input],
+    [setExpandedThreadListsByProject],
   );
 
   const toggleSidebarTreeExpansion = useCallback(
     (threadId: ThreadId) => {
-      input.setExpandedSidebarTreeThreadIds((current) =>
+      setExpandedSidebarTreeThreadIds((current) =>
         toggleSidebarTreeThreadExpansion(current, threadId),
       );
     },
-    [input],
+    [setExpandedSidebarTreeThreadIds],
   );
 
   useEffect(() => {
     const getShortcutContext = () => ({
       terminalFocus: isTerminalFocused(),
-      terminalOpen: input.routeTerminalOpen,
+      terminalOpen: routeTerminalOpen,
     });
 
     const onWindowKeyDown = (event: globalThis.KeyboardEvent) => {
-      input.updateThreadJumpHintsVisibility(
-        shouldShowThreadJumpHints(event, input.keybindings, {
-          platform: input.platform,
+      updateThreadJumpHintsVisibility(
+        shouldShowThreadJumpHints(event, keybindings, {
+          platform,
           context: getShortcutContext(),
         }),
       );
@@ -735,15 +763,15 @@ export function useSidebarInteractions(input: {
         return;
       }
 
-      const command = resolveShortcutCommand(event, input.keybindings, {
-        platform: input.platform,
+      const command = resolveShortcutCommand(event, keybindings, {
+        platform,
         context: getShortcutContext(),
       });
       const traversalDirection = threadTraversalDirectionFromCommand(command);
       if (traversalDirection !== null) {
         const targetThreadId = resolveAdjacentThreadId({
-          threadIds: input.orderedSidebarThreadIds,
-          currentThreadId: input.routeThreadId,
+          threadIds: orderedSidebarThreadIds,
+          currentThreadId: routeThreadId,
           direction: traversalDirection,
         });
         if (!targetThreadId) {
@@ -761,7 +789,7 @@ export function useSidebarInteractions(input: {
         return;
       }
 
-      const targetThreadId = input.threadJumpThreadIds[jumpIndex];
+      const targetThreadId = threadJumpThreadIds[jumpIndex];
       if (!targetThreadId) {
         return;
       }
@@ -772,16 +800,16 @@ export function useSidebarInteractions(input: {
     };
 
     const onWindowKeyUp = (event: globalThis.KeyboardEvent) => {
-      input.updateThreadJumpHintsVisibility(
-        shouldShowThreadJumpHints(event, input.keybindings, {
-          platform: input.platform,
+      updateThreadJumpHintsVisibility(
+        shouldShowThreadJumpHints(event, keybindings, {
+          platform,
           context: getShortcutContext(),
         }),
       );
     };
 
     const onWindowBlur = () => {
-      input.updateThreadJumpHintsVisibility(false);
+      updateThreadJumpHintsVisibility(false);
     };
 
     window.addEventListener("keydown", onWindowKeyDown);
@@ -794,29 +822,29 @@ export function useSidebarInteractions(input: {
       window.removeEventListener("blur", onWindowBlur);
     };
   }, [
-    input.keybindings,
-    input.orderedSidebarThreadIds,
-    input.platform,
-    input.routeTerminalOpen,
-    input.routeThreadId,
-    input.threadJumpThreadIds,
-    input.updateThreadJumpHintsVisibility,
+    keybindings,
     navigateToThread,
+    orderedSidebarThreadIds,
+    platform,
+    routeTerminalOpen,
+    routeThreadId,
+    threadJumpThreadIds,
+    updateThreadJumpHintsVisibility,
   ]);
 
   useEffect(() => {
     const onMouseDown = (event: globalThis.MouseEvent) => {
-      if (input.selectedThreadIds.size === 0) return;
+      if (selectedThreadIds.size === 0) return;
       const target = event.target instanceof HTMLElement ? event.target : null;
       if (!shouldClearThreadSelectionOnMouseDown(target)) return;
-      input.clearSelection();
+      clearSelection();
     };
 
     window.addEventListener("mousedown", onMouseDown);
     return () => {
       window.removeEventListener("mousedown", onMouseDown);
     };
-  }, [input.clearSelection, input.selectedThreadIds.size]);
+  }, [clearSelection, selectedThreadIds.size]);
 
   return {
     addProjectError,
