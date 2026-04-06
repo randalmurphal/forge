@@ -363,9 +363,6 @@ function deriveSessionStatus(input: {
   if (input.hasPendingRequest) {
     return "needs-attention";
   }
-  if (input.thread.archivedAt !== null) {
-    return "cancelled";
-  }
 
   switch (input.thread.session?.status) {
     case "starting":
@@ -376,7 +373,14 @@ function deriveSessionStatus(input: {
     case "error":
       return "failed";
     case "stopped":
-      return "cancelled";
+      switch (input.thread.latestTurn?.state) {
+        case "completed":
+          return "completed";
+        case "error":
+          return "failed";
+        default:
+          return "cancelled";
+      }
     default:
       return input.thread.session === null ? "created" : "created";
   }

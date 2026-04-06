@@ -442,6 +442,69 @@ it("session.list classifies top-level direct sessions as agent sessions", async 
   }
 });
 
+it("session.list preserves completed status for archived stopped sessions", async () => {
+  const socketDir = FS.mkdtempSync(Path.join(OS.tmpdir(), "forge-socket-transport-"));
+  const socketPath = Path.join(socketDir, "forge.sock");
+
+  try {
+    const snapshot = makeSnapshot();
+    const completedSnapshot = {
+      ...snapshot,
+      pendingRequests: [],
+      threads: snapshot.threads.map((thread) =>
+        Object.assign({}, thread, {
+          archivedAt: "2026-04-06T19:00:00.000Z",
+          latestTurn: {
+            turnId: "turn-1" as never,
+            state: "completed" as const,
+            requestedAt: "2026-04-06T18:10:00.000Z",
+            startedAt: "2026-04-06T18:10:01.000Z",
+            completedAt: "2026-04-06T18:10:30.000Z",
+            assistantMessageId: "msg-2" as never,
+          },
+          session: {
+            ...thread.session!,
+            status: "stopped" as const,
+            updatedAt: "2026-04-06T18:10:31.000Z",
+          },
+        }),
+      ),
+    } satisfies OrchestrationReadModel;
+
+    const transport = await Effect.runPromise(
+      Effect.service(SocketTransport).pipe(
+        Effect.provide(
+          makeTestLayer({
+            snapshot: completedSnapshot,
+          }),
+        ),
+      ),
+    );
+    const binding = await Effect.runPromise(transport.bind({ socketPath }));
+
+    try {
+      const response = (await sendRaw(
+        socketPath,
+        serializeRequest({ jsonrpc: "2.0", id: "session-list-completed", method: "session.list" }),
+      )) as {
+        readonly result: ReadonlyArray<{
+          readonly threadId: string;
+          readonly status: string;
+          readonly archivedAt: string | null;
+        }>;
+      };
+
+      assert.equal(response.result[0]?.threadId, "thread-1");
+      assert.equal(response.result[0]?.status, "completed");
+      assert.equal(response.result[0]?.archivedAt, "2026-04-06T19:00:00.000Z");
+    } finally {
+      await Effect.runPromise(binding.close.pipe(Effect.catch(() => Effect.void)));
+    }
+  } finally {
+    FS.rmSync(socketDir, { recursive: true, force: true });
+  }
+});
+
 it("session.create accepts an explicit workflow type when it matches the requested workflow", async () => {
   const socketDir = FS.mkdtempSync(Path.join(OS.tmpdir(), "forge-socket-transport-"));
   const socketPath = Path.join(socketDir, "forge.sock");
