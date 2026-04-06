@@ -96,7 +96,7 @@ export function resolveGateApprovalShortcut(input: {
   shiftKey?: boolean;
   targetTagName?: string | null;
   isContentEditable?: boolean;
-}): "approve" | "reject" | null {
+}): "approve" | "correct" | "reject" | null {
   if (input.altKey || input.ctrlKey || input.metaKey || input.shiftKey) {
     return null;
   }
@@ -113,6 +113,8 @@ export function resolveGateApprovalShortcut(input: {
   switch (input.key.toLowerCase()) {
     case "a":
       return "approve";
+    case "c":
+      return "correct";
     case "r":
       return "reject";
     default:

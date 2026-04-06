@@ -103,6 +103,16 @@ export function GateApproval(props: {
       return;
     }
 
+    if (action === "correct" && !isSubmitting) {
+      event.preventDefault();
+      if (trimmedDraft.length === 0) {
+        textareaRef.current?.focus();
+        return;
+      }
+      void correctMutation.mutateAsync();
+      return;
+    }
+
     if (action === "reject" && !isSubmitting) {
       event.preventDefault();
       if (trimmedDraft.length === 0) {
@@ -182,7 +192,9 @@ export function GateApproval(props: {
             <p className="text-xs font-semibold uppercase tracking-[0.1em] text-muted-foreground">
               Correction
             </p>
-            <p className="text-xs text-muted-foreground">Shortcuts: `a` approve, `r` reject</p>
+            <p className="text-xs text-muted-foreground">
+              Shortcuts: `a` approve, `c` correct, `r` reject
+            </p>
           </div>
 
           <Textarea
@@ -221,6 +233,7 @@ export function GateApproval(props: {
               variant="secondary"
               onClick={() => void correctMutation.mutateAsync()}
               disabled={isSubmitting || trimmedDraft.length === 0}
+              aria-keyshortcuts="c"
             >
               Correct & Retry
             </Button>

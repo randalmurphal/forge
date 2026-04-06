@@ -73,8 +73,10 @@ describe("GateApproval.logic", () => {
 
   it("filters keyboard shortcuts when focus is inside editable inputs", () => {
     expect(resolveGateApprovalShortcut({ key: "a" })).toBe("approve");
+    expect(resolveGateApprovalShortcut({ key: "c" })).toBe("correct");
     expect(resolveGateApprovalShortcut({ key: "r" })).toBe("reject");
     expect(resolveGateApprovalShortcut({ key: "a", targetTagName: "textarea" })).toBe(null);
+    expect(resolveGateApprovalShortcut({ key: "c", targetTagName: "input" })).toBe(null);
     expect(resolveGateApprovalShortcut({ key: "r", isContentEditable: true })).toBe(null);
   });
 
