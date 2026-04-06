@@ -46,6 +46,11 @@ import {
   WorkspaceRootNotExistsError,
 } from "../../workspace/Services/WorkspacePaths.ts";
 import { DaemonSocketError } from "../Errors.ts";
+import {
+  DAEMON_SOCKET_PROTOCOL_VERSION,
+  formatDaemonProtocolHandshakeMissingMessage,
+  formatDaemonProtocolMismatchMessage,
+} from "../protocol.ts";
 import { SocketTransport, type SocketTransportShape } from "../Services/SocketTransport.ts";
 
 const SOCKET_PERMISSIONS = 0o600;
@@ -205,6 +210,7 @@ type JsonRpcRequest = {
   readonly id: JsonRpcId | undefined;
   readonly method: string;
   readonly params?: unknown;
+  readonly forgeProtocolVersion?: number;
 };
 
 type JsonRpcResponse =
@@ -467,8 +473,44 @@ function parseJsonRpcRequest(
       id: id as JsonRpcId | undefined,
       method: request.method,
       params: request.params,
+      ...(typeof request.forgeProtocolVersion === "number"
+        ? { forgeProtocolVersion: request.forgeProtocolVersion }
+        : {}),
     },
   };
+}
+
+function requiresProtocolHandshake(method: string): boolean {
+  return method !== "daemon.ping";
+}
+
+function validateProtocolVersion(request: JsonRpcRequest): JsonRpcResponse | undefined {
+  if (!requiresProtocolHandshake(request.method)) {
+    return undefined;
+  }
+
+  if (request.forgeProtocolVersion === undefined) {
+    return encodeError(request.id ?? null, -32001, formatDaemonProtocolHandshakeMissingMessage(), {
+      daemonProtocolVersion: DAEMON_SOCKET_PROTOCOL_VERSION,
+    });
+  }
+
+  if (request.forgeProtocolVersion !== DAEMON_SOCKET_PROTOCOL_VERSION) {
+    return encodeError(
+      request.id ?? null,
+      -32001,
+      formatDaemonProtocolMismatchMessage({
+        clientProtocolVersion: request.forgeProtocolVersion,
+        daemonProtocolVersion: DAEMON_SOCKET_PROTOCOL_VERSION,
+      }),
+      {
+        clientProtocolVersion: request.forgeProtocolVersion,
+        daemonProtocolVersion: DAEMON_SOCKET_PROTOCOL_VERSION,
+      },
+    );
+  }
+
+  return undefined;
 }
 
 function decodeParams<A>(schema: Schema.Schema<A>, params: unknown, method: string): A {
@@ -1609,6 +1651,14 @@ const makeSocketTransport = Effect.gen(function* () {
               const parsed = parseJsonRpcRequest(line);
               if (!parsed.ok) {
                 writeResponse(parsed.response);
+                continue;
+              }
+
+              const protocolError = validateProtocolVersion(parsed.request);
+              if (protocolError !== undefined) {
+                if (parsed.request.id !== undefined) {
+                  writeResponse(protocolError);
+                }
                 continue;
               }
 

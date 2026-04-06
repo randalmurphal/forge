@@ -14,6 +14,7 @@ import { Data, Effect } from "effect";
 
 import { resolveBaseDir } from "../os-jank.ts";
 import type { DaemonInfo } from "./Services/DaemonService.ts";
+import { DAEMON_SOCKET_PROTOCOL_VERSION } from "./protocol.ts";
 
 const DEFAULT_RPC_TIMEOUT_MS = 3_000;
 
@@ -186,6 +187,7 @@ export const sendDaemonRpc = <Result = unknown>(input: {
               id: requestId,
               method: input.method,
               params: input.params ?? {},
+              forgeProtocolVersion: DAEMON_SOCKET_PROTOCOL_VERSION,
             })}\n`,
           );
         });

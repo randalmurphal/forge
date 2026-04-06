@@ -24,6 +24,7 @@ import {
   WorkspacePaths,
   type WorkspacePathsShape,
 } from "../../workspace/Services/WorkspacePaths.ts";
+import { DAEMON_SOCKET_PROTOCOL_VERSION } from "../protocol.ts";
 import { SocketTransport } from "../Services/SocketTransport.ts";
 import { SocketTransportLive } from "./SocketTransport.ts";
 
@@ -154,6 +155,17 @@ const sendRaw = (socketPath: string, payload: string): Promise<unknown> =>
       resolve(JSON.parse(line));
     });
   });
+
+const serializeRequest = (
+  request: Record<string, unknown>,
+  options?: { readonly includeProtocolVersion?: boolean },
+): string =>
+  `${JSON.stringify({
+    ...((options?.includeProtocolVersion ?? true)
+      ? { forgeProtocolVersion: DAEMON_SOCKET_PROTOCOL_VERSION }
+      : {}),
+    ...request,
+  })}\n`;
 
 const sendRawExpectSilence = (
   socketPath: string,
@@ -337,13 +349,79 @@ it("bind returns method-not-found for unknown JSON-RPC methods", async () => {
     try {
       const response = (await sendRaw(
         socketPath,
-        `${JSON.stringify({ jsonrpc: "2.0", id: "missing-1", method: "unknown.method", params: {} })}\n`,
+        serializeRequest({ jsonrpc: "2.0", id: "missing-1", method: "unknown.method", params: {} }),
       )) as {
         readonly error: { readonly code: number; readonly message: string };
       };
 
       assert.equal(response.error.code, -32601);
       assert.equal(response.error.message, "Method 'unknown.method' not found");
+    } finally {
+      await Effect.runPromise(binding.close.pipe(Effect.catch(() => Effect.void)));
+    }
+  } finally {
+    FS.rmSync(socketDir, { recursive: true, force: true });
+  }
+});
+
+it("bind rejects requests that omit the daemon protocol version handshake", async () => {
+  const socketDir = FS.mkdtempSync(Path.join(OS.tmpdir(), "forge-socket-transport-"));
+  const socketPath = Path.join(socketDir, "forge.sock");
+
+  try {
+    const transport = await Effect.runPromise(
+      Effect.service(SocketTransport).pipe(Effect.provide(makeTestLayer())),
+    );
+    const binding = await Effect.runPromise(transport.bind({ socketPath }));
+
+    try {
+      const response = (await sendRaw(
+        socketPath,
+        serializeRequest(
+          { jsonrpc: "2.0", id: "list-missing-version", method: "session.list", params: {} },
+          { includeProtocolVersion: false },
+        ),
+      )) as {
+        readonly error: { readonly code: number; readonly message: string };
+      };
+
+      assert.equal(response.error.code, -32001);
+      assert.match(response.error.message, /protocol version handshake is required/i);
+    } finally {
+      await Effect.runPromise(binding.close.pipe(Effect.catch(() => Effect.void)));
+    }
+  } finally {
+    FS.rmSync(socketDir, { recursive: true, force: true });
+  }
+});
+
+it("bind rejects requests whose daemon protocol version does not match", async () => {
+  const socketDir = FS.mkdtempSync(Path.join(OS.tmpdir(), "forge-socket-transport-"));
+  const socketPath = Path.join(socketDir, "forge.sock");
+
+  try {
+    const transport = await Effect.runPromise(
+      Effect.service(SocketTransport).pipe(Effect.provide(makeTestLayer())),
+    );
+    const binding = await Effect.runPromise(transport.bind({ socketPath }));
+
+    try {
+      const response = (await sendRaw(
+        socketPath,
+        serializeRequest({
+          jsonrpc: "2.0",
+          id: "list-bad-version",
+          method: "session.list",
+          params: {},
+          forgeProtocolVersion: DAEMON_SOCKET_PROTOCOL_VERSION + 1,
+        }),
+      )) as {
+        readonly error: { readonly code: number; readonly message: string };
+      };
+
+      assert.equal(response.error.code, -32001);
+      assert.match(response.error.message, /protocol version mismatch/i);
+      assert.match(response.error.message, /forge daemon restart/i);
     } finally {
       await Effect.runPromise(binding.close.pipe(Effect.catch(() => Effect.void)));
     }
@@ -390,7 +468,7 @@ it("bind does not respond to unknown-method notifications with no id", async () 
     try {
       const result = await sendRawExpectSilence(
         socketPath,
-        `${JSON.stringify({ jsonrpc: "2.0", method: "unknown.method", params: {} })}\n`,
+        serializeRequest({ jsonrpc: "2.0", method: "unknown.method", params: {} }),
       );
 
       assert.equal(result, "silent");
@@ -415,13 +493,13 @@ it("bind does not respond to invalid-param notifications with no id", async () =
     try {
       const result = await sendRawExpectSilence(
         socketPath,
-        `${JSON.stringify({
+        serializeRequest({
           jsonrpc: "2.0",
           method: "channel.intervene",
           params: {
             channelId: "channel-1",
           },
-        })}\n`,
+        }),
       );
 
       assert.equal(result, "silent");
@@ -458,14 +536,14 @@ it("gate.approve resolves the current pending gate when phaseRunId is omitted", 
     try {
       const response = (await sendRaw(
         socketPath,
-        `${JSON.stringify({
+        serializeRequest({
           jsonrpc: "2.0",
           id: "approve-1",
           method: "gate.approve",
           params: {
             sessionId: "thread-1",
           },
-        })}\n`,
+        }),
       )) as {
         readonly result: { readonly sequence: number };
       };
@@ -533,7 +611,7 @@ it("gate.reject fails safely when phaseRunId is omitted for an ambiguous session
     try {
       const response = (await sendRaw(
         socketPath,
-        `${JSON.stringify({
+        serializeRequest({
           jsonrpc: "2.0",
           id: "reject-1",
           method: "gate.reject",
@@ -541,7 +619,7 @@ it("gate.reject fails safely when phaseRunId is omitted for an ambiguous session
             sessionId: "thread-1",
             reason: "need another pass",
           },
-        })}\n`,
+        }),
       )) as {
         readonly error: { readonly code: number; readonly message: string };
       };
@@ -604,14 +682,14 @@ it("bootstrap.retry resolves the current pending bootstrap-failed request", asyn
     try {
       const response = (await sendRaw(
         socketPath,
-        `${JSON.stringify({
+        serializeRequest({
           jsonrpc: "2.0",
           id: "bootstrap-retry-1",
           method: "bootstrap.retry",
           params: {
             sessionId: "thread-1",
           },
-        })}\n`,
+        }),
       )) as {
         readonly result: { readonly sequence: number };
       };
@@ -653,14 +731,14 @@ it("bootstrap.skip fails when there is no pending bootstrap-failed request", asy
     try {
       const response = (await sendRaw(
         socketPath,
-        `${JSON.stringify({
+        serializeRequest({
           jsonrpc: "2.0",
           id: "bootstrap-skip-1",
           method: "bootstrap.skip",
           params: {
             sessionId: "thread-1",
           },
-        })}\n`,
+        }),
       )) as {
         readonly error: { readonly code: number; readonly message: string };
       };
@@ -703,7 +781,7 @@ it("channel.intervene maps to channel.post-message orchestration commands", asyn
     try {
       const response = (await sendRaw(
         socketPath,
-        `${JSON.stringify({
+        serializeRequest({
           jsonrpc: "2.0",
           id: "intervene-1",
           method: "channel.intervene",
@@ -711,7 +789,7 @@ it("channel.intervene maps to channel.post-message orchestration commands", asyn
             channelId: "channel-1",
             content: "please re-evaluate",
           },
-        })}\n`,
+        }),
       )) as {
         readonly result: { readonly sequence: number };
       };
@@ -766,12 +844,12 @@ it("events.subscribe replays ordered orchestration events", async () => {
     try {
       const response = (await sendRaw(
         socketPath,
-        `${JSON.stringify({
+        serializeRequest({
           jsonrpc: "2.0",
           id: "events-1",
           method: "events.subscribe",
           params: { afterSequence: 1, limit: 2, timeoutMs: 50 },
-        })}\n`,
+        }),
       )) as {
         readonly result: {
           readonly events: ReadonlyArray<{ readonly sequence: number }>;
@@ -816,12 +894,12 @@ it("events.subscribe returns an empty batch after timing out", async () => {
     try {
       const response = (await sendRaw(
         socketPath,
-        `${JSON.stringify({
+        serializeRequest({
           jsonrpc: "2.0",
           id: "events-timeout-1",
           method: "events.subscribe",
           params: { afterSequence: 3, timeoutMs: 10 },
-        })}\n`,
+        }),
       )) as {
         readonly result: {
           readonly events: ReadonlyArray<unknown>;
@@ -865,7 +943,7 @@ it("daemon.stop returns a response before invoking the async shutdown hook", asy
     try {
       const responsePromise = sendRaw(
         socketPath,
-        `${JSON.stringify({ jsonrpc: "2.0", id: "stop-1", method: "daemon.stop", params: {} })}\n`,
+        serializeRequest({ jsonrpc: "2.0", id: "stop-1", method: "daemon.stop", params: {} }),
       );
 
       await Effect.runPromise(Deferred.await(stopStarted));

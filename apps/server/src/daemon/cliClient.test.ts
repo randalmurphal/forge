@@ -1,11 +1,13 @@
 import * as FS from "node:fs";
+import * as Net from "node:net";
 import * as OS from "node:os";
 import * as Path from "node:path";
 
 import { Effect } from "effect";
 import { afterEach, describe, expect, it } from "vitest";
 
-import { buildDaemonLaunchPlan, readDaemonInfoFile } from "./cliClient.ts";
+import { buildDaemonLaunchPlan, readDaemonInfoFile, sendDaemonRpc } from "./cliClient.ts";
+import { DAEMON_SOCKET_PROTOCOL_VERSION } from "./protocol.ts";
 
 const VALID_DAEMON_WS_TOKEN = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef";
 
@@ -222,6 +224,63 @@ describe("buildDaemonLaunchPlan", () => {
       } else {
         process.env.FORGE_NO_BROWSER = originalNoBrowser;
       }
+    }
+  });
+});
+
+describe("sendDaemonRpc", () => {
+  it("includes the daemon socket protocol version in each CLI request", async () => {
+    const baseDir = makeTempDir("forge-cli-daemon-rpc-");
+    const socketPath = Path.join(baseDir, "forge.sock");
+    const seenRequests: Array<Record<string, unknown>> = [];
+    const server = Net.createServer((socket) => {
+      socket.setEncoding("utf8");
+      let buffer = "";
+      socket.on("data", (chunk) => {
+        buffer += chunk;
+        const newlineIndex = buffer.indexOf("\n");
+        if (newlineIndex === -1) {
+          return;
+        }
+
+        const line = buffer.slice(0, newlineIndex);
+        seenRequests.push(JSON.parse(line) as Record<string, unknown>);
+        const id = seenRequests[0]?.id;
+        socket.write(`${JSON.stringify({ jsonrpc: "2.0", id, result: { ok: true } })}\n`);
+      });
+    });
+
+    await new Promise<void>((resolve, reject) => {
+      server.once("error", reject);
+      server.listen(socketPath, resolve);
+    });
+
+    try {
+      const result = await Effect.runPromise(
+        sendDaemonRpc<{ readonly ok: boolean }>({
+          socketPath,
+          method: "session.list",
+        }),
+      );
+
+      expect(result).toEqual({ ok: true });
+      expect(seenRequests).toHaveLength(1);
+      expect(seenRequests[0]).toMatchObject({
+        jsonrpc: "2.0",
+        method: "session.list",
+        forgeProtocolVersion: DAEMON_SOCKET_PROTOCOL_VERSION,
+      });
+    } finally {
+      await new Promise<void>((resolve, reject) => {
+        server.close((error) => {
+          if (error) {
+            reject(error);
+            return;
+          }
+          resolve();
+        });
+      });
+      FS.rmSync(socketPath, { force: true });
     }
   });
 });
