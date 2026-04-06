@@ -43,6 +43,7 @@ const MAX_THREAD_CHECKPOINTS = 500;
 const MAX_THREAD_PROPOSED_PLANS = 200;
 const MAX_THREAD_ACTIVITIES = 500;
 const EMPTY_THREAD_IDS: ThreadId[] = [];
+const EMPTY_THREADS: Thread[] = [];
 
 // ── Pure helpers ──────────────────────────────────────────────────────
 
@@ -1165,6 +1166,22 @@ export const selectThreadIdsByProjectId =
   (projectId: ProjectId | null | undefined) =>
   (state: AppState): ThreadId[] =>
     projectId ? (state.threadIdsByProjectId[projectId] ?? EMPTY_THREAD_IDS) : EMPTY_THREAD_IDS;
+
+export const selectThreadsByIds =
+  (threadIds: readonly ThreadId[] | null | undefined) =>
+  (state: AppState): Thread[] => {
+    if (!threadIds || threadIds.length === 0) {
+      return EMPTY_THREADS;
+    }
+
+    const threadsById = new Map(state.threads.map((thread) => [thread.id, thread] as const));
+    const orderedThreads = threadIds.flatMap((threadId) => {
+      const thread = threadsById.get(threadId);
+      return thread ? [thread] : [];
+    });
+
+    return orderedThreads.length > 0 ? orderedThreads : EMPTY_THREADS;
+  };
 
 export function setError(state: AppState, threadId: ThreadId, error: string | null): AppState {
   return updateThreadState(state, threadId, (t) => {

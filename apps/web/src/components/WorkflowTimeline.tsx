@@ -12,8 +12,7 @@ import {
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { ThreadId, WorkflowPhase } from "@forgetools/contracts";
 import { cn } from "../lib/utils";
-import { useStore } from "../store";
-import { useProjectById, useThreadById } from "../storeSelectors";
+import { useProjectById, useThreadById, useThreadsByIds } from "../storeSelectors";
 import { useWorkflow, useWorkflowStore } from "../stores/workflowStore";
 import { getWsRpcClient } from "../wsRpcClient";
 import { GateApproval } from "./GateApproval";
@@ -116,9 +115,7 @@ export function WorkflowTimeline({ threadId }: { threadId: ThreadId }) {
   const thread = useThreadById(threadId);
   const project = useProjectById(thread?.projectId ?? null);
   const workflowRuntime = useWorkflowStore((state) => state.runtimeByThreadId[threadId] ?? null);
-  const childThreads = useStore((state) =>
-    state.threads.filter((candidate) => candidate.parentThreadId === threadId),
-  );
+  const childThreads = useThreadsByIds(thread?.childThreadIds);
   const knownChildThreadIdsRef = useRef<ThreadId[]>(thread?.childThreadIds ?? []);
   const lastNavigatedChildThreadIdRef = useRef<ThreadId | null>(null);
   const previousWorkflowThreadIdRef = useRef<ThreadId>(threadId);

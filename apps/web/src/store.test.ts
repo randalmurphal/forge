@@ -14,6 +14,7 @@ import { describe, expect, it } from "vitest";
 import {
   applyOrchestrationEvent,
   applyOrchestrationEvents,
+  selectThreadsByIds,
   syncServerReadModel,
   type AppState,
 } from "./store";
@@ -834,5 +835,49 @@ describe("incremental orchestration updates", () => {
       state: "running",
     });
     expect(next.threads[0]?.latestTurn?.sourceProposedPlan).toBeUndefined();
+  });
+});
+
+describe("store selectors", () => {
+  it("selects threads by id in requested order and ignores missing ids", () => {
+    const parentThreadId = ThreadId.makeUnsafe("thread-parent");
+    const childThreadId = ThreadId.makeUnsafe("thread-child");
+    const state: AppState = {
+      ...makeState(
+        makeThread({
+          id: parentThreadId,
+          childThreadIds: [childThreadId],
+        }),
+      ),
+      threads: [
+        makeThread({
+          id: parentThreadId,
+          childThreadIds: [childThreadId],
+        }),
+        makeThread({
+          id: childThreadId,
+          projectId: ProjectId.makeUnsafe("project-1"),
+          parentThreadId,
+          title: "Child thread",
+        }),
+      ],
+    };
+
+    const selected = selectThreadsByIds([
+      childThreadId,
+      ThreadId.makeUnsafe("thread-missing"),
+      parentThreadId,
+    ])(state);
+
+    expect(selected.map((thread) => thread.id)).toEqual([childThreadId, parentThreadId]);
+  });
+
+  it("returns a shared empty array when no thread ids are requested", () => {
+    const selectedWithoutIds = selectThreadsByIds(null)(makeState(makeThread()));
+    const selectedWithEmptyIds = selectThreadsByIds([])(makeState(makeThread()));
+
+    expect(selectedWithoutIds).toEqual([]);
+    expect(selectedWithEmptyIds).toEqual([]);
+    expect(selectedWithoutIds).toBe(selectedWithEmptyIds);
   });
 });

@@ -9,8 +9,7 @@ import {
 import { useEffect, useMemo, useRef, useState } from "react";
 import { PhaseRunId, type ThreadId } from "@forgetools/contracts";
 import { useNavigate } from "@tanstack/react-router";
-import { useStore } from "../store";
-import { useProjectById, useThreadById } from "../storeSelectors";
+import { useProjectById, useThreadById, useThreadsByIds } from "../storeSelectors";
 import {
   channelInterveneMutationOptions,
   useChannelMessages,
@@ -44,7 +43,7 @@ export function ChannelView(props: { threadId: ThreadId }) {
   const navigate = useNavigate();
   const thread = useThreadById(props.threadId);
   const project = useProjectById(thread?.projectId);
-  const allThreads = useStore((state) => state.threads);
+  const childThreads = useThreadsByIds(thread?.childThreadIds);
   const [splitView, setSplitView] = useState(false);
   const [interventionOpen, setInterventionOpen] = useState(false);
   const [interventionText, setInterventionText] = useState("");
@@ -60,11 +59,6 @@ export function ChannelView(props: { threadId: ThreadId }) {
       interventionTriggerRef.current?.focus();
     });
   };
-
-  const childThreads = useMemo(() => {
-    const childThreadIds = new Set(thread?.childThreadIds ?? []);
-    return allThreads.filter((candidate) => childThreadIds.has(candidate.id));
-  }, [allThreads, thread?.childThreadIds]);
 
   const channelQuery = useThreadChannel({
     threadId: thread?.id ?? null,
