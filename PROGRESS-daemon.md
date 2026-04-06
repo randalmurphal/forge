@@ -21,12 +21,14 @@
 - WI-1: Product identity -- base directory and paths
 - WI-2: Product identity -- package names and branding
 - WI-3: Daemon process -- startup and singleton discovery
+- WI-4: Unix socket transport -- JSON-RPC server
 
 ## Iteration Log
 
 - 2026-04-06: Completed WI-1 by switching runtime/base-dir identity to Forge. Replaced `T3CODE_*` envs with `FORGE_*`, defaulted server/desktop/dev tooling to `~/.forge`, updated desktop protocol/app IDs to `forge://` and `com.forgetools.forge`, and added/updated tests covering the new defaults.
 - 2026-04-06: Completed WI-2 by renaming workspace packages to `@forgetools/*`, moving the server package/CLI command to `forge`, updating Turbo filters and workspace imports, and replacing remaining Forge-visible `T3 Code` branding across desktop, web, server, marketing, and runtime docs. Verified with `bun fmt`, `bun lint`, `bun typecheck`, `bun run test`, and a product-facing branding grep.
 - 2026-04-06: Completed WI-3 by adding `DaemonService` under `apps/server/src/daemon/` with a tagged error surface, startup lock acquisition via `lockf`/`flock` helper processes, PID/socket/`daemon.json` discovery and stale-state cleanup, JSON-RPC `daemon.ping` socket probing, fresh-start manifest generation with `0600` permissions, idempotent stop cleanup, and focused tests covering fresh start, stop cleanup, stale PID recovery, and concurrent singleton startup. Verified with `bun fmt`, `bun lint`, `bun typecheck`, and `bun run test`.
+- 2026-04-06: Completed WI-4 by adding a daemon `SocketTransport` service/layer that binds a `0600` Unix socket, parses newline-delimited JSON-RPC 2.0 requests, maps the socket method registry onto orchestration/channel/workflow operations, and returns structured JSON-RPC errors for parse, invalid-request, invalid-params, and unknown-method failures. Added focused socket transport tests for success, method-not-found, parse errors, and channel intervention dispatch. Verified with `bun fmt`, `bun lint`, `bun typecheck`, and `bun run test`.
 
 ## Review Log
 
