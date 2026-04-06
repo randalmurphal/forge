@@ -26,6 +26,11 @@ type RpcUnaryNoArgMethod<TTag extends RpcTag> =
     ? () => Promise<TSuccess>
     : never;
 
+type RpcStreamEvent<TTag extends RpcTag> =
+  RpcMethod<TTag> extends (input: any, options?: any) => Stream.Stream<infer TEvent, any, any>
+    ? TEvent
+    : never;
+
 type RpcStreamMethod<TTag extends RpcTag> =
   RpcMethod<TTag> extends (input: any, options?: any) => Stream.Stream<infer TEvent, any, any>
     ? (listener: (event: TEvent) => void) => () => void
@@ -92,6 +97,14 @@ export interface WsRpcClient {
     readonly getFullThreadDiff: RpcUnaryMethod<typeof ORCHESTRATION_WS_METHODS.getFullThreadDiff>;
     readonly replayEvents: RpcUnaryMethod<typeof ORCHESTRATION_WS_METHODS.replayEvents>;
     readonly onDomainEvent: RpcStreamMethod<typeof WS_METHODS.subscribeOrchestrationDomainEvents>;
+  };
+  readonly channel: {
+    readonly getMessages: RpcUnaryMethod<typeof WS_METHODS.channelGetMessages>;
+    readonly getChannel: RpcUnaryMethod<typeof WS_METHODS.channelGetChannel>;
+    readonly onEvent: (
+      input: RpcInput<typeof WS_METHODS.subscribeChannelMessages>,
+      listener: (event: RpcStreamEvent<typeof WS_METHODS.subscribeChannelMessages>) => void,
+    ) => () => void;
   };
   readonly workflow: {
     readonly list: RpcUnaryNoArgMethod<typeof WS_METHODS.workflowList>;
@@ -206,6 +219,17 @@ export function createWsRpcClient(transport = new WsTransport()): WsRpcClient {
       onDomainEvent: (listener) =>
         transport.subscribe(
           (client) => client[WS_METHODS.subscribeOrchestrationDomainEvents]({}),
+          listener,
+        ),
+    },
+    channel: {
+      getMessages: (input) =>
+        transport.request((client) => client[WS_METHODS.channelGetMessages](input)),
+      getChannel: (input) =>
+        transport.request((client) => client[WS_METHODS.channelGetChannel](input)),
+      onEvent: (input, listener) =>
+        transport.subscribe(
+          (client) => client[WS_METHODS.subscribeChannelMessages](input),
           listener,
         ),
     },
