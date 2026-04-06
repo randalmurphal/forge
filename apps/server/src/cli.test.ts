@@ -296,6 +296,78 @@ vitestIt("routes `forge intervene` to channel.intervene", async () => {
   });
 });
 
+vitestIt("routes `forge watch --once` to session.list", async () => {
+  await withSocketServer([], async ({ baseDir, requests }) => {
+    await runCli(["watch", "--once", "--base-dir", baseDir]);
+
+    nodeAssert.equal(requests.length, 1);
+    nodeAssert.equal(requests[0]?.method, "session.list");
+    nodeAssert.deepStrictEqual(requests[0]?.params, {});
+  });
+});
+
+vitestIt("routes `forge logs --once` to session.getTranscript", async () => {
+  await withSocketServer(
+    {
+      entries: [],
+      total: 0,
+    },
+    async ({ baseDir, requests }) => {
+      await runCli(["logs", "thread-11", "--once", "--base-dir", baseDir]);
+
+      nodeAssert.equal(requests.length, 1);
+      nodeAssert.equal(requests[0]?.method, "session.getTranscript");
+      nodeAssert.deepStrictEqual(requests[0]?.params, {
+        sessionId: "thread-11",
+        offset: 0,
+      });
+    },
+  );
+});
+
+vitestIt(
+  "routes `forge events` to repeated events.subscribe calls with cursor updates",
+  async () => {
+    await withSocketServer(
+      (() => {
+        let callCount = 0;
+        return (_request: JsonRpcRequest) => {
+          callCount += 1;
+          if (callCount === 1) {
+            return {
+              events: [{ sequence: 1, type: "thread.created" }],
+              nextSequenceExclusive: 1,
+              timedOut: false,
+            };
+          }
+          return {
+            events: [{ sequence: 2, type: "thread.completed" }],
+            nextSequenceExclusive: 2,
+            timedOut: false,
+          };
+        };
+      })(),
+      async ({ baseDir, requests }) => {
+        await runCli(["events", "--max-events", "2", "--base-dir", baseDir]);
+
+        nodeAssert.equal(requests.length, 2);
+        nodeAssert.equal(requests[0]?.method, "events.subscribe");
+        nodeAssert.deepStrictEqual(requests[0]?.params, {
+          afterSequence: 0,
+          timeoutMs: 5000,
+          limit: 2,
+        });
+        nodeAssert.equal(requests[1]?.method, "events.subscribe");
+        nodeAssert.deepStrictEqual(requests[1]?.params, {
+          afterSequence: 1,
+          timeoutMs: 5000,
+          limit: 1,
+        });
+      },
+    );
+  },
+);
+
 vitestIt("routes `forge daemon stop` to daemon.stop", async () => {
   await withSocketServer(
     (request: JsonRpcRequest) =>

@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { Deferred, Effect, Layer, Option, Ref } from "effect";
+import { Deferred, Effect, Layer, Option, Ref, Stream } from "effect";
 import * as FS from "node:fs";
 import * as Net from "node:net";
 import * as OS from "node:os";
@@ -31,6 +31,20 @@ const defaultModelSelection = {
   provider: "codex",
   model: "gpt-5-codex",
 } as const;
+
+const makeEvent = (sequence: number, type = "thread.created") =>
+  ({
+    sequence,
+    streamId: "thread-1",
+    streamVersion: sequence,
+    eventId: `event-${sequence}`,
+    type,
+    occurredAt: "2026-04-06T18:00:00.000Z",
+    actor: {
+      type: "system",
+    },
+    payload: {},
+  }) as never;
 
 const makeSnapshot = (): OrchestrationReadModel => {
   const now = "2026-04-06T18:00:00.000Z";
@@ -722,6 +736,103 @@ it("channel.intervene maps to channel.post-message orchestration commands", asyn
           content: "please re-evaluate",
         },
       );
+    } finally {
+      await Effect.runPromise(binding.close.pipe(Effect.catch(() => Effect.void)));
+    }
+  } finally {
+    FS.rmSync(socketDir, { recursive: true, force: true });
+  }
+});
+
+it("events.subscribe replays ordered orchestration events", async () => {
+  const socketDir = FS.mkdtempSync(Path.join(OS.tmpdir(), "forge-socket-transport-"));
+  const socketPath = Path.join(socketDir, "forge.sock");
+
+  try {
+    const transport = await Effect.runPromise(
+      Effect.service(SocketTransport).pipe(
+        Effect.provide(
+          makeTestLayer({
+            orchestrationEngine: {
+              readEvents: () => Stream.fromIterable([makeEvent(2), makeEvent(3)]),
+              streamDomainEvents: Stream.empty,
+            },
+          }),
+        ),
+      ),
+    );
+    const binding = await Effect.runPromise(transport.bind({ socketPath }));
+
+    try {
+      const response = (await sendRaw(
+        socketPath,
+        `${JSON.stringify({
+          jsonrpc: "2.0",
+          id: "events-1",
+          method: "events.subscribe",
+          params: { afterSequence: 1, limit: 2, timeoutMs: 50 },
+        })}\n`,
+      )) as {
+        readonly result: {
+          readonly events: ReadonlyArray<{ readonly sequence: number }>;
+          readonly nextSequenceExclusive: number;
+          readonly timedOut: boolean;
+        };
+      };
+
+      assert.deepEqual(
+        response.result.events.map((event) => event.sequence),
+        [2, 3],
+      );
+      assert.equal(response.result.nextSequenceExclusive, 3);
+      assert.equal(response.result.timedOut, false);
+    } finally {
+      await Effect.runPromise(binding.close.pipe(Effect.catch(() => Effect.void)));
+    }
+  } finally {
+    FS.rmSync(socketDir, { recursive: true, force: true });
+  }
+});
+
+it("events.subscribe returns an empty batch after timing out", async () => {
+  const socketDir = FS.mkdtempSync(Path.join(OS.tmpdir(), "forge-socket-transport-"));
+  const socketPath = Path.join(socketDir, "forge.sock");
+
+  try {
+    const transport = await Effect.runPromise(
+      Effect.service(SocketTransport).pipe(
+        Effect.provide(
+          makeTestLayer({
+            orchestrationEngine: {
+              readEvents: () => Stream.empty,
+              streamDomainEvents: Stream.never,
+            },
+          }),
+        ),
+      ),
+    );
+    const binding = await Effect.runPromise(transport.bind({ socketPath }));
+
+    try {
+      const response = (await sendRaw(
+        socketPath,
+        `${JSON.stringify({
+          jsonrpc: "2.0",
+          id: "events-timeout-1",
+          method: "events.subscribe",
+          params: { afterSequence: 3, timeoutMs: 10 },
+        })}\n`,
+      )) as {
+        readonly result: {
+          readonly events: ReadonlyArray<unknown>;
+          readonly nextSequenceExclusive: number;
+          readonly timedOut: boolean;
+        };
+      };
+
+      assert.equal(response.result.events.length, 0);
+      assert.equal(response.result.nextSequenceExclusive, 3);
+      assert.equal(response.result.timedOut, true);
     } finally {
       await Effect.runPromise(binding.close.pipe(Effect.catch(() => Effect.void)));
     }

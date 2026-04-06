@@ -1,6 +1,11 @@
 import * as Crypto from "node:crypto";
 
-import type { ModelSelection, SessionSummary } from "@forgetools/contracts";
+import type {
+  ModelSelection,
+  OrchestrationEvent,
+  SessionSummary,
+  TranscriptEntry,
+} from "@forgetools/contracts";
 import { NetService } from "@forgetools/shared/Net";
 import { parsePersistedServerObservabilitySettings } from "@forgetools/shared/serverSettings";
 import { Config, Console, Effect, FileSystem, LogLevel, Option, Path, Schema } from "effect";
@@ -383,6 +388,21 @@ const phaseRunIdFlag = Flag.string("phase-run-id").pipe(
   Flag.optional,
 );
 
+const onceFlag = Flag.boolean("once").pipe(
+  Flag.withDescription("Run a single fetch instead of continuously following updates."),
+  Flag.optional,
+);
+
+const intervalMsFlag = Flag.integer("interval-ms").pipe(
+  Flag.withDescription("Polling interval in milliseconds for watch/log tail commands."),
+  Flag.optional,
+);
+
+const maxEventsFlag = Flag.integer("max-events").pipe(
+  Flag.withDescription("Maximum number of streamed events before exiting."),
+  Flag.optional,
+);
+
 const renderSessionLine = (session: SessionSummary) =>
   [
     session.threadId,
@@ -428,6 +448,34 @@ const renderDaemonStatus = (
   ].join("\n");
 };
 
+interface TranscriptResponse {
+  readonly entries: ReadonlyArray<TranscriptEntry>;
+  readonly total: number;
+}
+
+interface EventsSubscribeResponse {
+  readonly events: ReadonlyArray<OrchestrationEvent>;
+  readonly nextSequenceExclusive: number;
+  readonly timedOut: boolean;
+}
+
+const clearTerminalScreen = () => {
+  if (process.stdout.isTTY) {
+    process.stdout.write("\u001bc");
+  }
+};
+
+const renderWatchSnapshot = (sessions: ReadonlyArray<SessionSummary>) => {
+  const header = `Forge sessions @ ${new Date().toISOString()}`;
+  if (sessions.length === 0) {
+    return `${header}\n\nNo sessions.`;
+  }
+  return [header, "", sessions.map(renderSessionLine).join("\n")].join("\n");
+};
+
+const renderTranscriptEntry = (entry: TranscriptEntry) =>
+  `${entry.createdAt} ${entry.role}: ${entry.text}`;
+
 const resolveCliPathsFromInput = (input: CliDaemonFlags) =>
   resolveCliDaemonPaths(Option.getOrUndefined(input.baseDir));
 
@@ -435,6 +483,39 @@ const loadDaemonSessions = (paths: CliDaemonPaths) =>
   sendDaemonRpc<ReadonlyArray<SessionSummary>>({
     socketPath: paths.socketPath,
     method: "session.list",
+  });
+
+const loadSessionTranscript = (
+  paths: CliDaemonPaths,
+  sessionId: string,
+  offset?: number,
+  limit?: number,
+) =>
+  sendDaemonRpc<TranscriptResponse>({
+    socketPath: paths.socketPath,
+    method: "session.getTranscript",
+    params: {
+      sessionId,
+      ...(offset === undefined ? {} : { offset }),
+      ...(limit === undefined ? {} : { limit }),
+    },
+  });
+
+const subscribeDaemonEvents = (
+  paths: CliDaemonPaths,
+  afterSequence: number,
+  timeoutMs: number,
+  maxEvents?: number,
+) =>
+  sendDaemonRpc<EventsSubscribeResponse>({
+    socketPath: paths.socketPath,
+    method: "events.subscribe",
+    params: {
+      afterSequence,
+      timeoutMs,
+      ...(maxEvents === undefined ? {} : { limit: maxEvents }),
+    },
+    timeoutMs: timeoutMs + 1_000,
   });
 
 const queueSummary = (label: string, result: unknown) => {
@@ -856,6 +937,104 @@ const answerCommand = Command.make("answer", {
   ),
 );
 
+const watchCommand = Command.make("watch", {
+  ...cliDaemonFlags,
+  once: onceFlag,
+  intervalMs: intervalMsFlag,
+}).pipe(
+  Command.withDescription("Watch session status from the running daemon."),
+  Command.withHandler((input) =>
+    Effect.gen(function* () {
+      const paths = yield* resolveCliPathsFromInput(input);
+      const intervalMs = Option.getOrElse(input.intervalMs, () => 1_000);
+      const runOnce = Option.getOrElse(input.once, () => false);
+
+      for (;;) {
+        const sessions = yield* loadDaemonSessions(paths);
+        clearTerminalScreen();
+        yield* Console.log(renderWatchSnapshot(sessions));
+        if (runOnce) {
+          return;
+        }
+        yield* Effect.sleep(`${intervalMs} millis`);
+      }
+    }),
+  ),
+);
+
+const logsCommand = Command.make("logs", {
+  ...cliDaemonFlags,
+  sessionId: Argument.string("session-id"),
+  once: onceFlag,
+  intervalMs: intervalMsFlag,
+}).pipe(
+  Command.withDescription("Tail transcript entries for a session."),
+  Command.withHandler((input) =>
+    Effect.gen(function* () {
+      const paths = yield* resolveCliPathsFromInput(input);
+      const intervalMs = Option.getOrElse(input.intervalMs, () => 1_000);
+      const runOnce = Option.getOrElse(input.once, () => false);
+      let offset = 0;
+
+      for (;;) {
+        const transcript = yield* loadSessionTranscript(paths, input.sessionId, offset);
+
+        if (transcript.total < offset) {
+          offset = 0;
+          continue;
+        }
+
+        if (transcript.entries.length > 0) {
+          yield* Console.log(transcript.entries.map(renderTranscriptEntry).join("\n"));
+        } else if (runOnce && offset === 0) {
+          yield* Console.log("No transcript entries.");
+        }
+
+        offset = transcript.total;
+        if (runOnce) {
+          return;
+        }
+        yield* Effect.sleep(`${intervalMs} millis`);
+      }
+    }),
+  ),
+);
+
+const eventsCommand = Command.make("events", {
+  ...cliDaemonFlags,
+  maxEvents: maxEventsFlag,
+  once: onceFlag,
+}).pipe(
+  Command.withDescription("Stream orchestration events from the daemon socket API."),
+  Command.withHandler((input) =>
+    Effect.gen(function* () {
+      const paths = yield* resolveCliPathsFromInput(input);
+      const maxEvents = Option.getOrUndefined(input.maxEvents);
+      const runOnce = Option.getOrElse(input.once, () => false);
+      let remaining = maxEvents;
+      let cursor = 0;
+
+      for (;;) {
+        const response = yield* subscribeDaemonEvents(paths, cursor, 5_000, remaining);
+        for (const event of response.events) {
+          yield* Console.log(JSON.stringify(event));
+        }
+
+        cursor = response.nextSequenceExclusive;
+        if (remaining !== undefined) {
+          remaining = Math.max(remaining - response.events.length, 0);
+          if (remaining === 0) {
+            return;
+          }
+        }
+        if (runOnce) {
+          return;
+        }
+      }
+    }),
+  ),
+);
+
 const cleanupCommand = Command.make("cleanup", cliDaemonFlags).pipe(
   Command.withDescription("Remove empty directories under ~/.forge/worktrees."),
   Command.withHandler((input) =>
@@ -947,6 +1126,9 @@ export const cli = rootCommand.pipe(
     resumeCommand,
     cancelCommand,
     answerCommand,
+    watchCommand,
+    logsCommand,
+    eventsCommand,
     cleanupCommand,
     daemonCommand,
   ]),

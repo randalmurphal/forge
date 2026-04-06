@@ -13,9 +13,11 @@ import {
   ModelSelection,
   NonNegativeInt,
   OrchestrationDispatchCommandError,
+  type OrchestrationEvent,
   OrchestrationGetSnapshotError,
   type OrchestrationReadModel,
   type OrchestrationThread,
+  PositiveInt,
   ProviderKind,
   type SessionStatus,
   type SessionSummary,
@@ -29,7 +31,7 @@ import {
   type WorkflowDefinition,
   WorkflowId,
 } from "@forgetools/contracts";
-import { Effect, Layer, Option, Schema } from "effect";
+import { Effect, Layer, Option, Ref, Schema, Stream } from "effect";
 
 import { ChannelService } from "../../channel/Services/ChannelService.ts";
 import {
@@ -187,6 +189,12 @@ const PhaseOutputUpdateParams = Schema.Struct({
 
 const WorkflowGetParams = Schema.Struct({
   workflowId: WorkflowId,
+});
+
+const EventsSubscribeParams = Schema.Struct({
+  afterSequence: Schema.optional(NonNegativeInt),
+  limit: Schema.optional(PositiveInt),
+  timeoutMs: Schema.optional(NonNegativeInt),
 });
 
 const EmptyParams = Schema.Struct({});
@@ -688,6 +696,63 @@ const makeSocketTransport = Effect.gen(function* () {
       ? requireCurrentGateRequest(input.snapshot, input.threadId)
       : requireGateRequest(input.snapshot, input.threadId, input.phaseRunId);
 
+  const orderedEventStream = (afterSequence: number) =>
+    Effect.gen(function* () {
+      type SequenceState = {
+        readonly nextSequence: number;
+        readonly pendingBySequence: Map<number, OrchestrationEvent>;
+      };
+
+      const state = yield* Ref.make<SequenceState>({
+        nextSequence: afterSequence + 1,
+        pendingBySequence: new Map<number, OrchestrationEvent>(),
+      });
+
+      return Stream.merge(
+        orchestrationEngine.readEvents(afterSequence).pipe(
+          Stream.mapError(
+            (cause) =>
+              new OrchestrationGetSnapshotError({
+                message: "Failed to subscribe to orchestration events.",
+                cause: cause instanceof Error ? cause : new Error(String(cause)),
+              }),
+          ),
+        ),
+        orchestrationEngine.streamDomainEvents.pipe(
+          Stream.filter((event) => event.sequence > afterSequence),
+        ),
+      ).pipe(
+        Stream.mapEffect((event) =>
+          Ref.modify(
+            state,
+            ({ nextSequence, pendingBySequence }): [Array<OrchestrationEvent>, SequenceState] => {
+              if (event.sequence < nextSequence || pendingBySequence.has(event.sequence)) {
+                return [[], { nextSequence, pendingBySequence }];
+              }
+
+              const updatedPending = new Map(pendingBySequence);
+              updatedPending.set(event.sequence, event);
+
+              const emit: Array<OrchestrationEvent> = [];
+              let expected = nextSequence;
+              for (;;) {
+                const expectedEvent = updatedPending.get(expected);
+                if (!expectedEvent) {
+                  break;
+                }
+                emit.push(expectedEvent);
+                updatedPending.delete(expected);
+                expected += 1;
+              }
+
+              return [emit, { nextSequence: expected, pendingBySequence: updatedPending }];
+            },
+          ),
+        ),
+        Stream.flatMap((events) => Stream.fromIterable(events)),
+      );
+    });
+
   const resolveProjectContext = (input: {
     readonly projectId: ProjectId | undefined;
     readonly parentThreadId: ThreadId | undefined;
@@ -939,6 +1004,31 @@ const makeSocketTransport = Effect.gen(function* () {
       return snapshot.threads
         .filter((candidate) => candidate.parentThreadId === null)
         .map((candidate) => toSessionSummary(candidate, pendingThreadIds));
+    });
+
+  const handleEventsSubscribe = (params: unknown) =>
+    Effect.gen(function* () {
+      const input = decodeParams(EventsSubscribeParams, params, "events.subscribe");
+      const afterSequence = input.afterSequence ?? 0;
+      const limit = input.limit ?? 1;
+      const timeoutMs = input.timeoutMs ?? 5_000;
+
+      const eventsOption = yield* orderedEventStream(afterSequence).pipe(
+        Effect.flatMap((stream) =>
+          Stream.runCollect(stream.pipe(Stream.take(limit))).pipe(
+            Effect.map((events) => Array.from(events)),
+            Effect.timeoutOption(`${timeoutMs} millis`),
+          ),
+        ),
+      );
+      const events = Option.getOrElse(eventsOption, () => [] as Array<OrchestrationEvent>);
+
+      return {
+        events,
+        nextSequenceExclusive:
+          events.length === 0 ? afterSequence : events[events.length - 1]!.sequence,
+        timedOut: events.length === 0,
+      };
     });
 
   const handleSessionGet = (params: unknown) =>
@@ -1432,6 +1522,7 @@ const makeSocketTransport = Effect.gen(function* () {
     ["gate.reject", (params) => handleGateReject(params)],
     ["bootstrap.retry", (params) => handleBootstrapResolve(params, "retry", "bootstrap.retry")],
     ["bootstrap.skip", (params) => handleBootstrapResolve(params, "skip", "bootstrap.skip")],
+    ["events.subscribe", (params) => handleEventsSubscribe(params)],
     ["request.resolve", (params) => handleRequestResolve(params)],
     [
       "channel.getMessages",
