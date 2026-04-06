@@ -3,17 +3,7 @@ import type {
   ProjectScriptIcon,
   ResolvedKeybindingsConfig,
 } from "@forgetools/contracts";
-import {
-  BugIcon,
-  ChevronDownIcon,
-  FlaskConicalIcon,
-  HammerIcon,
-  ListChecksIcon,
-  PlayIcon,
-  PlusIcon,
-  SettingsIcon,
-  WrenchIcon,
-} from "lucide-react";
+import { ChevronDownIcon, PlusIcon, SettingsIcon } from "lucide-react";
 import React, { type FormEvent, type KeyboardEvent, useCallback, useMemo, useState } from "react";
 
 import {
@@ -26,7 +16,8 @@ import {
   primaryProjectScript,
 } from "~/projectScripts";
 import { shortcutLabelForCommand } from "~/keybindings";
-import { isMacPlatform } from "~/lib/utils";
+import { keybindingFromProjectScriptShortcutEvent } from "./ProjectScriptsControl.logic";
+import { PROJECT_SCRIPT_ICONS, ProjectScriptIconGlyph } from "./ProjectScriptsControl.parts";
 import {
   AlertDialog,
   AlertDialogClose,
@@ -54,30 +45,6 @@ import { Popover, PopoverPopup, PopoverTrigger } from "./ui/popover";
 import { Switch } from "./ui/switch";
 import { Textarea } from "./ui/textarea";
 
-const SCRIPT_ICONS: Array<{ id: ProjectScriptIcon; label: string }> = [
-  { id: "play", label: "Play" },
-  { id: "test", label: "Test" },
-  { id: "lint", label: "Lint" },
-  { id: "configure", label: "Configure" },
-  { id: "build", label: "Build" },
-  { id: "debug", label: "Debug" },
-];
-
-function ScriptIcon({
-  icon,
-  className = "size-3.5",
-}: {
-  icon: ProjectScriptIcon;
-  className?: string;
-}) {
-  if (icon === "test") return <FlaskConicalIcon className={className} />;
-  if (icon === "lint") return <ListChecksIcon className={className} />;
-  if (icon === "configure") return <WrenchIcon className={className} />;
-  if (icon === "build") return <HammerIcon className={className} />;
-  if (icon === "debug") return <BugIcon className={className} />;
-  return <PlayIcon className={className} />;
-}
-
 export interface NewProjectScriptInput {
   name: string;
   command: string;
@@ -94,57 +61,6 @@ interface ProjectScriptsControlProps {
   onAddScript: (input: NewProjectScriptInput) => Promise<void> | void;
   onUpdateScript: (scriptId: string, input: NewProjectScriptInput) => Promise<void> | void;
   onDeleteScript: (scriptId: string) => Promise<void> | void;
-}
-
-function normalizeShortcutKeyToken(key: string): string | null {
-  const normalized = key.toLowerCase();
-  if (
-    normalized === "meta" ||
-    normalized === "control" ||
-    normalized === "ctrl" ||
-    normalized === "shift" ||
-    normalized === "alt" ||
-    normalized === "option"
-  ) {
-    return null;
-  }
-  if (normalized === " ") return "space";
-  if (normalized === "escape") return "esc";
-  if (normalized === "arrowup") return "arrowup";
-  if (normalized === "arrowdown") return "arrowdown";
-  if (normalized === "arrowleft") return "arrowleft";
-  if (normalized === "arrowright") return "arrowright";
-  if (normalized.length === 1) return normalized;
-  if (normalized.startsWith("f") && normalized.length <= 3) return normalized;
-  if (normalized === "enter" || normalized === "tab" || normalized === "backspace") {
-    return normalized;
-  }
-  if (normalized === "delete" || normalized === "home" || normalized === "end") {
-    return normalized;
-  }
-  if (normalized === "pageup" || normalized === "pagedown") return normalized;
-  return null;
-}
-
-function keybindingFromEvent(event: KeyboardEvent<HTMLInputElement>): string | null {
-  const keyToken = normalizeShortcutKeyToken(event.key);
-  if (!keyToken) return null;
-
-  const parts: string[] = [];
-  if (isMacPlatform(navigator.platform)) {
-    if (event.metaKey) parts.push("mod");
-    if (event.ctrlKey) parts.push("ctrl");
-  } else {
-    if (event.ctrlKey) parts.push("mod");
-    if (event.metaKey) parts.push("meta");
-  }
-  if (event.altKey) parts.push("alt");
-  if (event.shiftKey) parts.push("shift");
-  if (parts.length === 0) {
-    return null;
-  }
-  parts.push(keyToken);
-  return parts.join("+");
 }
 
 export default function ProjectScriptsControl({
@@ -186,7 +102,10 @@ export default function ProjectScriptsControl({
       setKeybinding("");
       return;
     }
-    const next = keybindingFromEvent(event);
+    const next = keybindingFromProjectScriptShortcutEvent({
+      event,
+      platform: navigator.platform,
+    });
     if (!next) return;
     setKeybinding(next);
   };
@@ -276,7 +195,7 @@ export default function ProjectScriptsControl({
             onClick={() => onRunScript(primaryScript)}
             title={`Run ${primaryScript.name}`}
           >
-            <ScriptIcon icon={primaryScript.icon} />
+            <ProjectScriptIconGlyph icon={primaryScript.icon} />
             <span className="sr-only @3xl/header-actions:not-sr-only @3xl/header-actions:ml-0.5">
               {primaryScript.name}
             </span>
@@ -300,7 +219,7 @@ export default function ProjectScriptsControl({
                     className={`group ${dropdownItemClassName}`}
                     onClick={() => onRunScript(script)}
                   >
-                    <ScriptIcon icon={script.icon} className="size-4" />
+                    <ProjectScriptIconGlyph icon={script.icon} className="size-4" />
                     <span className="truncate">
                       {script.runOnWorktreeCreate ? `${script.name} (setup)` : script.name}
                     </span>
@@ -390,11 +309,11 @@ export default function ProjectScriptsControl({
                         />
                       }
                     >
-                      <ScriptIcon icon={icon} className="size-4.5" />
+                      <ProjectScriptIconGlyph icon={icon} className="size-4.5" />
                     </PopoverTrigger>
                     <PopoverPopup align="start">
                       <div className="grid grid-cols-3 gap-2">
-                        {SCRIPT_ICONS.map((entry) => {
+                        {PROJECT_SCRIPT_ICONS.map((entry) => {
                           const isSelected = entry.id === icon;
                           return (
                             <button
@@ -410,7 +329,7 @@ export default function ProjectScriptsControl({
                                 setIconPickerOpen(false);
                               }}
                             >
-                              <ScriptIcon icon={entry.id} className="size-4" />
+                              <ProjectScriptIconGlyph icon={entry.id} className="size-4" />
                               <span>{entry.label}</span>
                             </button>
                           );
