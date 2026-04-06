@@ -193,6 +193,35 @@ vitestIt("routes `forge create` to session.create with the expected payload", as
 });
 
 vitestIt(
+  "routes `forge create --type workflow` to session.create with the explicit type",
+  async () => {
+    await withSocketServer({ sequence: 14 }, async ({ baseDir, requests }) => {
+      await runCli([
+        "create",
+        "Run build loop",
+        "--type",
+        "workflow",
+        "--workflow",
+        "build-loop",
+        "--project",
+        ".",
+        "--base-dir",
+        baseDir,
+      ]);
+
+      nodeAssert.equal(requests.length, 1);
+      nodeAssert.equal(requests[0]?.method, "session.create");
+      nodeAssert.deepStrictEqual(requests[0]?.params, {
+        title: "Run build loop",
+        type: "workflow",
+        workflow: "build-loop",
+        projectPath: process.cwd(),
+      });
+    });
+  },
+);
+
+vitestIt(
   "routes `forge create --model claude:...` using the daemon model selection shape",
   async () => {
     await withSocketServer({ sequence: 13 }, async ({ baseDir, requests }) => {

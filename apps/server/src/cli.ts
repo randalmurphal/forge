@@ -386,6 +386,13 @@ const modelFlag = Flag.string("model").pipe(
   Flag.optional,
 );
 
+const createTypeFlag = Flag.choice("type", ["agent", "workflow"] as const).pipe(
+  Flag.withDescription(
+    "Optional explicit session type. When provided, it must match the inferred create mode.",
+  ),
+  Flag.optional,
+);
+
 const phaseRunIdFlag = Flag.string("phase-run-id").pipe(
   Flag.withDescription("Explicit phase run id when a session has multiple pending gates."),
   Flag.optional,
@@ -722,6 +729,7 @@ const statusCommand = Command.make("status", {
 const createCommand = Command.make("create", {
   ...cliDaemonFlags,
   title: Argument.string("title"),
+  type: createTypeFlag,
   workflow: Flag.string("workflow").pipe(Flag.optional),
   project: Flag.string("project").pipe(Flag.withDescription("Project path.")),
   model: modelFlag,
@@ -739,6 +747,7 @@ const createCommand = Command.make("create", {
         method: "session.create",
         params: {
           title: input.title,
+          ...(Option.isSome(input.type) ? { type: input.type.value } : {}),
           ...(Option.isSome(input.workflow) ? { workflow: input.workflow.value } : {}),
           projectPath: path.resolve(input.project),
           ...(model === undefined ? {} : { model }),

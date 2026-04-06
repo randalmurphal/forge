@@ -67,6 +67,9 @@ const DEFAULT_CLAUDE_MODEL = {
   model: "claude-opus-4-6",
 } as const satisfies ModelSelection;
 
+const SessionCreateType = Schema.Literals(["agent", "workflow"]);
+type SessionCreateType = typeof SessionCreateType.Type;
+
 const ThreadIdParams = Schema.Struct({
   threadId: ThreadId,
 });
@@ -138,7 +141,7 @@ const ThreadCreateParams = Schema.Struct({
 
 const SessionCreateParams = Schema.Struct({
   title: TrimmedNonEmptyString,
-  type: Schema.optional(TrimmedNonEmptyString),
+  type: Schema.optional(SessionCreateType),
   workflow: Schema.optional(TrimmedNonEmptyString),
   projectPath: TrimmedNonEmptyString,
   description: Schema.optional(Schema.String),
@@ -324,6 +327,33 @@ function inferSessionType(input: {
     return "chat";
   }
   return "agent";
+}
+
+function validateSessionCreateType(input: {
+  readonly explicitType: SessionCreateType | undefined;
+  readonly workflowName: string | undefined;
+}): Effect.Effect<void, OrchestrationDispatchCommandError> {
+  if (input.explicitType === undefined) {
+    return Effect.void;
+  }
+
+  if (input.explicitType === "workflow" && input.workflowName === undefined) {
+    return Effect.fail(
+      new OrchestrationDispatchCommandError({
+        message: "Invalid params for 'session.create'. type 'workflow' requires a workflow.",
+      }),
+    );
+  }
+
+  if (input.explicitType === "agent" && input.workflowName !== undefined) {
+    return Effect.fail(
+      new OrchestrationDispatchCommandError({
+        message: `Invalid params for 'session.create'. type 'agent' cannot be combined with workflow '${input.workflowName}'.`,
+      }),
+    );
+  }
+
+  return Effect.void;
 }
 
 function deriveSessionStatus(input: {
@@ -1048,6 +1078,11 @@ const makeSocketTransport = Effect.gen(function* () {
   const handleSessionCreate = (params: unknown) =>
     Effect.gen(function* () {
       const input = decodeParams(SessionCreateParams, params, "session.create");
+      yield* validateSessionCreateType({
+        explicitType: input.type,
+        workflowName: input.workflow,
+      });
+
       let workflowOption = Option.none<WorkflowDefinition>();
       if (input.workflow !== undefined) {
         workflowOption = yield* workflowRegistry.queryByName({ name: input.workflow }).pipe(

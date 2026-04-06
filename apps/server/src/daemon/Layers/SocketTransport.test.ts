@@ -442,6 +442,172 @@ it("session.list classifies top-level direct sessions as agent sessions", async 
   }
 });
 
+it("session.create accepts an explicit workflow type when it matches the requested workflow", async () => {
+  const socketDir = FS.mkdtempSync(Path.join(OS.tmpdir(), "forge-socket-transport-"));
+  const socketPath = Path.join(socketDir, "forge.sock");
+
+  try {
+    const dispatched = await Effect.runPromise(Ref.make<ReadonlyArray<unknown>>([]));
+    const snapshot = makeSnapshot();
+    const workflow = {
+      id: "workflow-build-loop" as never,
+      name: "build-loop",
+      description: "Build loop workflow",
+      phases: [
+        {
+          id: "phase-1" as never,
+          name: "implement",
+          type: "single-agent" as const,
+          gate: {
+            after: "auto-continue" as const,
+            onFail: "stop" as const,
+            maxRetries: 0 as never,
+          },
+        },
+      ],
+      builtIn: true,
+      createdAt: "2026-04-06T18:00:00.000Z",
+      updatedAt: "2026-04-06T18:00:00.000Z",
+    } as const;
+
+    const transport = await Effect.runPromise(
+      Effect.service(SocketTransport).pipe(
+        Effect.provide(
+          makeTestLayer({
+            orchestrationEngine: {
+              dispatch: (command) =>
+                Ref.update(dispatched, (commands) => [...commands, command]).pipe(
+                  Effect.as({ sequence: 44 }),
+                ),
+            },
+            projectionSnapshotQuery: {
+              getActiveProjectByWorkspaceRoot: () =>
+                Effect.succeed(Option.some(snapshot.projects[0]!)),
+            },
+            workflowRegistry: {
+              queryByName: ({ name }) =>
+                Effect.succeed(name === "build-loop" ? Option.some(workflow) : Option.none()),
+            },
+          }),
+        ),
+      ),
+    );
+    const binding = await Effect.runPromise(transport.bind({ socketPath }));
+
+    try {
+      const response = (await sendRaw(
+        socketPath,
+        serializeRequest({
+          jsonrpc: "2.0",
+          id: "session-create-workflow-type",
+          method: "session.create",
+          params: {
+            title: "Run build loop",
+            type: "workflow",
+            workflow: "build-loop",
+            projectPath: "/tmp/project-1",
+          },
+        }),
+      )) as { readonly result: { readonly sequence: number } };
+
+      assert.equal(response.result.sequence, 44);
+
+      const commands = await Effect.runPromise(Ref.get(dispatched));
+      assert.equal(commands.length, 1);
+      expect(commands[0]).toEqual({
+        type: "thread.create",
+        commandId: expect.stringMatching(/^thread\.create:/),
+        threadId: expect.any(String),
+        projectId: "project-1",
+        sessionType: "workflow",
+        title: "Run build loop",
+        description: "",
+        workflowId: "workflow-build-loop",
+        runtimeMode: "full-access",
+        model: defaultModelSelection,
+        createdAt: expect.any(String),
+      });
+    } finally {
+      await Effect.runPromise(binding.close.pipe(Effect.catch(() => Effect.void)));
+    }
+  } finally {
+    FS.rmSync(socketDir, { recursive: true, force: true });
+  }
+});
+
+it("session.create rejects an explicit agent type when a workflow is requested", async () => {
+  const socketDir = FS.mkdtempSync(Path.join(OS.tmpdir(), "forge-socket-transport-"));
+  const socketPath = Path.join(socketDir, "forge.sock");
+
+  try {
+    const transport = await Effect.runPromise(
+      Effect.service(SocketTransport).pipe(
+        Effect.provide(
+          makeTestLayer({
+            workflowRegistry: {
+              queryByName: ({ name }) =>
+                Effect.succeed(
+                  name === "build-loop"
+                    ? Option.some({
+                        id: "workflow-build-loop" as never,
+                        name: "build-loop",
+                        description: "Build loop workflow",
+                        phases: [
+                          {
+                            id: "phase-1" as never,
+                            name: "implement",
+                            type: "single-agent" as const,
+                            gate: {
+                              after: "auto-continue" as const,
+                              onFail: "stop" as const,
+                              maxRetries: 0 as never,
+                            },
+                          },
+                        ],
+                        builtIn: true,
+                        createdAt: "2026-04-06T18:00:00.000Z",
+                        updatedAt: "2026-04-06T18:00:00.000Z",
+                      })
+                    : Option.none(),
+                ),
+            },
+          }),
+        ),
+      ),
+    );
+    const binding = await Effect.runPromise(transport.bind({ socketPath }));
+
+    try {
+      const response = (await sendRaw(
+        socketPath,
+        serializeRequest({
+          jsonrpc: "2.0",
+          id: "session-create-agent-mismatch",
+          method: "session.create",
+          params: {
+            title: "Run build loop",
+            type: "agent",
+            workflow: "build-loop",
+            projectPath: "/tmp/project-1",
+          },
+        }),
+      )) as {
+        readonly error: { readonly code: number; readonly message: string };
+      };
+
+      assert.equal(response.error.code, -32602);
+      assert.equal(
+        response.error.message,
+        "Invalid params for 'session.create'. type 'agent' cannot be combined with workflow 'build-loop'.",
+      );
+    } finally {
+      await Effect.runPromise(binding.close.pipe(Effect.catch(() => Effect.void)));
+    }
+  } finally {
+    FS.rmSync(socketDir, { recursive: true, force: true });
+  }
+});
+
 it("session.correct sends a new turn for standalone agent sessions", async () => {
   const socketDir = FS.mkdtempSync(Path.join(OS.tmpdir(), "forge-socket-transport-"));
   const socketPath = Path.join(socketDir, "forge.sock");
