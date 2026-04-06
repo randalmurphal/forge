@@ -26,6 +26,7 @@
 - WI-6: Channel view
 - WI-7: Quality check results component
 - WI-8: Gate approval component
+- WI-9: Workflow editor
 
 ## Iteration Log
 
@@ -37,6 +38,7 @@
 - 2026-04-06: Completed WI-6 by adding `apps/web/src/components/ChannelView.tsx` plus `ChannelView.logic.ts`/`.test.ts`, extending the thread mapping with `patternId` so deliberation container sessions can dispatch from the canonical `/$threadId` route, and widening `apps/web/src/stores/channelStore.ts`/`.test.ts` with thread-to-channel lookup and intervention mutation helpers. Standalone deliberation sessions now render a live channel view with per-participant color coding, turn counts, inline intervention UI, clickable participant transcript panes, and a split-view toggle while leaving `ChatView.tsx` unchanged for plain threads. Validation passed: `bun fmt`, `bun lint`, `bun typecheck`, and `bun run test`.
 - 2026-04-06: Completed WI-7 by adding `apps/web/src/components/QualityCheckResults.tsx` plus `QualityCheckResults.test.tsx`, extracting workflow quality-check rendering out of `apps/web/src/components/WorkflowTimeline.tsx`, and keeping the timeline component under the 500-line limit while preserving the existing inline placement between phases. Quality checks now render pass/fail rows with expandable output, passing checks stay collapsed by default, and failures default open. Validation passed: `bun fmt`, `bun lint`, `bun typecheck`, and `bun run test`.
 - 2026-04-06: Completed WI-8 by adding `apps/web/src/components/GateApproval.tsx` plus `GateApproval.logic.ts`/`.test.ts` and `GateApproval.test.tsx`, exposing the existing `thread.correct`, `gate.approve`, and `gate.reject` socket methods through the frontend RPC client, and wiring waiting-human workflow phases to render the inline gate UI from `apps/web/src/components/WorkflowTimeline.tsx`. Human gates now show summary, quality checks, unresolved items, changes, keyboard shortcuts (`a`/`r`), and the three approve/fail/correct actions without modifying server code. Validation passed: `bun fmt`, `bun lint`, `bun typecheck`, and `bun run test`.
+- 2026-04-06: Completed WI-9 by adding `apps/web/src/components/WorkflowEditor.tsx`, `apps/web/src/components/PhaseCard.tsx`, and `apps/web/src/components/WorkflowEditor.logic.ts`/`.test.ts`, wiring new `/workflow/editor` and `/workflow/editor/$workflowId` routes, regenerating `apps/web/src/routeTree.gen.ts`, and adding a sidebar entry for the editor. The new full-page editor now supports list-based phase editing, built-in cloning, deliberation toggles with paired participant pickers, reordering, add/remove, and workflow save/create flows through the existing workflow RPC endpoints while keeping the workflow editing state mirrored into `workflowStore`. Validation passed: `bun fmt`, `bun lint`, `bun typecheck`, and `bun run test`. The project-scope toggle is present in editor state and UI, but the current backend workflow RPC persists through the existing global mutation path until dedicated project-scoped workflow storage lands.
 
 ## Review Log
 
