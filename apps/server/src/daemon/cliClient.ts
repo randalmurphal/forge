@@ -6,8 +6,7 @@ import * as Path from "node:path";
 import * as readline from "node:readline";
 
 import {
-  isTrustedDaemonManifest,
-  parseDaemonManifest,
+  readTrustedDaemonManifest,
   stripInheritedDaemonRuntimeEnv,
 } from "@forgetools/shared/daemon";
 import { Data, Effect } from "effect";
@@ -102,25 +101,7 @@ export const resolveCliDaemonPaths = (rawBaseDir: string | undefined) =>
 
 export const readDaemonInfoFile = (daemonInfoPath: string, options?: CliDaemonInfoReadOptions) =>
   Effect.tryPromise({
-    try: async () => {
-      try {
-        const [raw, stat] = await Promise.all([
-          FSP.readFile(daemonInfoPath, "utf8"),
-          FSP.stat(daemonInfoPath),
-        ]);
-        const info = parseDaemonManifest(JSON.parse(raw));
-        if (info === undefined) {
-          return undefined;
-        }
-        return isTrustedDaemonManifest(info, stat.mode, options) ? info : undefined;
-      } catch (cause) {
-        const nodeError = cause as NodeJS.ErrnoException | undefined;
-        if (nodeError?.code === "ENOENT") {
-          return undefined;
-        }
-        throw rpcError("daemon.info", "Failed to read daemon.json.", cause);
-      }
-    },
+    try: () => readTrustedDaemonManifest(daemonInfoPath, options),
     catch: (cause) =>
       cause instanceof ForgeDaemonCliError
         ? cause

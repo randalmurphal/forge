@@ -1,11 +1,10 @@
-import * as FS from "node:fs";
-import * as FSP from "node:fs/promises";
 import * as OS from "node:os";
 import * as Path from "node:path";
 
 import {
-  isTrustedDaemonManifest,
   parseDaemonManifest,
+  readTrustedDaemonManifest,
+  readTrustedDaemonManifestSync,
   type DaemonManifestTrustOptions,
   type ForgeDaemonManifest,
 } from "@forgetools/shared/daemon";
@@ -49,38 +48,12 @@ export const toDesktopDaemonInfo = parseDaemonManifest;
 export const readDaemonInfo = async (
   daemonInfoPath: string,
   options?: DesktopDaemonReadOptions,
-): Promise<DesktopDaemonInfo | undefined> => {
-  try {
-    const [raw, stat] = await Promise.all([
-      FSP.readFile(daemonInfoPath, "utf8"),
-      FSP.stat(daemonInfoPath),
-    ]);
-    const daemonInfo = parseDaemonManifest(JSON.parse(raw));
-    if (daemonInfo === undefined) {
-      return undefined;
-    }
-    return isTrustedDaemonManifest(daemonInfo, stat.mode, options) ? daemonInfo : undefined;
-  } catch {
-    return undefined;
-  }
-};
+): Promise<DesktopDaemonInfo | undefined> => readTrustedDaemonManifest(daemonInfoPath, options);
 
 export const readDaemonInfoSync = (
   daemonInfoPath: string,
   options?: DesktopDaemonReadOptions,
-): DesktopDaemonInfo | undefined => {
-  try {
-    const raw = FS.readFileSync(daemonInfoPath, "utf8");
-    const stat = FS.statSync(daemonInfoPath);
-    const daemonInfo = parseDaemonManifest(JSON.parse(raw));
-    if (daemonInfo === undefined) {
-      return undefined;
-    }
-    return isTrustedDaemonManifest(daemonInfo, stat.mode, options) ? daemonInfo : undefined;
-  } catch {
-    return undefined;
-  }
-};
+): DesktopDaemonInfo | undefined => readTrustedDaemonManifestSync(daemonInfoPath, options);
 
 export const buildDaemonWsUrl = (info: DesktopDaemonInfo): string =>
   `ws://127.0.0.1:${info.wsPort}/?token=${encodeURIComponent(info.wsToken)}`;

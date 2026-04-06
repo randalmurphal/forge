@@ -1,4 +1,8 @@
-import { describe, expect, it } from "vitest";
+import * as FS from "node:fs";
+import * as OS from "node:os";
+import * as Path from "node:path";
+
+import { afterEach, describe, expect, it } from "vitest";
 
 import {
   hasExpectedDaemonSocketPath,
@@ -7,11 +11,41 @@ import {
   isTrustedDaemonManifest,
   OWNER_ONLY_FILE_MODE,
   parseDaemonManifest,
+  readTrustedDaemonManifest,
+  readTrustedDaemonManifestSync,
   stripInheritedDaemonRuntimeEnv,
   shouldRequireOwnerOnlyPermissions,
 } from "./daemon";
 
 const VALID_DAEMON_WS_TOKEN = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef";
+const tempDirs: string[] = [];
+
+const makeTempDir = (prefix: string): string => {
+  const dir = FS.mkdtempSync(Path.join(OS.tmpdir(), prefix));
+  tempDirs.push(dir);
+  return dir;
+};
+
+const writeDaemonInfoFile = (path: string, socketPath: string, mode = 0o600): void => {
+  FS.writeFileSync(
+    path,
+    JSON.stringify({
+      pid: 42,
+      wsPort: 3773,
+      wsToken: VALID_DAEMON_WS_TOKEN,
+      socketPath,
+      startedAt: "2026-04-06T12:00:00.000Z",
+    }),
+    { encoding: "utf8", mode },
+  );
+  FS.chmodSync(path, mode);
+};
+
+afterEach(() => {
+  for (const dir of tempDirs.splice(0, tempDirs.length)) {
+    FS.rmSync(dir, { recursive: true, force: true });
+  }
+});
 
 describe("daemon manifest helpers", () => {
   it("accepts owner-only file modes", () => {
@@ -137,6 +171,40 @@ describe("daemon manifest helpers", () => {
         platform: "linux",
       }),
     ).toBe(false);
+  });
+
+  it("rejects symlinked daemon manifests during async reads", async () => {
+    const baseDir = makeTempDir("forge-shared-daemon-manifest-link-");
+    const socketPath = Path.join(baseDir, "forge.sock");
+    const targetPath = Path.join(baseDir, "target-daemon.json");
+    const linkPath = Path.join(baseDir, "daemon.json");
+
+    writeDaemonInfoFile(targetPath, socketPath);
+    FS.symlinkSync(targetPath, linkPath);
+
+    await expect(
+      readTrustedDaemonManifest(linkPath, {
+        expectedSocketPath: socketPath,
+        requireOwnerOnlyPermissions: true,
+      }),
+    ).resolves.toBeUndefined();
+  });
+
+  it("rejects symlinked daemon manifests during sync reads", () => {
+    const baseDir = makeTempDir("forge-shared-daemon-manifest-sync-link-");
+    const socketPath = Path.join(baseDir, "forge.sock");
+    const targetPath = Path.join(baseDir, "target-daemon.json");
+    const linkPath = Path.join(baseDir, "daemon.json");
+
+    writeDaemonInfoFile(targetPath, socketPath);
+    FS.symlinkSync(targetPath, linkPath);
+
+    expect(
+      readTrustedDaemonManifestSync(linkPath, {
+        expectedSocketPath: socketPath,
+        requireOwnerOnlyPermissions: true,
+      }),
+    ).toBeUndefined();
   });
 
   it("strips inherited daemon runtime overrides before spawning a child daemon", () => {

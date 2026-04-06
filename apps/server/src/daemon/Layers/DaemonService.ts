@@ -1,12 +1,13 @@
 import * as ChildProcess from "node:child_process";
 import * as Crypto from "node:crypto";
+import * as FS from "node:fs";
 import * as FSP from "node:fs/promises";
 import * as Net from "node:net";
 import * as Path from "node:path";
 import * as readline from "node:readline";
 import * as Util from "node:util";
 
-import { isTrustedDaemonManifest, parseDaemonManifest } from "@forgetools/shared/daemon";
+import { readTrustedDaemonManifest } from "@forgetools/shared/daemon";
 import { Effect, Layer, Option, Ref } from "effect";
 
 import { ServerConfig } from "../../config.ts";
@@ -35,6 +36,13 @@ const WEDGED_PROCESS_TERMINATE_TIMEOUT_MS = 2_000;
 const PING_REQUEST_ID = "forge-daemon-ping";
 const SOCKET_PERMISSIONS = 0o600;
 const STATE_FILE_PERMISSIONS = 0o600;
+const NOFOLLOW_OPEN_FLAG =
+  process.platform !== "win32" && typeof FS.constants.O_NOFOLLOW === "number"
+    ? FS.constants.O_NOFOLLOW
+    : 0;
+const SAFE_STATE_FILE_READ_FLAGS = FS.constants.O_RDONLY | NOFOLLOW_OPEN_FLAG;
+const SAFE_STATE_FILE_WRITE_FLAGS =
+  FS.constants.O_WRONLY | FS.constants.O_CREAT | FS.constants.O_TRUNC | NOFOLLOW_OPEN_FLAG;
 const LOCK_READY_SCRIPT =
   'process.stdout.write("ready\\n");process.stdin.resume();process.stdin.on("end",()=>process.exit(0));';
 const execFileAsync = Util.promisify(ChildProcess.execFile);
@@ -99,7 +107,16 @@ const writeFileWithPermissions = (
 ): Effect.Effect<void, DaemonStateFileError> =>
   Effect.tryPromise({
     try: async () => {
-      await FSP.writeFile(path, contents, { encoding: "utf8", mode });
+      const handle = await FSP.open(path, SAFE_STATE_FILE_WRITE_FLAGS, mode);
+      try {
+        const stat = await handle.stat();
+        if (!stat.isFile()) {
+          throw new Error("Daemon state path is not a regular file.");
+        }
+        await handle.writeFile(contents, { encoding: "utf8" });
+      } finally {
+        await handle.close();
+      }
       await FSP.chmod(path, mode);
     },
     catch: (cause) => makeStateFileError(path, "write", "Failed to persist daemon state.", cause),
@@ -128,7 +145,18 @@ const ensureParentDirectory = (path: string): Effect.Effect<void, DaemonStateFil
 
 const readFileStringOption = (path: string): Effect.Effect<string | undefined, never> =>
   Effect.tryPromise({
-    try: () => FSP.readFile(path, "utf8"),
+    try: async () => {
+      const handle = await FSP.open(path, SAFE_STATE_FILE_READ_FLAGS);
+      try {
+        const stat = await handle.stat();
+        if (!stat.isFile()) {
+          return undefined;
+        }
+        return await handle.readFile({ encoding: "utf8" });
+      } finally {
+        await handle.close();
+      }
+    },
     catch: () => undefined,
   }).pipe(Effect.catch(() => Effect.void.pipe(Effect.as(undefined))));
 
@@ -146,23 +174,11 @@ const readDaemonInfo = (
   expectedSocketPath: string,
 ): Effect.Effect<DaemonInfo | undefined, never> =>
   Effect.tryPromise({
-    try: async () => {
-      try {
-        const [raw, stat] = await Promise.all([FSP.readFile(path, "utf8"), FSP.stat(path)]);
-        const parsed = parseDaemonManifest(JSON.parse(raw));
-        if (parsed === undefined) {
-          return undefined;
-        }
-        return isTrustedDaemonManifest(parsed, stat.mode, {
-          expectedSocketPath,
-          requireOwnerOnlyPermissions: true,
-        })
-          ? parsed
-          : undefined;
-      } catch {
-        return undefined;
-      }
-    },
+    try: () =>
+      readTrustedDaemonManifest(path, {
+        expectedSocketPath,
+        requireOwnerOnlyPermissions: true,
+      }),
     catch: () => undefined,
   }).pipe(Effect.catch(() => Effect.void.pipe(Effect.as(undefined))));
 

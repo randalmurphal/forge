@@ -8,7 +8,7 @@ import * as OS from "node:os";
 import * as Path from "node:path";
 
 import { ServerConfig } from "../../config.ts";
-import { DaemonSocketError } from "../Errors.ts";
+import { DaemonSocketError, DaemonStateFileError } from "../Errors.ts";
 import { DaemonService } from "../Services/DaemonService.ts";
 import { DaemonServiceLive } from "./DaemonService.ts";
 
@@ -195,6 +195,37 @@ it.effect("start succeeds on first run when the forge base directory does not ex
       assert.equal(FS.existsSync(Path.join(baseDir, "forge.sock")), true);
 
       yield* result.stop;
+    }),
+  ),
+);
+
+it.effect("start rejects symlinked daemon state paths instead of following them", () =>
+  Effect.scoped(
+    Effect.gen(function* () {
+      const baseDir = FS.mkdtempSync(Path.join(OS.tmpdir(), "forge-daemon-symlink-state-"));
+      yield* Effect.addFinalizer(() =>
+        Effect.sync(() => FS.rmSync(baseDir, { recursive: true, force: true })),
+      );
+
+      const targetPath = Path.join(baseDir, "target.txt");
+      FS.writeFileSync(targetPath, "do-not-touch\n", "utf8");
+      FS.symlinkSync(targetPath, Path.join(baseDir, "forge.pid"));
+
+      const error = yield* Effect.gen(function* () {
+        const daemon = yield* DaemonService;
+        return yield* daemon.start({
+          wsPort: 47827,
+          bindSocket: (socketPath) => makePingServer(socketPath),
+        });
+      }).pipe(Effect.provide(makeDaemonTestLayer(baseDir)), Effect.flip);
+
+      expect(error).toBeInstanceOf(DaemonStateFileError);
+      expect(error).toMatchObject({
+        _tag: "DaemonStateFileError",
+        path: Path.join(baseDir, "forge.pid"),
+        operation: "write",
+      });
+      assert.equal(FS.readFileSync(targetPath, "utf8"), "do-not-touch\n");
     }),
   ),
 );

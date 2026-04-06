@@ -1,3 +1,6 @@
+import * as FS from "node:fs";
+import * as FSP from "node:fs/promises";
+
 export interface ForgeDaemonManifest {
   readonly pid: number;
   readonly wsPort: number;
@@ -20,6 +23,11 @@ export interface DaemonManifestTrustOptions {
 
 const DAEMON_WS_TOKEN_PATTERN = /^[0-9a-f]{64}$/i;
 const ISO_UTC_DATE_TIME_PATTERN = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/;
+const NOFOLLOW_OPEN_FLAG =
+  process.platform !== "win32" && typeof FS.constants.O_NOFOLLOW === "number"
+    ? FS.constants.O_NOFOLLOW
+    : 0;
+const SAFE_DAEMON_MANIFEST_READ_FLAGS = FS.constants.O_RDONLY | NOFOLLOW_OPEN_FLAG;
 
 const INHERITED_DAEMON_RUNTIME_ENV_KEYS = [
   "FORGE_AUTH_TOKEN",
@@ -120,4 +128,58 @@ export const isTrustedDaemonManifest = (
   }
 
   return true;
+};
+
+export const readTrustedDaemonManifest = async (
+  daemonInfoPath: string,
+  options?: DaemonManifestTrustOptions,
+): Promise<ForgeDaemonManifest | undefined> => {
+  let handle: FSP.FileHandle | undefined;
+  try {
+    handle = await FSP.open(daemonInfoPath, SAFE_DAEMON_MANIFEST_READ_FLAGS);
+    const stat = await handle.stat();
+    if (!stat.isFile()) {
+      return undefined;
+    }
+    const raw = await handle.readFile({ encoding: "utf8" });
+    const daemonInfo = parseDaemonManifest(JSON.parse(raw));
+    if (daemonInfo === undefined) {
+      return undefined;
+    }
+    return isTrustedDaemonManifest(daemonInfo, stat.mode, options) ? daemonInfo : undefined;
+  } catch {
+    return undefined;
+  } finally {
+    await handle?.close().catch(() => undefined);
+  }
+};
+
+export const readTrustedDaemonManifestSync = (
+  daemonInfoPath: string,
+  options?: DaemonManifestTrustOptions,
+): ForgeDaemonManifest | undefined => {
+  let fd: number | undefined;
+  try {
+    fd = FS.openSync(daemonInfoPath, SAFE_DAEMON_MANIFEST_READ_FLAGS);
+    const stat = FS.fstatSync(fd);
+    if (!stat.isFile()) {
+      return undefined;
+    }
+    const raw = FS.readFileSync(fd, "utf8");
+    const daemonInfo = parseDaemonManifest(JSON.parse(raw));
+    if (daemonInfo === undefined) {
+      return undefined;
+    }
+    return isTrustedDaemonManifest(daemonInfo, stat.mode, options) ? daemonInfo : undefined;
+  } catch {
+    return undefined;
+  } finally {
+    if (fd !== undefined) {
+      try {
+        FS.closeSync(fd);
+      } catch {
+        // Ignore close failures while reading daemon manifest state.
+      }
+    }
+  }
 };

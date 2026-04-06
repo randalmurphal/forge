@@ -175,6 +175,18 @@ describe("readDaemonInfoSync", () => {
 
     expect(readDaemonInfoSync(paths.daemonInfoPath)).toBeUndefined();
   });
+
+  it("rejects symlinked daemon.json manifests", () => {
+    const baseDir = makeTempDir("forge-desktop-daemon-symlink-");
+    const paths = resolveDesktopDaemonPaths(baseDir);
+    const targetPath = Path.join(baseDir, "target-daemon.json");
+    const daemonInfo = makeDaemonInfo(paths.socketPath);
+
+    writeDaemonInfoFile(targetPath, daemonInfo);
+    FS.symlinkSync(targetPath, paths.daemonInfoPath);
+
+    expect(readDaemonInfoSync(paths.daemonInfoPath)).toBeUndefined();
+  });
 });
 
 describe("createDesktopWsUrlResolver", () => {

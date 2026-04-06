@@ -190,6 +190,24 @@ describe("readDaemonInfoFile", () => {
 
     expect(info).toBeUndefined();
   });
+
+  it("rejects symlinked daemon.json manifests", async () => {
+    const baseDir = makeTempDir("forge-cli-daemon-info-symlink-");
+    const daemonInfoPath = Path.join(baseDir, "daemon.json");
+    const targetPath = Path.join(baseDir, "target-daemon.json");
+    const socketPath = Path.join(baseDir, "forge.sock");
+
+    writeDaemonInfo(targetPath, socketPath);
+    FS.symlinkSync(targetPath, daemonInfoPath);
+
+    const info = await Effect.runPromise(
+      readDaemonInfoFile(daemonInfoPath, {
+        expectedSocketPath: socketPath,
+      }),
+    );
+
+    expect(info).toBeUndefined();
+  });
 });
 
 describe("buildDaemonLaunchPlan", () => {
