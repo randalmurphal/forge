@@ -1,0 +1,167 @@
+- generic [active] [ref=e1]:
+    - generic [ref=e3]:
+        - generic [ref=e6]:
+            - link "Go to threads" [ref=e9] [cursor=pointer]:
+                - /url: /
+                - generic [ref=e10]: F
+                - generic [ref=e11]: Forge
+                - generic [ref=e12]: Dev
+            - list [ref=e577]:
+                - listitem [ref=e578]:
+                    - button "General" [ref=e579] [cursor=pointer]:
+                        - img [ref=e580]
+                        - generic [ref=e583]: General
+                - listitem [ref=e584]:
+                    - button "Archive" [ref=e585] [cursor=pointer]:
+                        - img [ref=e586]
+                        - generic [ref=e589]: Archive
+            - separator [ref=e590]
+            - list [ref=e592]:
+                - listitem [ref=e593]:
+                    - button "Back" [ref=e594] [cursor=pointer]:
+                        - img [ref=e595]
+                        - generic [ref=e597]: Back
+            - button "Resize Sidebar" [ref=e41]
+        - main [ref=e598]:
+            - generic [ref=e599]:
+                - generic [ref=e601]:
+                    - generic [ref=e602]: Settings
+                    - generic [ref=e603]:
+                        - button "Restore defaults" [disabled]:
+                            - img
+                            - text: Restore defaults
+                - generic [ref=e606]:
+                    - generic [ref=e607]:
+                        - heading "General" [level=2] [ref=e609]
+                        - generic [ref=e610]:
+                            - generic [ref=e612]:
+                                - generic [ref=e613]:
+                                    - heading "Theme" [level=3] [ref=e615]
+                                    - paragraph [ref=e617]: Choose how Forge looks across the app.
+                                - generic [ref=e618]:
+                                    - combobox "Theme preference" [ref=e619]:
+                                        - generic [ref=e620]: System
+                                        - generic [ref=e621]:
+                                            - img
+                                    - textbox [ref=e622]: system
+                            - generic [ref=e624]:
+                                - generic [ref=e625]:
+                                    - heading "Time format" [level=3] [ref=e627]
+                                    - paragraph [ref=e629]: System default follows your browser or OS clock preference.
+                                - generic [ref=e630]:
+                                    - combobox "Timestamp format" [ref=e631]:
+                                        - generic [ref=e632]: System default
+                                        - generic [ref=e633]:
+                                            - img
+                                    - textbox [ref=e634]: locale
+                            - generic [ref=e636]:
+                                - generic [ref=e637]:
+                                    - heading "Diff line wrapping" [level=3] [ref=e639]
+                                    - paragraph [ref=e641]: Set the default wrap state when the diff panel opens.
+                                - generic [ref=e642]:
+                                    - switch "Wrap diff lines by default" [ref=e643] [cursor=pointer]
+                                    - checkbox [ref=e644]
+                            - generic [ref=e646]:
+                                - generic [ref=e647]:
+                                    - heading "Assistant output" [level=3] [ref=e649]
+                                    - paragraph [ref=e651]: Show token-by-token output while a response is in progress.
+                                - generic [ref=e652]:
+                                    - switch "Stream assistant messages" [ref=e653] [cursor=pointer]
+                                    - checkbox [ref=e654]
+                            - generic [ref=e656]:
+                                - generic [ref=e657]:
+                                    - heading "New threads" [level=3] [ref=e659]
+                                    - paragraph [ref=e661]: Pick the default workspace mode for newly created draft threads.
+                                - generic [ref=e662]:
+                                    - combobox "Default thread mode" [ref=e663]:
+                                        - generic [ref=e664]: Local
+                                        - generic [ref=e665]:
+                                            - img
+                                    - textbox [ref=e666]: local
+                            - generic [ref=e668]:
+                                - generic [ref=e669]:
+                                    - heading "Archive confirmation" [level=3] [ref=e671]
+                                    - paragraph [ref=e673]: Require a second click on the inline archive action before a thread is archived.
+                                - generic [ref=e674]:
+                                    - switch "Confirm thread archiving" [ref=e675] [cursor=pointer]
+                                    - checkbox [ref=e676]
+                            - generic [ref=e678]:
+                                - generic [ref=e679]:
+                                    - heading "Delete confirmation" [level=3] [ref=e681]
+                                    - paragraph [ref=e683]: Ask before deleting a thread and its chat history.
+                                - generic [ref=e684]:
+                                    - switch "Confirm thread deletion" [checked] [ref=e685] [cursor=pointer]
+                                    - checkbox [checked] [ref=e686]
+                            - generic [ref=e688]:
+                                - generic [ref=e689]:
+                                    - heading "Text generation model" [level=3] [ref=e691]
+                                    - paragraph [ref=e693]: Configure the model used for generated commit messages, PR titles, and similar Git text.
+                                - generic [ref=e695]:
+                                    - button "GPT-5.4 Mini" [ref=e696] [cursor=pointer]:
+                                        - generic [ref=e697]:
+                                            - img
+                                            - generic [ref=e698]: GPT-5.4 Mini
+                                            - img
+                                    - button "High" [ref=e699] [cursor=pointer]:
+                                        - generic [ref=e700]:
+                                            - text: High
+                                            - img
+                    - generic [ref=e701]:
+                        - generic [ref=e702]:
+                            - heading "Providers" [level=2] [ref=e703]
+                            - generic [ref=e704]:
+                                - generic [ref=e705]: Checked 22s ago
+                                - button "Refresh provider status" [ref=e706] [cursor=pointer]:
+                                    - img
+                        - generic [ref=e707]:
+                            - generic [ref=e710]:
+                                - generic [ref=e711]:
+                                    - generic [ref=e712]:
+                                        - heading "Codex" [level=3] [ref=e714]
+                                        - code [ref=e715]: v0.118.0
+                                    - paragraph [ref=e717]: Authenticated · ChatGPT Pro Subscription
+                                - generic [ref=e718]:
+                                    - button "Toggle Codex details" [ref=e719] [cursor=pointer]:
+                                        - img
+                                    - switch "Enable Codex" [checked] [ref=e720] [cursor=pointer]
+                                    - checkbox [checked] [ref=e721]
+                            - generic [ref=e724]:
+                                - generic [ref=e725]:
+                                    - generic [ref=e726]:
+                                        - heading "Claude" [level=3] [ref=e728]
+                                        - code [ref=e729]: v2.1.92
+                                    - paragraph [ref=e731]: Authenticated · Claude Max Subscription
+                                - generic [ref=e732]:
+                                    - button "Toggle Claude details" [ref=e733] [cursor=pointer]:
+                                        - img
+                                    - switch "Enable Claude" [checked] [ref=e734] [cursor=pointer]
+                                    - checkbox [checked] [ref=e735]
+                    - generic [ref=e736]:
+                        - heading "Advanced" [level=2] [ref=e738]
+                        - generic [ref=e741]:
+                            - generic [ref=e742]:
+                                - heading "Keybindings" [level=3] [ref=e744]
+                                - paragraph [ref=e746]: "Open the persisted `keybindings.json` file to edit advanced bindings directly."
+                                - generic [ref=e747]:
+                                    - generic [ref=e748]: /Users/randy/.forge/dev/keybindings.json
+                                    - generic [ref=e749]: Opens in your preferred editor.
+                            - button "Open file" [ref=e751] [cursor=pointer]
+                    - generic [ref=e752]:
+                        - heading "About" [level=2] [ref=e754]
+                        - generic [ref=e755]:
+                            - generic [ref=e758]:
+                                - heading "Version 0.0.15" [level=3] [ref=e760]:
+                                    - generic [ref=e761]:
+                                        - generic [ref=e762]: Version
+                                        - code [ref=e763]: 0.0.15
+                                - paragraph [ref=e765]: Current version of the application.
+                            - generic [ref=e767]:
+                                - generic [ref=e768]:
+                                    - heading "Diagnostics" [level=3] [ref=e770]
+                                    - paragraph [ref=e772]: Local trace file.
+                                    - generic [ref=e774]: /Users/randy/.forge/dev/logs
+                                - button "Open logs folder" [ref=e776] [cursor=pointer]
+    - generic:
+        - region "Notifications"
+    - generic:
+        - region "Notifications"

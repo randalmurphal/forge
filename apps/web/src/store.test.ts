@@ -473,6 +473,8 @@ describe("incremental orchestration updates", () => {
         worktreePath: null,
         workflowId: null,
         patternId: null,
+        parentThreadId: null,
+        role: null,
         createdAt: "2026-02-27T00:00:01.000Z",
         updatedAt: "2026-02-27T00:00:01.000Z",
       }),

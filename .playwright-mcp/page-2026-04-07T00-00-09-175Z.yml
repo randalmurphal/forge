@@ -1,0 +1,388 @@
+- generic [active] [ref=e1]:
+    - generic [ref=e3]:
+        - generic [ref=e6]:
+            - link "Go to threads" [ref=e9] [cursor=pointer]:
+                - /url: /
+                - generic [ref=e10]: F
+                - generic [ref=e11]: Forge
+                - generic [ref=e12]: Dev
+            - generic [ref=e15]:
+                - generic [ref=e16]:
+                    - generic [ref=e17]: Projects
+                    - generic [ref=e18]:
+                        - button [ref=e19] [cursor=pointer]:
+                            - img [ref=e20]
+                        - button "Add project" [ref=e23] [cursor=pointer]:
+                            - img [ref=e24]
+                - list [ref=e330]:
+                    - listitem [ref=e25]:
+                        - generic [ref=e26]:
+                            - button "forge" [ref=e27] [cursor=pointer]:
+                                - img [ref=e28]
+                                - generic [ref=e30]: forge
+                            - button "Create new thread in forge" [ref=e31] [cursor=pointer]:
+                                - img [ref=e32]
+                        - list [ref=e35]:
+                            - listitem [ref=e36]:
+                                - generic [ref=e38]: No threads yet
+                    - listitem [ref=e39]:
+                        - generic [ref=e40]:
+                            - button "server" [ref=e41] [cursor=pointer]:
+                                - img [ref=e42]
+                                - generic [ref=e44]: server
+                            - button "Create new thread in server" [ref=e45] [cursor=pointer]:
+                                - img [ref=e46]
+                        - list [ref=e49]:
+                            - listitem [ref=e50]:
+                                - button "New thread Archive New thread 11m ago" [ref=e331] [cursor=pointer]:
+                                    - generic [ref=e54]: New thread
+                                    - generic [ref=e56]:
+                                        - generic:
+                                            - button "Archive New thread":
+                                                - img
+                                        - generic: 11m ago
+            - separator [ref=e57]
+            - list [ref=e59]:
+                - listitem [ref=e60]:
+                    - button "Workflows" [ref=e61] [cursor=pointer]:
+                        - img [ref=e62]
+                        - generic [ref=e65]: Workflows
+                - listitem [ref=e66]:
+                    - button "Settings" [ref=e67] [cursor=pointer]:
+                        - img [ref=e68]
+                        - generic [ref=e71]: Settings
+            - button "Resize Sidebar" [ref=e72]
+        - main [ref=e73]:
+            - generic [ref=e74]:
+                - generic [ref=e76]:
+                    - generic [ref=e77]:
+                        - paragraph [ref=e78]: Workflow editor
+                        - paragraph [ref=e79]: Build list-based workflows with phase gates, deliberation, and retry behavior.
+                    - button "New workflow" [ref=e80] [cursor=pointer]:
+                        - img
+                        - text: New workflow
+                    - button "Save" [disabled]:
+                        - img
+                        - text: Save
+                - generic [ref=e81]:
+                    - complementary [ref=e82]:
+                        - generic [ref=e83]:
+                            - generic [ref=e84]:
+                                - paragraph [ref=e85]: Workflows
+                                - paragraph [ref=e86]: Built-in, then project, then global.
+                            - button "New" [ref=e87] [cursor=pointer]:
+                                - img
+                                - text: New
+                        - generic [ref=e89]:
+                            - button "build-loop Built-in Implement, run quality checks, review, and finalize before handoff." [ref=e90] [cursor=pointer]:
+                                - generic [ref=e91]:
+                                    - generic [ref=e92]:
+                                        - generic [ref=e93]: build-loop
+                                        - generic [ref=e94]: Built-in
+                                    - paragraph [ref=e95]: Implement, run quality checks, review, and finalize before handoff.
+                            - button "code-review Built-in Parallel review followed by cross-examination and human presentation." [ref=e96] [cursor=pointer]:
+                                - generic [ref=e97]:
+                                    - generic [ref=e98]:
+                                        - generic [ref=e99]: code-review
+                                        - generic [ref=e100]: Built-in
+                                    - paragraph [ref=e101]: Parallel review followed by cross-examination and human presentation.
+                            - button "debate Built-in Structured two-agent debate that surfaces objections before a synthesis pass." [ref=e102] [cursor=pointer]:
+                                - generic [ref=e103]:
+                                    - generic [ref=e104]:
+                                        - generic [ref=e105]: debate
+                                        - generic [ref=e106]: Built-in
+                                    - paragraph [ref=e107]: Structured two-agent debate that surfaces objections before a synthesis pass.
+                            - button "explore Built-in Lateral-thinking exploration with a connector and critic, then synthesis." [ref=e108] [cursor=pointer]:
+                                - generic [ref=e109]:
+                                    - generic [ref=e110]:
+                                        - generic [ref=e111]: explore
+                                        - generic [ref=e112]: Built-in
+                                    - paragraph [ref=e113]: Lateral-thinking exploration with a connector and critic, then synthesis.
+                            - button "implement Built-in Single-agent implementation workflow for straightforward changes." [ref=e114] [cursor=pointer]:
+                                - generic [ref=e115]:
+                                    - generic [ref=e116]:
+                                        - generic [ref=e117]: implement
+                                        - generic [ref=e118]: Built-in
+                                    - paragraph [ref=e119]: Single-agent implementation workflow for straightforward changes.
+                            - button "interrogate Built-in Run an advocate versus interrogator plan review, then synthesize the findings." [ref=e120] [cursor=pointer]:
+                                - generic [ref=e121]:
+                                    - generic [ref=e122]:
+                                        - generic [ref=e123]: interrogate
+                                        - generic [ref=e124]: Built-in
+                                    - paragraph [ref=e125]: Run an advocate versus interrogator plan review, then synthesize the findings.
+                            - button "plan-then-implement Built-in Review the plan first, implement from the approved plan, then run a code review." [ref=e126] [cursor=pointer]:
+                                - generic [ref=e127]:
+                                    - generic [ref=e128]:
+                                        - generic [ref=e129]: plan-then-implement
+                                        - generic [ref=e130]: Built-in
+                                    - paragraph [ref=e131]: Review the plan first, implement from the approved plan, then run a code review.
+                            - button "refine-prompt Built-in Evaluate and refine a prompt collaboratively before human approval." [ref=e132] [cursor=pointer]:
+                                - generic [ref=e133]:
+                                    - generic [ref=e134]:
+                                        - generic [ref=e135]: refine-prompt
+                                        - generic [ref=e136]: Built-in
+                                    - paragraph [ref=e137]: Evaluate and refine a prompt collaboratively before human approval.
+                    - main [ref=e138]:
+                        - generic [ref=e139]:
+                            - generic [ref=e141]:
+                                - generic [ref=e142]:
+                                    - generic [ref=e143]:
+                                        - text: Name
+                                        - textbox "build-with-review" [disabled] [ref=e145]: build-loop
+                                    - generic [ref=e146]:
+                                        - text: Description
+                                        - textbox "Describe what this workflow optimizes for." [disabled] [ref=e148]: Implement, run quality checks, review, and finalize before handoff.
+                                - generic [ref=e149]:
+                                    - generic [ref=e150]:
+                                        - paragraph [ref=e151]: Scope
+                                        - generic [ref=e152]:
+                                            - button "Global" [disabled]
+                                            - button "This project" [disabled]
+                                        - paragraph [ref=e153]: Available across every project.
+                                    - generic [ref=e154]:
+                                        - paragraph [ref=e155]: Status
+                                        - generic [ref=e156]: Saved
+                                    - generic [ref=e157]:
+                                        - generic [ref=e158]:
+                                            - paragraph [ref=e159]: Built-in workflow
+                                            - paragraph [ref=e160]: Clone it before editing so the shipped template stays read-only.
+                                        - button "Clone to edit" [ref=e161] [cursor=pointer]:
+                                            - img
+                                            - text: Clone to edit
+                            - generic [ref=e162]:
+                                - generic [ref=e164]:
+                                    - generic [ref=e165]:
+                                        - paragraph [ref=e166]: Phases
+                                        - paragraph [ref=e167]: "Keep the workflow list-based: one phase per card."
+                                    - button "Add phase" [disabled]:
+                                        - img
+                                        - text: Add phase
+                                - generic [ref=e168]:
+                                    - generic [ref=e169]:
+                                        - generic [ref=e170]:
+                                            - generic [ref=e171]:
+                                                - generic [ref=e172]:
+                                                    - generic [ref=e173]: Phase 1
+                                                    - generic [ref=e174]:
+                                                        - img [ref=e175]
+                                                        - text: Single agent
+                                                - textbox "Phase name" [disabled] [ref=e179]: implement
+                                            - generic [ref=e180]:
+                                                - button "Move implement up" [disabled]:
+                                                    - img
+                                                - button "Move implement down" [disabled]:
+                                                    - img
+                                                - button "Delete implement" [disabled]:
+                                                    - img
+                                        - generic [ref=e181]:
+                                            - generic [ref=e182]:
+                                                - generic [ref=e183]:
+                                                    - text: Execution
+                                                    - combobox [disabled]:
+                                                        - generic: single-agent
+                                                        - generic:
+                                                            - img
+                                                    - textbox [disabled] [ref=e184]: single-agent
+                                                - generic [ref=e185]:
+                                                    - generic [ref=e186]:
+                                                        - paragraph [ref=e187]: Deliberation
+                                                        - paragraph [ref=e188]: Adds Advocate and Interrogator participants for this phase.
+                                                    - switch [disabled] [ref=e189]
+                                                    - checkbox [disabled] [ref=e190]
+                                            - generic [ref=e191]:
+                                                - generic [ref=e192]:
+                                                    - generic [ref=e193]:
+                                                        - generic [ref=e194]: Model
+                                                        - generic [ref=e195]:
+                                                            - button "Auto" [disabled]
+                                                            - button "Override" [disabled]
+                                                    - generic [ref=e196]: Uses the session model by default.
+                                                - generic [ref=e197]:
+                                                    - text: Prompt
+                                                    - combobox [disabled]:
+                                                        - generic: implement
+                                                        - generic:
+                                                            - img
+                                                    - textbox [disabled] [ref=e198]: implement
+                                            - generic [ref=e199]:
+                                                - generic [ref=e200]:
+                                                    - text: After
+                                                    - combobox [disabled]:
+                                                        - generic: quality-checks
+                                                        - generic:
+                                                            - img
+                                                    - textbox [disabled] [ref=e201]: quality-checks
+                                                - generic [ref=e202]:
+                                                    - text: On fail
+                                                    - combobox [disabled]:
+                                                        - generic: retry
+                                                        - generic:
+                                                            - img
+                                                    - textbox [disabled] [ref=e203]: retry
+                                            - generic [ref=e204]:
+                                                - text: Max retries
+                                                - spinbutton [disabled] [ref=e206]: "5"
+                                            - generic [ref=e207]:
+                                                - text: Checks
+                                                - generic [ref=e208]:
+                                                    - generic [ref=e209]:
+                                                        - checkbox "lint" [checked] [disabled] [ref=e210]:
+                                                            - img [ref=e212]
+                                                        - checkbox [checked] [disabled] [ref=e214]
+                                                        - generic [ref=e215]: lint
+                                                    - generic [ref=e216]:
+                                                        - checkbox "test" [checked] [disabled] [ref=e217]:
+                                                            - img [ref=e219]
+                                                        - checkbox [checked] [disabled] [ref=e221]
+                                                        - generic [ref=e222]: test
+                                                    - generic [ref=e223]:
+                                                        - checkbox "typecheck" [checked] [disabled] [ref=e224]:
+                                                            - img [ref=e226]
+                                                        - checkbox [checked] [disabled] [ref=e228]
+                                                        - generic [ref=e229]: typecheck
+                                    - generic [ref=e230]:
+                                        - generic [ref=e231]:
+                                            - generic [ref=e232]:
+                                                - generic [ref=e233]:
+                                                    - generic [ref=e234]: Phase 2
+                                                    - generic [ref=e235]:
+                                                        - img [ref=e236]
+                                                        - text: Single agent
+                                                - textbox "Phase name" [disabled] [ref=e240]: review
+                                            - generic [ref=e241]:
+                                                - button "Move review up" [disabled]:
+                                                    - img
+                                                - button "Move review down" [disabled]:
+                                                    - img
+                                                - button "Delete review" [disabled]:
+                                                    - img
+                                        - generic [ref=e242]:
+                                            - generic [ref=e243]:
+                                                - generic [ref=e244]:
+                                                    - text: Execution
+                                                    - combobox [disabled]:
+                                                        - generic: single-agent
+                                                        - generic:
+                                                            - img
+                                                    - textbox [disabled] [ref=e245]: single-agent
+                                                - generic [ref=e246]:
+                                                    - generic [ref=e247]:
+                                                        - paragraph [ref=e248]: Deliberation
+                                                        - paragraph [ref=e249]: Adds Advocate and Interrogator participants for this phase.
+                                                    - switch [disabled] [ref=e250]
+                                                    - checkbox [disabled] [ref=e251]
+                                            - generic [ref=e252]:
+                                                - generic [ref=e253]:
+                                                    - generic [ref=e254]:
+                                                        - generic [ref=e255]: Model
+                                                        - generic [ref=e256]:
+                                                            - button "Auto" [disabled]
+                                                            - button "Override" [disabled]
+                                                    - generic [ref=e257]: Uses the session model by default.
+                                                - generic [ref=e258]:
+                                                    - text: Prompt
+                                                    - combobox [disabled]:
+                                                        - generic: review
+                                                        - generic:
+                                                            - img
+                                                    - textbox [disabled] [ref=e259]: review
+                                            - generic [ref=e260]:
+                                                - generic [ref=e261]:
+                                                    - text: After
+                                                    - combobox [disabled]:
+                                                        - generic: human-approval
+                                                        - generic:
+                                                            - img
+                                                    - textbox [disabled] [ref=e262]: human-approval
+                                                - generic [ref=e263]:
+                                                    - text: On fail
+                                                    - combobox [disabled]:
+                                                        - generic: go-back-to
+                                                        - generic:
+                                                            - img
+                                                    - textbox [disabled] [ref=e264]: go-back-to
+                                            - generic [ref=e265]:
+                                                - text: Retry phase
+                                                - combobox [disabled]:
+                                                    - generic: implement
+                                                    - generic:
+                                                        - img
+                                                - textbox [disabled] [ref=e266]: implement
+                                            - generic [ref=e267]:
+                                                - text: Max retries
+                                                - spinbutton [disabled] [ref=e269]: "5"
+                                    - generic [ref=e270]:
+                                        - generic [ref=e271]:
+                                            - generic [ref=e272]:
+                                                - generic [ref=e273]:
+                                                    - generic [ref=e274]: Phase 3
+                                                    - generic [ref=e275]:
+                                                        - img [ref=e276]
+                                                        - text: Automated
+                                                - textbox "Phase name" [disabled] [ref=e280]: finalize
+                                            - generic [ref=e281]:
+                                                - button "Move finalize up" [disabled]:
+                                                    - img
+                                                - button "Move finalize down" [disabled]:
+                                                    - img
+                                                - button "Delete finalize" [disabled]:
+                                                    - img
+                                        - generic [ref=e282]:
+                                            - generic [ref=e283]:
+                                                - generic [ref=e284]:
+                                                    - text: Execution
+                                                    - combobox [disabled]:
+                                                        - generic: automated
+                                                        - generic:
+                                                            - img
+                                                    - textbox [disabled] [ref=e285]: automated
+                                                - generic [ref=e286]:
+                                                    - generic [ref=e287]:
+                                                        - paragraph [ref=e288]: Deliberation
+                                                        - paragraph [ref=e289]: Adds Advocate and Interrogator participants for this phase.
+                                                    - switch [disabled] [ref=e290]
+                                                    - checkbox [disabled] [ref=e291]
+                                            - generic [ref=e292]: Automated phases run checks or tooling without a provider-specific model override.
+                                            - generic [ref=e293]:
+                                                - generic [ref=e294]:
+                                                    - text: After
+                                                    - combobox [disabled]:
+                                                        - generic: quality-checks
+                                                        - generic:
+                                                            - img
+                                                    - textbox [disabled] [ref=e295]: quality-checks
+                                                - generic [ref=e296]:
+                                                    - text: On fail
+                                                    - combobox [disabled]:
+                                                        - generic: stop
+                                                        - generic:
+                                                            - img
+                                                    - textbox [disabled] [ref=e297]: stop
+                                            - generic [ref=e298]:
+                                                - text: Max retries
+                                                - spinbutton [disabled] [ref=e300]: "0"
+                                            - generic [ref=e301]:
+                                                - text: Checks
+                                                - generic [ref=e302]:
+                                                    - generic [ref=e303]:
+                                                        - checkbox "lint" [checked] [disabled] [ref=e304]:
+                                                            - img [ref=e306]
+                                                        - checkbox [checked] [disabled] [ref=e308]
+                                                        - generic [ref=e309]: lint
+                                                    - generic [ref=e310]:
+                                                        - checkbox "test" [checked] [disabled] [ref=e311]:
+                                                            - img [ref=e313]
+                                                        - checkbox [checked] [disabled] [ref=e315]
+                                                        - generic [ref=e316]: test
+                                                    - generic [ref=e317]:
+                                                        - checkbox "typecheck" [checked] [disabled] [ref=e318]:
+                                                            - img [ref=e320]
+                                                        - checkbox [checked] [disabled] [ref=e322]
+                                                        - generic [ref=e323]: typecheck
+                            - generic [ref=e325]:
+                                - img [ref=e326]
+                                - paragraph [ref=e329]: Built-in workflows stay read-only. Clone them to customize, then save them globally or for a single project from the scope controls above.
+    - generic:
+        - region "Notifications"
+    - generic:
+        - region "Notifications"

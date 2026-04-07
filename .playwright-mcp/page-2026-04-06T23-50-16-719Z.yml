@@ -1,0 +1,214 @@
+- generic [ref=e1]:
+    - generic [ref=e3]:
+        - generic [ref=e6]:
+            - link "Go to threads" [ref=e9] [cursor=pointer]:
+                - /url: /
+                - generic [ref=e10]: F
+                - generic [ref=e11]: Forge
+                - generic [ref=e12]: Dev
+            - generic [ref=e15]:
+                - generic [ref=e16]:
+                    - generic [ref=e17]: Projects
+                    - generic [ref=e18]:
+                        - button [ref=e19] [cursor=pointer]:
+                            - img [ref=e20]
+                        - button "Add project" [ref=e23] [cursor=pointer]:
+                            - img [ref=e24]
+                - list [ref=e46]:
+                    - listitem [ref=e47]:
+                        - generic [ref=e48]:
+                            - button "server" [ref=e49] [cursor=pointer]:
+                                - img [ref=e50]
+                                - generic [ref=e52]: server
+                            - button "Create new thread in server" [ref=e53] [cursor=pointer]:
+                                - img [ref=e54]
+                        - list [ref=e57]:
+                            - listitem [ref=e58]:
+                                - button "New thread Archive New thread 41s ago" [ref=e127] [cursor=pointer]:
+                                    - generic [ref=e62]: New thread
+                                    - generic [ref=e64]:
+                                        - generic:
+                                            - button "Archive New thread":
+                                                - img
+                                        - generic: 41s ago
+            - separator [ref=e26]
+            - list [ref=e28]:
+                - listitem [ref=e29]:
+                    - button "Workflows" [active] [ref=e30] [cursor=pointer]:
+                        - img [ref=e31]
+                        - generic [ref=e34]: Workflows
+                - listitem [ref=e35]:
+                    - button "Settings" [ref=e36] [cursor=pointer]:
+                        - img [ref=e37]
+                        - generic [ref=e40]: Settings
+            - button "Resize Sidebar" [ref=e41]
+        - main [ref=e128]:
+            - generic [ref=e129]:
+                - generic [ref=e131]:
+                    - generic [ref=e132]:
+                        - paragraph [ref=e133]: Workflow editor
+                        - paragraph [ref=e134]: Build list-based workflows with phase gates, deliberation, and retry behavior.
+                    - button "New workflow" [ref=e135] [cursor=pointer]:
+                        - img
+                        - text: New workflow
+                    - button "Save" [disabled]:
+                        - img
+                        - text: Save
+                - generic [ref=e136]:
+                    - complementary [ref=e137]:
+                        - generic [ref=e138]:
+                            - generic [ref=e139]:
+                                - paragraph [ref=e140]: Workflows
+                                - paragraph [ref=e141]: Built-in, then project, then global.
+                            - button "New" [ref=e142] [cursor=pointer]:
+                                - img
+                                - text: New
+                        - generic [ref=e144]:
+                            - button "build-loop Built-in Implement, run quality checks, review, and finalize before handoff." [ref=e145] [cursor=pointer]:
+                                - generic [ref=e146]:
+                                    - generic [ref=e147]:
+                                        - generic [ref=e148]: build-loop
+                                        - generic [ref=e149]: Built-in
+                                    - paragraph [ref=e150]: Implement, run quality checks, review, and finalize before handoff.
+                            - button "code-review Built-in Parallel review followed by cross-examination and human presentation." [ref=e151] [cursor=pointer]:
+                                - generic [ref=e152]:
+                                    - generic [ref=e153]:
+                                        - generic [ref=e154]: code-review
+                                        - generic [ref=e155]: Built-in
+                                    - paragraph [ref=e156]: Parallel review followed by cross-examination and human presentation.
+                            - button "debate Built-in Structured two-agent debate that surfaces objections before a synthesis pass." [ref=e157] [cursor=pointer]:
+                                - generic [ref=e158]:
+                                    - generic [ref=e159]:
+                                        - generic [ref=e160]: debate
+                                        - generic [ref=e161]: Built-in
+                                    - paragraph [ref=e162]: Structured two-agent debate that surfaces objections before a synthesis pass.
+                            - button "explore Built-in Lateral-thinking exploration with a connector and critic, then synthesis." [ref=e163] [cursor=pointer]:
+                                - generic [ref=e164]:
+                                    - generic [ref=e165]:
+                                        - generic [ref=e166]: explore
+                                        - generic [ref=e167]: Built-in
+                                    - paragraph [ref=e168]: Lateral-thinking exploration with a connector and critic, then synthesis.
+                            - button "implement Built-in Single-agent implementation workflow for straightforward changes." [ref=e169] [cursor=pointer]:
+                                - generic [ref=e170]:
+                                    - generic [ref=e171]:
+                                        - generic [ref=e172]: implement
+                                        - generic [ref=e173]: Built-in
+                                    - paragraph [ref=e174]: Single-agent implementation workflow for straightforward changes.
+                            - button "interrogate Built-in Run an advocate versus interrogator plan review, then synthesize the findings." [ref=e175] [cursor=pointer]:
+                                - generic [ref=e176]:
+                                    - generic [ref=e177]:
+                                        - generic [ref=e178]: interrogate
+                                        - generic [ref=e179]: Built-in
+                                    - paragraph [ref=e180]: Run an advocate versus interrogator plan review, then synthesize the findings.
+                            - button "plan-then-implement Built-in Review the plan first, implement from the approved plan, then run a code review." [ref=e181] [cursor=pointer]:
+                                - generic [ref=e182]:
+                                    - generic [ref=e183]:
+                                        - generic [ref=e184]: plan-then-implement
+                                        - generic [ref=e185]: Built-in
+                                    - paragraph [ref=e186]: Review the plan first, implement from the approved plan, then run a code review.
+                            - button "refine-prompt Built-in Evaluate and refine a prompt collaboratively before human approval." [ref=e187] [cursor=pointer]:
+                                - generic [ref=e188]:
+                                    - generic [ref=e189]:
+                                        - generic [ref=e190]: refine-prompt
+                                        - generic [ref=e191]: Built-in
+                                    - paragraph [ref=e192]: Evaluate and refine a prompt collaboratively before human approval.
+                    - main [ref=e193]:
+                        - generic [ref=e194]:
+                            - generic [ref=e196]:
+                                - generic [ref=e197]:
+                                    - generic [ref=e198]:
+                                        - text: Name
+                                        - textbox "build-with-review" [ref=e200]
+                                    - generic [ref=e201]:
+                                        - text: Description
+                                        - textbox "Describe what this workflow optimizes for." [ref=e203]
+                                - generic [ref=e204]:
+                                    - generic [ref=e205]:
+                                        - paragraph [ref=e206]: Scope
+                                        - generic [ref=e207]:
+                                            - button "Global" [ref=e208] [cursor=pointer]
+                                            - button "This project" [ref=e209] [cursor=pointer]
+                                        - paragraph [ref=e210]: Available across every project.
+                                    - generic [ref=e211]:
+                                        - paragraph [ref=e212]: Status
+                                        - generic [ref=e213]: Saved
+                                    - generic [ref=e214]: Add a workflow name.
+                            - generic [ref=e215]:
+                                - generic [ref=e217]:
+                                    - generic [ref=e218]:
+                                        - paragraph [ref=e219]: Phases
+                                        - paragraph [ref=e220]: "Keep the workflow list-based: one phase per card."
+                                    - button "Add phase" [ref=e221] [cursor=pointer]:
+                                        - img
+                                        - text: Add phase
+                                - generic [ref=e223]:
+                                    - generic [ref=e224]:
+                                        - generic [ref=e225]:
+                                            - generic [ref=e226]:
+                                                - generic [ref=e227]: Phase 1
+                                                - generic [ref=e228]:
+                                                    - img [ref=e229]
+                                                    - text: Single agent
+                                            - textbox "Phase name" [ref=e233]: phase-1
+                                        - generic [ref=e234]:
+                                            - button "Move phase-1 up" [disabled]:
+                                                - img
+                                            - button "Move phase-1 down" [disabled]:
+                                                - img
+                                            - button "Delete phase-1" [ref=e235] [cursor=pointer]:
+                                                - img
+                                    - generic [ref=e236]:
+                                        - generic [ref=e237]:
+                                            - generic [ref=e238]:
+                                                - text: Execution
+                                                - combobox [ref=e239]:
+                                                    - generic [ref=e240]: single-agent
+                                                    - generic [ref=e241]:
+                                                        - img
+                                                - textbox [ref=e242]: single-agent
+                                            - generic [ref=e243]:
+                                                - generic [ref=e244]:
+                                                    - paragraph [ref=e245]: Deliberation
+                                                    - paragraph [ref=e246]: Adds Advocate and Interrogator participants for this phase.
+                                                - switch [disabled] [ref=e247]
+                                                - checkbox [disabled] [ref=e248]
+                                        - generic [ref=e249]:
+                                            - generic [ref=e250]:
+                                                - generic [ref=e251]:
+                                                    - generic [ref=e252]: Model
+                                                    - generic [ref=e253]:
+                                                        - button "Auto" [ref=e254] [cursor=pointer]
+                                                        - button "Override" [ref=e255] [cursor=pointer]
+                                                - generic [ref=e256]: Uses the session model by default.
+                                            - generic [ref=e257]:
+                                                - text: Prompt
+                                                - combobox [ref=e258]:
+                                                    - generic [ref=e259]: implement
+                                                    - generic [ref=e260]:
+                                                        - img
+                                                - textbox [ref=e261]: implement
+                                        - generic [ref=e262]:
+                                            - generic [ref=e263]:
+                                                - text: After
+                                                - combobox [ref=e264]:
+                                                    - generic [ref=e265]: done
+                                                    - generic [ref=e266]:
+                                                        - img
+                                                - textbox [ref=e267]: done
+                                            - generic [ref=e268]:
+                                                - text: On fail
+                                                - combobox [ref=e269]:
+                                                    - generic [ref=e270]: retry
+                                                    - generic [ref=e271]:
+                                                        - img
+                                                - textbox [ref=e272]: retry
+                                        - generic [ref=e273]:
+                                            - text: Max retries
+                                            - spinbutton [ref=e275]: "3"
+                            - generic [ref=e277]:
+                                - img [ref=e278]
+                                - paragraph [ref=e281]: Built-in workflows stay read-only. Clone them to customize, then save them globally or for a single project from the scope controls above.
+    - generic:
+        - region "Notifications"
+    - generic:
+        - region "Notifications"

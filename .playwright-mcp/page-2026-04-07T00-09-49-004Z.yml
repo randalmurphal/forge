@@ -1,0 +1,44 @@
+- generic [active] [ref=e1]:
+    - generic [ref=e3]:
+        - generic [ref=e6]:
+            - link "Go to threads" [ref=e9] [cursor=pointer]:
+                - /url: /
+                - generic [ref=e10]: F
+                - generic [ref=e11]: Forge
+                - generic [ref=e12]: Dev
+            - list [ref=e16]:
+                - listitem [ref=e17]:
+                    - button "General" [ref=e18] [cursor=pointer]:
+                        - img [ref=e19]
+                        - generic [ref=e22]: General
+                - listitem [ref=e23]:
+                    - button "Archive" [ref=e24] [cursor=pointer]:
+                        - img [ref=e25]
+                        - generic [ref=e28]: Archive
+            - separator [ref=e29]
+            - list [ref=e31]:
+                - listitem [ref=e32]:
+                    - button "Back" [ref=e33] [cursor=pointer]:
+                        - img [ref=e34]
+                        - generic [ref=e36]: Back
+            - button "Resize Sidebar" [ref=e37]
+        - main [ref=e38]:
+            - generic [ref=e39]:
+                - generic [ref=e41]:
+                    - generic [ref=e42]: Settings
+                    - generic [ref=e43]:
+                        - button "Restore defaults" [disabled]:
+                            - img
+                            - text: Restore defaults
+                - generic [ref=e47]:
+                    - heading "Archived threads" [level=2] [ref=e49]
+                    - generic [ref=e51]:
+                        - generic [ref=e53]:
+                            - img
+                        - generic [ref=e54]:
+                            - generic [ref=e55]: No archived threads
+                            - generic [ref=e56]: Archived threads will appear here.
+    - generic:
+        - region "Notifications"
+    - generic:
+        - region "Notifications"

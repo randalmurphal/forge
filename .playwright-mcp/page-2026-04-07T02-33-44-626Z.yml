@@ -1,0 +1,169 @@
+- generic [ref=e1]:
+    - generic [ref=e3]:
+        - generic [ref=e6]:
+            - link "Go to threads" [ref=e9] [cursor=pointer]:
+                - /url: /
+                - generic [ref=e10]: F
+                - generic [ref=e11]: Forge
+                - generic [ref=e12]: Dev
+            - generic [ref=e15]:
+                - generic [ref=e16]:
+                    - generic [ref=e17]: Projects
+                    - generic [ref=e18]:
+                        - button [ref=e19] [cursor=pointer]:
+                            - img [ref=e20]
+                        - button "Add project" [ref=e23] [cursor=pointer]:
+                            - img [ref=e24]
+                - list [ref=e46]:
+                    - listitem [ref=e47]:
+                        - generic [ref=e48]:
+                            - button "forge" [ref=e49] [cursor=pointer]:
+                                - img [ref=e50]
+                                - generic [ref=e52]: forge
+                            - button "Create new thread in forge" [ref=e53] [cursor=pointer]:
+                                - img [ref=e54]
+                        - list [ref=e57]:
+                            - listitem [ref=e58]:
+                                - button "Test Archive Test 2h ago" [ref=e59] [cursor=pointer]:
+                                    - generic [ref=e62]: Test
+                                    - generic [ref=e64]:
+                                        - generic:
+                                            - button "Archive Test":
+                                                - img
+                                        - generic: 2h ago
+                            - listitem [ref=e65]:
+                                - button "Testing Archive Testing 2h ago" [ref=e66] [cursor=pointer]:
+                                    - generic [ref=e69]: Testing
+                                    - generic [ref=e71]:
+                                        - generic:
+                                            - button "Archive Testing":
+                                                - img
+                                        - generic: 2h ago
+                    - listitem [ref=e72]:
+                        - generic [ref=e73]:
+                            - button "server" [ref=e74] [cursor=pointer]:
+                                - img [ref=e75]
+                                - generic [ref=e77]: server
+                            - button "Create new thread in server" [ref=e78] [cursor=pointer]:
+                                - img [ref=e79]
+                        - list [ref=e82]:
+                            - listitem [ref=e83]:
+                                - button "New thread Archive New thread 2h ago" [ref=e84] [cursor=pointer]:
+                                    - generic [ref=e87]: New thread
+                                    - generic [ref=e89]:
+                                        - generic:
+                                            - button "Archive New thread":
+                                                - img
+                                        - generic: 2h ago
+            - separator [ref=e26]
+            - list [ref=e28]:
+                - listitem [ref=e29]:
+                    - button "Workflows" [ref=e30] [cursor=pointer]:
+                        - img [ref=e31]
+                        - generic [ref=e34]: Workflows
+                - listitem [ref=e35]:
+                    - button "Settings" [ref=e36] [cursor=pointer]:
+                        - img [ref=e37]
+                        - generic [ref=e40]: Settings
+            - button "Resize Sidebar" [ref=e41]
+        - main [ref=e90]:
+            - generic [ref=e91]:
+                - generic [ref=e93]:
+                    - generic [ref=e94]:
+                        - heading "New thread" [level=2] [ref=e95]
+                        - generic [ref=e97]: server
+                    - generic [ref=e98]:
+                        - button "Add action" [ref=e99] [cursor=pointer]:
+                            - img
+                            - generic [ref=e100]: Add action
+                        - group "Subscription actions" [ref=e101]:
+                            - button "Open" [ref=e102] [cursor=pointer]:
+                                - img
+                                - generic [ref=e103]: Open
+                            - separator
+                            - button "Copy options" [ref=e104] [cursor=pointer]:
+                                - img
+                        - group "Git actions" [ref=e105]:
+                            - button "Commit & push" [ref=e106] [cursor=pointer]:
+                                - img
+                                - generic [ref=e107]: Commit & push
+                            - separator
+                            - button "Git action options" [ref=e108] [cursor=pointer]:
+                                - img
+                        - button "Toggle terminal drawer" [ref=e109] [cursor=pointer]:
+                            - img
+                        - button "Toggle diff panel" [ref=e110] [cursor=pointer]:
+                            - img
+                - generic [ref=e112]:
+                    - paragraph [ref=e116]: Send a message to start the conversation.
+                    - generic [ref=e120]:
+                        - generic [ref=e122]:
+                            - textbox [ref=e123]:
+                                - paragraph [ref=e124]
+                            - generic: Ask for follow-up changes or attach images
+                        - generic [ref=e125]:
+                            - generic [ref=e126]:
+                                - button "gpt-5-codex" [expanded] [ref=e127] [cursor=pointer]:
+                                    - generic [ref=e128]:
+                                        - img
+                                        - generic [ref=e129]: gpt-5-codex
+                                        - img
+                                - generic:
+                                    - generic:
+                                        - menu "gpt-5-codex":
+                                            - generic:
+                                                - menuitem "Codex" [expanded] [active] [ref=e156]:
+                                                    - img
+                                                    - text: Codex
+                                                    - img
+                                                - menu "Codex" [ref=e161]:
+                                                    - group [ref=e163]:
+                                                        - group [ref=e164]:
+                                                            - menuitemradio "GPT-5.4" [ref=e165]:
+                                                                - generic [ref=e166]: GPT-5.4
+                                                            - menuitemradio "GPT-5.4 Mini" [ref=e167]:
+                                                                - generic [ref=e168]: GPT-5.4 Mini
+                                                            - menuitemradio "GPT-5.3 Codex" [ref=e169]:
+                                                                - generic [ref=e170]: GPT-5.3 Codex
+                                                            - menuitemradio "GPT-5.3 Codex Spark" [ref=e171]:
+                                                                - generic [ref=e172]: GPT-5.3 Codex Spark
+                                                            - menuitemradio "GPT-5.2 Codex" [ref=e173]:
+                                                                - generic [ref=e174]: GPT-5.2 Codex
+                                                            - menuitemradio "GPT-5.2" [ref=e175]:
+                                                                - generic [ref=e176]: GPT-5.2
+                                                - menuitem "Claude":
+                                                    - img
+                                                    - text: Claude
+                                                    - img
+                                - separator [ref=e130]
+                                - button [ref=e131] [cursor=pointer]:
+                                    - generic [ref=e132]:
+                                        - img
+                                - separator [ref=e133]
+                                - button "Chat" [ref=e134] [cursor=pointer]:
+                                    - img
+                                    - generic [ref=e135]: Chat
+                                - separator [ref=e136]
+                                - button "Full access" [ref=e137] [cursor=pointer]:
+                                    - img
+                                    - generic [ref=e138]: Full access
+                            - generic [ref=e139]:
+                                - button "Send message" [disabled]:
+                                    - img
+                    - generic [ref=e140]:
+                        - combobox [ref=e141]:
+                            - img
+                            - generic [ref=e142]: Local
+                            - generic [ref=e143]:
+                                - img
+                        - textbox [ref=e144]: local
+                        - combobox [ref=e145] [cursor=pointer]:
+                            - generic [ref=e146]: main
+                            - img
+                        - textbox [ref=e147]: main
+        - generic [ref=e149]:
+            - button "Toggle Sidebar"
+    - generic:
+        - region "Notifications"
+    - generic:
+        - region "Notifications"

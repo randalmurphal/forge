@@ -1,0 +1,59 @@
+- generic [ref=e1]:
+    - generic [ref=e3]:
+        - generic [ref=e6]:
+            - link "Go to threads" [active] [ref=e9] [cursor=pointer]:
+                - /url: /
+                - generic [ref=e10]: F
+                - generic [ref=e11]: Forge
+                - generic [ref=e12]: Dev
+            - generic [ref=e15]:
+                - generic [ref=e16]:
+                    - generic [ref=e17]: Projects
+                    - generic [ref=e18]:
+                        - button [ref=e19] [cursor=pointer]:
+                            - img [ref=e20]
+                        - button "Add project" [ref=e23] [cursor=pointer]:
+                            - img [ref=e24]
+                - list [ref=e194]:
+                    - listitem [ref=e195]:
+                        - generic [ref=e196]:
+                            - button "forge" [ref=e197] [cursor=pointer]:
+                                - img [ref=e198]
+                                - generic [ref=e200]: forge
+                            - button "Create new thread in forge" [ref=e201] [cursor=pointer]:
+                                - img [ref=e202]
+                        - list [ref=e205]:
+                            - listitem [ref=e206]:
+                                - generic [ref=e208]: No threads yet
+                    - listitem [ref=e209]:
+                        - generic [ref=e210]:
+                            - button "server" [ref=e211] [cursor=pointer]:
+                                - img [ref=e212]
+                                - generic [ref=e214]: server
+                            - button "Create new thread in server" [ref=e215] [cursor=pointer]:
+                                - img [ref=e216]
+                        - list [ref=e219]:
+                            - listitem [ref=e220]:
+                                - button "New thread Archive New thread 14m ago" [ref=e421] [cursor=pointer]:
+                                    - generic [ref=e224]: New thread
+                                    - generic [ref=e226]:
+                                        - generic:
+                                            - button "Archive New thread":
+                                                - img
+                                        - generic: 14m ago
+            - separator [ref=e26]
+            - list [ref=e28]:
+                - listitem [ref=e29]:
+                    - button "Workflows" [ref=e30] [cursor=pointer]:
+                        - img [ref=e31]
+                        - generic [ref=e34]: Workflows
+                - listitem [ref=e35]:
+                    - button "Settings" [ref=e36] [cursor=pointer]:
+                        - img [ref=e37]
+                        - generic [ref=e40]: Settings
+            - button "Resize Sidebar" [ref=e41]
+        - paragraph [ref=e425]: Select a thread or create a new one to get started.
+    - generic:
+        - region "Notifications"
+    - generic:
+        - region "Notifications"

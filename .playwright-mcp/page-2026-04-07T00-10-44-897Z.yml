@@ -1,0 +1,149 @@
+- generic [ref=e1]:
+    - generic [ref=e3]:
+        - generic [ref=e6]:
+            - link "Go to threads" [ref=e172] [cursor=pointer]:
+                - /url: /
+                - generic [ref=e10]: F
+                - generic [ref=e11]: Forge
+                - generic [ref=e12]: Dev
+            - generic [ref=e15]:
+                - generic [ref=e16]:
+                    - generic [ref=e17]: Projects
+                    - generic [ref=e18]:
+                        - button [ref=e19] [cursor=pointer]:
+                            - img [ref=e20]
+                        - button "Add project" [ref=e173] [cursor=pointer]:
+                            - img [ref=e24]
+                - list [ref=e25]:
+                    - listitem [ref=e26]:
+                        - generic [ref=e27]:
+                            - button "forge" [ref=e174] [cursor=pointer]:
+                                - img [ref=e29]
+                                - generic [ref=e31]: forge
+                            - button "Create new thread in forge" [ref=e175] [cursor=pointer]:
+                                - img [ref=e33]
+                        - list [ref=e36]:
+                            - listitem [ref=e37]:
+                                - generic [ref=e39]: No threads yet
+                    - listitem [ref=e40]:
+                        - generic [ref=e41]:
+                            - button "server" [ref=e176] [cursor=pointer]:
+                                - img [ref=e43]
+                                - generic [ref=e45]: server
+                            - button "Create new thread in server" [ref=e177] [cursor=pointer]:
+                                - img [ref=e47]
+                        - list [ref=e50]:
+                            - listitem [ref=e51]:
+                                - button "New thread Archive New thread 21m ago" [ref=e195] [cursor=pointer]:
+                                    - generic [ref=e55]: New thread
+                                    - generic [ref=e57]:
+                                        - generic:
+                                            - button "Archive New thread":
+                                                - img
+                                        - generic: 21m ago
+            - separator [ref=e58]
+            - list [ref=e60]:
+                - listitem [ref=e61]:
+                    - button "Workflows" [ref=e179] [cursor=pointer]:
+                        - img [ref=e63]
+                        - generic [ref=e66]: Workflows
+                - listitem [ref=e67]:
+                    - button "Settings" [ref=e180] [cursor=pointer]:
+                        - img [ref=e69]
+                        - generic [ref=e72]: Settings
+            - button "Resize Sidebar" [ref=e181]
+        - main [ref=e74]:
+            - generic [ref=e75]:
+                - generic [ref=e77]:
+                    - generic [ref=e78]:
+                        - heading "New thread" [level=2] [ref=e182]
+                        - generic [ref=e81]: server
+                    - generic [ref=e82]:
+                        - button "Add action" [ref=e183] [cursor=pointer]:
+                            - img
+                            - generic [ref=e84]: Add action
+                        - group "Subscription actions" [ref=e184]:
+                            - button "Open" [ref=e185] [cursor=pointer]:
+                                - img
+                                - generic [ref=e87]: Open
+                            - separator
+                            - button "Copy options" [ref=e186] [cursor=pointer]:
+                                - img
+                        - group "Git actions" [ref=e187]:
+                            - button "Commit & push" [ref=e188] [cursor=pointer]:
+                                - img
+                                - generic [ref=e133]: Commit & push
+                            - separator
+                            - button "Git action options" [ref=e189] [cursor=pointer]:
+                                - img
+                        - button "Toggle terminal drawer" [pressed] [ref=e190] [cursor=pointer]:
+                            - img
+                        - button "Toggle diff panel" [ref=e191] [cursor=pointer]:
+                            - img
+                - generic [ref=e96]:
+                    - paragraph [ref=e100]: Send a message to start the conversation.
+                    - generic [ref=e104]:
+                        - generic [ref=e106]:
+                            - textbox [ref=e107]:
+                                - paragraph [ref=e108]
+                            - generic: Ask for follow-up changes or attach images
+                        - generic [ref=e109]:
+                            - generic [ref=e110]:
+                                - button "gpt-5-codex" [ref=e192] [cursor=pointer]:
+                                    - generic [ref=e112]:
+                                        - img
+                                        - generic [ref=e113]: gpt-5-codex
+                                        - img
+                                - separator [ref=e114]
+                                - button [ref=e115] [cursor=pointer]:
+                                    - generic [ref=e116]:
+                                        - img
+                                - separator [ref=e117]
+                                - button "Chat" [ref=e193] [cursor=pointer]:
+                                    - img
+                                    - generic [ref=e119]: Chat
+                                - separator [ref=e120]
+                                - button "Full access" [ref=e194] [cursor=pointer]:
+                                    - img
+                                    - generic [ref=e122]: Full access
+                            - generic [ref=e123]:
+                                - button "Send message" [disabled]:
+                                    - img
+                    - generic [ref=e124]:
+                        - combobox [ref=e125]:
+                            - img
+                            - generic [ref=e126]: Local
+                            - generic [ref=e127]:
+                                - img
+                        - textbox [ref=e128]: local
+                        - combobox [ref=e134] [cursor=pointer]:
+                            - generic [ref=e135]: main
+                            - img
+                        - textbox [ref=e129]: main
+                - complementary [ref=e197]:
+                    - generic [ref=e199]:
+                        - button "Split Terminal (⌘D)" [ref=e200]:
+                            - img [ref=e201]
+                        - button "New Terminal (⌘N)" [ref=e205]:
+                            - img [ref=e206]
+                        - button "Close Terminal (⌘W)" [ref=e208]:
+                            - img [ref=e209]
+                    - generic [ref=e219]:
+                        - textbox "Terminal input" [active] [ref=e220]
+                        - generic:
+                            - generic:
+                                - generic: "["
+                                - generic: randy
+                                - generic: ":"
+                                - generic: Mac.localdomain
+                                - generic: "]:"
+                                - generic: main
+                                - generic: ":"
+                                - generic: server
+                                - generic: $
+        - generic [ref=e131]:
+            - button "Toggle Sidebar"
+    - generic:
+        - region "Notifications"
+    - generic:
+        - region "Notifications"

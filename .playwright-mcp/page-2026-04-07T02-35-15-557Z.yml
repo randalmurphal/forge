@@ -1,0 +1,181 @@
+- generic [ref=e1]:
+    - generic [ref=e3]:
+        - generic [ref=e6]:
+            - link "Go to threads" [ref=e9] [cursor=pointer]:
+                - /url: /
+                - generic [ref=e10]: F
+                - generic [ref=e11]: Forge
+                - generic [ref=e12]: Dev
+            - generic [ref=e15]:
+                - generic [ref=e16]:
+                    - generic [ref=e17]: Projects
+                    - generic [ref=e18]:
+                        - button [ref=e19] [cursor=pointer]:
+                            - img [ref=e20]
+                        - button "Add project" [ref=e23] [cursor=pointer]:
+                            - img [ref=e24]
+                - list [ref=e25]:
+                    - listitem [ref=e26]:
+                        - generic [ref=e27]:
+                            - button "forge" [ref=e28] [cursor=pointer]:
+                                - img [ref=e29]
+                                - generic [ref=e31]: forge
+                            - button "Create new thread in forge" [ref=e32] [cursor=pointer]:
+                                - img [ref=e33]
+                        - list [ref=e36]:
+                            - listitem [ref=e37]:
+                                - button "Test Archive Test 2h ago" [ref=e38] [cursor=pointer]:
+                                    - generic [ref=e41]: Test
+                                    - generic [ref=e43]:
+                                        - generic:
+                                            - button "Archive Test":
+                                                - img
+                                        - generic: 2h ago
+                            - listitem [ref=e44]:
+                                - button "Testing Archive Testing 2h ago" [ref=e45] [cursor=pointer]:
+                                    - generic [ref=e48]: Testing
+                                    - generic [ref=e50]:
+                                        - generic:
+                                            - button "Archive Testing":
+                                                - img
+                                        - generic: 2h ago
+                    - listitem [ref=e51]:
+                        - generic [ref=e52]:
+                            - button "server" [ref=e53] [cursor=pointer]:
+                                - img [ref=e54]
+                                - generic [ref=e56]: server
+                            - button "Create new thread in server" [ref=e57] [cursor=pointer]:
+                                - img [ref=e58]
+                        - list [ref=e61]:
+                            - listitem [ref=e62]:
+                                - button "New thread Archive New thread 2h ago" [ref=e63] [cursor=pointer]:
+                                    - generic [ref=e66]: New thread
+                                    - generic [ref=e68]:
+                                        - generic:
+                                            - button "Archive New thread":
+                                                - img
+                                        - generic: 2h ago
+            - separator [ref=e69]
+            - list [ref=e71]:
+                - listitem [ref=e72]:
+                    - button "Workflows" [ref=e73] [cursor=pointer]:
+                        - img [ref=e74]
+                        - generic [ref=e77]: Workflows
+                - listitem [ref=e78]:
+                    - button "Settings" [ref=e79] [cursor=pointer]:
+                        - img [ref=e80]
+                        - generic [ref=e83]: Settings
+            - button "Resize Sidebar" [ref=e84]
+        - main [ref=e85]:
+            - generic [ref=e86]:
+                - generic [ref=e88]:
+                    - generic [ref=e89]:
+                        - heading "New thread" [level=2] [ref=e90]
+                        - generic [ref=e92]: forge
+                    - generic [ref=e93]:
+                        - button "Add action" [ref=e94] [cursor=pointer]:
+                            - img
+                            - generic [ref=e95]: Add action
+                        - group "Subscription actions" [ref=e96]:
+                            - button "Open" [ref=e97] [cursor=pointer]:
+                                - img
+                                - generic [ref=e98]: Open
+                            - separator
+                            - button "Copy options" [ref=e99] [cursor=pointer]:
+                                - img
+                        - group "Git actions" [ref=e100]:
+                            - button "Commit & push" [ref=e143] [cursor=pointer]:
+                                - img
+                                - generic [ref=e144]: Commit & push
+                            - separator
+                            - button "Git action options" [ref=e103] [cursor=pointer]:
+                                - img
+                        - button "Toggle terminal drawer" [ref=e104] [cursor=pointer]:
+                            - img
+                        - button "Toggle diff panel" [ref=e105] [cursor=pointer]:
+                            - img
+                - generic [ref=e107]:
+                    - paragraph [ref=e148]: Send a message to start the conversation.
+                    - generic [ref=e115]:
+                        - generic [ref=e117]:
+                            - textbox [ref=e118]:
+                                - paragraph [ref=e119]
+                            - generic: Ask for follow-up changes or attach images
+                        - generic [ref=e120]:
+                            - generic [ref=e121]:
+                                - button "GPT-5.4" [expanded] [ref=e149] [cursor=pointer]:
+                                    - generic [ref=e123]:
+                                        - img
+                                        - generic [ref=e124]: GPT-5.4
+                                        - img
+                                - menu "GPT-5.4" [active] [ref=e155]:
+                                    - generic [ref=e156]:
+                                        - menuitem "Codex" [ref=e157]:
+                                            - img
+                                            - text: Codex
+                                            - img
+                                        - menuitem "Claude" [ref=e158]:
+                                            - img
+                                            - text: Claude
+                                            - img
+                                        - separator [ref=e159]
+                                        - group "Patterns" [ref=e160]:
+                                            - text: Patterns
+                                            - group [ref=e161]:
+                                                - menuitemradio "(none)" [checked] [ref=e162]:
+                                                    - generic [ref=e163]:
+                                                        - img
+                                                    - generic [ref=e164]: (none)
+                                                - menuitemradio "code-review Parallel review followed by cross-examination and human presentation." [ref=e165]:
+                                                    - generic [ref=e167]:
+                                                        - generic [ref=e168]: code-review
+                                                        - generic [ref=e169]: Parallel review followed by cross-examination and human presentation.
+                                                - menuitemradio "debate Structured two-agent debate that surfaces objections before a synthesis pass." [ref=e170]:
+                                                    - generic [ref=e172]:
+                                                        - generic [ref=e173]: debate
+                                                        - generic [ref=e174]: Structured two-agent debate that surfaces objections before a synthesis pass.
+                                                - menuitemradio "explore Lateral-thinking exploration with a connector and critic, then synthesis." [ref=e175]:
+                                                    - generic [ref=e177]:
+                                                        - generic [ref=e178]: explore
+                                                        - generic [ref=e179]: Lateral-thinking exploration with a connector and critic, then synthesis.
+                                                - menuitemradio "interrogate Run an advocate versus interrogator plan review, then synthesize the findings." [ref=e180]:
+                                                    - generic [ref=e182]:
+                                                        - generic [ref=e183]: interrogate
+                                                        - generic [ref=e184]: Run an advocate versus interrogator plan review, then synthesize the findings.
+                                                - menuitemradio "refine-prompt Evaluate and refine a prompt collaboratively before human approval." [ref=e185]:
+                                                    - generic [ref=e187]:
+                                                        - generic [ref=e188]: refine-prompt
+                                                        - generic [ref=e189]: Evaluate and refine a prompt collaboratively before human approval.
+                                - separator [ref=e125]
+                                - button "High" [ref=e150] [cursor=pointer]:
+                                    - generic [ref=e127]:
+                                        - text: High
+                                        - img
+                                - separator [ref=e128]
+                                - button "Chat" [ref=e129] [cursor=pointer]:
+                                    - img
+                                    - generic [ref=e130]: Chat
+                                - separator [ref=e131]
+                                - button "Full access" [ref=e132] [cursor=pointer]:
+                                    - img
+                                    - generic [ref=e133]: Full access
+                            - generic [ref=e134]:
+                                - button "Send message" [disabled]:
+                                    - img
+                    - generic [ref=e135]:
+                        - combobox [ref=e136]:
+                            - img
+                            - generic [ref=e137]: Local
+                            - generic [ref=e138]:
+                                - img
+                        - textbox [ref=e139]: local
+                        - combobox [ref=e145] [cursor=pointer]:
+                            - generic [ref=e146]: main
+                            - img
+                        - textbox [ref=e140]: main
+        - generic [ref=e142]:
+            - button "Toggle Sidebar"
+    - generic:
+        - region "Notifications"
+    - generic:
+        - region "Notifications"

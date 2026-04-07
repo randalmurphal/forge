@@ -89,60 +89,39 @@ export const makePatternReactor = Effect.gen(function* () {
 
       const deliberation = deliberationOption.value;
 
-      // Create the deliberation channel for the parent thread.
-      const channel = yield* channelService.createChannel({
+      // Step 1: Create all child threads first so the deliberation engine
+      // can find participants when the channel message is posted.
+      const childThreadIds: ThreadId[] = [];
+      for (const participant of deliberation.participants) {
+        const childThreadId = ThreadId.makeUnsafe(crypto.randomUUID());
+        childThreadIds.push(childThreadId);
+
+        yield* orchestrationEngine.dispatch({
+          type: "thread.create",
+          commandId: patternCommandId(`child:${input.threadId}:${participant.role}`),
+          threadId: childThreadId,
+          projectId: thread.projectId,
+          title: `${thread.title} — ${participant.role}`,
+          modelSelection: thread.modelSelection,
+          runtimeMode: thread.runtimeMode,
+          interactionMode: thread.interactionMode,
+          branch: thread.branch,
+          worktreePath: thread.worktreePath,
+          patternId: thread.patternId ?? undefined,
+          parentThreadId: input.threadId,
+          role: participant.role,
+          createdAt: nowIso(),
+        });
+      }
+
+      // Step 2: Create the deliberation channel now that participants exist.
+      yield* channelService.createChannel({
         threadId: input.threadId,
         type: "deliberation",
       });
 
-      // Post the user's message to the channel.
-      yield* channelService.postMessage({
-        channelId: channel.id,
-        fromType: "human",
-        fromId: input.threadId,
-        content: input.messageText,
-      });
-
-      // Create a child thread for each participant, then deliver the user message.
-      for (const participant of deliberation.participants) {
-        const childThreadId = ThreadId.makeUnsafe(crypto.randomUUID());
-        const role = participant.role;
-
-        // Resolve the participant's prompt, applying the user message as DESCRIPTION variable.
-        // Falls back to using the raw prompt string as the system prompt if resolution fails.
-        const resolvedPrompt = yield* promptResolver
-          .resolve({
-            name: participant.agent.prompt,
-            variables: { DESCRIPTION: input.messageText },
-          })
-          .pipe(
-            Effect.catch(() =>
-              Effect.succeed({
-                name: participant.agent.prompt,
-                description: "",
-                system: participant.agent.prompt,
-              }),
-            ),
-          );
-
-        // Create the child thread using SessionCreateCommand shape (ForgeCommand).
-        yield* dispatchForgeCommand({
-          type: "thread.create",
-          commandId: patternCommandId(`child:${input.threadId}:${role}`),
-          threadId: childThreadId,
-          projectId: thread.projectId,
-          parentThreadId: input.threadId,
-          sessionType: "agent",
-          title: `${thread.title} — ${role}`,
-          description: resolvedPrompt.system,
-          workflowId: thread.workflowId,
-          patternId: thread.patternId ?? undefined,
-          runtimeMode: thread.runtimeMode,
-          role,
-          createdAt: nowIso(),
-        } as unknown as ForgeCommand);
-
-        // Deliver the user's message to the child thread as a new turn.
+      // Step 3: Deliver the user's message directly to each child thread as a turn.
+      for (const childThreadId of childThreadIds) {
         const childMessageId = MessageId.makeUnsafe(crypto.randomUUID());
         yield* orchestrationEngine.dispatch({
           type: "thread.turn.start",

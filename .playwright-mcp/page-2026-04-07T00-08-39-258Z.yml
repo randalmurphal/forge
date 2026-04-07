@@ -1,0 +1,178 @@
+- generic [ref=e1]:
+    - generic [ref=e3]:
+        - generic [ref=e6]:
+            - link "Go to threads" [ref=e9] [cursor=pointer]:
+                - /url: /
+                - generic [ref=e10]: F
+                - generic [ref=e11]: Forge
+                - generic [ref=e12]: Dev
+            - generic [ref=e15]:
+                - generic [ref=e16]:
+                    - generic [ref=e17]: Projects
+                    - generic [ref=e18]:
+                        - button [ref=e19] [cursor=pointer]:
+                            - img [ref=e20]
+                        - button "Add project" [ref=e23] [cursor=pointer]:
+                            - img [ref=e24]
+                - list [ref=e194]:
+                    - listitem [ref=e195]:
+                        - generic [ref=e196]:
+                            - button "forge" [ref=e197] [cursor=pointer]:
+                                - img [ref=e198]
+                                - generic [ref=e200]: forge
+                            - button "Create new thread in forge" [ref=e201] [cursor=pointer]:
+                                - img [ref=e202]
+                        - list [ref=e205]:
+                            - listitem [ref=e206]:
+                                - generic [ref=e208]: No threads yet
+                    - listitem [ref=e209]:
+                        - generic [ref=e210]:
+                            - button "server" [ref=e211] [cursor=pointer]:
+                                - img [ref=e212]
+                                - generic [ref=e214]: server
+                            - button "Create new thread in server" [ref=e215] [cursor=pointer]:
+                                - img [ref=e216]
+                        - list [ref=e219]:
+                            - listitem [ref=e220]:
+                                - button "New thread Archive New thread 19m ago" [ref=e511] [cursor=pointer]:
+                                    - generic [ref=e224]: New thread
+                                    - generic [ref=e226]:
+                                        - generic:
+                                            - button "Archive New thread":
+                                                - img
+                                        - generic: 19m ago
+            - separator [ref=e26]
+            - list [ref=e28]:
+                - listitem [ref=e29]:
+                    - button "Workflows" [ref=e30] [cursor=pointer]:
+                        - img [ref=e31]
+                        - generic [ref=e34]: Workflows
+                - listitem [ref=e35]:
+                    - button "Settings" [ref=e36] [cursor=pointer]:
+                        - img [ref=e37]
+                        - generic [ref=e40]: Settings
+            - button "Resize Sidebar" [ref=e41]
+        - main [ref=e432]:
+            - generic [ref=e433]:
+                - generic [ref=e435]:
+                    - generic [ref=e436]:
+                        - heading "New thread" [level=2] [ref=e437]
+                        - generic [ref=e439]: server
+                    - generic [ref=e440]:
+                        - button "Add action" [ref=e441] [cursor=pointer]:
+                            - img
+                            - generic [ref=e442]: Add action
+                        - group "Subscription actions" [ref=e443]:
+                            - button "Open" [ref=e444] [cursor=pointer]:
+                                - img
+                                - generic [ref=e445]: Open
+                            - separator
+                            - button "Copy options" [ref=e446] [cursor=pointer]:
+                                - img
+                        - group "Git actions" [ref=e447]:
+                            - button "Commit & push" [ref=e448] [cursor=pointer]:
+                                - img
+                                - generic [ref=e449]: Commit & push
+                            - separator
+                            - button "Git action options" [ref=e450] [cursor=pointer]:
+                                - img
+                        - button "Toggle terminal drawer" [ref=e451] [cursor=pointer]:
+                            - img
+                        - button "Toggle diff panel" [ref=e452] [cursor=pointer]:
+                            - img
+                - generic [ref=e454]:
+                    - paragraph [ref=e513]: Send a message to start the conversation.
+                    - generic [ref=e462]:
+                        - generic [ref=e464]:
+                            - textbox [ref=e465]:
+                                - paragraph [ref=e466]
+                            - generic: Ask for follow-up changes or attach images
+                        - generic [ref=e467]:
+                            - generic [ref=e468]:
+                                - button "Workflow picker" [expanded] [ref=e514] [cursor=pointer]:
+                                    - generic [ref=e515]: (none)
+                                    - img
+                                - menu "Workflow picker" [ref=e520]:
+                                    - generic [ref=e521]:
+                                        - group "Workflow" [ref=e522]:
+                                            - text: Workflow
+                                            - group [ref=e523]:
+                                                - menuitemradio "(none)" [checked] [active] [ref=e524]:
+                                                    - generic [ref=e525]:
+                                                        - img
+                                                    - generic [ref=e526]: (none)
+                                        - group "Built-in · Implementation" [ref=e527]:
+                                            - text: Built-in · Implementation
+                                            - group [ref=e528]:
+                                                - menuitemradio "build-loop Implement, run quality checks, review, and finalize before handoff." [ref=e529]:
+                                                    - generic [ref=e531]:
+                                                        - generic [ref=e532]: build-loop
+                                                        - generic [ref=e533]: Implement, run quality checks, review, and finalize before handoff.
+                                                - menuitemradio "implement Single-agent implementation workflow for straightforward changes." [ref=e534]:
+                                                    - generic [ref=e536]:
+                                                        - generic [ref=e537]: implement
+                                                        - generic [ref=e538]: Single-agent implementation workflow for straightforward changes.
+                                                - menuitemradio "plan-then-implement Review the plan first, implement from the approved plan, then run a code review." [ref=e539]:
+                                                    - generic [ref=e541]:
+                                                        - generic [ref=e542]: plan-then-implement
+                                                        - generic [ref=e543]: Review the plan first, implement from the approved plan, then run a code review.
+                                        - group "Built-in · Thinking" [ref=e544]:
+                                            - text: Built-in · Thinking
+                                            - group [ref=e545]:
+                                                - menuitemradio "code-review Parallel review followed by cross-examination and human presentation." [ref=e546]:
+                                                    - generic [ref=e548]:
+                                                        - generic [ref=e549]: code-review
+                                                        - generic [ref=e550]: Parallel review followed by cross-examination and human presentation.
+                                                - menuitemradio "debate Structured two-agent debate that surfaces objections before a synthesis pass." [ref=e551]:
+                                                    - generic [ref=e553]:
+                                                        - generic [ref=e554]: debate
+                                                        - generic [ref=e555]: Structured two-agent debate that surfaces objections before a synthesis pass.
+                                                - menuitemradio "explore Lateral-thinking exploration with a connector and critic, then synthesis." [ref=e556]:
+                                                    - generic [ref=e558]:
+                                                        - generic [ref=e559]: explore
+                                                        - generic [ref=e560]: Lateral-thinking exploration with a connector and critic, then synthesis.
+                                                - menuitemradio "interrogate Run an advocate versus interrogator plan review, then synthesize the findings." [ref=e561]:
+                                                    - generic [ref=e563]:
+                                                        - generic [ref=e564]: interrogate
+                                                        - generic [ref=e565]: Run an advocate versus interrogator plan review, then synthesize the findings.
+                                                - menuitemradio "refine-prompt Evaluate and refine a prompt collaboratively before human approval." [ref=e566]:
+                                                    - generic [ref=e568]:
+                                                        - generic [ref=e569]: refine-prompt
+                                                        - generic [ref=e570]: Evaluate and refine a prompt collaboratively before human approval.
+                                - button "gpt-5-codex" [ref=e469] [cursor=pointer]:
+                                    - generic [ref=e470]:
+                                        - img
+                                        - generic [ref=e471]: gpt-5-codex
+                                        - img
+                                - separator [ref=e472]
+                                - button [ref=e473] [cursor=pointer]:
+                                    - generic [ref=e474]:
+                                        - img
+                                - separator [ref=e475]
+                                - button "Chat" [ref=e476] [cursor=pointer]:
+                                    - img
+                                    - generic [ref=e477]: Chat
+                                - separator [ref=e478]
+                                - button "Full access" [ref=e479] [cursor=pointer]:
+                                    - img
+                                    - generic [ref=e480]: Full access
+                            - generic [ref=e481]:
+                                - button "Send message" [disabled]:
+                                    - img
+                    - generic [ref=e482]:
+                        - combobox [ref=e483]:
+                            - img
+                            - generic [ref=e484]: Local
+                            - generic [ref=e485]:
+                                - img
+                        - textbox [ref=e486]: local
+                        - combobox [ref=e487] [cursor=pointer]:
+                            - generic [ref=e488]: main
+                            - img
+                        - textbox [ref=e489]: main
+        - generic [ref=e491]:
+            - button "Toggle Sidebar"
+    - generic:
+        - region "Notifications"
+    - generic:
+        - region "Notifications"

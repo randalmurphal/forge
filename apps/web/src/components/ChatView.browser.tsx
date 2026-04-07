@@ -404,6 +404,8 @@ function createThreadCreatedEvent(threadId: ThreadId, sequence: number): Orchest
       worktreePath: null,
       workflowId: null,
       patternId: null,
+      parentThreadId: null,
+      role: null,
       createdAt: NOW_ISO,
       updatedAt: NOW_ISO,
     },
