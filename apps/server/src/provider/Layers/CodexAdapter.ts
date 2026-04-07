@@ -36,9 +36,8 @@ import { CodexAdapter, type CodexAdapterShape } from "../Services/CodexAdapter.t
 import {
   CodexAppServerManager,
   type CodexAppServerStartSessionInput,
-  type DynamicToolSpec,
-  type DynamicToolHandler,
 } from "../../codexAppServerManager.ts";
+import { consumePendingDynamicTools } from "../../channel/pendingDynamicTools.ts";
 import { resolveAttachmentPath } from "../../attachmentStore.ts";
 import { ServerConfig } from "../../config.ts";
 import { ServerSettingsService } from "../../serverSettings.ts";
@@ -1381,17 +1380,9 @@ const makeCodexAdapter = Effect.fn("makeCodexAdapter")(function* (
   );
   const serverSettingsService = yield* ServerSettingsService;
 
-  const pendingDynamicToolConfigs = new Map<
-    string,
-    { tools: DynamicToolSpec[]; handler: DynamicToolHandler }
-  >();
-
-  const registerDynamicTools = (
-    threadId: string,
-    tools: DynamicToolSpec[],
-    handler: DynamicToolHandler,
-  ) => {
-    pendingDynamicToolConfigs.set(threadId, { tools, handler });
+  const registerDynamicTools: CodexAdapterShape["registerDynamicTools"] = () => {
+    // Dynamic tools are now registered via the shared pendingDynamicTools registry.
+    // This method exists only to satisfy the interface.
   };
 
   const startSession: CodexAdapterShape["startSession"] = Effect.fn("startSession")(
@@ -1419,10 +1410,7 @@ const makeCodexAdapter = Effect.fn("makeCodexAdapter")(function* (
       const binaryPath = codexSettings.binaryPath;
       const homePath = codexSettings.homePath;
 
-      const pendingToolConfig = pendingDynamicToolConfigs.get(input.threadId);
-      if (pendingToolConfig) {
-        pendingDynamicToolConfigs.delete(input.threadId);
-      }
+      const pendingToolConfig = consumePendingDynamicTools(input.threadId);
 
       const managerInput: CodexAppServerStartSessionInput = {
         threadId: input.threadId,

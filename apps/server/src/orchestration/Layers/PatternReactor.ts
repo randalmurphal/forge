@@ -1,5 +1,6 @@
 import {
   type Channel,
+  type ChannelId,
   CommandId,
   type DeliberationConfig,
   type ForgeCommand,
@@ -12,6 +13,7 @@ import { makeDrainableWorker } from "@forgetools/shared/DrainableWorker";
 import { Cause, Effect, Layer, Option, Stream } from "effect";
 
 import { ChannelService } from "../../channel/Services/ChannelService.ts";
+import { registerPendingDynamicTools } from "../../channel/pendingDynamicTools.ts";
 import { PromptResolver } from "../../workflow/Services/PromptResolver.ts";
 import { WorkflowRegistry } from "../../workflow/Services/WorkflowRegistry.ts";
 import { OrchestrationEngineService } from "../Services/OrchestrationEngine.ts";
@@ -32,11 +34,62 @@ export const makePatternReactor = Effect.gen(function* () {
   const channelService = yield* ChannelService;
   const workflowRegistry = yield* WorkflowRegistry;
   const promptResolver = yield* PromptResolver;
+  const services = yield* Effect.services();
+  const runPromise = Effect.runPromiseWith(services);
 
   const dispatchForgeCommand = (command: ForgeCommand) =>
     orchestrationEngine.dispatch(
       command as unknown as Parameters<typeof orchestrationEngine.dispatch>[0],
     );
+
+  const registerChannelToolForChild = (
+    childThreadId: ThreadId,
+    parentThreadId: ThreadId,
+    role: string,
+  ) => {
+    registerPendingDynamicTools(
+      childThreadId,
+      [
+        {
+          name: "post_to_channel",
+          description:
+            "Post a message to the shared deliberation channel. All other participants will see it.",
+          inputSchema: {
+            type: "object",
+            properties: {
+              message: { type: "string", description: "The message content to post." },
+            },
+            required: ["message"],
+          },
+        },
+      ],
+      async (toolName, args) => {
+        if (toolName !== "post_to_channel") {
+          return { content: `Unknown tool: ${toolName}`, success: false };
+        }
+        const message = typeof args.message === "string" ? args.message : JSON.stringify(args);
+        const readModel = await runPromise(orchestrationEngine.getReadModel());
+        const channel = readModel.channels.find(
+          (ch: { threadId: string; type: string }) =>
+            ch.threadId === parentThreadId && ch.type === "deliberation",
+        );
+        if (!channel) {
+          return { content: "No deliberation channel found.", success: false };
+        }
+        await runPromise(
+          channelService.postMessage({
+            channelId: channel.id as ChannelId,
+            fromType: "agent",
+            fromId: childThreadId,
+            fromRole: role,
+            content: message,
+            cursorThreadId: childThreadId,
+          }),
+        );
+        return { content: "Message posted to channel.", success: true };
+      },
+    );
+  };
 
   const resolveThread = Effect.fn("PatternReactor.resolveThread")(function* (threadId: ThreadId) {
     const readModel = yield* orchestrationEngine.getReadModel();
@@ -91,10 +144,10 @@ export const makePatternReactor = Effect.gen(function* () {
 
       // Step 1: Create all child threads first so the deliberation engine
       // can find participants when the channel message is posted.
-      const childThreadIds: ThreadId[] = [];
+      const children: Array<{ threadId: ThreadId; role: string }> = [];
       for (const participant of deliberation.participants) {
         const childThreadId = ThreadId.makeUnsafe(crypto.randomUUID());
-        childThreadIds.push(childThreadId);
+        children.push({ threadId: childThreadId, role: participant.role });
 
         yield* orchestrationEngine.dispatch({
           type: "thread.create",
@@ -105,8 +158,8 @@ export const makePatternReactor = Effect.gen(function* () {
           modelSelection: thread.modelSelection,
           runtimeMode: thread.runtimeMode,
           interactionMode: thread.interactionMode,
-          branch: thread.branch,
-          worktreePath: thread.worktreePath,
+          branch: null,
+          worktreePath: null,
           patternId: thread.patternId ?? undefined,
           parentThreadId: input.threadId,
           role: participant.role,
@@ -120,13 +173,15 @@ export const makePatternReactor = Effect.gen(function* () {
         type: "deliberation",
       });
 
-      // Step 3: Deliver the user's message directly to each child thread as a turn.
-      for (const childThreadId of childThreadIds) {
+      // Step 3: Register dynamic tools and deliver the user's message to each child.
+      for (const child of children) {
+        registerChannelToolForChild(child.threadId, input.threadId, child.role);
+
         const childMessageId = MessageId.makeUnsafe(crypto.randomUUID());
         yield* orchestrationEngine.dispatch({
           type: "thread.turn.start",
-          commandId: patternCommandId(`turn:${childThreadId}`),
-          threadId: childThreadId,
+          commandId: patternCommandId(`turn:${child.threadId}`),
+          threadId: child.threadId,
           message: {
             messageId: childMessageId,
             role: "user" as const,
