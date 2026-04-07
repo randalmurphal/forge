@@ -16,6 +16,7 @@ import { Route as WorkflowEditorRouteImport } from './routes/workflow.editor'
 import { Route as SettingsGeneralRouteImport } from './routes/settings.general'
 import { Route as SettingsArchivedRouteImport } from './routes/settings.archived'
 import { Route as ChatThreadIdRouteImport } from './routes/_chat.$threadId'
+import { Route as WorkflowEditorIndexRouteImport } from './routes/workflow.editor.index'
 import { Route as WorkflowEditorWorkflowIdRouteImport } from './routes/workflow.editor.$workflowId'
 
 const SettingsRoute = SettingsRouteImport.update({
@@ -52,6 +53,11 @@ const ChatThreadIdRoute = ChatThreadIdRouteImport.update({
   path: '/$threadId',
   getParentRoute: () => ChatRoute,
 } as any)
+const WorkflowEditorIndexRoute = WorkflowEditorIndexRouteImport.update({
+  id: '/',
+  path: '/',
+  getParentRoute: () => WorkflowEditorRoute,
+} as any)
 const WorkflowEditorWorkflowIdRoute =
   WorkflowEditorWorkflowIdRouteImport.update({
     id: '/$workflowId',
@@ -67,15 +73,16 @@ export interface FileRoutesByFullPath {
   '/settings/general': typeof SettingsGeneralRoute
   '/workflow/editor': typeof WorkflowEditorRouteWithChildren
   '/workflow/editor/$workflowId': typeof WorkflowEditorWorkflowIdRoute
+  '/workflow/editor/': typeof WorkflowEditorIndexRoute
 }
 export interface FileRoutesByTo {
   '/settings': typeof SettingsRouteWithChildren
   '/$threadId': typeof ChatThreadIdRoute
   '/settings/archived': typeof SettingsArchivedRoute
   '/settings/general': typeof SettingsGeneralRoute
-  '/workflow/editor': typeof WorkflowEditorRouteWithChildren
   '/': typeof ChatIndexRoute
   '/workflow/editor/$workflowId': typeof WorkflowEditorWorkflowIdRoute
+  '/workflow/editor': typeof WorkflowEditorIndexRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
@@ -87,6 +94,7 @@ export interface FileRoutesById {
   '/workflow/editor': typeof WorkflowEditorRouteWithChildren
   '/_chat/': typeof ChatIndexRoute
   '/workflow/editor/$workflowId': typeof WorkflowEditorWorkflowIdRoute
+  '/workflow/editor/': typeof WorkflowEditorIndexRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
@@ -98,15 +106,16 @@ export interface FileRouteTypes {
     | '/settings/general'
     | '/workflow/editor'
     | '/workflow/editor/$workflowId'
+    | '/workflow/editor/'
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/settings'
     | '/$threadId'
     | '/settings/archived'
     | '/settings/general'
-    | '/workflow/editor'
     | '/'
     | '/workflow/editor/$workflowId'
+    | '/workflow/editor'
   id:
     | '__root__'
     | '/_chat'
@@ -117,6 +126,7 @@ export interface FileRouteTypes {
     | '/workflow/editor'
     | '/_chat/'
     | '/workflow/editor/$workflowId'
+    | '/workflow/editor/'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
@@ -176,6 +186,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ChatThreadIdRouteImport
       parentRoute: typeof ChatRoute
     }
+    '/workflow/editor/': {
+      id: '/workflow/editor/'
+      path: '/'
+      fullPath: '/workflow/editor/'
+      preLoaderRoute: typeof WorkflowEditorIndexRouteImport
+      parentRoute: typeof WorkflowEditorRoute
+    }
     '/workflow/editor/$workflowId': {
       id: '/workflow/editor/$workflowId'
       path: '/$workflowId'
@@ -214,10 +231,12 @@ const SettingsRouteWithChildren = SettingsRoute._addFileChildren(
 
 interface WorkflowEditorRouteChildren {
   WorkflowEditorWorkflowIdRoute: typeof WorkflowEditorWorkflowIdRoute
+  WorkflowEditorIndexRoute: typeof WorkflowEditorIndexRoute
 }
 
 const WorkflowEditorRouteChildren: WorkflowEditorRouteChildren = {
   WorkflowEditorWorkflowIdRoute: WorkflowEditorWorkflowIdRoute,
+  WorkflowEditorIndexRoute: WorkflowEditorIndexRoute,
 }
 
 const WorkflowEditorRouteWithChildren = WorkflowEditorRoute._addFileChildren(

@@ -228,7 +228,7 @@ export function WorkflowEditorBasicsSection(props: {
             </div>
           ) : null}
 
-          {props.validationMessage ? (
+          {props.draftDirty && props.validationMessage ? (
             <div className="rounded-xl border border-amber-500/20 bg-amber-500/10 px-3 py-2 text-sm text-amber-700 dark:text-amber-300">
               {props.validationMessage}
             </div>

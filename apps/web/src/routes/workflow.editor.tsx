@@ -1,10 +1,9 @@
-import { createFileRoute } from "@tanstack/react-router";
-import { WorkflowEditor } from "../components/WorkflowEditor";
+import { createFileRoute, Outlet } from "@tanstack/react-router";
 
-function WorkflowEditorNewRouteView() {
-  return <WorkflowEditor key="workflow-editor-new" workflowId={null} />;
+function WorkflowEditorLayout() {
+  return <Outlet />;
 }
 
 export const Route = createFileRoute("/workflow/editor")({
-  component: WorkflowEditorNewRouteView,
+  component: WorkflowEditorLayout,
 });
