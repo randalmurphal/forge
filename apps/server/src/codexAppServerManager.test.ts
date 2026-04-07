@@ -138,6 +138,35 @@ function createPendingUserInputHarness() {
   return { manager, context, requireSession, writeMessage, emitEvent };
 }
 
+function createDynamicToolHarness() {
+  const manager = new CodexAppServerManager();
+  const context = {
+    session: {
+      provider: "codex",
+      status: "ready",
+      threadId: asThreadId("thread_1"),
+      runtimeMode: "full-access",
+      model: "gpt-5.3-codex",
+      resumeCursor: { threadId: "thread_1" },
+      createdAt: "2026-02-10T00:00:00.000Z",
+      updatedAt: "2026-02-10T00:00:00.000Z",
+    },
+    pendingApprovals: new Map(),
+    pendingUserInputs: new Map(),
+    collabReceiverTurns: new Map(),
+    dynamicToolHandler: vi.fn(),
+  };
+
+  const writeMessage = vi
+    .spyOn(manager as unknown as { writeMessage: (...args: unknown[]) => void }, "writeMessage")
+    .mockImplementation(() => {});
+  const emitEvent = vi
+    .spyOn(manager as unknown as { emitEvent: (...args: unknown[]) => void }, "emitEvent")
+    .mockImplementation(() => {});
+
+  return { manager, context, writeMessage, emitEvent };
+}
+
 function createCollabNotificationHarness() {
   const manager = new CodexAppServerManager();
   const context = {
@@ -847,6 +876,99 @@ describe("respondToUserInput", () => {
     const request = Array.from(context.pendingApprovals.values())[0];
     expect(request?.requestKind).toBe("file-read");
     expect(request?.method).toBe("item/fileRead/requestApproval");
+  });
+
+  it("responds to dynamic tool calls through the registered handler", async () => {
+    const { manager, context, writeMessage, emitEvent } = createDynamicToolHarness();
+    context.dynamicToolHandler.mockResolvedValue({
+      content: "tool result",
+      success: true,
+    });
+
+    (
+      manager as unknown as {
+        handleServerRequest: (context: typeof context, request: Record<string, unknown>) => void;
+      }
+    ).handleServerRequest(context, {
+      jsonrpc: "2.0",
+      id: 42,
+      method: "dynamicToolCall",
+      params: {
+        toolName: "channel_send",
+        arguments: {
+          message: "hello",
+        },
+      },
+    });
+
+    await vi.waitFor(() => {
+      expect(context.dynamicToolHandler).toHaveBeenCalledWith("channel_send", {
+        message: "hello",
+      });
+    });
+    expect(writeMessage).toHaveBeenCalledWith(context, {
+      id: 42,
+      result: {
+        contentItems: [{ type: "text", text: "tool result" }],
+        success: true,
+      },
+    });
+    expect(emitEvent).toHaveBeenCalledWith(
+      expect.objectContaining({
+        kind: "request",
+        method: "dynamicToolCall",
+        payload: {
+          toolName: "channel_send",
+          arguments: {
+            message: "hello",
+          },
+        },
+      }),
+    );
+  });
+
+  it("rejects dynamic tool calls when no handler is registered", () => {
+    const manager = new CodexAppServerManager();
+    const context = {
+      session: {
+        provider: "codex",
+        status: "ready",
+        threadId: asThreadId("thread_1"),
+        runtimeMode: "full-access",
+        model: "gpt-5.3-codex",
+        resumeCursor: { threadId: "thread_1" },
+        createdAt: "2026-02-10T00:00:00.000Z",
+        updatedAt: "2026-02-10T00:00:00.000Z",
+      },
+      pendingApprovals: new Map(),
+      pendingUserInputs: new Map(),
+      collabReceiverTurns: new Map(),
+    };
+    const writeMessage = vi
+      .spyOn(manager as unknown as { writeMessage: (...args: unknown[]) => void }, "writeMessage")
+      .mockImplementation(() => {});
+
+    (
+      manager as unknown as {
+        handleServerRequest: (context: typeof context, request: Record<string, unknown>) => void;
+      }
+    ).handleServerRequest(context, {
+      jsonrpc: "2.0",
+      id: 43,
+      method: "dynamicToolCall",
+      params: {
+        toolName: "channel_send",
+        arguments: {},
+      },
+    });
+
+    expect(writeMessage).toHaveBeenCalledWith(context, {
+      id: 43,
+      error: {
+        code: -32601,
+        message: "Unsupported server request: dynamicToolCall",
+      },
+    });
   });
 });
 

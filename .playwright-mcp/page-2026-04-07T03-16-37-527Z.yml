@@ -1,0 +1,160 @@
+- generic [active] [ref=e1]:
+    - generic [ref=e3]:
+        - generic [ref=e6]:
+            - link "Go to threads" [ref=e9] [cursor=pointer]:
+                - /url: /
+                - generic [ref=e10]: F
+                - generic [ref=e11]: Forge
+                - generic [ref=e12]: Dev
+            - generic [ref=e15]:
+                - generic [ref=e16]:
+                    - generic [ref=e17]: Projects
+                    - generic [ref=e18]:
+                        - button [ref=e19] [cursor=pointer]:
+                            - img [ref=e20]
+                        - button "Add project" [ref=e23] [cursor=pointer]:
+                            - img [ref=e24]
+                - list [ref=e42]:
+                    - listitem [ref=e43]:
+                        - generic [ref=e44]:
+                            - button "forge" [ref=e45] [cursor=pointer]:
+                                - img [ref=e46]
+                                - generic [ref=e48]: forge
+                            - button "Create new thread in forge" [ref=e49] [cursor=pointer]:
+                                - img [ref=e50]
+                        - list [ref=e53]:
+                            - listitem [ref=e54]:
+                                - button "Expand test dynamic tools Deliberating test dynamic tools Archive test dynamic tools just now" [ref=e55] [cursor=pointer]:
+                                    - generic [ref=e56]:
+                                        - button "Expand test dynamic tools" [ref=e57]:
+                                            - img [ref=e58]
+                                        - generic "Deliberating" [ref=e60]:
+                                            - generic [ref=e62]: Deliberating
+                                        - generic [ref=e64]: test dynamic tools
+                                    - generic [ref=e66]:
+                                        - generic:
+                                            - button "Archive test dynamic tools":
+                                                - img
+                                        - generic: just now
+                            - listitem [ref=e67]:
+                                - button "Expand Is Rust or Go better for microservices? Paused Is Rust or Go better for microservices? Archive Is Rust or Go better for microservices? 3m ago" [ref=e68] [cursor=pointer]:
+                                    - generic [ref=e69]:
+                                        - button "Expand Is Rust or Go better for microservices?" [ref=e70]:
+                                            - img [ref=e71]
+                                        - generic "Paused" [ref=e73]:
+                                            - generic [ref=e75]: Paused
+                                        - generic [ref=e77]: Is Rust or Go better for microservices?
+                                    - generic [ref=e79]:
+                                        - generic:
+                                            - button "Archive Is Rust or Go better for microservices?":
+                                                - img
+                                        - generic: 3m ago
+                            - listitem [ref=e80]:
+                                - button "Is Rust or Go better for microservices? Archive Is Rust or Go better for microservices? 11m ago" [ref=e81] [cursor=pointer]:
+                                    - generic [ref=e84]: Is Rust or Go better for microservices?
+                                    - generic [ref=e86]:
+                                        - generic:
+                                            - button "Archive Is Rust or Go better for microservices?":
+                                                - img
+                                        - generic: 11m ago
+                            - listitem [ref=e87]:
+                                - button "test debate Archive test debate 13m ago" [ref=e88] [cursor=pointer]:
+                                    - generic [ref=e91]: test debate
+                                    - generic [ref=e93]:
+                                        - generic:
+                                            - button "Archive test debate":
+                                                - img
+                                        - generic: 13m ago
+                            - listitem [ref=e94]:
+                                - button "Is functional programming or OOP better for large ... — critic Archive Is functional programming or OOP better for large ... — critic 16m ago" [ref=e95] [cursor=pointer]:
+                                    - generic [ref=e98]: Is functional programming or OOP better for large ... — critic
+                                    - generic [ref=e100]:
+                                        - generic:
+                                            - button "Archive Is functional programming or OOP better for large ... — critic":
+                                                - img
+                                        - generic: 16m ago
+                            - listitem [ref=e101]:
+                                - button "Is functional programming or OOP better for large ... — advocate Archive Is functional programming or OOP better for large ... — advocate 16m ago" [ref=e102] [cursor=pointer]:
+                                    - generic [ref=e105]: Is functional programming or OOP better for large ... — advocate
+                                    - generic [ref=e107]:
+                                        - generic:
+                                            - button "Archive Is functional programming or OOP better for large ... — advocate":
+                                                - img
+                                        - generic: 16m ago
+                            - listitem [ref=e108]:
+                                - button "Paused Show more" [ref=e109] [cursor=pointer]:
+                                    - generic [ref=e110]:
+                                        - generic "Paused" [ref=e111]:
+                                            - generic [ref=e113]: Paused
+                                        - generic [ref=e114]: Show more
+                    - listitem [ref=e115]:
+                        - generic [ref=e116]:
+                            - button "server" [ref=e117] [cursor=pointer]:
+                                - img [ref=e118]
+                                - generic [ref=e120]: server
+                            - button "Create new thread in server" [ref=e121] [cursor=pointer]:
+                                - img [ref=e122]
+                        - list [ref=e125]:
+                            - listitem [ref=e126]:
+                                - button "New thread Archive New thread 3h ago" [ref=e127] [cursor=pointer]:
+                                    - generic [ref=e130]: New thread
+                                    - generic [ref=e132]:
+                                        - generic:
+                                            - button "Archive New thread":
+                                                - img
+                                        - generic: 3h ago
+            - separator [ref=e26]
+            - list [ref=e28]:
+                - listitem [ref=e29]:
+                    - button "Workflows" [ref=e30] [cursor=pointer]:
+                        - img [ref=e31]
+                        - generic [ref=e34]: Workflows
+                - listitem [ref=e35]:
+                    - button "Settings" [ref=e36] [cursor=pointer]:
+                        - img [ref=e37]
+                        - generic [ref=e40]: Settings
+            - button "Resize Sidebar" [ref=e41]
+        - main [ref=e133]:
+            - generic [ref=e134]:
+                - generic [ref=e135]:
+                    - generic [ref=e136]:
+                        - generic [ref=e137]:
+                            - button "Toggle Sidebar" [ref=e138] [cursor=pointer]:
+                                - img
+                                - generic [ref=e139]: Toggle Sidebar
+                            - generic [ref=e140]:
+                                - generic [ref=e141]:
+                                    - heading "Advocate vs Critic" [level=1] [ref=e142]
+                                    - generic [ref=e143]: open
+                                - paragraph [ref=e144]: test dynamic tools · Turn 0
+                        - button "Split View" [ref=e146] [cursor=pointer]:
+                            - img
+                            - text: Split View
+                    - generic [ref=e147]:
+                        - button "Advocate Codex" [ref=e148]:
+                            - generic [ref=e149]: Advocate
+                            - generic [ref=e150]: Codex
+                        - button "Critic Codex" [ref=e151]:
+                            - generic [ref=e152]: Critic
+                            - generic [ref=e153]: Codex
+                - generic [ref=e155]:
+                    - generic [ref=e156]:
+                        - generic [ref=e157]:
+                            - paragraph [ref=e158]: Deliberation channel
+                            - paragraph [ref=e159]: Live participant exchange
+                        - img [ref=e160]
+                    - log "Deliberation channel messages" [ref=e164]:
+                        - paragraph [ref=e165]: No channel messages yet.
+                    - generic [ref=e167]:
+                        - generic [ref=e168]:
+                            - img [ref=e169]
+                            - text: Post guidance into the shared channel or end the deliberation early.
+                        - generic [ref=e171]:
+                            - button "Intervene" [ref=e172] [cursor=pointer]
+                            - button "End deliberation" [ref=e173] [cursor=pointer]:
+                                - img
+                                - text: End deliberation
+    - generic:
+        - region "Notifications"
+    - generic:
+        - region "Notifications"
