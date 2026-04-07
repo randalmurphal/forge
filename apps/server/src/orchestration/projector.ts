@@ -490,12 +490,21 @@ export function projectEvent(
         );
         const projectedThread = toProjectedThread(thread);
         const existing = nextBase.threads.find((entry) => entry.id === thread.id);
-        return {
-          ...nextBase,
-          threads: existing
-            ? nextBase.threads.map((entry) => (entry.id === thread.id ? projectedThread : entry))
-            : [...nextBase.threads, projectedThread],
-        };
+        let threads = existing
+          ? nextBase.threads.map((entry) => (entry.id === thread.id ? projectedThread : entry))
+          : [...nextBase.threads, projectedThread];
+
+        // If this thread has a parent, add it to the parent's childThreadIds.
+        const parentId = "parentThreadId" in payload ? (payload.parentThreadId ?? null) : null;
+        if (parentId !== null) {
+          threads = threads.map((entry) =>
+            entry.id === parentId && !entry.childThreadIds.includes(thread.id)
+              ? { ...entry, childThreadIds: [...entry.childThreadIds, thread.id] }
+              : entry,
+          );
+        }
+
+        return { ...nextBase, threads };
       });
 
     case "thread.deleted":

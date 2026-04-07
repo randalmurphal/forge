@@ -718,15 +718,34 @@ export function applyOrchestrationEvent(state: AppState, event: OrchestrationEve
         checkpoints: [],
         session: null,
       });
-      const threads = existing
+      let threads = existing
         ? state.threads.map((thread) => (thread.id === nextThread.id ? nextThread : thread))
         : [...state.threads, nextThread];
+      let updatedSidebarThreadsById = state.sidebarThreadsById;
+
+      // If this child thread has a parent, add it to the parent's childThreadIds.
+      if (parentThreadId !== null) {
+        threads = threads.map((thread) =>
+          thread.id === parentThreadId && !(thread.childThreadIds ?? []).includes(nextThread.id)
+            ? { ...thread, childThreadIds: [...(thread.childThreadIds ?? []), nextThread.id] }
+            : thread,
+        );
+        const updatedParent = threads.find((t) => t.id === parentThreadId);
+        if (updatedParent) {
+          const parentSummary = buildSidebarThreadSummary(updatedParent);
+          updatedSidebarThreadsById = {
+            ...updatedSidebarThreadsById,
+            [parentThreadId]: parentSummary,
+          };
+        }
+      }
+
       const nextSummary = buildSidebarThreadSummary(nextThread);
-      const previousSummary = state.sidebarThreadsById[nextThread.id];
+      const previousSummary = updatedSidebarThreadsById[nextThread.id];
       const sidebarThreadsById = sidebarThreadSummariesEqual(previousSummary, nextSummary)
-        ? state.sidebarThreadsById
+        ? updatedSidebarThreadsById
         : {
-            ...state.sidebarThreadsById,
+            ...updatedSidebarThreadsById,
             [nextThread.id]: nextSummary,
           };
       const nextThreadIdsByProjectId =
