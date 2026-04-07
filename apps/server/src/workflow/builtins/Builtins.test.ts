@@ -9,13 +9,10 @@ const decodeWorkflowDefinition = Schema.decodeUnknownEffect(WorkflowDefinition);
 const builtinsDir = fileURLToPath(new URL(".", import.meta.url));
 const expectedBuiltins = [
   "build-loop.yaml",
-  "code-review.yaml",
   "debate.yaml",
   "explore.yaml",
   "implement.yaml",
   "interrogate.yaml",
-  "plan-then-implement.yaml",
-  "refine-prompt.yaml",
 ] as const;
 
 it.effect("all built-in workflow YAML files parse and validate against WorkflowDefinition", () =>
@@ -41,13 +38,10 @@ it.effect("all built-in workflow YAML files parse and validate against WorkflowD
       workflows.map((workflow) => workflow.name),
       [
         "build-loop",
-        "code-review",
         "debate",
         "explore",
         "implement",
         "interrogate",
-        "plan-then-implement",
-        "refine-prompt",
       ],
     );
     assert.ok(workflows.every((workflow) => workflow.builtIn));

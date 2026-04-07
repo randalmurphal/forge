@@ -31,12 +31,12 @@ describe("sortWorkflowSummariesForPicker", () => {
       makeWorkflowSummary("project-review"),
       makeWorkflowSummary("project-checklist", { projectId: ProjectId.makeUnsafe("project-1") }),
       makeWorkflowSummary("build-loop", { builtIn: true }),
-      makeWorkflowSummary("code-review", { builtIn: true }),
+      makeWorkflowSummary("debate", { builtIn: true }),
     ]);
 
     expect(workflows.map((workflow) => workflow.workflowId)).toEqual([
       WorkflowId.makeUnsafe("build-loop"),
-      WorkflowId.makeUnsafe("code-review"),
+      WorkflowId.makeUnsafe("debate"),
       WorkflowId.makeUnsafe("project-checklist"),
       WorkflowId.makeUnsafe("project-review"),
     ]);
@@ -164,9 +164,9 @@ describe("resolveWorkflowPickerCategory", () => {
   it("keeps mixed or implementation workflows in the implementation category", () => {
     expect(
       resolveWorkflowPickerCategory(
-        makeWorkflowSummary("workflow-built-in-plan-then-implement", {
+        makeWorkflowSummary("workflow-built-in-build-loop", {
           builtIn: true,
-          name: "plan-then-implement",
+          name: "build-loop",
         }),
       ),
     ).toBe("implementation");
