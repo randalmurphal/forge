@@ -36,13 +36,7 @@ it.effect("all built-in workflow YAML files parse and validate against WorkflowD
 
     assert.deepStrictEqual(
       workflows.map((workflow) => workflow.name),
-      [
-        "build-loop",
-        "debate",
-        "explore",
-        "implement",
-        "interrogate",
-      ],
+      ["build-loop", "debate", "explore", "implement", "interrogate"],
     );
     assert.ok(workflows.every((workflow) => workflow.builtIn));
     assert.ok(

@@ -1,27 +1,9 @@
 import type { ProjectId, WorkflowId, WorkflowSummary } from "@forgetools/contracts";
 
-export const NO_WORKFLOW_VALUE = "__none__";
-
-export type WorkflowPickerCategory = "implementation" | "thinking";
-
-export interface WorkflowPickerSection {
-  key: "built-in-implementation" | "built-in-thinking" | "project" | "global";
-  label: string;
-  workflows: WorkflowSummary[];
-}
+export type WorkflowPickerCategory = "discussion" | "workflow";
 
 export function resolveWorkflowPickerCategory(workflow: WorkflowSummary): WorkflowPickerCategory {
-  return workflow.hasDeliberation ? "thinking" : "implementation";
-}
-
-function workflowPickerScopeRank(workflow: WorkflowSummary): number {
-  if (workflow.builtIn) {
-    return 0;
-  }
-  if (workflow.projectId !== null) {
-    return 1;
-  }
-  return 2;
+  return workflow.hasDeliberation ? "discussion" : "workflow";
 }
 
 export function compareWorkflowSummariesForPicker(
@@ -43,6 +25,16 @@ export function compareWorkflowSummariesForPicker(
   return left.workflowId.localeCompare(right.workflowId);
 }
 
+function workflowPickerScopeRank(workflow: WorkflowSummary): number {
+  if (workflow.builtIn) {
+    return 0;
+  }
+  if (workflow.projectId !== null) {
+    return 1;
+  }
+  return 2;
+}
+
 export function sortWorkflowSummariesForPicker(
   workflows: readonly WorkflowSummary[],
 ): WorkflowSummary[] {
@@ -59,47 +51,17 @@ export function filterWorkflowSummariesForProject(
   );
 }
 
-export function buildWorkflowPickerSections(input: {
+export function splitWorkflowsByCategory(input: {
   projectId: ProjectId | null;
   workflows: readonly WorkflowSummary[];
-}): WorkflowPickerSection[] {
-  const filteredWorkflows = sortWorkflowSummariesForPicker(
+}): { discussions: WorkflowSummary[]; workflows: WorkflowSummary[] } {
+  const all = sortWorkflowSummariesForPicker(
     filterWorkflowSummariesForProject(input.workflows, input.projectId),
   );
-
-  const builtInImplementation = filteredWorkflows.filter(
-    (workflow) => workflow.builtIn && resolveWorkflowPickerCategory(workflow) === "implementation",
-  );
-  const builtInThinking = filteredWorkflows.filter(
-    (workflow) => workflow.builtIn && resolveWorkflowPickerCategory(workflow) === "thinking",
-  );
-  const project = filteredWorkflows.filter(
-    (workflow) => !workflow.builtIn && workflow.projectId !== null,
-  );
-  const global = filteredWorkflows.filter(
-    (workflow) => !workflow.builtIn && workflow.projectId === null,
-  );
-
-  return [
-    {
-      key: "built-in-implementation",
-      label: "Built-in · Implementation",
-      workflows: builtInImplementation,
-    },
-    {
-      key: "built-in-thinking",
-      label: "Built-in · Thinking",
-      workflows: builtInThinking,
-    },
-    { key: "project", label: "This project", workflows: project },
-    { key: "global", label: "Global", workflows: global },
-  ] satisfies WorkflowPickerSection[];
-}
-
-export function compactWorkflowPickerSections(
-  sections: readonly WorkflowPickerSection[],
-): WorkflowPickerSection[] {
-  return sections.filter((section) => section.workflows.length > 0);
+  return {
+    discussions: all.filter((w) => resolveWorkflowPickerCategory(w) === "discussion"),
+    workflows: all.filter((w) => resolveWorkflowPickerCategory(w) === "workflow"),
+  };
 }
 
 export function resolveWorkflowPickerLabel(input: {

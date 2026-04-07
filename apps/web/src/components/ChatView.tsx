@@ -161,6 +161,7 @@ import { ChatHeader } from "./chat/ChatHeader";
 import { ContextWindowMeter } from "./chat/ContextWindowMeter";
 import { buildExpandedImagePreview, ExpandedImagePreview } from "./chat/ExpandedImagePreview";
 import { AVAILABLE_PROVIDER_OPTIONS } from "./chat/ProviderModelPicker";
+import { DiscussionRolesPicker } from "./chat/DiscussionRolesPicker";
 import { ComposerCommandItem, ComposerCommandMenu } from "./chat/ComposerCommandMenu";
 import { ComposerPendingApprovalActions } from "./chat/ComposerPendingApprovalActions";
 import { CompactComposerControlsMenu } from "./chat/CompactComposerControlsMenu";
@@ -578,14 +579,17 @@ function titleCase(value: string): string {
     .join(" ");
 }
 
-function formatPatternParticipantLabel(thread: Pick<Thread, "role" | "modelSelection">): string {
+function formatPatternParticipant(thread: Pick<Thread, "role" | "modelSelection">): {
+  label: string;
+  role: string;
+} {
   const roleLabel =
     thread.role
       ?.split(/[-_\s]+/)
       .filter(Boolean)
       .map((part) => part[0]?.toUpperCase() + part.slice(1))
       .join(" ") ?? "Agent";
-  return `${roleLabel} · ${thread.modelSelection.model}`;
+  return { label: `${roleLabel} · ${thread.modelSelection.model}`, role: thread.role ?? "agent" };
 }
 
 export default function ChatView({ threadId }: ChatViewProps) {
@@ -854,6 +858,11 @@ export default function ChatView({ threadId }: ChatViewProps) {
     if (!wid) return false;
     return state.availableWorkflows.find((w) => w.workflowId === wid)?.hasDeliberation ?? false;
   });
+  const selectedDraftWorkflowIsDiscussion = useWorkflowStore((state) => {
+    const wid = draftThread?.workflowId;
+    if (!wid) return false;
+    return state.availableWorkflows.find((w) => w.workflowId === wid)?.hasDeliberation ?? false;
+  });
   const isPatternContainerThread =
     activeThread !== undefined &&
     activeThread.parentThreadId == null &&
@@ -878,7 +887,7 @@ export default function ChatView({ threadId }: ChatViewProps) {
     [childThreads, isPatternContainerThread],
   );
   const patternWorkingParticipantLabels = useMemo(
-    () => activePatternChildren.map(formatPatternParticipantLabel),
+    () => activePatternChildren.map(formatPatternParticipant),
     [activePatternChildren],
   );
   const patternActiveTurnStartedAt = useMemo(() => {
@@ -4381,7 +4390,6 @@ export default function ChatView({ threadId }: ChatViewProps) {
                           model={selectedModelForPickerWithCustomFallback}
                           lockedProvider={lockedProvider}
                           patternLabelOverride={patternDisplayName}
-                          hideModelSection={isPatternContainerThread}
                           providers={providerStatuses}
                           modelOptionsByProvider={modelOptionsByProvider}
                           onProviderModelChange={onProviderModelSelect}
@@ -4495,6 +4503,21 @@ export default function ChatView({ threadId }: ChatViewProps) {
                                 </Button>
                               </>
                             ) : null}
+                          </>
+                        ) : selectedDraftWorkflowIsDiscussion && draftThread?.workflowId ? (
+                          <>
+                            <Separator
+                              orientation="vertical"
+                              className="mx-0.5 hidden h-4 sm:block"
+                            />
+                            <DiscussionRolesPicker
+                              threadId={threadId}
+                              workflowId={draftThread.workflowId}
+                              providers={providerStatuses}
+                              modelOptionsByProvider={modelOptionsByProvider}
+                              compact={isComposerFooterCompact}
+                              disabled={isConnecting || isSendBusy}
+                            />
                           </>
                         ) : null}
                       </div>

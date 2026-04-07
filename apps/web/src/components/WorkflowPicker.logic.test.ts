@@ -1,13 +1,12 @@
 import { ProjectId, WorkflowId, type WorkflowSummary } from "@forgetools/contracts";
 import { describe, expect, it } from "vitest";
 import {
-  buildWorkflowPickerSections,
-  compactWorkflowPickerSections,
   compareWorkflowSummariesForPicker,
   filterWorkflowSummariesForProject,
   resolveWorkflowPickerCategory,
   resolveWorkflowPickerLabel,
   sortWorkflowSummariesForPicker,
+  splitWorkflowsByCategory,
 } from "./WorkflowPicker.logic";
 
 function makeWorkflowSummary(
@@ -97,79 +96,65 @@ describe("filterWorkflowSummariesForProject", () => {
   });
 });
 
-describe("buildWorkflowPickerSections", () => {
-  it("splits built-in workflows into implementation and thinking sections before scope buckets", () => {
-    const sections = buildWorkflowPickerSections({
+describe("splitWorkflowsByCategory", () => {
+  it("separates deliberation workflows into discussions and the rest into workflows", () => {
+    const result = splitWorkflowsByCategory({
       projectId: ProjectId.makeUnsafe("project-1"),
       workflows: [
-        makeWorkflowSummary("workflow-global"),
-        makeWorkflowSummary("workflow-built-in", { builtIn: true }),
-        makeWorkflowSummary("workflow-built-in-interrogate", {
-          builtIn: true,
-          name: "interrogate",
-        }),
-        makeWorkflowSummary("workflow-project", { projectId: ProjectId.makeUnsafe("project-1") }),
+        makeWorkflowSummary("debate", { builtIn: true, hasDeliberation: true }),
+        makeWorkflowSummary("interrogate", { builtIn: true, hasDeliberation: true }),
+        makeWorkflowSummary("build-loop", { builtIn: true }),
+        makeWorkflowSummary("implement", { builtIn: true }),
+        makeWorkflowSummary("custom-discussion", { hasDeliberation: true }),
       ],
     });
 
-    expect(sections.map((section) => section.key)).toEqual([
-      "built-in-implementation",
-      "built-in-thinking",
-      "project",
-      "global",
+    expect(result.discussions.map((w) => w.workflowId)).toEqual([
+      WorkflowId.makeUnsafe("debate"),
+      WorkflowId.makeUnsafe("interrogate"),
+      WorkflowId.makeUnsafe("custom-discussion"),
+    ]);
+    expect(result.workflows.map((w) => w.workflowId)).toEqual([
+      WorkflowId.makeUnsafe("build-loop"),
+      WorkflowId.makeUnsafe("implement"),
     ]);
   });
 
-  it("drops empty picker sections after grouping", () => {
-    const sections = compactWorkflowPickerSections(
-      buildWorkflowPickerSections({
-        projectId: null,
-        workflows: [makeWorkflowSummary("workflow-built-in", { builtIn: true })],
-      }),
-    );
+  it("filters out workflows from other projects", () => {
+    const result = splitWorkflowsByCategory({
+      projectId: ProjectId.makeUnsafe("project-1"),
+      workflows: [
+        makeWorkflowSummary("debate", { builtIn: true, hasDeliberation: true }),
+        makeWorkflowSummary("other-project-workflow", {
+          projectId: ProjectId.makeUnsafe("project-2"),
+        }),
+      ],
+    });
 
-    expect(sections).toEqual([
-      expect.objectContaining({
-        key: "built-in-implementation",
-      }),
-    ]);
+    expect(result.discussions.map((w) => w.workflowId)).toEqual([WorkflowId.makeUnsafe("debate")]);
+    expect(result.workflows).toEqual([]);
   });
 });
 
 describe("resolveWorkflowPickerCategory", () => {
-  it("classifies deliberation workflows as thinking patterns", () => {
+  it("classifies deliberation workflows as discussions", () => {
     expect(
       resolveWorkflowPickerCategory(
-        makeWorkflowSummary("workflow-built-in-interrogate", {
-          builtIn: true,
-          name: "interrogate",
-          hasDeliberation: true,
-        }),
+        makeWorkflowSummary("interrogate", { builtIn: true, hasDeliberation: true }),
       ),
-    ).toBe("thinking");
+    ).toBe("discussion");
   });
 
-  it("classifies custom deliberation workflows as thinking patterns", () => {
+  it("classifies custom deliberation workflows as discussions", () => {
     expect(
-      resolveWorkflowPickerCategory(
-        makeWorkflowSummary("workflow-custom-123", {
-          builtIn: false,
-          name: "debate copy",
-          hasDeliberation: true,
-        }),
-      ),
-    ).toBe("thinking");
+      resolveWorkflowPickerCategory(makeWorkflowSummary("debate-copy", { hasDeliberation: true })),
+    ).toBe("discussion");
   });
 
-  it("keeps mixed or implementation workflows in the implementation category", () => {
+  it("classifies non-deliberation workflows as workflows", () => {
     expect(
-      resolveWorkflowPickerCategory(
-        makeWorkflowSummary("workflow-built-in-build-loop", {
-          builtIn: true,
-          name: "build-loop",
-        }),
-      ),
-    ).toBe("implementation");
+      resolveWorkflowPickerCategory(makeWorkflowSummary("build-loop", { builtIn: true })),
+    ).toBe("workflow");
   });
 });
 

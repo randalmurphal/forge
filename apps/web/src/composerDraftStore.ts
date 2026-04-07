@@ -146,6 +146,9 @@ const PersistedDraftThreadState = Schema.Struct({
   runtimeMode: RuntimeMode,
   interactionMode: ProviderInteractionMode,
   workflowId: Schema.NullOr(WorkflowId),
+  discussionRoleModels: Schema.optionalKey(
+    Schema.NullOr(Schema.Record(Schema.String, ModelSelection)),
+  ),
   branch: Schema.NullOr(Schema.String),
   worktreePath: Schema.NullOr(Schema.String),
   envMode: DraftThreadEnvModeSchema,
@@ -186,6 +189,8 @@ export interface DraftThreadState {
   runtimeMode: RuntimeMode;
   interactionMode: ProviderInteractionMode;
   workflowId: WorkflowId | null;
+  /** Per-role model overrides for discussion workflows. Keyed by role name. */
+  discussionRoleModels: Record<string, ModelSelection> | null;
   branch: string | null;
   worktreePath: string | null;
   envMode: DraftThreadEnvMode;
@@ -214,6 +219,7 @@ interface ComposerDraftStoreState {
       runtimeMode?: RuntimeMode;
       interactionMode?: ProviderInteractionMode;
       workflowId?: WorkflowId | null;
+      discussionRoleModels?: Record<string, ModelSelection> | null;
     },
   ) => void;
   setDraftThreadContext: (
@@ -227,6 +233,7 @@ interface ComposerDraftStoreState {
       runtimeMode?: RuntimeMode;
       interactionMode?: ProviderInteractionMode;
       workflowId?: WorkflowId | null;
+      discussionRoleModels?: Record<string, ModelSelection> | null;
     },
   ) => void;
   clearProjectDraftThreadId: (projectId: ProjectId) => void;
@@ -812,6 +819,11 @@ function normalizePersistedDraftThreads(
           typeof workflowId === "string" && workflowId.length > 0
             ? (workflowId as WorkflowId)
             : null,
+        discussionRoleModels:
+          (candidateDraftThread.discussionRoleModels as
+            | Record<string, ModelSelection>
+            | null
+            | undefined) ?? null,
         branch: typeof branch === "string" ? branch : null,
         worktreePath: normalizedWorktreePath,
         envMode: normalizeDraftThreadEnvMode(candidateDraftThread.envMode, normalizedWorktreePath),
@@ -841,6 +853,7 @@ function normalizePersistedDraftThreads(
             runtimeMode: DEFAULT_RUNTIME_MODE,
             interactionMode: DEFAULT_INTERACTION_MODE,
             workflowId: null,
+            discussionRoleModels: null,
             branch: null,
             worktreePath: null,
             envMode: "local",
@@ -1335,6 +1348,10 @@ export const useComposerDraftStore = create<ComposerDraftStoreState>()(
               options?.workflowId === undefined
                 ? (existingThread?.workflowId ?? null)
                 : (options.workflowId ?? null),
+            discussionRoleModels:
+              options?.discussionRoleModels === undefined
+                ? (existingThread?.discussionRoleModels ?? null)
+                : (options.discussionRoleModels ?? null),
             branch:
               options?.branch === undefined
                 ? (existingThread?.branch ?? null)
@@ -1402,6 +1419,10 @@ export const useComposerDraftStore = create<ComposerDraftStoreState>()(
             options.worktreePath === undefined
               ? existing.worktreePath
               : (options.worktreePath ?? null);
+          const nextDiscussionRoleModels =
+            options.discussionRoleModels === undefined
+              ? existing.discussionRoleModels
+              : (options.discussionRoleModels ?? null);
           const nextDraftThread: DraftThreadState = {
             projectId: nextProjectId,
             createdAt:
@@ -1412,6 +1433,7 @@ export const useComposerDraftStore = create<ComposerDraftStoreState>()(
             interactionMode: options.interactionMode ?? existing.interactionMode,
             workflowId:
               options.workflowId === undefined ? existing.workflowId : (options.workflowId ?? null),
+            discussionRoleModels: nextDiscussionRoleModels,
             branch: options.branch === undefined ? existing.branch : (options.branch ?? null),
             worktreePath: nextWorktreePath,
             envMode:
@@ -1423,6 +1445,7 @@ export const useComposerDraftStore = create<ComposerDraftStoreState>()(
             nextDraftThread.runtimeMode === existing.runtimeMode &&
             nextDraftThread.interactionMode === existing.interactionMode &&
             nextDraftThread.workflowId === existing.workflowId &&
+            nextDraftThread.discussionRoleModels === existing.discussionRoleModels &&
             nextDraftThread.branch === existing.branch &&
             nextDraftThread.worktreePath === existing.worktreePath &&
             nextDraftThread.envMode === existing.envMode;
@@ -2176,10 +2199,16 @@ export const useComposerDraftStore = create<ComposerDraftStoreState>()(
             toHydratedThreadDraft(draft),
           ]),
         );
+        const draftThreadsByThreadId = Object.fromEntries(
+          Object.entries(normalizedPersisted.draftThreadsByThreadId).map(([threadId, thread]) => [
+            threadId,
+            { ...thread, discussionRoleModels: thread.discussionRoleModels ?? null },
+          ]),
+        );
         return {
           ...currentState,
           draftsByThreadId,
-          draftThreadsByThreadId: normalizedPersisted.draftThreadsByThreadId,
+          draftThreadsByThreadId,
           projectDraftThreadIdByProjectId: normalizedPersisted.projectDraftThreadIdByProjectId,
           stickyModelSelectionByProvider: normalizedPersisted.stickyModelSelectionByProvider ?? {},
           stickyActiveProvider: normalizedPersisted.stickyActiveProvider ?? null,

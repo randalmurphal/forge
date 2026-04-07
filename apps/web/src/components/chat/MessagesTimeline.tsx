@@ -1,4 +1,5 @@
 import { type MessageId, type TurnId } from "@forgetools/contracts";
+import { resolveRoleColor } from "../../lib/roleColors";
 import {
   memo,
   useCallback,
@@ -68,7 +69,7 @@ interface MessagesTimelineProps {
   isWorking: boolean;
   activeTurnInProgress: boolean;
   activeTurnStartedAt: string | null;
-  workingParticipantLabels?: ReadonlyArray<string>;
+  workingParticipantLabels?: ReadonlyArray<{ label: string; role: string }>;
   scrollContainer: HTMLDivElement | null;
   timelineEntries: ReturnType<typeof deriveTimelineEntries>;
   completionDividerBeforeEntryId: string | null;
@@ -462,8 +463,11 @@ export const MessagesTimeline = memo(function MessagesTimeline({
                 </div>
               )}
               <div className="min-w-0 px-1 py-0.5">
-                {attributionLabel ? (
-                  <p className="mb-1.5 text-[10px] font-medium uppercase tracking-[0.12em] text-muted-foreground/70">
+                {row.message.attribution ? (
+                  <p
+                    className="mb-1.5 text-[10px] font-medium uppercase tracking-[0.12em]"
+                    style={{ color: resolveRoleColor(row.message.attribution.role, resolvedTheme) }}
+                  >
                     {attributionLabel}
                   </p>
                 ) : null}
@@ -568,15 +572,19 @@ export const MessagesTimeline = memo(function MessagesTimeline({
             </span>
           </div>
           {row.participantLabels.length > 0 ? (
-            <div className="mt-1 flex flex-wrap items-center gap-1.5 pl-4 text-[10px] text-muted-foreground/65">
-              {row.participantLabels.map((label) => (
-                <span
-                  key={`working-participant:${label}`}
-                  className="rounded-full border border-border/60 px-2 py-0.5"
-                >
-                  {label}
-                </span>
-              ))}
+            <div className="mt-1 flex flex-wrap items-center gap-1.5 pl-4 text-[10px]">
+              {row.participantLabels.map((participant) => {
+                const color = resolveRoleColor(participant.role, resolvedTheme);
+                return (
+                  <span
+                    key={`working-participant:${participant.label}`}
+                    className="rounded-full border px-2 py-0.5"
+                    style={{ color, borderColor: `${color}40` }}
+                  >
+                    {participant.label}
+                  </span>
+                );
+              })}
             </div>
           ) : null}
         </div>

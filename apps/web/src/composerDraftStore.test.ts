@@ -496,6 +496,7 @@ describe("composerDraftStore project draft thread mapping", () => {
       threadId,
       projectId,
       workflowId: WorkflowId.makeUnsafe("workflow-build-loop"),
+      discussionRoleModels: null,
       branch: "feature/test",
       worktreePath: "/tmp/worktree-test",
       envMode: "worktree",
@@ -506,6 +507,7 @@ describe("composerDraftStore project draft thread mapping", () => {
     expect(useComposerDraftStore.getState().getDraftThread(threadId)).toEqual({
       projectId,
       workflowId: WorkflowId.makeUnsafe("workflow-build-loop"),
+      discussionRoleModels: null,
       branch: "feature/test",
       worktreePath: "/tmp/worktree-test",
       envMode: "worktree",

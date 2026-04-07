@@ -1,13 +1,13 @@
-import type { ProviderKind, ServerProvider } from "@forgetools/contracts";
+import type { ProviderKind, ServerProvider, WorkflowSummary } from "@forgetools/contracts";
 import { resolveSelectableModel } from "@forgetools/shared/model";
 import { memo, useEffect, useMemo, useState } from "react";
 import { type ProviderPickerKind, PROVIDER_OPTIONS } from "../../session-logic";
-import { ChevronDownIcon } from "lucide-react";
+import { ChevronDownIcon, MessagesSquareIcon, WorkflowIcon } from "lucide-react";
 import { Button } from "../ui/button";
 import {
   Menu,
+  MenuItem,
   MenuGroup,
-  MenuGroupLabel,
   MenuPopup,
   MenuRadioGroup,
   MenuRadioItem,
@@ -16,18 +16,13 @@ import {
   MenuSubPopup,
   MenuSubTrigger,
   MenuTrigger,
-  MenuItem,
 } from "../ui/menu";
 import { ClaudeAI, OpenAI, type Icon } from "../Icons";
 import { cn } from "~/lib/utils";
 import { getProviderSnapshot } from "../../providerModels";
 import { useComposerDraftStore } from "../../composerDraftStore";
 import { useWorkflowStore, useWorkflows } from "../../stores/workflowStore";
-import {
-  buildWorkflowPickerSections,
-  compactWorkflowPickerSections,
-  NO_WORKFLOW_VALUE,
-} from "../WorkflowPicker.logic";
+import { splitWorkflowsByCategory } from "../WorkflowPicker.logic";
 import type { ThreadId } from "@forgetools/contracts";
 
 const AVAILABLE_PROVIDER_OPTIONS = PROVIDER_OPTIONS.filter((option) => option.available) as Array<{
@@ -52,7 +47,6 @@ export const UnifiedThreadPicker = memo(function UnifiedThreadPicker(props: {
   model: string;
   lockedProvider: ProviderKind | null;
   patternLabelOverride?: string | null;
-  hideModelSection?: boolean;
   providers?: ReadonlyArray<ServerProvider>;
   modelOptionsByProvider: Record<ProviderKind, ReadonlyArray<{ slug: string; name: string }>>;
   onProviderModelChange: (provider: ProviderKind, model: string) => void;
@@ -78,10 +72,15 @@ export const UnifiedThreadPicker = memo(function UnifiedThreadPicker(props: {
     );
     if (!resolvedModel) return;
     props.onProviderModelChange(provider, resolvedModel);
+    // Selecting a model clears any active workflow/discussion
+    if (resolvedWorkflowId !== null) {
+      setDraftThreadContext(props.threadId, { workflowId: null });
+      setSelectedWorkflowId(null);
+    }
     setIsMenuOpen(false);
   };
 
-  // --- Pattern/workflow selection state ---
+  // --- Workflow/discussion selection state ---
   const draftThread = useComposerDraftStore((store) => store.getDraftThread(props.threadId));
   const setDraftThreadContext = useComposerDraftStore((store) => store.setDraftThreadContext);
   const storedWorkflows = useWorkflowStore((store) => store.availableWorkflows);
@@ -90,32 +89,16 @@ export const UnifiedThreadPicker = memo(function UnifiedThreadPicker(props: {
   const workflowQuery = useWorkflows();
   const availableWorkflows = workflowQuery.data ?? storedWorkflows;
 
-  const workflowSections = useMemo(
+  const { discussions, workflows } = useMemo(
     () =>
-      compactWorkflowPickerSections(
-        buildWorkflowPickerSections({
-          projectId: draftThread?.projectId ?? null,
-          workflows: availableWorkflows,
-        }),
-      ),
+      splitWorkflowsByCategory({
+        projectId: draftThread?.projectId ?? null,
+        workflows: availableWorkflows,
+      }),
     [availableWorkflows, draftThread?.projectId],
   );
 
-  const thinkingPatterns = useMemo(
-    () => workflowSections.find((section) => section.key === "built-in-thinking")?.workflows ?? [],
-    [workflowSections],
-  );
-
-  const customWorkflowSections = useMemo(
-    () =>
-      workflowSections.filter((section) => section.key === "project" || section.key === "global"),
-    [workflowSections],
-  );
-
-  const selectableWorkflows = useMemo(
-    () => workflowSections.flatMap((section) => section.workflows),
-    [workflowSections],
-  );
+  const allSelectable = useMemo(() => [...discussions, ...workflows], [discussions, workflows]);
 
   // Sync workflow store selection with draft
   useEffect(() => {
@@ -129,9 +112,7 @@ export const UnifiedThreadPicker = memo(function UnifiedThreadPicker(props: {
   useEffect(() => {
     if (!draftThread?.workflowId) return;
     if (!workflowQuery.isSuccess) return;
-    if (selectableWorkflows.some((workflow) => workflow.workflowId === draftThread.workflowId)) {
-      return;
-    }
+    if (allSelectable.some((w) => w.workflowId === draftThread.workflowId)) return;
     setDraftThreadContext(props.threadId, { workflowId: null });
     setSelectedWorkflowId(null);
   }, [
@@ -139,35 +120,28 @@ export const UnifiedThreadPicker = memo(function UnifiedThreadPicker(props: {
     props.threadId,
     setDraftThreadContext,
     setSelectedWorkflowId,
-    selectableWorkflows,
+    allSelectable,
     workflowQuery.isSuccess,
   ]);
 
   const resolvedWorkflowId = draftThread?.workflowId ?? null;
-  const selectedPattern = resolvedWorkflowId
-    ? thinkingPatterns.find((w) => w.workflowId === resolvedWorkflowId)
+  const selectedWorkflow = resolvedWorkflowId
+    ? allSelectable.find((w) => w.workflowId === resolvedWorkflowId)
     : null;
 
-  const selectPattern = (value: string) => {
-    const nextWorkflowId =
-      value === NO_WORKFLOW_VALUE
-        ? null
-        : (selectableWorkflows.find((w) => w.workflowId === value)?.workflowId ?? null);
+  const selectWorkflow = (value: string) => {
+    const nextWorkflowId = allSelectable.find((w) => w.workflowId === value)?.workflowId ?? null;
     setDraftThreadContext(props.threadId, { workflowId: nextWorkflowId });
     setSelectedWorkflowId(nextWorkflowId);
+    setIsMenuOpen(false);
   };
 
   // --- Trigger label ---
-  const resolvedPatternLabel = props.patternLabelOverride ?? selectedPattern?.name ?? null;
-  const triggerLabel =
-    resolvedPatternLabel !== null
-      ? props.hideModelSection
-        ? resolvedPatternLabel
-        : `${resolvedPatternLabel} \u00b7 ${selectedModelLabel}`
-      : selectedModelLabel;
+  const resolvedPatternLabel = props.patternLabelOverride ?? selectedWorkflow?.name ?? null;
+  const isWorkflowActive = resolvedPatternLabel !== null;
+  const triggerLabel = isWorkflowActive ? resolvedPatternLabel : selectedModelLabel;
 
-  // When a draft thread doesn't exist (started thread), hide pattern section
-  const showPatternSection = draftThread !== null;
+  const showWorkflowSection = draftThread !== null;
 
   return (
     <Menu
@@ -200,23 +174,34 @@ export const UnifiedThreadPicker = memo(function UnifiedThreadPicker(props: {
             props.compact ? "max-w-44 sm:pl-1" : undefined,
           )}
         >
-          {!props.hideModelSection ? (
+          {isWorkflowActive ? (
+            selectedWorkflow?.hasDeliberation ? (
+              <MessagesSquareIcon
+                aria-hidden="true"
+                className="size-4 shrink-0 text-muted-foreground/70"
+              />
+            ) : (
+              <WorkflowIcon
+                aria-hidden="true"
+                className="size-4 shrink-0 text-muted-foreground/70"
+              />
+            )
+          ) : (
             <ProviderIcon
               aria-hidden="true"
               className={cn("size-4 shrink-0", providerIconClassName(activeProvider))}
             />
-          ) : null}
+          )}
           <span className="min-w-0 flex-1 truncate">{triggerLabel}</span>
           <ChevronDownIcon aria-hidden="true" className="size-3 shrink-0 opacity-60" />
         </span>
       </MenuTrigger>
       <MenuPopup align="start" className="min-w-56">
-        {/* Section 1: Models */}
-        {!props.hideModelSection && props.lockedProvider !== null ? (
+        {/* Providers with model sub-menus */}
+        {props.lockedProvider !== null ? (
           <MenuGroup>
-            <MenuGroupLabel>Models</MenuGroupLabel>
             <MenuRadioGroup
-              value={props.model}
+              value={isWorkflowActive ? "" : props.model}
               onValueChange={(value) => handleModelChange(props.lockedProvider!, value)}
             >
               {props.modelOptionsByProvider[props.lockedProvider].map((modelOption) => (
@@ -230,70 +215,107 @@ export const UnifiedThreadPicker = memo(function UnifiedThreadPicker(props: {
               ))}
             </MenuRadioGroup>
           </MenuGroup>
-        ) : !props.hideModelSection ? (
-          <ModelSelectionSection
-            provider={props.provider}
-            model={props.model}
-            {...(props.providers ? { providers: props.providers } : {})}
-            modelOptionsByProvider={props.modelOptionsByProvider}
-            onModelChange={handleModelChange}
-            onCloseMenu={() => setIsMenuOpen(false)}
-          />
+        ) : (
+          <>
+            {AVAILABLE_PROVIDER_OPTIONS.map((option) => {
+              const OptionIcon = PROVIDER_ICON_BY_PROVIDER[option.value];
+              const liveProvider = props.providers
+                ? getProviderSnapshot(props.providers, option.value)
+                : undefined;
+
+              if (liveProvider && liveProvider.status !== "ready") {
+                const unavailableLabel = !liveProvider.enabled
+                  ? "Disabled"
+                  : !liveProvider.installed
+                    ? "Not installed"
+                    : "Unavailable";
+                return (
+                  <MenuItem key={option.value} disabled>
+                    <OptionIcon
+                      aria-hidden="true"
+                      className={cn(
+                        "size-4 shrink-0 opacity-80",
+                        providerIconClassName(option.value),
+                      )}
+                    />
+                    <span>{option.label}</span>
+                    <span className="ms-auto text-[11px] text-muted-foreground/80 uppercase tracking-[0.08em]">
+                      {unavailableLabel}
+                    </span>
+                  </MenuItem>
+                );
+              }
+
+              return (
+                <MenuSub key={option.value}>
+                  <MenuSubTrigger>
+                    <OptionIcon
+                      aria-hidden="true"
+                      className={cn("size-4 shrink-0", providerIconClassName(option.value))}
+                    />
+                    {option.label}
+                  </MenuSubTrigger>
+                  <MenuSubPopup className="[--available-height:min(24rem,70vh)]" sideOffset={4}>
+                    <MenuGroup>
+                      <MenuRadioGroup
+                        value={
+                          !isWorkflowActive && props.provider === option.value ? props.model : ""
+                        }
+                        onValueChange={(value) => handleModelChange(option.value, value)}
+                      >
+                        {props.modelOptionsByProvider[option.value].map((modelOption) => (
+                          <MenuRadioItem
+                            key={`${option.value}:${modelOption.slug}`}
+                            value={modelOption.slug}
+                            onClick={() => setIsMenuOpen(false)}
+                          >
+                            {modelOption.name}
+                          </MenuRadioItem>
+                        ))}
+                      </MenuRadioGroup>
+                    </MenuGroup>
+                  </MenuSubPopup>
+                </MenuSub>
+              );
+            })}
+          </>
+        )}
+
+        {/* Workflows sub-menu */}
+        {showWorkflowSection && workflows.length > 0 ? (
+          <>
+            <MenuSeparator />
+            <WorkflowSubMenu
+              label="Workflows"
+              icon={
+                <WorkflowIcon
+                  aria-hidden="true"
+                  className="size-4 shrink-0 text-muted-foreground/70"
+                />
+              }
+              items={workflows}
+              selectedWorkflowId={resolvedWorkflowId}
+              onSelect={selectWorkflow}
+            />
+          </>
         ) : null}
 
-        {/* Section 2: Patterns & custom workflows */}
-        {showPatternSection &&
-        (thinkingPatterns.length > 0 || customWorkflowSections.length > 0) ? (
+        {/* Discussions sub-menu */}
+        {showWorkflowSection && discussions.length > 0 ? (
           <>
-            {!props.hideModelSection ? <MenuSeparator /> : null}
-            <MenuRadioGroup
-              value={resolvedWorkflowId ?? NO_WORKFLOW_VALUE}
-              onValueChange={selectPattern}
-            >
-              <MenuGroup>
-                <MenuGroupLabel>Patterns</MenuGroupLabel>
-                <MenuRadioItem value={NO_WORKFLOW_VALUE}>(none)</MenuRadioItem>
-                {thinkingPatterns.map((pattern) => (
-                  <MenuRadioItem
-                    key={pattern.workflowId}
-                    value={pattern.workflowId}
-                    className="min-h-11 items-start"
-                  >
-                    <div className="flex min-w-0 flex-col gap-0.5 py-0.5">
-                      <span className="truncate font-medium text-foreground">{pattern.name}</span>
-                      {pattern.description.trim().length > 0 ? (
-                        <span className="line-clamp-2 text-xs text-muted-foreground">
-                          {pattern.description}
-                        </span>
-                      ) : null}
-                    </div>
-                  </MenuRadioItem>
-                ))}
-              </MenuGroup>
-              {customWorkflowSections.map((section) => (
-                <MenuGroup key={section.key}>
-                  <MenuGroupLabel>{section.label}</MenuGroupLabel>
-                  {section.workflows.map((workflow) => (
-                    <MenuRadioItem
-                      key={workflow.workflowId}
-                      value={workflow.workflowId}
-                      className="min-h-11 items-start"
-                    >
-                      <div className="flex min-w-0 flex-col gap-0.5 py-0.5">
-                        <span className="truncate font-medium text-foreground">
-                          {workflow.name}
-                        </span>
-                        {workflow.description.trim().length > 0 ? (
-                          <span className="line-clamp-2 text-xs text-muted-foreground">
-                            {workflow.description}
-                          </span>
-                        ) : null}
-                      </div>
-                    </MenuRadioItem>
-                  ))}
-                </MenuGroup>
-              ))}
-            </MenuRadioGroup>
+            {workflows.length === 0 ? <MenuSeparator /> : null}
+            <WorkflowSubMenu
+              label="Discussions"
+              icon={
+                <MessagesSquareIcon
+                  aria-hidden="true"
+                  className="size-4 shrink-0 text-muted-foreground/70"
+                />
+              }
+              items={discussions}
+              selectedWorkflowId={resolvedWorkflowId}
+              onSelect={selectWorkflow}
+            />
           </>
         ) : null}
       </MenuPopup>
@@ -301,75 +323,34 @@ export const UnifiedThreadPicker = memo(function UnifiedThreadPicker(props: {
   );
 });
 
-/**
- * Renders available provider groups with model sub-menus when the provider is not locked.
- */
-function ModelSelectionSection(props: {
-  provider: ProviderKind;
-  model: string;
-  providers?: ReadonlyArray<ServerProvider>;
-  modelOptionsByProvider: Record<ProviderKind, ReadonlyArray<{ slug: string; name: string }>>;
-  onModelChange: (provider: ProviderKind, value: string) => void;
-  onCloseMenu: () => void;
+function WorkflowSubMenu(props: {
+  label: string;
+  icon: React.ReactNode;
+  items: WorkflowSummary[];
+  selectedWorkflowId: string | null;
+  onSelect: (value: string) => void;
 }) {
+  const activeValue = props.items.some((w) => w.workflowId === props.selectedWorkflowId)
+    ? props.selectedWorkflowId!
+    : "";
+
   return (
-    <>
-      {AVAILABLE_PROVIDER_OPTIONS.map((option) => {
-        const OptionIcon = PROVIDER_ICON_BY_PROVIDER[option.value];
-        const liveProvider = props.providers
-          ? getProviderSnapshot(props.providers, option.value)
-          : undefined;
-
-        if (liveProvider && liveProvider.status !== "ready") {
-          const unavailableLabel = !liveProvider.enabled
-            ? "Disabled"
-            : !liveProvider.installed
-              ? "Not installed"
-              : "Unavailable";
-          return (
-            <MenuItem key={option.value} disabled>
-              <OptionIcon
-                aria-hidden="true"
-                className={cn("size-4 shrink-0 opacity-80", providerIconClassName(option.value))}
-              />
-              <span>{option.label}</span>
-              <span className="ms-auto text-[11px] text-muted-foreground/80 uppercase tracking-[0.08em]">
-                {unavailableLabel}
-              </span>
-            </MenuItem>
-          );
-        }
-
-        return (
-          <MenuSub key={option.value}>
-            <MenuSubTrigger>
-              <OptionIcon
-                aria-hidden="true"
-                className={cn("size-4 shrink-0", providerIconClassName(option.value))}
-              />
-              {option.label}
-            </MenuSubTrigger>
-            <MenuSubPopup className="[--available-height:min(24rem,70vh)]" sideOffset={4}>
-              <MenuGroup>
-                <MenuRadioGroup
-                  value={props.provider === option.value ? props.model : ""}
-                  onValueChange={(value) => props.onModelChange(option.value, value)}
-                >
-                  {props.modelOptionsByProvider[option.value].map((modelOption) => (
-                    <MenuRadioItem
-                      key={`${option.value}:${modelOption.slug}`}
-                      value={modelOption.slug}
-                      onClick={props.onCloseMenu}
-                    >
-                      {modelOption.name}
-                    </MenuRadioItem>
-                  ))}
-                </MenuRadioGroup>
-              </MenuGroup>
-            </MenuSubPopup>
-          </MenuSub>
-        );
-      })}
-    </>
+    <MenuSub>
+      <MenuSubTrigger>
+        {props.icon}
+        {props.label}
+      </MenuSubTrigger>
+      <MenuSubPopup className="[--available-height:min(24rem,70vh)]" sideOffset={4}>
+        <MenuGroup>
+          <MenuRadioGroup value={activeValue} onValueChange={props.onSelect}>
+            {props.items.map((item) => (
+              <MenuRadioItem key={item.workflowId} value={item.workflowId}>
+                {item.name}
+              </MenuRadioItem>
+            ))}
+          </MenuRadioGroup>
+        </MenuGroup>
+      </MenuSubPopup>
+    </MenuSub>
   );
 }

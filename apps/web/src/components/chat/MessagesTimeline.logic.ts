@@ -38,7 +38,7 @@ export type MessagesTimelineRow =
       kind: "working";
       id: string;
       createdAt: string | null;
-      participantLabels: ReadonlyArray<string>;
+      participantLabels: ReadonlyArray<{ label: string; role: string }>;
     };
 
 export function computeMessageDurationStart(
@@ -69,7 +69,7 @@ export function deriveMessagesTimelineRows(input: {
   completionDividerBeforeEntryId: string | null;
   isWorking: boolean;
   activeTurnStartedAt: string | null;
-  workingParticipantLabels?: ReadonlyArray<string>;
+  workingParticipantLabels?: ReadonlyArray<{ label: string; role: string }>;
 }): MessagesTimelineRow[] {
   const nextRows: MessagesTimelineRow[] = [];
   const durationStartByMessageId = computeMessageDurationStart(
