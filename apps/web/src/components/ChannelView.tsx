@@ -7,7 +7,7 @@ import {
   StopCircleIcon,
 } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
-import { PhaseRunId, type ThreadId } from "@forgetools/contracts";
+import { PhaseRunId, type ChannelMessage, type ThreadId } from "@forgetools/contracts";
 import { useNavigate } from "@tanstack/react-router";
 import { useProjectById, useThreadById, useThreadsByIds } from "../storeSelectors";
 import {
@@ -41,6 +41,8 @@ import { ScrollArea } from "./ui/scroll-area";
 import { SidebarTrigger } from "./ui/sidebar";
 import { Textarea } from "./ui/textarea";
 
+const EMPTY_MESSAGES: readonly ChannelMessage[] = [];
+
 export function ChannelView(props: { threadId: ThreadId }) {
   const navigate = useNavigate();
   const thread = useThreadById(props.threadId);
@@ -69,9 +71,10 @@ export function ChannelView(props: { threadId: ThreadId }) {
   const channel = channelQuery.data ?? null;
   const canIntervene = canInterveneInChannel(channel);
   const messagesQuery = useChannelMessages(channel?.id ?? null);
-  const storedMessages = useChannelStore(
-    (state) => (channel ? state.messagesByChannelId[channel.id] : undefined) ?? [],
-  );
+  const storedMessages =
+    useChannelStore(
+      (state) => (channel ? state.messagesByChannelId[channel.id] : undefined) ?? undefined,
+    ) ?? EMPTY_MESSAGES;
   const deliberationState = useChannelStore(
     (state) => (channel ? state.deliberationStateByChannelId[channel.id] : null) ?? null,
   );
