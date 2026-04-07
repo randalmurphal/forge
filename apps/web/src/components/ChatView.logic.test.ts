@@ -11,6 +11,7 @@ import {
   deriveComposerSendState,
   hasServerAcknowledgedLocalDispatch,
   reconcileMountedTerminalThreadIds,
+  waitForServerThreadMatch,
   waitForStartedServerThread,
 } from "./ChatView.logic";
 
@@ -205,6 +206,7 @@ describe("reconcileMountedTerminalThreadIds", () => {
 
 const makeThread = (input?: {
   id?: ThreadId;
+  childThreadIds?: ThreadId[];
   latestTurn?: {
     turnId: TurnId;
     state: "running" | "completed";
@@ -235,6 +237,7 @@ const makeThread = (input?: {
     : null,
   branch: null,
   worktreePath: null,
+  childThreadIds: input?.childThreadIds ?? [],
   turnDiffSummaries: [],
   activities: [],
 });
@@ -251,6 +254,35 @@ afterEach(() => {
 });
 
 describe("waitForStartedServerThread", () => {
+  it("waits for an arbitrary server thread predicate", async () => {
+    const threadId = ThreadId.makeUnsafe("thread-materialized");
+    useStore.setState((state) => ({
+      ...state,
+      threads: [makeThread({ id: threadId })],
+    }));
+
+    const promise = waitForServerThreadMatch(
+      threadId,
+      (thread) => (thread.childThreadIds?.length ?? 0) === 2,
+      500,
+    );
+
+    useStore.setState((state) => ({
+      ...state,
+      threads: [
+        makeThread({
+          id: threadId,
+          childThreadIds: [
+            ThreadId.makeUnsafe("thread-child-1"),
+            ThreadId.makeUnsafe("thread-child-2"),
+          ],
+        }),
+      ],
+    }));
+
+    await expect(promise).resolves.toBe(true);
+  });
+
   it("resolves immediately when the thread is already started", async () => {
     const threadId = ThreadId.makeUnsafe("thread-started");
     useStore.setState((state) => ({

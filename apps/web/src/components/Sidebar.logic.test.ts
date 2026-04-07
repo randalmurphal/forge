@@ -654,6 +654,36 @@ describe("getVisibleThreadsForProject", () => {
     );
     expect(result.hiddenThreads).toEqual([]);
   });
+
+  it("keeps pinned descendant threads visible when an expanded active subtree exceeds the preview", () => {
+    const threads = Array.from({ length: 8 }, (_, index) =>
+      makeThread({
+        id: ThreadId.makeUnsafe(`thread-${index + 1}`),
+        title: `Thread ${index + 1}`,
+      }),
+    );
+
+    const result = getVisibleThreadsForProject({
+      threads,
+      activeThreadId: ThreadId.makeUnsafe("thread-2"),
+      pinnedThreadIds: [ThreadId.makeUnsafe("thread-7"), ThreadId.makeUnsafe("thread-8")],
+      isThreadListExpanded: false,
+      previewLimit: 6,
+    });
+
+    expect(result.hasHiddenThreads).toBe(true);
+    expect(result.visibleThreads.map((thread) => thread.id)).toEqual([
+      ThreadId.makeUnsafe("thread-1"),
+      ThreadId.makeUnsafe("thread-2"),
+      ThreadId.makeUnsafe("thread-3"),
+      ThreadId.makeUnsafe("thread-4"),
+      ThreadId.makeUnsafe("thread-5"),
+      ThreadId.makeUnsafe("thread-6"),
+      ThreadId.makeUnsafe("thread-7"),
+      ThreadId.makeUnsafe("thread-8"),
+    ]);
+    expect(result.hiddenThreads).toEqual([]);
+  });
 });
 
 function makeProject(overrides: Partial<Project> = {}): Project {

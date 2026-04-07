@@ -130,6 +130,7 @@ import { useSettings } from "../hooks/useSettings";
 import { resolveAppModelSelection } from "../modelSelection";
 import { isTerminalFocused } from "../lib/terminalFocus";
 import {
+  clearPromotedDraftThread,
   type ComposerImageAttachment,
   type DraftThreadEnvMode,
   type PersistedComposerImageAttachment,
@@ -196,6 +197,7 @@ import {
   revokeBlobPreviewUrl,
   revokeUserMessagePreviewUrls,
   threadHasStarted,
+  waitForServerThreadMatch,
   waitForStartedServerThread,
 } from "./ChatView.logic";
 import { useLocalStorage } from "~/hooks/useLocalStorage";
@@ -606,6 +608,7 @@ export default function ChatView({ threadId }: ChatViewProps) {
   const serverThread = useThreadById(threadId);
   const setStoreThreadError = useStore((store) => store.setError);
   const setStoreThreadBranch = useStore((store) => store.setThreadBranch);
+  const syncServerReadModel = useStore((store) => store.syncServerReadModel);
   const markThreadVisited = useUiStateStore((store) => store.markThreadVisited);
   const activeThreadLastVisitedAt = useUiStateStore(
     (store) => store.threadLastVisitedAtById[threadId],
@@ -3099,9 +3102,12 @@ export default function ChatView({ threadId }: ChatViewProps) {
           DEFAULT_MODEL_BY_PROVIDER.codex,
         ...(selectedModelSelection.options ? { options: selectedModelSelection.options } : {}),
       };
+      const localDraftWorkflowId = isLocalDraftThread ? (activeThread.workflowId ?? null) : null;
+      const isPatternDraftThread =
+        isLocalDraftThread && isPatternWorkflowSelection(localDraftWorkflowId);
 
       if (isLocalDraftThread) {
-        const threadWorkflowId = activeThread.workflowId;
+        const threadWorkflowId = localDraftWorkflowId;
         const threadPatternId = threadWorkflowId
           ? (() => {
               const slug = normalizeWorkflowSlug(threadWorkflowId);
@@ -3191,6 +3197,22 @@ export default function ChatView({ threadId }: ChatViewProps) {
         createdAt: messageCreatedAt,
       });
       turnStartSucceeded = true;
+      if (isLocalDraftThread) {
+        const materialized = isPatternDraftThread
+          ? await waitForServerThreadMatch(
+              threadIdForSend,
+              (thread) => (thread.childThreadIds?.length ?? 0) > 0,
+              3_000,
+            )
+          : await waitForServerThreadMatch(threadIdForSend, () => true, 3_000);
+        if (!materialized) {
+          const snapshot = await api.orchestration.getSnapshot().catch(() => null);
+          if (snapshot) {
+            syncServerReadModel(snapshot);
+            clearPromotedDraftThread(threadIdForSend);
+          }
+        }
+      }
     })().catch(async (err: unknown) => {
       if (createdServerThreadForLocalDraft && !turnStartSucceeded) {
         await api.orchestration

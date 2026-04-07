@@ -199,14 +199,15 @@ export function threadHasStarted(thread: Thread | null | undefined): boolean {
   );
 }
 
-export async function waitForStartedServerThread(
+export async function waitForServerThreadMatch(
   threadId: ThreadId,
+  matches: (thread: Thread) => boolean,
   timeoutMs = 1_000,
 ): Promise<boolean> {
   const getThread = () => useStore.getState().threads.find((thread) => thread.id === threadId);
   const thread = getThread();
 
-  if (threadHasStarted(thread)) {
+  if (thread && matches(thread)) {
     return true;
   }
 
@@ -226,13 +227,15 @@ export async function waitForStartedServerThread(
     };
 
     const unsubscribe = useStore.subscribe((state) => {
-      if (!threadHasStarted(state.threads.find((thread) => thread.id === threadId))) {
+      const nextThread = state.threads.find((thread) => thread.id === threadId);
+      if (!nextThread || !matches(nextThread)) {
         return;
       }
       finish(true);
     });
 
-    if (threadHasStarted(getThread())) {
+    const currentThread = getThread();
+    if (currentThread && matches(currentThread)) {
       finish(true);
       return;
     }
@@ -241,6 +244,13 @@ export async function waitForStartedServerThread(
       finish(false);
     }, timeoutMs);
   });
+}
+
+export async function waitForStartedServerThread(
+  threadId: ThreadId,
+  timeoutMs = 1_000,
+): Promise<boolean> {
+  return await waitForServerThreadMatch(threadId, threadHasStarted, timeoutMs);
 }
 
 export interface LocalDispatchSnapshot {

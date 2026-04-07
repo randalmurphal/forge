@@ -189,6 +189,30 @@ export function useSidebarData(input: {
           !project.expanded && activeThreadId
             ? (flatTreeNodes.find((node) => node.thread.id === activeThreadId) ?? null)
             : null;
+        const pinnedActiveSubtreeThreadIds =
+          activeThreadId === undefined
+            ? []
+            : (() => {
+                const activeIndex = flatTreeNodes.findIndex(
+                  (node) => node.thread.id === activeThreadId,
+                );
+                if (activeIndex < 0) {
+                  return [];
+                }
+                const activeNode = flatTreeNodes[activeIndex];
+                if (!activeNode) {
+                  return [];
+                }
+                const pinnedThreadIds = [activeNode.thread.id];
+                for (let index = activeIndex + 1; index < flatTreeNodes.length; index += 1) {
+                  const node = flatTreeNodes[index];
+                  if (!node || node.depth <= activeNode.depth) {
+                    break;
+                  }
+                  pinnedThreadIds.push(node.thread.id);
+                }
+                return pinnedThreadIds;
+              })();
         const shouldShowThreadPanel = project.expanded || pinnedCollapsedThread !== null;
         const {
           hasHiddenThreads,
@@ -197,6 +221,7 @@ export function useSidebarData(input: {
         } = getVisibleThreadsForProject({
           threads: previewTreeNodes,
           activeThreadId,
+          pinnedThreadIds: pinnedActiveSubtreeThreadIds,
           isThreadListExpanded,
           previewLimit: THREAD_PREVIEW_LIMIT,
         });
