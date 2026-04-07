@@ -6,7 +6,15 @@ export interface OrchestrationRecoveryPhase {
 }
 
 export interface OrchestrationRecoveryState {
+  /** Last sequence actually applied to the store (used as replay cursor). */
   latestSequence: number;
+  /**
+   * Next sequence the classifier expects from the live stream.
+   * Advanced eagerly on "apply" so that consecutive events in a synchronous
+   * batch don't trigger false gap detection. Always >= latestSequence + 1
+   * once bootstrapped.
+   */
+  nextExpectedSequence: number;
   highestObservedSequence: number;
   bootstrapped: boolean;
   pendingReplay: boolean;
@@ -18,6 +26,7 @@ type SequencedEvent = Readonly<{ sequence: number }>;
 export function createOrchestrationRecoveryCoordinator() {
   let state: OrchestrationRecoveryState = {
     latestSequence: 0,
+    nextExpectedSequence: 0,
     highestObservedSequence: 0,
     bootstrapped: false,
     pendingReplay: false,
@@ -36,7 +45,7 @@ export function createOrchestrationRecoveryCoordinator() {
 
   const resolveReplayNeedAfterRecovery = () => {
     const pendingReplayBeforeReset = state.pendingReplay;
-    const observedAhead = state.highestObservedSequence > state.latestSequence;
+    const observedAhead = state.highestObservedSequence >= state.nextExpectedSequence;
     const shouldReplay = pendingReplayBeforeReset || observedAhead;
     state.pendingReplay = false;
     return {
@@ -53,17 +62,18 @@ export function createOrchestrationRecoveryCoordinator() {
 
     classifyDomainEvent(sequence: number): "ignore" | "defer" | "recover" | "apply" {
       observeSequence(sequence);
-      if (sequence <= state.latestSequence) {
+      if (sequence < state.nextExpectedSequence) {
         return "ignore";
       }
       if (!state.bootstrapped || state.inFlight) {
         state.pendingReplay = true;
         return "defer";
       }
-      if (sequence !== state.latestSequence + 1) {
+      if (sequence !== state.nextExpectedSequence) {
         state.pendingReplay = true;
         return "recover";
       }
+      state.nextExpectedSequence = sequence + 1;
       return "apply";
     },
 
@@ -77,6 +87,7 @@ export function createOrchestrationRecoveryCoordinator() {
 
       state.latestSequence = nextEvents.at(-1)?.sequence ?? state.latestSequence;
       state.highestObservedSequence = Math.max(state.highestObservedSequence, state.latestSequence);
+      state.nextExpectedSequence = Math.max(state.nextExpectedSequence, state.latestSequence + 1);
       return nextEvents;
     },
 
@@ -95,6 +106,7 @@ export function createOrchestrationRecoveryCoordinator() {
 
     completeSnapshotRecovery(snapshotSequence: number): boolean {
       state.latestSequence = Math.max(state.latestSequence, snapshotSequence);
+      state.nextExpectedSequence = Math.max(state.nextExpectedSequence, state.latestSequence + 1);
       state.highestObservedSequence = Math.max(state.highestObservedSequence, state.latestSequence);
       state.bootstrapped = true;
       state.inFlight = null;

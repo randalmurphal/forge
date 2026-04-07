@@ -26,7 +26,7 @@ import {
 } from "@forgetools/contracts";
 import { assert, it } from "@effect/vitest";
 import { assertFailure, assertInclude, assertTrue } from "@effect/vitest/utils";
-import { Effect, FileSystem, Layer, Option, Path, Stream } from "effect";
+import { Effect, FileSystem, Layer, Option, Path, PubSub, Stream } from "effect";
 import { HttpClient, HttpRouter, HttpServer } from "effect/unstable/http";
 import { RpcClient, RpcSerialization } from "effect/unstable/rpc";
 
@@ -261,6 +261,7 @@ const buildAppUnderTest = (options?: {
       Layer.mock(OrchestrationEngineService)({
         getReadModel: () => Effect.succeed(makeDefaultOrchestrationReadModel()),
         readEvents: () => Stream.empty,
+        streamEventsFromSequence: () => Stream.empty,
         dispatch: () => Effect.succeed({ sequence: 0 }),
         streamDomainEvents: Stream.empty,
         ...options?.layers?.orchestrationEngine,
@@ -1405,6 +1406,10 @@ it.layer(NodeServices.layer)("server router seam", (it) => {
                   ...makeDefaultOrchestrationReadModel(),
                   snapshotSequence: 1,
                 }),
+              streamEventsFromSequence: (fromSequenceExclusive) => {
+                replayCursor = fromSequenceExclusive;
+                return Stream.make(makeEvent(2), makeEvent(3), makeEvent(4));
+              },
               readEvents: (fromSequenceExclusive) => {
                 replayCursor = fromSequenceExclusive;
                 return Stream.make(makeEvent(2), makeEvent(3));
@@ -1430,6 +1435,104 @@ it.layer(NodeServices.layer)("server router seam", (it) => {
           [2, 3, 4],
         );
       }).pipe(Effect.provide(NodeHttpServer.layerTest)),
+  );
+
+  it.effect(
+    "routes websocket rpc subscribeOrchestrationDomainEvents without missing events published during replay startup",
+    () =>
+      Effect.gen(function* () {
+        const now = new Date().toISOString();
+        const threadId = ThreadId.makeUnsafe("thread-1");
+        const liveEvents = yield* PubSub.unbounded<OrchestrationEvent>();
+        const makeEvent = (sequence: number): OrchestrationEvent =>
+          ({
+            sequence,
+            eventId: `event-${sequence}`,
+            aggregateKind: "thread",
+            aggregateId: threadId,
+            occurredAt: now,
+            commandId: null,
+            causationEventId: null,
+            correlationId: null,
+            metadata: {},
+            type: "thread.reverted",
+            payload: {
+              threadId,
+              turnCount: sequence,
+            },
+          }) as OrchestrationEvent;
+
+        yield* buildAppUnderTest({
+          layers: {
+            orchestrationEngine: {
+              getReadModel: () =>
+                Effect.succeed({
+                  ...makeDefaultOrchestrationReadModel(),
+                  snapshotSequence: 1,
+                }),
+              streamEventsFromSequence: () => Stream.make(makeEvent(2), makeEvent(3), makeEvent(4)),
+              readEvents: () =>
+                Stream.unwrap(
+                  Effect.gen(function* () {
+                    yield* PubSub.publish(liveEvents, makeEvent(4));
+                    return Stream.make(makeEvent(2), makeEvent(3));
+                  }),
+                ),
+              streamDomainEvents: Stream.fromPubSub(liveEvents),
+            },
+          },
+        });
+
+        const wsUrl = yield* getWsServerUrl("/ws");
+        const events = yield* Effect.scoped(
+          withWsRpcClient(wsUrl, (client) =>
+            client[WS_METHODS.subscribeOrchestrationDomainEvents]({}).pipe(
+              Stream.take(3),
+              Stream.runCollect,
+            ),
+          ),
+        );
+
+        assert.deepEqual(
+          Array.from(events).map((event) => event.sequence),
+          [2, 3, 4],
+        );
+      }).pipe(Effect.provide(NodeHttpServer.layerTest)),
+  );
+
+  it.effect("routes websocket rpc subscribeOrchestrationDomainEvents from an explicit cursor", () =>
+    Effect.gen(function* () {
+      let replayCursor: number | null = null;
+
+      yield* buildAppUnderTest({
+        layers: {
+          orchestrationEngine: {
+            getReadModel: () =>
+              Effect.succeed({
+                ...makeDefaultOrchestrationReadModel(),
+                snapshotSequence: 99,
+              }),
+            streamEventsFromSequence: (fromSequenceExclusive) => {
+              replayCursor = fromSequenceExclusive;
+              return Stream.empty;
+            },
+            readEvents: () => Stream.empty,
+            streamDomainEvents: Stream.empty,
+          },
+        },
+      });
+
+      const wsUrl = yield* getWsServerUrl("/ws");
+      yield* Effect.scoped(
+        withWsRpcClient(wsUrl, (client) =>
+          client[WS_METHODS.subscribeOrchestrationDomainEvents]({ fromSequenceExclusive: 7 }).pipe(
+            Stream.runDrain,
+          ),
+        ),
+      );
+
+      assert.equal(replayCursor, 7);
+    }).pipe(Effect.provide(NodeHttpServer.layerTest)),
   );
 
   it.effect("routes websocket rpc subscribeWorkflowEvents with staged event mapping", () =>
@@ -1515,6 +1618,10 @@ it.layer(NodeServices.layer)("server router seam", (it) => {
                 ...makeDefaultOrchestrationReadModel(),
                 snapshotSequence: 1,
               }),
+            streamEventsFromSequence: (fromSequenceExclusive) => {
+              replayCursor = fromSequenceExclusive;
+              return Stream.make(phaseStartedEvent, gateOpenedEvent, gateResolvedEvent);
+            },
             readEvents: (fromSequenceExclusive) => {
               replayCursor = fromSequenceExclusive;
               return Stream.make(phaseStartedEvent, gateOpenedEvent);
@@ -1663,6 +1770,15 @@ it.layer(NodeServices.layer)("server router seam", (it) => {
                 ...makeDefaultOrchestrationReadModel(),
                 snapshotSequence: 1,
               }),
+            streamEventsFromSequence: (fromSequenceExclusive) => {
+              replayCursor = fromSequenceExclusive;
+              return Stream.make(
+                channelCreatedEvent,
+                messagePostedEvent,
+                conclusionEvent,
+                closedEvent,
+              );
+            },
             readEvents: (fromSequenceExclusive) => {
               replayCursor = fromSequenceExclusive;
               return Stream.make(channelCreatedEvent, messagePostedEvent);
@@ -2198,6 +2314,15 @@ it.layer(NodeServices.layer)("server router seam", (it) => {
                 ...makeDefaultOrchestrationReadModel(),
                 snapshotSequence: 1,
               }),
+            streamEventsFromSequence: () =>
+              Stream.make(
+                workflowPhaseEvent,
+                workflowQualityEvent,
+                workflowBootstrapEvent,
+                workflowGateEvent,
+                channelCreatedEvent,
+                channelMessageEvent,
+              ),
             readEvents: () =>
               Stream.make(
                 workflowPhaseEvent,

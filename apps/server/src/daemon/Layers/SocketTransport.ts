@@ -32,7 +32,7 @@ import {
   type WorkflowDefinition,
   WorkflowId,
 } from "@forgetools/contracts";
-import { Effect, Layer, Option, Ref, Schema, Stream } from "effect";
+import { Effect, Layer, Option, Schema, Stream } from "effect";
 
 import { ChannelService } from "../../channel/Services/ChannelService.ts";
 import {
@@ -848,61 +848,17 @@ const makeSocketTransport = Effect.gen(function* () {
       : requireGateRequest(input.snapshot, input.threadId, input.phaseRunId);
 
   const orderedEventStream = (afterSequence: number) =>
-    Effect.gen(function* () {
-      type SequenceState = {
-        readonly nextSequence: number;
-        readonly pendingBySequence: Map<number, OrchestrationEvent>;
-      };
-
-      const state = yield* Ref.make<SequenceState>({
-        nextSequence: afterSequence + 1,
-        pendingBySequence: new Map<number, OrchestrationEvent>(),
-      });
-
-      return Stream.merge(
-        orchestrationEngine.readEvents(afterSequence).pipe(
-          Stream.mapError(
-            (cause) =>
-              new OrchestrationGetSnapshotError({
-                message: "Failed to subscribe to orchestration events.",
-                cause: cause instanceof Error ? cause : new Error(String(cause)),
-              }),
-          ),
+    Effect.succeed(
+      orchestrationEngine.streamEventsFromSequence(afterSequence).pipe(
+        Stream.mapError(
+          (cause) =>
+            new OrchestrationGetSnapshotError({
+              message: "Failed to subscribe to orchestration events.",
+              cause: cause instanceof Error ? cause : new Error(String(cause)),
+            }),
         ),
-        orchestrationEngine.streamDomainEvents.pipe(
-          Stream.filter((event) => event.sequence > afterSequence),
-        ),
-      ).pipe(
-        Stream.mapEffect((event) =>
-          Ref.modify(
-            state,
-            ({ nextSequence, pendingBySequence }): [Array<OrchestrationEvent>, SequenceState] => {
-              if (event.sequence < nextSequence || pendingBySequence.has(event.sequence)) {
-                return [[], { nextSequence, pendingBySequence }];
-              }
-
-              const updatedPending = new Map(pendingBySequence);
-              updatedPending.set(event.sequence, event);
-
-              const emit: Array<OrchestrationEvent> = [];
-              let expected = nextSequence;
-              for (;;) {
-                const expectedEvent = updatedPending.get(expected);
-                if (!expectedEvent) {
-                  break;
-                }
-                emit.push(expectedEvent);
-                updatedPending.delete(expected);
-                expected += 1;
-              }
-
-              return [emit, { nextSequence: expected, pendingBySequence: updatedPending }];
-            },
-          ),
-        ),
-        Stream.flatMap((events) => Stream.fromIterable(events)),
-      );
-    });
+      ),
+    );
 
   const resolveProjectContext = (input: {
     readonly projectId: ProjectId | undefined;

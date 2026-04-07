@@ -1,4 +1,9 @@
-import { FORGE_DAEMON_LIFECYCLE_PROTOCOL_VERSION, WS_METHODS } from "@forgetools/contracts";
+import {
+  EventId,
+  FORGE_DAEMON_LIFECYCLE_PROTOCOL_VERSION,
+  ThreadId,
+  WS_METHODS,
+} from "@forgetools/contracts";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { WsTransport } from "./wsTransport";
@@ -243,6 +248,61 @@ describe("WsTransport", () => {
 
     await waitFor(() => {
       expect(listener).toHaveBeenCalledWith(welcomeEvent);
+    });
+
+    unsubscribe();
+    await transport.dispose();
+  });
+
+  it("delivers forge orchestration events that are outside the narrow thread/project subset", async () => {
+    const transport = new WsTransport("ws://localhost:3020");
+    const listener = vi.fn();
+
+    const unsubscribe = transport.subscribe(
+      (client) => client[WS_METHODS.subscribeOrchestrationDomainEvents]({}),
+      listener,
+    );
+    await waitFor(() => {
+      expect(sockets).toHaveLength(1);
+    });
+
+    const socket = getSocket();
+    socket.open();
+
+    await waitFor(() => {
+      expect(socket.sent).toHaveLength(1);
+    });
+
+    const requestMessage = JSON.parse(socket.sent[0] ?? "{}") as { id: string; tag: string };
+    expect(requestMessage.tag).toBe(WS_METHODS.subscribeOrchestrationDomainEvents);
+
+    const bootstrapStartedEvent = {
+      sequence: 2,
+      eventId: EventId.makeUnsafe("event-bootstrap-started"),
+      aggregateKind: "thread",
+      aggregateId: ThreadId.makeUnsafe("thread-1"),
+      occurredAt: "2026-04-07T00:00:00.000Z",
+      commandId: null,
+      causationEventId: null,
+      correlationId: null,
+      metadata: {},
+      type: "thread.bootstrap-started",
+      payload: {
+        threadId: ThreadId.makeUnsafe("thread-1"),
+        startedAt: "2026-04-07T00:00:00.000Z",
+      },
+    } as const;
+
+    socket.serverMessage(
+      JSON.stringify({
+        _tag: "Chunk",
+        requestId: requestMessage.id,
+        values: [bootstrapStartedEvent],
+      }),
+    );
+
+    await waitFor(() => {
+      expect(listener).toHaveBeenCalledWith(bootstrapStartedEvent);
     });
 
     unsubscribe();

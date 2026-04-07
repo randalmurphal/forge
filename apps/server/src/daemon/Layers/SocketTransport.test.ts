@@ -263,6 +263,7 @@ const makeTestLayer = (options?: {
         readEvents: () => {
           throw new Error("not used");
         },
+        streamEventsFromSequence: () => Stream.empty,
         dispatch: () => Effect.succeed({ sequence: 42 }),
         streamDomainEvents: undefined as never,
         ...options?.orchestrationEngine,
@@ -1440,6 +1441,7 @@ it("events.subscribe replays ordered orchestration events", async () => {
         Effect.provide(
           makeTestLayer({
             orchestrationEngine: {
+              streamEventsFromSequence: () => Stream.fromIterable([makeEvent(2), makeEvent(3)]),
               readEvents: () => Stream.fromIterable([makeEvent(2), makeEvent(3)]),
               streamDomainEvents: Stream.empty,
             },
@@ -1490,6 +1492,7 @@ it("events.subscribe accepts documented cursor aliases", async () => {
         Effect.provide(
           makeTestLayer({
             orchestrationEngine: {
+              streamEventsFromSequence: () => Stream.fromIterable([makeEvent(5)]),
               readEvents: () => Stream.fromIterable([makeEvent(5)]),
               streamDomainEvents: Stream.empty,
             },

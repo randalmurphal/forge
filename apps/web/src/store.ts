@@ -1,9 +1,25 @@
 import {
-  type OrchestrationEvent,
+  type ForgeEvent,
   type OrchestrationMessage,
   type OrchestrationProposedPlan,
   type ProjectId,
   type ProviderKind,
+  SessionArchivedPayload,
+  SessionCancelledPayload,
+  SessionCompletedPayload,
+  SessionFailedPayload,
+  SessionMessageSentPayload,
+  SessionStatusChangedPayload,
+  SessionTurnCompletedPayload,
+  SessionTurnRestartedPayload,
+  SessionTurnStartedPayload,
+  ThreadArchivedPayload,
+  ThreadBootstrapCompletedPayload,
+  ThreadBootstrapFailedPayload,
+  ThreadBootstrapSkippedPayload,
+  ThreadBootstrapStartedPayload,
+  ThreadCreatedPayload,
+  ThreadMessageSentPayload,
   ThreadId,
   type OrchestrationReadModel,
   type OrchestrationSession,
@@ -11,6 +27,7 @@ import {
   type OrchestrationThread,
   type OrchestrationSessionStatus,
 } from "@forgetools/contracts";
+import { Schema } from "effect";
 import { resolveModelSlugForProvider } from "@forgetools/shared/model";
 import { create } from "zustand";
 import {
@@ -44,6 +61,22 @@ const MAX_THREAD_PROPOSED_PLANS = 200;
 const MAX_THREAD_ACTIVITIES = 500;
 const EMPTY_THREAD_IDS: ThreadId[] = [];
 const EMPTY_THREADS: Thread[] = [];
+const isThreadCreatedPayload = Schema.is(ThreadCreatedPayload);
+const isThreadArchivedPayload = Schema.is(ThreadArchivedPayload);
+const isSessionArchivedPayload = Schema.is(SessionArchivedPayload);
+const isThreadMessageSentPayload = Schema.is(ThreadMessageSentPayload);
+const isSessionMessageSentPayload = Schema.is(SessionMessageSentPayload);
+const isSessionTurnStartedPayload = Schema.is(SessionTurnStartedPayload);
+const isSessionTurnCompletedPayload = Schema.is(SessionTurnCompletedPayload);
+const isSessionTurnRestartedPayload = Schema.is(SessionTurnRestartedPayload);
+const isSessionStatusChangedPayload = Schema.is(SessionStatusChangedPayload);
+const isSessionCompletedPayload = Schema.is(SessionCompletedPayload);
+const isSessionFailedPayload = Schema.is(SessionFailedPayload);
+const isSessionCancelledPayload = Schema.is(SessionCancelledPayload);
+const isThreadBootstrapStartedPayload = Schema.is(ThreadBootstrapStartedPayload);
+const isThreadBootstrapCompletedPayload = Schema.is(ThreadBootstrapCompletedPayload);
+const isThreadBootstrapFailedPayload = Schema.is(ThreadBootstrapFailedPayload);
+const isThreadBootstrapSkippedPayload = Schema.is(ThreadBootstrapSkippedPayload);
 
 // ── Pure helpers ──────────────────────────────────────────────────────
 
@@ -106,8 +139,10 @@ function mapSession(session: OrchestrationSession): Thread["session"] {
   };
 }
 
-function mapMessage(message: OrchestrationMessage): ChatMessage {
-  const attachments = message.attachments?.map((attachment) => ({
+function mapMessageAttachments(
+  attachments: OrchestrationMessage["attachments"] | undefined,
+): ChatMessage["attachments"] | undefined {
+  return attachments?.map((attachment) => ({
     type: "image" as const,
     id: attachment.id,
     name: attachment.name,
@@ -115,6 +150,10 @@ function mapMessage(message: OrchestrationMessage): ChatMessage {
     sizeBytes: attachment.sizeBytes,
     previewUrl: toAttachmentPreviewUrl(attachmentPreviewRoutePath(attachment.id)),
   }));
+}
+
+function mapMessage(message: OrchestrationMessage): ChatMessage {
+  const attachments = mapMessageAttachments(message.attachments);
 
   return {
     id: message.id,
@@ -391,6 +430,25 @@ function buildLatestTurn(params: {
   };
 }
 
+function patchThreadSession(
+  thread: Thread,
+  patch: Partial<NonNullable<Thread["session"]>>,
+  nextError?: string | null,
+): Thread {
+  if (thread.session === null) {
+    return thread;
+  }
+
+  return {
+    ...thread,
+    session: {
+      ...thread.session,
+      ...patch,
+    },
+    ...(nextError !== undefined ? { error: nextError } : {}),
+  };
+}
+
 function rebindTurnDiffSummariesForAssistantMessage(
   turnDiffSummaries: ReadonlyArray<Thread["turnDiffSummaries"][number]>,
   turnId: Thread["turnDiffSummaries"][number]["turnId"],
@@ -525,6 +583,28 @@ function toLegacyProvider(providerName: string | null): ProviderKind {
   return "codex";
 }
 
+function toOrchestrationSessionStatusFromForgeStatus(
+  status: Extract<ForgeEvent, { type: "thread.status-changed" }>["payload"]["status"],
+): OrchestrationSessionStatus {
+  switch (status) {
+    case "created":
+      return "starting";
+    case "running":
+      return "running";
+    case "needs-attention":
+    case "paused":
+      return "interrupted";
+    case "completed":
+      return "idle";
+    case "failed":
+      return "error";
+    case "cancelled":
+      return "stopped";
+  }
+
+  return "starting";
+}
+
 function resolveWsHttpOrigin(): string {
   if (typeof window === "undefined") return "";
   const bridgeWsUrl = window.desktopBridge?.getWsUrl?.();
@@ -616,7 +696,7 @@ export function syncServerReadModel(state: AppState, readModel: OrchestrationRea
   };
 }
 
-export function applyOrchestrationEvent(state: AppState, event: OrchestrationEvent): AppState {
+export function applyOrchestrationEvent(state: AppState, event: ForgeEvent): AppState {
   switch (event.type) {
     case "project.created": {
       const existingIndex = state.projects.findIndex(
@@ -668,6 +748,9 @@ export function applyOrchestrationEvent(state: AppState, event: OrchestrationEve
     }
 
     case "thread.created": {
+      if (!isThreadCreatedPayload(event.payload)) {
+        return state;
+      }
       const existing = state.threads.find((thread) => thread.id === event.payload.threadId);
       const stagedThreadPayload = event.payload as Partial<
         Pick<
@@ -790,10 +873,15 @@ export function applyOrchestrationEvent(state: AppState, event: OrchestrationEve
     }
 
     case "thread.archived": {
+      if (!isThreadArchivedPayload(event.payload) && !isSessionArchivedPayload(event.payload)) {
+        return state;
+      }
       return updateThreadState(state, event.payload.threadId, (thread) => ({
         ...thread,
         archivedAt: event.payload.archivedAt,
-        updatedAt: event.payload.updatedAt,
+        updatedAt: isThreadArchivedPayload(event.payload)
+          ? event.payload.updatedAt
+          : event.payload.archivedAt,
       }));
     }
 
@@ -875,22 +963,35 @@ export function applyOrchestrationEvent(state: AppState, event: OrchestrationEve
     }
 
     case "thread.message-sent": {
+      if (
+        !isThreadMessageSentPayload(event.payload) &&
+        !isSessionMessageSentPayload(event.payload)
+      ) {
+        return state;
+      }
       return updateThreadState(state, event.payload.threadId, (thread) => {
-        const message = mapMessage({
+        const messageUpdatedAt = isThreadMessageSentPayload(event.payload)
+          ? event.payload.updatedAt
+          : event.payload.createdAt;
+        const attachments =
+          isThreadMessageSentPayload(event.payload) && event.payload.attachments !== undefined
+            ? mapMessageAttachments(event.payload.attachments)
+            : undefined;
+        const message: ChatMessage = {
           id: event.payload.messageId,
-          role: event.payload.role,
-          text: event.payload.text,
-          ...(event.payload.attachments !== undefined
-            ? { attachments: event.payload.attachments }
-            : {}),
-          ...(event.payload.attribution !== undefined
+          role: event.payload.role as ChatMessage["role"],
+          text: isThreadMessageSentPayload(event.payload)
+            ? event.payload.text
+            : event.payload.content,
+          turnId: event.payload.turnId,
+          createdAt: event.payload.createdAt,
+          streaming: event.payload.streaming,
+          ...(event.payload.streaming ? {} : { completedAt: messageUpdatedAt }),
+          ...(attachments !== undefined ? { attachments } : {}),
+          ...(isThreadMessageSentPayload(event.payload) && event.payload.attribution !== undefined
             ? { attribution: event.payload.attribution }
             : {}),
-          turnId: event.payload.turnId,
-          streaming: event.payload.streaming,
-          createdAt: event.payload.createdAt,
-          updatedAt: event.payload.updatedAt,
-        });
+        };
         const existingMessage = thread.messages.find((entry) => entry.id === message.id);
         const messages = existingMessage
           ? thread.messages.map((entry) =>
@@ -957,7 +1058,7 @@ export function applyOrchestrationEvent(state: AppState, event: OrchestrationEve
                   ? thread.latestTurn?.turnId === event.payload.turnId
                     ? (thread.latestTurn.completedAt ?? null)
                     : null
-                  : event.payload.updatedAt,
+                  : messageUpdatedAt,
                 assistantMessageId: event.payload.messageId,
               })
             : thread.latestTurn;
@@ -969,6 +1070,155 @@ export function applyOrchestrationEvent(state: AppState, event: OrchestrationEve
           updatedAt: event.occurredAt,
         };
       });
+    }
+
+    case "thread.turn-started": {
+      if (!isSessionTurnStartedPayload(event.payload)) {
+        return state;
+      }
+      return updateThreadState(state, event.payload.threadId, (thread) => ({
+        ...patchThreadSession(thread, {
+          status: "running",
+          orchestrationStatus: "running",
+          activeTurnId: event.payload.turnId,
+          updatedAt: event.payload.startedAt,
+        }),
+        latestTurn: buildLatestTurn({
+          previous: thread.latestTurn,
+          turnId: event.payload.turnId,
+          state: "running",
+          requestedAt:
+            thread.latestTurn?.turnId === event.payload.turnId
+              ? thread.latestTurn.requestedAt
+              : event.payload.startedAt,
+          startedAt: event.payload.startedAt,
+          completedAt: null,
+          assistantMessageId:
+            thread.latestTurn?.turnId === event.payload.turnId
+              ? thread.latestTurn.assistantMessageId
+              : null,
+          sourceProposedPlan: thread.pendingSourceProposedPlan,
+        }),
+        updatedAt: event.payload.startedAt,
+      }));
+    }
+
+    case "thread.turn-completed": {
+      if (!isSessionTurnCompletedPayload(event.payload)) {
+        return state;
+      }
+      return updateThreadState(state, event.payload.threadId, (thread) => ({
+        ...patchThreadSession(thread, {
+          status: "ready",
+          orchestrationStatus: "ready",
+          activeTurnId: undefined,
+          updatedAt: event.payload.completedAt,
+        }),
+        latestTurn:
+          thread.latestTurn === null || thread.latestTurn.turnId === event.payload.turnId
+            ? buildLatestTurn({
+                previous: thread.latestTurn,
+                turnId: event.payload.turnId,
+                state: "completed",
+                requestedAt: thread.latestTurn?.requestedAt ?? event.payload.completedAt,
+                startedAt: thread.latestTurn?.startedAt ?? event.payload.completedAt,
+                completedAt: event.payload.completedAt,
+                assistantMessageId: thread.latestTurn?.assistantMessageId ?? null,
+                sourceProposedPlan: thread.pendingSourceProposedPlan,
+              })
+            : thread.latestTurn,
+        updatedAt: event.payload.completedAt,
+      }));
+    }
+
+    case "thread.turn-restarted": {
+      if (!isSessionTurnRestartedPayload(event.payload)) {
+        return state;
+      }
+      return updateThreadState(state, event.payload.threadId, (thread) => ({
+        ...patchThreadSession(thread, {
+          status: "ready",
+          orchestrationStatus: "interrupted",
+          activeTurnId: undefined,
+          updatedAt: event.payload.restartedAt,
+        }),
+        latestTurn:
+          thread.latestTurn === null
+            ? null
+            : {
+                ...thread.latestTurn,
+                state: "interrupted",
+                startedAt: thread.latestTurn.startedAt ?? event.payload.restartedAt,
+                completedAt: event.payload.restartedAt,
+              },
+        updatedAt: event.payload.restartedAt,
+      }));
+    }
+
+    case "thread.status-changed": {
+      if (!isSessionStatusChangedPayload(event.payload)) {
+        return state;
+      }
+      const orchestrationStatus = toOrchestrationSessionStatusFromForgeStatus(event.payload.status);
+      return updateThreadState(state, event.payload.threadId, (thread) =>
+        patchThreadSession(thread, {
+          status: toLegacySessionStatus(orchestrationStatus),
+          orchestrationStatus,
+          activeTurnId:
+            orchestrationStatus === "running" ? thread.session?.activeTurnId : undefined,
+          updatedAt: event.payload.updatedAt,
+        }),
+      );
+    }
+
+    case "thread.completed": {
+      if (!isSessionCompletedPayload(event.payload)) {
+        return state;
+      }
+      return updateThreadState(state, event.payload.threadId, (thread) => ({
+        ...patchThreadSession(thread, {
+          status: "closed",
+          orchestrationStatus: "idle",
+          activeTurnId: undefined,
+          updatedAt: event.payload.completedAt,
+        }),
+        updatedAt: event.payload.completedAt,
+      }));
+    }
+
+    case "thread.failed": {
+      if (!isSessionFailedPayload(event.payload)) {
+        return state;
+      }
+      return updateThreadState(state, event.payload.threadId, (thread) => ({
+        ...patchThreadSession(
+          thread,
+          {
+            status: "error",
+            orchestrationStatus: "error",
+            activeTurnId: undefined,
+            updatedAt: event.payload.failedAt,
+            lastError: event.payload.error,
+          },
+          event.payload.error,
+        ),
+        updatedAt: event.payload.failedAt,
+      }));
+    }
+
+    case "thread.cancelled": {
+      if (!isSessionCancelledPayload(event.payload)) {
+        return state;
+      }
+      return updateThreadState(state, event.payload.threadId, (thread) => ({
+        ...patchThreadSession(thread, {
+          status: "closed",
+          orchestrationStatus: "stopped",
+          activeTurnId: undefined,
+          updatedAt: event.payload.cancelledAt,
+        }),
+        updatedAt: event.payload.cancelledAt,
+      }));
     }
 
     case "thread.session-set": {
@@ -1157,6 +1407,46 @@ export function applyOrchestrationEvent(state: AppState, event: OrchestrationEve
       });
     }
 
+    case "thread.bootstrap-started": {
+      if (!isThreadBootstrapStartedPayload(event.payload)) {
+        return state;
+      }
+      return updateThreadState(state, event.payload.threadId, (thread) => ({
+        ...thread,
+        updatedAt: event.occurredAt,
+      }));
+    }
+
+    case "thread.bootstrap-completed": {
+      if (!isThreadBootstrapCompletedPayload(event.payload)) {
+        return state;
+      }
+      return updateThreadState(state, event.payload.threadId, (thread) => ({
+        ...thread,
+        updatedAt: event.occurredAt,
+      }));
+    }
+
+    case "thread.bootstrap-failed": {
+      if (!isThreadBootstrapFailedPayload(event.payload)) {
+        return state;
+      }
+      return updateThreadState(state, event.payload.threadId, (thread) => ({
+        ...thread,
+        updatedAt: event.occurredAt,
+      }));
+    }
+
+    case "thread.bootstrap-skipped": {
+      if (!isThreadBootstrapSkippedPayload(event.payload)) {
+        return state;
+      }
+      return updateThreadState(state, event.payload.threadId, (thread) => ({
+        ...thread,
+        updatedAt: event.occurredAt,
+      }));
+    }
+
     case "thread.approval-response-requested":
     case "thread.user-input-response-requested":
       return state;
@@ -1167,7 +1457,7 @@ export function applyOrchestrationEvent(state: AppState, event: OrchestrationEve
 
 export function applyOrchestrationEvents(
   state: AppState,
-  events: ReadonlyArray<OrchestrationEvent>,
+  events: ReadonlyArray<ForgeEvent>,
 ): AppState {
   if (events.length === 0) {
     return state;
@@ -1240,8 +1530,8 @@ export function setThreadBranch(
 
 interface AppStore extends AppState {
   syncServerReadModel: (readModel: OrchestrationReadModel) => void;
-  applyOrchestrationEvent: (event: OrchestrationEvent) => void;
-  applyOrchestrationEvents: (events: ReadonlyArray<OrchestrationEvent>) => void;
+  applyOrchestrationEvent: (event: ForgeEvent) => void;
+  applyOrchestrationEvents: (events: ReadonlyArray<ForgeEvent>) => void;
   setError: (threadId: ThreadId, error: string | null) => void;
   setThreadBranch: (threadId: ThreadId, branch: string | null, worktreePath: string | null) => void;
 }

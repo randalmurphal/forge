@@ -2440,7 +2440,7 @@ export const OrchestrationReplayEventsInput = Schema.Struct({
 });
 export type OrchestrationReplayEventsInput = typeof OrchestrationReplayEventsInput.Type;
 
-const OrchestrationReplayEventsResult = Schema.Array(OrchestrationEvent);
+const OrchestrationReplayEventsResult = Schema.Array(Schema.suspend(() => ForgeEvent));
 export type OrchestrationReplayEventsResult = typeof OrchestrationReplayEventsResult.Type;
 
 export const OrchestrationRpcSchemas = {

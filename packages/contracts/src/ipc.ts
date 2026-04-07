@@ -40,11 +40,11 @@ import type {
 import type { ServerUpsertKeybindingInput } from "./server";
 import type {
   ClientOrchestrationCommand,
+  ForgeEvent,
   OrchestrationGetFullThreadDiffInput,
   OrchestrationGetFullThreadDiffResult,
   OrchestrationGetTurnDiffInput,
   OrchestrationGetTurnDiffResult,
-  OrchestrationEvent,
   OrchestrationReadModel,
 } from "./orchestration";
 import { EditorId } from "./editor";
@@ -179,7 +179,7 @@ export interface NativeApi {
     getFullThreadDiff: (
       input: OrchestrationGetFullThreadDiffInput,
     ) => Promise<OrchestrationGetFullThreadDiffResult>;
-    replayEvents: (fromSequenceExclusive: number) => Promise<OrchestrationEvent[]>;
-    onDomainEvent: (callback: (event: OrchestrationEvent) => void) => () => void;
+    replayEvents: (fromSequenceExclusive: number) => Promise<ForgeEvent[]>;
+    onDomainEvent: (callback: (event: ForgeEvent) => void) => () => void;
   };
 }

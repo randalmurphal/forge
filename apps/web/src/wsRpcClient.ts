@@ -244,11 +244,19 @@ export function createWsRpcClient(transport = new WsTransport()): WsRpcClient {
         transport
           .request((client) => client[ORCHESTRATION_WS_METHODS.replayEvents](input))
           .then((events) => [...events]),
-      onDomainEvent: (listener) =>
-        transport.subscribe(
-          (client) => client[WS_METHODS.subscribeOrchestrationDomainEvents]({}),
-          listener,
-        ),
+      onDomainEvent: (listener) => {
+        let fromSequenceExclusive: number | undefined;
+        return transport.subscribe(
+          (client) =>
+            client[WS_METHODS.subscribeOrchestrationDomainEvents](
+              fromSequenceExclusive === undefined ? {} : { fromSequenceExclusive },
+            ),
+          (event) => {
+            fromSequenceExclusive = Math.max(fromSequenceExclusive ?? 0, event.sequence);
+            listener(event);
+          },
+        );
+      },
     },
     gate: {
       approve: (input) =>

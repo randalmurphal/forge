@@ -34,6 +34,7 @@ import {
 import { toPersistenceSqlError } from "../../persistence/Errors.ts";
 import { OrchestrationEventStore } from "../../persistence/Services/OrchestrationEventStore.ts";
 import { OrchestrationCommandReceiptRepository } from "../../persistence/Services/OrchestrationCommandReceipts.ts";
+import { orderedReplayAndLiveStream } from "../orderedReplayAndLiveStream.ts";
 import {
   OrchestrationCommandInvariantError,
   OrchestrationCommandPreviouslyRejectedError,
@@ -306,6 +307,20 @@ const makeOrchestrationEngine = Effect.gen(function* () {
       OrchestrationEngineShape["readEvents"]
     >;
 
+  const streamEventsFromSequence: OrchestrationEngineShape["streamEventsFromSequence"] = (
+    fromSequenceExclusive,
+  ) =>
+    Stream.unwrap(
+      Effect.gen(function* () {
+        const liveSubscription = yield* PubSub.subscribe(eventPubSub);
+        return orderedReplayAndLiveStream({
+          afterSequence: fromSequenceExclusive,
+          replayStream: readEvents(fromSequenceExclusive),
+          liveSubscription,
+        });
+      }),
+    ) as ReturnType<OrchestrationEngineShape["streamEventsFromSequence"]>;
+
   const dispatch: OrchestrationEngineShape["dispatch"] = (command) =>
     Effect.gen(function* () {
       const result = yield* Deferred.make<{ sequence: number }, OrchestrationDispatchError>();
@@ -316,6 +331,7 @@ const makeOrchestrationEngine = Effect.gen(function* () {
   return {
     getReadModel,
     readEvents,
+    streamEventsFromSequence,
     dispatch,
     // Each access creates a fresh PubSub subscription so that multiple
     // consumers (wsServer, ProviderRuntimeIngestion, CheckpointReactor, etc.)

@@ -45,7 +45,7 @@ import {
   ChannelMessageEvent,
   ClientOrchestrationCommand,
   DispatchResult,
-  OrchestrationEvent,
+  ForgeEvent,
   OrchestrationGetSnapshotError,
   ORCHESTRATION_WS_METHODS,
   OrchestrationDispatchCommandError,
@@ -738,8 +738,10 @@ export const WsForgeWorkflowUpdateRpc = Rpc.make(WS_METHODS.workflowUpdate, {
 export const WsSubscribeOrchestrationDomainEventsRpc = Rpc.make(
   WS_METHODS.subscribeOrchestrationDomainEvents,
   {
-    payload: Schema.Struct({}),
-    success: OrchestrationEvent,
+    payload: Schema.Struct({
+      fromSequenceExclusive: Schema.optional(NonNegativeInt),
+    }),
+    success: ForgeEvent,
     stream: true,
   },
 );

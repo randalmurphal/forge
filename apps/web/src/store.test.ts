@@ -2,6 +2,7 @@ import {
   CheckpointRef,
   DEFAULT_MODEL_BY_PROVIDER,
   EventId,
+  type ForgeEvent,
   MessageId,
   ProjectId,
   ThreadId,
@@ -102,6 +103,33 @@ function makeEvent<T extends OrchestrationEvent["type"]>(
     payload,
     ...overrides,
   } as Extract<OrchestrationEvent, { type: T }>;
+}
+
+function makeForgeEvent<T extends ForgeEvent["type"]>(
+  type: T,
+  payload: Extract<ForgeEvent, { type: T }>["payload"],
+  overrides: Partial<Extract<ForgeEvent, { type: T }>> = {},
+): Extract<ForgeEvent, { type: T }> {
+  const sequence = overrides.sequence ?? 1;
+  return {
+    sequence,
+    eventId: EventId.makeUnsafe(`forge-event-${sequence}`),
+    aggregateKind: "thread",
+    aggregateId:
+      "threadId" in payload
+        ? payload.threadId
+        : "projectId" in payload
+          ? payload.projectId
+          : ProjectId.makeUnsafe("project-1"),
+    occurredAt: "2026-02-27T00:00:00.000Z",
+    commandId: null,
+    causationEventId: null,
+    correlationId: null,
+    metadata: {},
+    type,
+    payload,
+    ...overrides,
+  } as Extract<ForgeEvent, { type: T }>;
 }
 
 function makeReadModelThread(overrides: Partial<OrchestrationReadModel["threads"][number]>) {
@@ -349,6 +377,139 @@ describe("incremental orchestration updates", () => {
     );
 
     expect(next.bootstrapComplete).toBe(false);
+  });
+
+  it("applies session-style thread.message-sent events", () => {
+    const threadId = ThreadId.makeUnsafe("thread-1");
+    const turnId = TurnId.makeUnsafe("turn-1");
+    const initialState = makeState(
+      makeThread({
+        id: threadId,
+        session: {
+          provider: "codex",
+          status: "running",
+          orchestrationStatus: "running",
+          activeTurnId: turnId,
+          createdAt: "2026-02-27T00:00:00.000Z",
+          updatedAt: "2026-02-27T00:00:00.000Z",
+        },
+        latestTurn: {
+          turnId,
+          state: "running",
+          requestedAt: "2026-02-27T00:00:00.000Z",
+          startedAt: "2026-02-27T00:00:00.000Z",
+          completedAt: null,
+          assistantMessageId: null,
+        },
+      }),
+    );
+
+    const next = applyOrchestrationEvent(
+      initialState,
+      makeForgeEvent("thread.message-sent", {
+        threadId,
+        messageId: MessageId.makeUnsafe("message-1"),
+        role: "assistant",
+        content: "Done.",
+        turnId,
+        streaming: false,
+        createdAt: "2026-02-27T00:00:03.000Z",
+      }),
+    );
+
+    expect(next.threads[0]?.messages.at(-1)?.text).toBe("Done.");
+    expect(next.threads[0]?.latestTurn).toMatchObject({
+      turnId,
+      state: "completed",
+      assistantMessageId: MessageId.makeUnsafe("message-1"),
+      completedAt: "2026-02-27T00:00:03.000Z",
+    });
+  });
+
+  it("applies forge turn lifecycle events to session state", () => {
+    const threadId = ThreadId.makeUnsafe("thread-1");
+    const turnId = TurnId.makeUnsafe("turn-1");
+    const initialState = makeState(
+      makeThread({
+        id: threadId,
+        session: {
+          provider: "codex",
+          status: "ready",
+          orchestrationStatus: "ready",
+          activeTurnId: undefined,
+          createdAt: "2026-02-27T00:00:00.000Z",
+          updatedAt: "2026-02-27T00:00:00.000Z",
+        },
+      }),
+    );
+
+    const started = applyOrchestrationEvent(
+      initialState,
+      makeForgeEvent("thread.turn-started", {
+        threadId,
+        turnId,
+        startedAt: "2026-02-27T00:00:01.000Z",
+      }),
+    );
+
+    expect(started.threads[0]?.session).toMatchObject({
+      status: "running",
+      orchestrationStatus: "running",
+      activeTurnId: turnId,
+    });
+
+    const completed = applyOrchestrationEvent(
+      started,
+      makeForgeEvent("thread.turn-completed", {
+        threadId,
+        turnId,
+        completedAt: "2026-02-27T00:00:02.000Z",
+      }),
+    );
+
+    expect(completed.threads[0]?.session).toMatchObject({
+      status: "ready",
+      orchestrationStatus: "ready",
+    });
+    expect(completed.threads[0]?.latestTurn).toMatchObject({
+      turnId,
+      state: "completed",
+      completedAt: "2026-02-27T00:00:02.000Z",
+    });
+  });
+
+  it("maps forge session status changes onto the UI session model", () => {
+    const threadId = ThreadId.makeUnsafe("thread-1");
+    const initialState = makeState(
+      makeThread({
+        id: threadId,
+        session: {
+          provider: "codex",
+          status: "running",
+          orchestrationStatus: "running",
+          activeTurnId: TurnId.makeUnsafe("turn-1"),
+          createdAt: "2026-02-27T00:00:00.000Z",
+          updatedAt: "2026-02-27T00:00:00.000Z",
+        },
+      }),
+    );
+
+    const next = applyOrchestrationEvent(
+      initialState,
+      makeForgeEvent("thread.status-changed", {
+        threadId,
+        status: "completed",
+        previousStatus: "running",
+        updatedAt: "2026-02-27T00:00:03.000Z",
+      }),
+    );
+
+    expect(next.threads[0]?.session).toMatchObject({
+      status: "closed",
+      orchestrationStatus: "idle",
+      activeTurnId: undefined,
+      updatedAt: "2026-02-27T00:00:03.000Z",
+    });
   });
 
   it("preserves state identity for no-op project and thread deletes", () => {

@@ -239,6 +239,7 @@ async function createHarness() {
   const orchestrationService = {
     getReadModel: () => Effect.succeed(readModel),
     readEvents: () => Stream.empty,
+    streamEventsFromSequence: () => Stream.empty,
     streamDomainEvents: Stream.empty,
     dispatch: ((command) =>
       Effect.promise(async () => {

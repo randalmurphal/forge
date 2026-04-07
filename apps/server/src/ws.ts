@@ -66,11 +66,6 @@ import { WorkspaceEntries } from "./workspace/Services/WorkspaceEntries";
 import { WorkspaceFileSystem } from "./workspace/Services/WorkspaceFileSystem";
 import { WorkspacePathOutsideRootError } from "./workspace/Services/WorkspacePaths";
 
-type OrderedSequenceState<TEvent extends { readonly sequence: number }> = {
-  readonly nextSequence: number;
-  readonly pendingBySequence: Map<number, TEvent>;
-};
-
 type WorkflowPhaseInfo = Extract<WorkflowPushEvent, { channel: "workflow.phase" }>["phaseInfo"];
 type WorkflowGateRequestState = {
   readonly threadId: Extract<WorkflowPushEvent, { channel: "workflow.gate" }>["threadId"];
@@ -145,39 +140,6 @@ function deriveSessionStatus(input: {
     default:
       return "created" as const;
   }
-}
-
-function flushSequencedEvents<TEvent extends { readonly sequence: number }>(
-  state: OrderedSequenceState<TEvent>,
-  event: TEvent,
-): [Array<TEvent>, OrderedSequenceState<TEvent>] {
-  const { nextSequence, pendingBySequence } = state;
-  if (event.sequence < nextSequence || pendingBySequence.has(event.sequence)) {
-    return [[], state];
-  }
-
-  const updatedPending = new Map(pendingBySequence);
-  updatedPending.set(event.sequence, event);
-
-  const emit: Array<TEvent> = [];
-  let expected = nextSequence;
-  for (;;) {
-    const expectedEvent = updatedPending.get(expected);
-    if (!expectedEvent) {
-      break;
-    }
-    emit.push(expectedEvent);
-    updatedPending.delete(expected);
-    expected += 1;
-  }
-
-  return [
-    emit,
-    {
-      nextSequence: expected,
-      pendingBySequence: updatedPending,
-    },
-  ];
 }
 
 function createWorkflowPushStreamState(snapshot: OrchestrationReadModel): WorkflowPushStreamState {
@@ -690,37 +652,18 @@ const WsRpcLayer = WsRpcGroup.toLayer(
     const makeWorkflowPushStream = Effect.fn("ws.makeWorkflowPushStream")(function* () {
       const snapshot = yield* orchestrationEngine.getReadModel();
       const fromSequenceExclusive = snapshot.snapshotSequence;
-      const replayEvents: Array<ForgeEventEnvelope> = yield* Stream.runCollect(
-        orchestrationEngine.readEvents(fromSequenceExclusive),
-      ).pipe(
-        Effect.map((events) =>
-          Array.from(events).flatMap((event) => {
-            const forgeEvent = toForgeEventEnvelope(event);
-            return forgeEvent === null ? [] : [forgeEvent];
-          }),
-        ),
-        Effect.catch(() => Effect.succeed([] as Array<ForgeEventEnvelope>)),
-      );
-      const orderedEvents = Stream.merge(
-        Stream.fromIterable(replayEvents),
-        orchestrationEngine.streamDomainEvents.pipe(
+      const orderedEvents = orchestrationEngine
+        .streamEventsFromSequence(fromSequenceExclusive)
+        .pipe(
           Stream.flatMap((event) => {
             const forgeEvent = toForgeEventEnvelope(event);
             return Stream.fromIterable(forgeEvent === null ? [] : [forgeEvent]);
           }),
-        ),
-      );
-      const sequenceState = yield* Ref.make<OrderedSequenceState<ForgeEventEnvelope>>({
-        nextSequence: fromSequenceExclusive + 1,
-        pendingBySequence: new Map<number, ForgeEventEnvelope>(),
-      });
+          Stream.catch(() => Stream.empty),
+        );
       const workflowState = yield* Ref.make(createWorkflowPushStreamState(snapshot));
 
       return orderedEvents.pipe(
-        Stream.mapEffect((event) =>
-          Ref.modify(sequenceState, (state) => flushSequencedEvents(state, event)),
-        ),
-        Stream.flatMap((events) => Stream.fromIterable(events)),
         Stream.mapEffect((event) =>
           Ref.modify(workflowState, (state) => {
             const next = mapWorkflowPushEvents(state, event);
@@ -734,37 +677,18 @@ const WsRpcLayer = WsRpcGroup.toLayer(
     const makeChannelPushStream = Effect.fn("ws.makeChannelPushStream")(function* () {
       const snapshot = yield* orchestrationEngine.getReadModel();
       const fromSequenceExclusive = snapshot.snapshotSequence;
-      const replayEvents: Array<ForgeEventEnvelope> = yield* Stream.runCollect(
-        orchestrationEngine.readEvents(fromSequenceExclusive),
-      ).pipe(
-        Effect.map((events) =>
-          Array.from(events).flatMap((event) => {
-            const forgeEvent = toForgeEventEnvelope(event);
-            return forgeEvent === null ? [] : [forgeEvent];
-          }),
-        ),
-        Effect.catch(() => Effect.succeed([] as Array<ForgeEventEnvelope>)),
-      );
-      const orderedEvents = Stream.merge(
-        Stream.fromIterable(replayEvents),
-        orchestrationEngine.streamDomainEvents.pipe(
+      const orderedEvents = orchestrationEngine
+        .streamEventsFromSequence(fromSequenceExclusive)
+        .pipe(
           Stream.flatMap((event) => {
             const forgeEvent = toForgeEventEnvelope(event);
             return Stream.fromIterable(forgeEvent === null ? [] : [forgeEvent]);
           }),
-        ),
-      );
-      const sequenceState = yield* Ref.make<OrderedSequenceState<ForgeEventEnvelope>>({
-        nextSequence: fromSequenceExclusive + 1,
-        pendingBySequence: new Map<number, ForgeEventEnvelope>(),
-      });
+          Stream.catch(() => Stream.empty),
+        );
       const channelState = yield* Ref.make(createChannelPushStreamState(snapshot));
 
       return orderedEvents.pipe(
-        Stream.mapEffect((event) =>
-          Ref.modify(sequenceState, (state) => flushSequencedEvents(state, event)),
-        ),
-        Stream.flatMap((events) => Stream.fromIterable(events)),
         Stream.mapEffect((event) =>
           Ref.modify(channelState, (state) => {
             const next = mapChannelPushEvents(state, event);
@@ -1208,62 +1132,16 @@ const WsRpcLayer = WsRpcGroup.toLayer(
           ),
           { "rpc.aggregate": "workflow" },
         ),
-      [WS_METHODS.subscribeOrchestrationDomainEvents]: (_input) =>
+      [WS_METHODS.subscribeOrchestrationDomainEvents]: (input) =>
         observeRpcStreamEffect(
           WS_METHODS.subscribeOrchestrationDomainEvents,
           Effect.gen(function* () {
-            const snapshot = yield* orchestrationEngine.getReadModel();
-            const fromSequenceExclusive = snapshot.snapshotSequence;
-            const replayEvents: Array<OrchestrationEvent> = yield* Stream.runCollect(
-              orchestrationEngine.readEvents(fromSequenceExclusive),
-            ).pipe(
-              Effect.map((events) => Array.from(events)),
-              Effect.catch(() => Effect.succeed([] as Array<OrchestrationEvent>)),
-            );
-            const replayStream = Stream.fromIterable(replayEvents);
-            const source = Stream.merge(replayStream, orchestrationEngine.streamDomainEvents);
-            type SequenceState = {
-              readonly nextSequence: number;
-              readonly pendingBySequence: Map<number, OrchestrationEvent>;
-            };
-            const state = yield* Ref.make<SequenceState>({
-              nextSequence: fromSequenceExclusive + 1,
-              pendingBySequence: new Map<number, OrchestrationEvent>(),
-            });
-
-            return source.pipe(
-              Stream.mapEffect((event) =>
-                Ref.modify(
-                  state,
-                  ({
-                    nextSequence,
-                    pendingBySequence,
-                  }): [Array<OrchestrationEvent>, SequenceState] => {
-                    if (event.sequence < nextSequence || pendingBySequence.has(event.sequence)) {
-                      return [[], { nextSequence, pendingBySequence }];
-                    }
-
-                    const updatedPending = new Map(pendingBySequence);
-                    updatedPending.set(event.sequence, event);
-
-                    const emit: Array<OrchestrationEvent> = [];
-                    let expected = nextSequence;
-                    for (;;) {
-                      const expectedEvent = updatedPending.get(expected);
-                      if (!expectedEvent) {
-                        break;
-                      }
-                      emit.push(expectedEvent);
-                      updatedPending.delete(expected);
-                      expected += 1;
-                    }
-
-                    return [emit, { nextSequence: expected, pendingBySequence: updatedPending }];
-                  },
-                ),
-              ),
-              Stream.flatMap((events) => Stream.fromIterable(events)),
-            );
+            const fromSequenceExclusive =
+              input.fromSequenceExclusive ??
+              (yield* orchestrationEngine.getReadModel()).snapshotSequence;
+            return orchestrationEngine
+              .streamEventsFromSequence(fromSequenceExclusive)
+              .pipe(Stream.catch(() => Stream.empty));
           }),
           { "rpc.aggregate": "orchestration" },
         ),

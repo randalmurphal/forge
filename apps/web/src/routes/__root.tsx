@@ -1,4 +1,5 @@
 import {
+  type ForgeEvent,
   OrchestrationEvent,
   ThreadId,
   type ServerLifecycleWelcomePayload,
@@ -13,6 +14,7 @@ import {
 import { useEffect, useEffectEvent, useRef } from "react";
 import { QueryClient, useQueryClient } from "@tanstack/react-query";
 import { Throttler } from "@tanstack/react-pacer";
+import { Schema } from "effect";
 
 import { APP_DISPLAY_NAME } from "../branding";
 import { AppSidebarLayout } from "../components/AppSidebarLayout";
@@ -208,21 +210,21 @@ function errorDetails(error: unknown): string {
   }
 }
 
-function coalesceOrchestrationUiEvents(
-  events: ReadonlyArray<OrchestrationEvent>,
-): OrchestrationEvent[] {
+function coalesceOrchestrationUiEvents(events: ReadonlyArray<ForgeEvent>): ForgeEvent[] {
   if (events.length < 2) {
     return [...events];
   }
 
-  const coalesced: OrchestrationEvent[] = [];
+  const coalesced: ForgeEvent[] = [];
   for (const event of events) {
     const previous = coalesced.at(-1);
     if (
       previous?.type === "thread.message-sent" &&
       event.type === "thread.message-sent" &&
       previous.payload.threadId === event.payload.threadId &&
-      previous.payload.messageId === event.payload.messageId
+      previous.payload.messageId === event.payload.messageId &&
+      "text" in previous.payload &&
+      "text" in event.payload
     ) {
       coalesced[coalesced.length - 1] = {
         ...event,
@@ -235,7 +237,7 @@ function coalesceOrchestrationUiEvents(
               ? event.payload.text
               : previous.payload.text + event.payload.text,
         },
-      };
+      } as typeof event;
       continue;
     }
 
@@ -366,7 +368,7 @@ function EventRouter() {
     disposedRef.current = false;
     const recovery = createOrchestrationRecoveryCoordinator();
     let needsProviderInvalidation = false;
-    const pendingDomainEvents: OrchestrationEvent[] = [];
+    const pendingDomainEvents: ForgeEvent[] = [];
     let flushPendingDomainEventsScheduled = false;
 
     const reconcileSnapshotDerivedState = () => {
@@ -412,13 +414,14 @@ function EventRouter() {
       },
     );
 
-    const applyEventBatch = (events: ReadonlyArray<OrchestrationEvent>) => {
+    const applyEventBatch = (events: ReadonlyArray<ForgeEvent>) => {
       const nextEvents = recovery.markEventBatchApplied(events);
       if (nextEvents.length === 0) {
         return;
       }
 
-      const batchEffects = deriveOrchestrationBatchEffects(nextEvents);
+      const orchestrationEvents = nextEvents.filter(Schema.is(OrchestrationEvent));
+      const batchEffects = deriveOrchestrationBatchEffects(orchestrationEvents);
       const uiEvents = coalesceOrchestrationUiEvents(nextEvents);
       const needsProjectUiSync = nextEvents.some(
         (event) =>

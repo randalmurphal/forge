@@ -242,6 +242,7 @@ async function createHarness(readModel: OrchestrationReadModel) {
   const orchestrationService: OrchestrationEngineShape = {
     getReadModel: () => Effect.succeed(readModel),
     readEvents: () => Stream.empty,
+    streamEventsFromSequence: () => Stream.empty,
     dispatch: () => {
       throw new Error("Unsupported in DeliberationEngine test.");
     },

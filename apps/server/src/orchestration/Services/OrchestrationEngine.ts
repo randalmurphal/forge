@@ -43,6 +43,17 @@ export interface OrchestrationEngineShape {
   ) => Stream.Stream<OrchestrationEvent, OrchestrationEventStoreError, never>;
 
   /**
+   * Replay persisted events from a cursor, then continue streaming live domain
+   * events from the same cursor without gaps or duplicate deliveries.
+   *
+   * The live subscription is established before replay begins so callers do not
+   * miss events published during startup.
+   */
+  readonly streamEventsFromSequence: (
+    fromSequenceExclusive: number,
+  ) => Stream.Stream<OrchestrationEvent, OrchestrationEventStoreError, never>;
+
+  /**
    * Dispatch a validated orchestration command.
    *
    * @param command - Valid orchestration command.

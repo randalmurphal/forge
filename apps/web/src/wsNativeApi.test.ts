@@ -3,8 +3,8 @@ import {
   DEFAULT_SERVER_SETTINGS,
   type DesktopBridge,
   EventId,
+  type ForgeEvent,
   ProjectId,
-  type OrchestrationEvent,
   type ServerConfig,
   type ServerProvider,
   type TerminalEvent,
@@ -30,7 +30,7 @@ function registerListener<T>(listeners: Set<(event: T) => void>, listener: (even
 }
 
 const terminalEventListeners = new Set<(event: TerminalEvent) => void>();
-const orchestrationEventListeners = new Set<(event: OrchestrationEvent) => void>();
+const orchestrationEventListeners = new Set<(event: ForgeEvent) => void>();
 
 const rpcClientMock = {
   dispose: vi.fn(),
@@ -80,7 +80,7 @@ const rpcClientMock = {
     getTurnDiff: vi.fn(),
     getFullThreadDiff: vi.fn(),
     replayEvents: vi.fn(),
-    onDomainEvent: vi.fn((listener: (event: OrchestrationEvent) => void) =>
+    onDomainEvent: vi.fn((listener: (event: ForgeEvent) => void) =>
       registerListener(orchestrationEventListeners, listener),
     ),
   },
@@ -236,7 +236,7 @@ describe("wsNativeApi", () => {
         createdAt: "2026-02-24T00:00:00.000Z",
         updatedAt: "2026-02-24T00:00:00.000Z",
       },
-    } satisfies Extract<OrchestrationEvent, { type: "project.created" }>;
+    } satisfies Extract<ForgeEvent, { type: "project.created" }>;
     emitEvent(orchestrationEventListeners, orchestrationEvent);
 
     expect(onTerminalEvent).toHaveBeenCalledWith(terminalEvent);

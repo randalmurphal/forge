@@ -87,6 +87,10 @@ const makeLayer = (input: {
       Layer.succeed(OrchestrationEngineService, {
         getReadModel: () => Effect.succeed(input.readModel),
         readEvents: () => Stream.empty,
+        streamEventsFromSequence: (fromSequenceExclusive) =>
+          Stream.fromIterable(
+            input.events.filter((event) => event.sequence > fromSequenceExclusive),
+          ) as unknown as ReturnType<OrchestrationEngineShape["streamEventsFromSequence"]>,
         dispatch: () => Effect.die("unused"),
         streamDomainEvents: Stream.fromIterable(
           input.events,
