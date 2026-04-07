@@ -120,16 +120,11 @@ function needsBootstrapFromThreadCreated(
   event: Extract<BootstrapEvent, { type: "thread.created" }>,
 ): boolean {
   const payload = event.payload as Record<string, unknown>;
-  const workflowId = typeof payload.workflowId === "string" ? payload.workflowId : null;
   const bootstrapStatus =
     typeof payload.bootstrapStatus === "string" ? payload.bootstrapStatus : null;
   const branch = typeof payload.branch === "string" ? payload.branch : null;
   const worktreePath = typeof payload.worktreePath === "string" ? payload.worktreePath : null;
-  return (
-    workflowId !== null ||
-    bootstrapStatus === "queued" ||
-    (branch !== null && worktreePath === null)
-  );
+  return bootstrapStatus === "queued" || (branch !== null && worktreePath === null);
 }
 
 function runShellCommand(

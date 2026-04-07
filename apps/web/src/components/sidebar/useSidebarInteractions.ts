@@ -394,16 +394,15 @@ export function useSidebarInteractions(input: {
       if (!thread) return;
       const threadWorkspacePath =
         thread.worktreePath ?? projectCwdById.get(thread.projectId) ?? null;
-      const clicked = await api.contextMenu.show(
-        [
-          { id: "rename", label: "Rename thread" },
-          { id: "mark-unread", label: "Mark unread" },
-          { id: "copy-path", label: "Copy Path" },
-          { id: "copy-thread-id", label: "Copy Thread ID" },
-          { id: "delete", label: "Delete", destructive: true },
-        ],
-        position,
-      );
+      const isChildThread = thread.parentThreadId != null;
+      const menuItems = [
+        { id: "rename", label: "Rename thread" },
+        { id: "mark-unread", label: "Mark unread" },
+        { id: "copy-path", label: "Copy Path" },
+        { id: "copy-thread-id", label: "Copy Thread ID" },
+        ...(isChildThread ? [] : [{ id: "delete", label: "Delete", destructive: true }]),
+      ];
+      const clicked = await api.contextMenu.show(menuItems, position);
 
       if (clicked === "rename") {
         setRenamingThreadId(threadId);

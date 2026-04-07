@@ -84,7 +84,12 @@ export const makeWorkflowReactor = Effect.gen(function* () {
       return true;
     }
 
-    return thread.bootstrapStatus === "completed" || thread.bootstrapStatus === "skipped";
+    if (thread.bootstrapStatus === "completed" || thread.bootstrapStatus === "skipped") {
+      return true;
+    }
+
+    // No worktree and no pending bootstrap — local mode, start immediately
+    return thread.bootstrapStatus === null && thread.branch === null;
   });
 
   const startWorkflowIfAvailable = Effect.fn("WorkflowReactor.startWorkflowIfAvailable")(function* (

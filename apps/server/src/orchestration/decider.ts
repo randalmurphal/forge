@@ -255,70 +255,75 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
     }
 
     case "thread.delete": {
-      yield* requireThread({
+      const thread = yield* requireThread({
         readModel,
         command,
         threadId: command.threadId,
       });
       const occurredAt = nowIso();
-      return {
+      const makeDeletedEvent = (targetId: typeof command.threadId) => ({
         ...withEventBase({
-          aggregateKind: "thread",
-          aggregateId: command.threadId,
+          aggregateKind: "thread" as const,
+          aggregateId: targetId,
           occurredAt,
           commandId: command.commandId,
         }),
-        type: "thread.deleted",
-        payload: {
-          threadId: command.threadId,
-          deletedAt: occurredAt,
-        },
-      };
+        type: "thread.deleted" as const,
+        payload: { threadId: targetId, deletedAt: occurredAt },
+      });
+      const baseEvent = makeDeletedEvent(command.threadId);
+      if (thread.childThreadIds.length === 0) {
+        return baseEvent;
+      }
+      return [baseEvent, ...thread.childThreadIds.map(makeDeletedEvent)];
     }
 
     case "thread.archive": {
-      yield* requireThreadNotArchived({
+      const thread = yield* requireThreadNotArchived({
         readModel,
         command,
         threadId: command.threadId,
       });
       const occurredAt = nowIso();
-      return {
+      const makeArchivedEvent = (targetId: typeof command.threadId) => ({
         ...withEventBase({
-          aggregateKind: "thread",
-          aggregateId: command.threadId,
+          aggregateKind: "thread" as const,
+          aggregateId: targetId,
           occurredAt,
           commandId: command.commandId,
         }),
-        type: "thread.archived",
-        payload: {
-          threadId: command.threadId,
-          archivedAt: occurredAt,
-          updatedAt: occurredAt,
-        },
-      };
+        type: "thread.archived" as const,
+        payload: { threadId: targetId, archivedAt: occurredAt, updatedAt: occurredAt },
+      });
+      const baseEvent = makeArchivedEvent(command.threadId);
+      if (thread.childThreadIds.length === 0) {
+        return baseEvent;
+      }
+      return [baseEvent, ...thread.childThreadIds.map(makeArchivedEvent)];
     }
 
     case "thread.unarchive": {
-      yield* requireThreadArchived({
+      const thread = yield* requireThreadArchived({
         readModel,
         command,
         threadId: command.threadId,
       });
       const occurredAt = nowIso();
-      return {
+      const makeUnarchivedEvent = (targetId: typeof command.threadId) => ({
         ...withEventBase({
-          aggregateKind: "thread",
-          aggregateId: command.threadId,
+          aggregateKind: "thread" as const,
+          aggregateId: targetId,
           occurredAt,
           commandId: command.commandId,
         }),
-        type: "thread.unarchived",
-        payload: {
-          threadId: command.threadId,
-          updatedAt: occurredAt,
-        },
-      };
+        type: "thread.unarchived" as const,
+        payload: { threadId: targetId, updatedAt: occurredAt },
+      });
+      const baseEvent = makeUnarchivedEvent(command.threadId);
+      if (thread.childThreadIds.length === 0) {
+        return baseEvent;
+      }
+      return [baseEvent, ...thread.childThreadIds.map(makeUnarchivedEvent)];
     }
 
     case "thread.meta.update": {

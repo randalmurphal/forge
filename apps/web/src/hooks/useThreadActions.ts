@@ -93,22 +93,27 @@ export function useThreadActions() {
           ].join("\n"),
         ));
 
+      const withTimeout = <T>(promise: Promise<T>, ms: number): Promise<T | undefined> =>
+        Promise.race([promise, new Promise<undefined>((resolve) => setTimeout(resolve, ms))]);
+
       if (thread.session && thread.session.status !== "closed") {
-        await api.orchestration
-          .dispatchCommand({
-            type: "thread.session.stop",
-            commandId: newCommandId(),
-            threadId,
-            createdAt: new Date().toISOString(),
-          })
-          .catch(() => undefined);
+        await withTimeout(
+          api.orchestration
+            .dispatchCommand({
+              type: "thread.session.stop",
+              commandId: newCommandId(),
+              threadId,
+              createdAt: new Date().toISOString(),
+            })
+            .catch(() => undefined),
+          3000,
+        );
       }
 
-      try {
-        await api.terminal.close({ threadId, deleteHistory: true });
-      } catch {
-        // Terminal may already be closed.
-      }
+      await withTimeout(
+        api.terminal.close({ threadId, deleteHistory: true }).catch(() => undefined),
+        2000,
+      );
 
       const deletedThreadIds = opts.deletedThreadIds ?? new Set<ThreadId>();
       const shouldNavigateToFallback = routeThreadId === threadId;
