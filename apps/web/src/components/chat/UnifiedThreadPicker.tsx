@@ -90,26 +90,32 @@ export const UnifiedThreadPicker = memo(function UnifiedThreadPicker(props: {
   const workflowQuery = useWorkflows();
   const availableWorkflows = workflowQuery.data ?? storedWorkflows;
 
-  const thinkingPatterns = useMemo(() => {
-    const sections = compactWorkflowPickerSections(
-      buildWorkflowPickerSections({
-        projectId: draftThread?.projectId ?? null,
-        workflows: availableWorkflows,
-      }),
-    );
-    const thinkingSection = sections.find((section) => section.key === "built-in-thinking");
-    return thinkingSection?.workflows ?? [];
-  }, [availableWorkflows, draftThread?.projectId]);
+  const workflowSections = useMemo(
+    () =>
+      compactWorkflowPickerSections(
+        buildWorkflowPickerSections({
+          projectId: draftThread?.projectId ?? null,
+          workflows: availableWorkflows,
+        }),
+      ),
+    [availableWorkflows, draftThread?.projectId],
+  );
 
-  const selectableWorkflows = useMemo(() => {
-    const sections = compactWorkflowPickerSections(
-      buildWorkflowPickerSections({
-        projectId: draftThread?.projectId ?? null,
-        workflows: availableWorkflows,
-      }),
-    );
-    return sections.flatMap((section) => section.workflows);
-  }, [availableWorkflows, draftThread?.projectId]);
+  const thinkingPatterns = useMemo(
+    () => workflowSections.find((section) => section.key === "built-in-thinking")?.workflows ?? [],
+    [workflowSections],
+  );
+
+  const customWorkflowSections = useMemo(
+    () =>
+      workflowSections.filter((section) => section.key === "project" || section.key === "global"),
+    [workflowSections],
+  );
+
+  const selectableWorkflows = useMemo(
+    () => workflowSections.flatMap((section) => section.workflows),
+    [workflowSections],
+  );
 
   // Sync workflow store selection with draft
   useEffect(() => {
@@ -235,16 +241,17 @@ export const UnifiedThreadPicker = memo(function UnifiedThreadPicker(props: {
           />
         ) : null}
 
-        {/* Section 2: Patterns */}
-        {showPatternSection && thinkingPatterns.length > 0 ? (
+        {/* Section 2: Patterns & custom workflows */}
+        {showPatternSection &&
+        (thinkingPatterns.length > 0 || customWorkflowSections.length > 0) ? (
           <>
             {!props.hideModelSection ? <MenuSeparator /> : null}
-            <MenuGroup>
-              <MenuGroupLabel>Patterns</MenuGroupLabel>
-              <MenuRadioGroup
-                value={resolvedWorkflowId ?? NO_WORKFLOW_VALUE}
-                onValueChange={selectPattern}
-              >
+            <MenuRadioGroup
+              value={resolvedWorkflowId ?? NO_WORKFLOW_VALUE}
+              onValueChange={selectPattern}
+            >
+              <MenuGroup>
+                <MenuGroupLabel>Patterns</MenuGroupLabel>
                 <MenuRadioItem value={NO_WORKFLOW_VALUE}>(none)</MenuRadioItem>
                 {thinkingPatterns.map((pattern) => (
                   <MenuRadioItem
@@ -262,8 +269,31 @@ export const UnifiedThreadPicker = memo(function UnifiedThreadPicker(props: {
                     </div>
                   </MenuRadioItem>
                 ))}
-              </MenuRadioGroup>
-            </MenuGroup>
+              </MenuGroup>
+              {customWorkflowSections.map((section) => (
+                <MenuGroup key={section.key}>
+                  <MenuGroupLabel>{section.label}</MenuGroupLabel>
+                  {section.workflows.map((workflow) => (
+                    <MenuRadioItem
+                      key={workflow.workflowId}
+                      value={workflow.workflowId}
+                      className="min-h-11 items-start"
+                    >
+                      <div className="flex min-w-0 flex-col gap-0.5 py-0.5">
+                        <span className="truncate font-medium text-foreground">
+                          {workflow.name}
+                        </span>
+                        {workflow.description.trim().length > 0 ? (
+                          <span className="line-clamp-2 text-xs text-muted-foreground">
+                            {workflow.description}
+                          </span>
+                        ) : null}
+                      </div>
+                    </MenuRadioItem>
+                  ))}
+                </MenuGroup>
+              ))}
+            </MenuRadioGroup>
           </>
         ) : null}
       </MenuPopup>
