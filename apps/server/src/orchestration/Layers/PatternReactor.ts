@@ -13,7 +13,7 @@ import { makeDrainableWorker } from "@forgetools/shared/DrainableWorker";
 import { Cause, Effect, Layer, Option, Stream } from "effect";
 
 import { ChannelService } from "../../channel/Services/ChannelService.ts";
-import { registerPendingDynamicTools } from "../../channel/pendingDynamicTools.ts";
+import { registerPendingSessionConfig } from "../../channel/pendingDynamicTools.ts";
 import { PromptResolver } from "../../workflow/Services/PromptResolver.ts";
 import { WorkflowRegistry } from "../../workflow/Services/WorkflowRegistry.ts";
 import { OrchestrationEngineService } from "../Services/OrchestrationEngine.ts";
@@ -46,10 +46,11 @@ export const makePatternReactor = Effect.gen(function* () {
     childThreadId: ThreadId,
     parentThreadId: ThreadId,
     role: string,
+    systemPrompt?: string,
   ) => {
-    registerPendingDynamicTools(
-      childThreadId,
-      [
+    registerPendingSessionConfig(childThreadId, {
+      ...(systemPrompt !== undefined ? { baseInstructions: systemPrompt } : {}),
+      tools: [
         {
           name: "post_to_channel",
           description:
@@ -63,7 +64,7 @@ export const makePatternReactor = Effect.gen(function* () {
           },
         },
       ],
-      async (toolName, args) => {
+      handler: async (toolName, args) => {
         if (toolName !== "post_to_channel") {
           return { content: `Unknown tool: ${toolName}`, success: false };
         }
@@ -88,7 +89,7 @@ export const makePatternReactor = Effect.gen(function* () {
         );
         return { content: "Message posted to channel.", success: true };
       },
-    );
+    });
   };
 
   const resolveThread = Effect.fn("PatternReactor.resolveThread")(function* (threadId: ThreadId) {
@@ -144,10 +145,30 @@ export const makePatternReactor = Effect.gen(function* () {
 
       // Step 1: Create all child threads first so the deliberation engine
       // can find participants when the channel message is posted.
-      const children: Array<{ threadId: ThreadId; role: string }> = [];
+      const children: Array<{ threadId: ThreadId; role: string; systemPrompt: string }> = [];
       for (const participant of deliberation.participants) {
         const childThreadId = ThreadId.makeUnsafe(crypto.randomUUID());
-        children.push({ threadId: childThreadId, role: participant.role });
+
+        const resolvedPrompt = yield* promptResolver
+          .resolve({
+            name: participant.agent.prompt,
+            variables: { DESCRIPTION: input.messageText },
+          })
+          .pipe(
+            Effect.catch(() =>
+              Effect.succeed({
+                name: participant.agent.prompt,
+                description: "",
+                system: `You are the ${participant.role} in a deliberation. Use the post_to_channel tool to share your analysis with other participants.`,
+              }),
+            ),
+          );
+
+        children.push({
+          threadId: childThreadId,
+          role: participant.role,
+          systemPrompt: resolvedPrompt.system,
+        });
 
         yield* orchestrationEngine.dispatch({
           type: "thread.create",
@@ -175,7 +196,7 @@ export const makePatternReactor = Effect.gen(function* () {
 
       // Step 3: Register dynamic tools and deliver the user's message to each child.
       for (const child of children) {
-        registerChannelToolForChild(child.threadId, input.threadId, child.role);
+        registerChannelToolForChild(child.threadId, input.threadId, child.role, child.systemPrompt);
 
         const childMessageId = MessageId.makeUnsafe(crypto.randomUUID());
         yield* orchestrationEngine.dispatch({

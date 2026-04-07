@@ -37,7 +37,7 @@ import {
   CodexAppServerManager,
   type CodexAppServerStartSessionInput,
 } from "../../codexAppServerManager.ts";
-import { consumePendingDynamicTools } from "../../channel/pendingDynamicTools.ts";
+import { consumePendingSessionConfig } from "../../channel/pendingDynamicTools.ts";
 import { resolveAttachmentPath } from "../../attachmentStore.ts";
 import { ServerConfig } from "../../config.ts";
 import { ServerSettingsService } from "../../serverSettings.ts";
@@ -1410,7 +1410,7 @@ const makeCodexAdapter = Effect.fn("makeCodexAdapter")(function* (
       const binaryPath = codexSettings.binaryPath;
       const homePath = codexSettings.homePath;
 
-      const pendingToolConfig = consumePendingDynamicTools(input.threadId);
+      const pendingToolConfig = consumePendingSessionConfig(input.threadId);
 
       const managerInput: CodexAppServerStartSessionInput = {
         threadId: input.threadId,
@@ -1430,6 +1430,9 @@ const makeCodexAdapter = Effect.fn("makeCodexAdapter")(function* (
           ? {
               dynamicTools: pendingToolConfig.tools,
               dynamicToolHandler: pendingToolConfig.handler,
+              ...(pendingToolConfig.baseInstructions
+                ? { baseInstructions: pendingToolConfig.baseInstructions }
+                : {}),
             }
           : {}),
       };

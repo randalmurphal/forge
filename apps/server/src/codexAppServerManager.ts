@@ -139,6 +139,7 @@ export interface CodexAppServerStartSessionInput {
   readonly runtimeMode: RuntimeMode;
   readonly dynamicTools?: ReadonlyArray<DynamicToolSpec>;
   readonly dynamicToolHandler?: DynamicToolHandler;
+  readonly baseInstructions?: string;
 }
 
 export interface CodexThreadTurnSnapshot {
@@ -549,6 +550,9 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
         experimentalRawEvents: false,
         ...(input.dynamicTools !== undefined && input.dynamicTools.length > 0
           ? { dynamicTools: input.dynamicTools }
+          : {}),
+        ...(input.baseInstructions !== undefined
+          ? { baseInstructions: input.baseInstructions }
           : {}),
       };
       if (input.dynamicToolHandler) {

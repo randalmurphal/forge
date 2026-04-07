@@ -1,22 +1,22 @@
-import type { ChannelId, ThreadId } from "@forgetools/contracts";
+import type { ThreadId } from "@forgetools/contracts";
 import type { DynamicToolHandler, DynamicToolSpec } from "../codexAppServerManager.ts";
 
-interface PendingToolConfig {
+interface PendingSessionConfig {
   tools: DynamicToolSpec[];
   handler: DynamicToolHandler;
+  baseInstructions?: string;
 }
 
-const pending = new Map<string, PendingToolConfig>();
+const pending = new Map<string, PendingSessionConfig>();
 
-export function registerPendingDynamicTools(
+export function registerPendingSessionConfig(
   threadId: ThreadId,
-  tools: DynamicToolSpec[],
-  handler: DynamicToolHandler,
+  config: PendingSessionConfig,
 ): void {
-  pending.set(threadId, { tools, handler });
+  pending.set(threadId, config);
 }
 
-export function consumePendingDynamicTools(threadId: string): PendingToolConfig | undefined {
+export function consumePendingSessionConfig(threadId: string): PendingSessionConfig | undefined {
   const config = pending.get(threadId);
   if (config) {
     pending.delete(threadId);
