@@ -93,27 +93,22 @@ export function useThreadActions() {
           ].join("\n"),
         ));
 
-      const withTimeout = <T>(promise: Promise<T>, ms: number): Promise<T | undefined> =>
-        Promise.race([promise, new Promise<undefined>((resolve) => setTimeout(resolve, ms))]);
-
       if (thread.session && thread.session.status !== "closed") {
-        await withTimeout(
-          api.orchestration
-            .dispatchCommand({
-              type: "thread.session.stop",
-              commandId: newCommandId(),
-              threadId,
-              createdAt: new Date().toISOString(),
-            })
-            .catch(() => undefined),
-          3000,
-        );
+        await api.orchestration
+          .dispatchCommand({
+            type: "thread.session.stop",
+            commandId: newCommandId(),
+            threadId,
+            createdAt: new Date().toISOString(),
+          })
+          .catch(() => undefined);
       }
 
-      await withTimeout(
-        api.terminal.close({ threadId, deleteHistory: true }).catch(() => undefined),
-        2000,
-      );
+      try {
+        await api.terminal.close({ threadId, deleteHistory: true });
+      } catch {
+        // Terminal may already be closed.
+      }
 
       const deletedThreadIds = opts.deletedThreadIds ?? new Set<ThreadId>();
       const shouldNavigateToFallback = routeThreadId === threadId;
@@ -123,11 +118,21 @@ export function useThreadActions() {
         deletedThreadIds,
         sortOrder: appSettings.sidebarThreadSortOrder,
       });
-      await api.orchestration.dispatchCommand({
-        type: "thread.delete",
-        commandId: newCommandId(),
-        threadId,
-      });
+      try {
+        await api.orchestration.dispatchCommand({
+          type: "thread.delete",
+          commandId: newCommandId(),
+          threadId,
+        });
+      } catch (error) {
+        console.error("Failed to delete thread", { threadId, error });
+        toastManager.add({
+          type: "error",
+          title: "Failed to delete thread",
+          description: error instanceof Error ? error.message : "Unknown error",
+        });
+        return;
+      }
       clearComposerDraftForThread(threadId);
       clearProjectDraftThreadById(thread.projectId, thread.id);
       clearTerminalState(threadId);
