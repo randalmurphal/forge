@@ -48,6 +48,7 @@ import { ProviderCommandReactorLive } from "./orchestration/Layers/ProviderComma
 import { CheckpointReactorLive } from "./orchestration/Layers/CheckpointReactor";
 import { BootstrapReactorLive } from "./orchestration/Layers/BootstrapReactor";
 import { ChannelReactorLive } from "./orchestration/Layers/ChannelReactor";
+import { PatternReactorLive } from "./orchestration/Layers/PatternReactor";
 import { WorkflowReactorLive } from "./orchestration/Layers/WorkflowReactor";
 import { ProviderRegistryLive } from "./provider/Layers/ProviderRegistry";
 import { ServerSettingsLive } from "./serverSettings";
@@ -294,8 +295,16 @@ const ChannelReactorRuntimeLive = ChannelReactorLive.pipe(
   Layer.provide(DeliberationEngineRuntimeLive),
 );
 
+const PatternReactorRuntimeLive = PatternReactorLive.pipe(
+  Layer.provide(OrchestrationRuntimeLive),
+  Layer.provide(ChannelServiceRuntimeLive),
+  Layer.provide(WorkflowRegistryRuntimeLive),
+  Layer.provide(PromptResolverLive),
+);
+
 const OrchestrationReactorRuntimeLive = OrchestrationReactorLive.pipe(
   Layer.provide(ProviderRuntimeIngestionRuntimeLive),
+  Layer.provide(PatternReactorRuntimeLive),
   Layer.provide(ProviderCommandReactorRuntimeLive),
   Layer.provide(CheckpointReactorRuntimeLive),
   Layer.provide(BootstrapReactorRuntimeLive),

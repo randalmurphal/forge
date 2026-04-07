@@ -15,11 +15,27 @@ import { ServiceMap } from "effect";
 import type { ProviderAdapterError } from "../Errors.ts";
 import type { ProviderAdapterShape } from "./ProviderAdapter.ts";
 
+export interface DynamicToolRegistration {
+  readonly name: string;
+  readonly description: string;
+  readonly inputSchema: Record<string, unknown>;
+}
+
+export type DynamicToolCallHandler = (
+  toolName: string,
+  args: Record<string, unknown>,
+) => Promise<{ content: string; success: boolean }>;
+
 /**
  * CodexAdapterShape - Service API for the Codex provider adapter.
  */
 export interface CodexAdapterShape extends ProviderAdapterShape<ProviderAdapterError> {
   readonly provider: "codex";
+  readonly registerDynamicTools: (
+    threadId: string,
+    tools: DynamicToolRegistration[],
+    handler: DynamicToolCallHandler,
+  ) => void;
 }
 
 /**

@@ -1,7 +1,7 @@
 import type { ProjectId, WorkflowId, WorkflowSummary } from "@forgetools/contracts";
 
 export const NO_WORKFLOW_VALUE = "__none__";
-const BUILT_IN_THINKING_WORKFLOW_SLUGS = new Set([
+export const BUILT_IN_THINKING_WORKFLOW_SLUGS = new Set([
   "code-review",
   "debate",
   "explore",
@@ -17,7 +17,7 @@ export interface WorkflowPickerSection {
   workflows: WorkflowSummary[];
 }
 
-function normalizeWorkflowSlug(value: string): string {
+export function normalizeWorkflowSlug(value: string): string {
   return value
     .trim()
     .toLowerCase()

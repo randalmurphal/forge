@@ -239,6 +239,10 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
           interactionMode: command.interactionMode,
           branch: command.branch,
           worktreePath: command.worktreePath,
+          workflowId:
+            "workflowId" in command && command.workflowId !== undefined ? command.workflowId : null,
+          patternId:
+            "patternId" in command && command.patternId !== undefined ? command.patternId : null,
           createdAt: command.createdAt,
           updatedAt: command.createdAt,
         },

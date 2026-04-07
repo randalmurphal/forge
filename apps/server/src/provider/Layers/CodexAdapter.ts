@@ -36,6 +36,8 @@ import { CodexAdapter, type CodexAdapterShape } from "../Services/CodexAdapter.t
 import {
   CodexAppServerManager,
   type CodexAppServerStartSessionInput,
+  type DynamicToolSpec,
+  type DynamicToolHandler,
 } from "../../codexAppServerManager.ts";
 import { resolveAttachmentPath } from "../../attachmentStore.ts";
 import { ServerConfig } from "../../config.ts";
@@ -1379,6 +1381,19 @@ const makeCodexAdapter = Effect.fn("makeCodexAdapter")(function* (
   );
   const serverSettingsService = yield* ServerSettingsService;
 
+  const pendingDynamicToolConfigs = new Map<
+    string,
+    { tools: DynamicToolSpec[]; handler: DynamicToolHandler }
+  >();
+
+  const registerDynamicTools = (
+    threadId: string,
+    tools: DynamicToolSpec[],
+    handler: DynamicToolHandler,
+  ) => {
+    pendingDynamicToolConfigs.set(threadId, { tools, handler });
+  };
+
   const startSession: CodexAdapterShape["startSession"] = Effect.fn("startSession")(
     function* (input) {
       if (input.provider !== undefined && input.provider !== PROVIDER) {
@@ -1403,6 +1418,12 @@ const makeCodexAdapter = Effect.fn("makeCodexAdapter")(function* (
       );
       const binaryPath = codexSettings.binaryPath;
       const homePath = codexSettings.homePath;
+
+      const pendingToolConfig = pendingDynamicToolConfigs.get(input.threadId);
+      if (pendingToolConfig) {
+        pendingDynamicToolConfigs.delete(input.threadId);
+      }
+
       const managerInput: CodexAppServerStartSessionInput = {
         threadId: input.threadId,
         provider: "codex",
@@ -1416,6 +1437,12 @@ const makeCodexAdapter = Effect.fn("makeCodexAdapter")(function* (
           : {}),
         ...(input.modelSelection?.provider === "codex" && input.modelSelection.options?.fastMode
           ? { serviceTier: "fast" }
+          : {}),
+        ...(pendingToolConfig
+          ? {
+              dynamicTools: pendingToolConfig.tools,
+              dynamicToolHandler: pendingToolConfig.handler,
+            }
           : {}),
       };
 
@@ -1631,6 +1658,7 @@ const makeCodexAdapter = Effect.fn("makeCodexAdapter")(function* (
     listSessions,
     hasSession,
     stopAll,
+    registerDynamicTools,
     streamEvents: Stream.fromQueue(runtimeEventQueue),
   } satisfies CodexAdapterShape;
 });

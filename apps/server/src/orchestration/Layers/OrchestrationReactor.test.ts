@@ -4,6 +4,7 @@ import { afterEach, describe, expect, it } from "vitest";
 import { BootstrapReactor } from "../Services/BootstrapReactor.ts";
 import { ChannelReactor } from "../Services/ChannelReactor.ts";
 import { CheckpointReactor } from "../Services/CheckpointReactor.ts";
+import { PatternReactor } from "../Services/PatternReactor.ts";
 import { ProviderCommandReactor } from "../Services/ProviderCommandReactor.ts";
 import { ProviderRuntimeIngestionService } from "../Services/ProviderRuntimeIngestion.ts";
 import { OrchestrationReactor } from "../Services/OrchestrationReactor.ts";
@@ -29,6 +30,15 @@ describe("OrchestrationReactor", () => {
           Layer.succeed(ProviderRuntimeIngestionService, {
             start: () => {
               started.push("provider-runtime-ingestion");
+              return Effect.void;
+            },
+            drain: Effect.void,
+          }),
+        ),
+        Layer.provideMerge(
+          Layer.succeed(PatternReactor, {
+            start: () => {
+              started.push("pattern-reactor");
               return Effect.void;
             },
             drain: Effect.void,
@@ -88,6 +98,7 @@ describe("OrchestrationReactor", () => {
 
     expect(started).toEqual([
       "provider-runtime-ingestion",
+      "pattern-reactor",
       "provider-command-reactor",
       "checkpoint-reactor",
       "bootstrap-reactor",

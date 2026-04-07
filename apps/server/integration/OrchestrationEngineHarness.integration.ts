@@ -54,6 +54,7 @@ import { ProviderCommandReactorLive } from "../src/orchestration/Layers/Provider
 import { ProviderRuntimeIngestionLive } from "../src/orchestration/Layers/ProviderRuntimeIngestion.ts";
 import { BootstrapReactor } from "../src/orchestration/Services/BootstrapReactor.ts";
 import { ChannelReactor } from "../src/orchestration/Services/ChannelReactor.ts";
+import { PatternReactor } from "../src/orchestration/Services/PatternReactor.ts";
 import {
   OrchestrationEngineService,
   type OrchestrationEngineShape,
@@ -350,6 +351,12 @@ export const makeOrchestrationIntegrationHarness = (
       ),
       Layer.provideMerge(
         Layer.succeed(ChannelReactor, {
+          start: () => Effect.void,
+          drain: Effect.void,
+        }),
+      ),
+      Layer.provideMerge(
+        Layer.succeed(PatternReactor, {
           start: () => Effect.void,
           drain: Effect.void,
         }),

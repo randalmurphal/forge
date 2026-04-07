@@ -932,6 +932,11 @@ const makeClaudeAdapter = Effect.fn("makeClaudeAdapter")(function* (
   const sessions = new Map<ThreadId, ClaudeSessionContext>();
   const runtimeEventQueue = yield* Queue.unbounded<ProviderRuntimeEvent>();
   const serverSettingsService = yield* ServerSettingsService;
+  const pendingMcpServers = new Map<string, { config: unknown }>();
+
+  const registerMcpServer = (threadId: string, mcpConfig: { config: unknown }) => {
+    pendingMcpServers.set(threadId, mcpConfig);
+  };
 
   const nowIso = Effect.map(DateTime.now, DateTime.formatIso);
   const nextEventId = Effect.map(Random.nextUUIDv4, (id) => EventId.makeUnsafe(id));
@@ -2699,6 +2704,11 @@ const makeClaudeAdapter = Effect.fn("makeClaudeAdapter")(function* (
         ...(fastMode ? { fastMode: true } : {}),
       };
 
+      const pendingMcp = pendingMcpServers.get(threadId);
+      if (pendingMcp) {
+        pendingMcpServers.delete(threadId);
+      }
+
       const queryOptions: ClaudeQueryOptions = {
         ...(input.cwd ? { cwd: input.cwd } : {}),
         ...(apiModelId ? { model: apiModelId } : {}),
@@ -2716,7 +2726,8 @@ const makeClaudeAdapter = Effect.fn("makeClaudeAdapter")(function* (
         canUseTool,
         env: process.env,
         ...(input.cwd ? { additionalDirectories: [input.cwd] } : {}),
-      };
+        ...(pendingMcp ? { mcpServers: pendingMcp.config } : {}),
+      } as ClaudeQueryOptions;
 
       const queryRuntime = yield* Effect.try({
         try: () =>
@@ -3054,6 +3065,7 @@ const makeClaudeAdapter = Effect.fn("makeClaudeAdapter")(function* (
     listSessions,
     hasSession,
     stopAll,
+    registerMcpServer,
     streamEvents: Stream.fromQueue(runtimeEventQueue),
   } satisfies ClaudeAdapterShape;
 });

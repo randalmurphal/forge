@@ -81,6 +81,7 @@ interface CodexSessionContext {
   collabReceiverTurns: Map<string, TurnId>;
   nextRequestId: number;
   stopping: boolean;
+  dynamicToolHandler?: DynamicToolHandler;
 }
 
 interface JsonRpcError {
@@ -115,6 +116,17 @@ export interface CodexAppServerSendTurnInput {
   readonly interactionMode?: ProviderInteractionMode;
 }
 
+export interface DynamicToolSpec {
+  readonly name: string;
+  readonly description: string;
+  readonly inputSchema: Record<string, unknown>;
+}
+
+export type DynamicToolHandler = (
+  toolName: string,
+  args: Record<string, unknown>,
+) => Promise<{ content: string; success: boolean }>;
+
 export interface CodexAppServerStartSessionInput {
   readonly threadId: ThreadId;
   readonly provider?: "codex";
@@ -125,6 +137,8 @@ export interface CodexAppServerStartSessionInput {
   readonly binaryPath: string;
   readonly homePath?: string;
   readonly runtimeMode: RuntimeMode;
+  readonly dynamicTools?: ReadonlyArray<DynamicToolSpec>;
+  readonly dynamicToolHandler?: DynamicToolHandler;
 }
 
 export interface CodexThreadTurnSnapshot {
@@ -533,7 +547,13 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
       const threadStartParams = {
         ...sessionOverrides,
         experimentalRawEvents: false,
+        ...(input.dynamicTools !== undefined && input.dynamicTools.length > 0
+          ? { dynamicTools: input.dynamicTools }
+          : {}),
       };
+      if (input.dynamicToolHandler) {
+        context.dynamicToolHandler = input.dynamicToolHandler;
+      }
       const resumeThreadId = readResumeThreadId(input);
       this.emitLifecycleEvent(
         context,
@@ -1176,6 +1196,38 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
     }
 
     if (request.method === "item/tool/requestUserInput") {
+      return;
+    }
+
+    if (request.method === "dynamicToolCall" && context.dynamicToolHandler) {
+      const params = request.params as { toolName?: string; arguments?: Record<string, unknown> };
+      const toolName = params?.toolName ?? "";
+      const args = params?.arguments ?? {};
+      context.dynamicToolHandler(toolName, args).then(
+        (result) => {
+          this.writeMessage(context, {
+            id: request.id,
+            result: {
+              contentItems: [{ type: "text", text: result.content }],
+              success: result.success,
+            },
+          });
+        },
+        (error) => {
+          this.writeMessage(context, {
+            id: request.id,
+            result: {
+              contentItems: [
+                {
+                  type: "text",
+                  text: `Error: ${error instanceof Error ? error.message : String(error)}`,
+                },
+              ],
+              success: false,
+            },
+          });
+        },
+      );
       return;
     }
 

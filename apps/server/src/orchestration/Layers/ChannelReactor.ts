@@ -1,6 +1,7 @@
 import {
   ChannelId,
   CommandId,
+  MessageId,
   PhaseRunId,
   PositiveInt,
   type Channel,
@@ -119,6 +120,47 @@ export const makeChannelReactor = Effect.gen(function* () {
     });
   });
 
+  const resolveParentThread = Effect.fn("ChannelReactor.resolveParentThread")(function* (
+    channel: Channel,
+  ) {
+    const readModel = yield* orchestrationEngine.getReadModel();
+    return readModel.threads.find((t) => t.id === channel.threadId) ?? null;
+  });
+
+  const deliverToOtherParticipants = Effect.fn("ChannelReactor.deliverToOtherParticipants")(
+    function* (
+      channel: Channel,
+      senderThreadId: string,
+      content: string,
+      fromRole: string | undefined,
+      createdAt: string,
+    ) {
+      const parentThread = yield* resolveParentThread(channel);
+      if (!parentThread) return;
+
+      const recipientIds = parentThread.childThreadIds.filter((id) => id !== senderThreadId);
+      const roleLabel = fromRole ?? "participant";
+
+      for (const recipientId of recipientIds) {
+        const msgId = MessageId.makeUnsafe(`channel-delivery:${crypto.randomUUID()}`);
+        yield* dispatchForgeCommand({
+          type: "thread.turn.start",
+          commandId: CommandId.makeUnsafe(`channel:deliver:${recipientId}:${crypto.randomUUID()}`),
+          threadId: recipientId,
+          message: {
+            messageId: msgId,
+            role: "user" as const,
+            text: `[${roleLabel}]: ${content}`,
+            attachments: [],
+          },
+          runtimeMode: "full-access",
+          interactionMode: "default",
+          createdAt,
+        } as unknown as ForgeCommand);
+      }
+    },
+  );
+
   const processMessagePosted = Effect.fn("ChannelReactor.processMessagePosted")(function* (
     event: Extract<ChannelReactorEvent, { type: "channel.message-posted" }>,
   ) {
@@ -136,12 +178,34 @@ export const makeChannelReactor = Effect.gen(function* () {
       return;
     }
 
-    yield* ensureDeliberationState(channelOption.value, event.payload.createdAt);
+    const channel = channelOption.value;
+
+    yield* ensureDeliberationState(channel, event.payload.createdAt);
     const transition = yield* deliberationEngine.recordPost({
       channelId: event.payload.channelId,
       participantThreadId: ThreadId.makeUnsafe(event.payload.fromId),
       postedAt: event.payload.createdAt,
     });
+
+    // Deliver the message to other child agents as new user turns.
+    // Agent messages go to other participants; human messages go to all participants.
+    if (event.payload.fromType === "agent" || event.payload.fromType === "human") {
+      const excludeSenderId = event.payload.fromType === "agent" ? event.payload.fromId : undefined;
+      yield* deliverToOtherParticipants(
+        channel,
+        excludeSenderId ?? "",
+        event.payload.content,
+        event.payload.fromRole ?? undefined,
+        event.payload.createdAt,
+      ).pipe(
+        Effect.catchCause((cause) =>
+          Effect.logWarning("ChannelReactor: failed to deliver message to participants", {
+            channelId: channel.id,
+            cause: Cause.pretty(cause),
+          }),
+        ),
+      );
+    }
 
     if (transition.shouldConcludeChannel) {
       yield* dispatchChannelConcluded(event.payload.channelId, event.payload.createdAt);

@@ -515,6 +515,11 @@ const make = Effect.gen(function* () {
       return;
     }
 
+    // Skip pattern container threads — PatternReactor handles these.
+    if (thread.patternId !== null && thread.parentThreadId === null) {
+      return;
+    }
+
     const message = thread.messages.find((entry) => entry.id === event.payload.messageId);
     if (!message || message.role !== "user") {
       yield* appendProviderFailureActivity({

@@ -547,6 +547,8 @@ const ThreadCreateCommand = Schema.Struct({
   ),
   branch: Schema.NullOr(TrimmedNonEmptyString),
   worktreePath: Schema.NullOr(TrimmedNonEmptyString),
+  workflowId: Schema.optional(WorkflowId),
+  patternId: Schema.optional(TrimmedNonEmptyString),
   createdAt: IsoDateTime,
 });
 
@@ -1281,6 +1283,8 @@ export const ThreadCreatedPayload = Schema.Struct({
   ),
   branch: Schema.NullOr(TrimmedNonEmptyString),
   worktreePath: Schema.NullOr(TrimmedNonEmptyString),
+  workflowId: Schema.NullOr(WorkflowId).pipe(Schema.withDecodingDefault(() => null)),
+  patternId: Schema.NullOr(TrimmedNonEmptyString).pipe(Schema.withDecodingDefault(() => null)),
   createdAt: IsoDateTime,
   updatedAt: IsoDateTime,
 });

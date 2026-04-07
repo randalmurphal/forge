@@ -15,11 +15,16 @@ import { ServiceMap } from "effect";
 import type { ProviderAdapterError } from "../Errors.ts";
 import type { ProviderAdapterShape } from "./ProviderAdapter.ts";
 
+export interface PendingMcpServerConfig {
+  readonly config: unknown;
+}
+
 /**
  * ClaudeAdapterShape - Service API for the Claude Agent provider adapter.
  */
 export interface ClaudeAdapterShape extends ProviderAdapterShape<ProviderAdapterError> {
   readonly provider: "claudeAgent";
+  readonly registerMcpServer: (threadId: string, mcpConfig: PendingMcpServerConfig) => void;
 }
 
 /**

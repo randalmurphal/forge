@@ -402,6 +402,8 @@ function createThreadCreatedEvent(threadId: ThreadId, sequence: number): Orchest
       interactionMode: "default",
       branch: "main",
       worktreePath: null,
+      workflowId: null,
+      patternId: null,
       createdAt: NOW_ISO,
       updatedAt: NOW_ISO,
     },

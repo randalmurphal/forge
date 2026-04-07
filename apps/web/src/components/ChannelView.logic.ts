@@ -431,7 +431,6 @@ export function isChannelContainerThread(
 
   return (
     thread.parentThreadId == null &&
-    thread.workflowId == null &&
     thread.patternId != null &&
     (thread.childThreadIds?.length ?? 0) > 0
   );

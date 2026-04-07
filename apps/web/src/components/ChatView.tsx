@@ -90,7 +90,8 @@ import BranchToolbar from "./BranchToolbar";
 import { resolveShortcutCommand, shortcutLabelForCommand } from "../keybindings";
 import PlanSidebar from "./PlanSidebar";
 import ThreadTerminalDrawer from "./ThreadTerminalDrawer";
-import { WorkflowPicker } from "./WorkflowPicker";
+import { UnifiedThreadPicker } from "./chat/UnifiedThreadPicker";
+import { BUILT_IN_THINKING_WORKFLOW_SLUGS, normalizeWorkflowSlug } from "./WorkflowPicker.logic";
 import {
   BotIcon,
   ChevronDownIcon,
@@ -158,7 +159,7 @@ import { MessagesTimeline } from "./chat/MessagesTimeline";
 import { ChatHeader } from "./chat/ChatHeader";
 import { ContextWindowMeter } from "./chat/ContextWindowMeter";
 import { buildExpandedImagePreview, ExpandedImagePreview } from "./chat/ExpandedImagePreview";
-import { AVAILABLE_PROVIDER_OPTIONS, ProviderModelPicker } from "./chat/ProviderModelPicker";
+import { AVAILABLE_PROVIDER_OPTIONS } from "./chat/ProviderModelPicker";
 import { ComposerCommandItem, ComposerCommandMenu } from "./chat/ComposerCommandMenu";
 import { ComposerPendingApprovalActions } from "./chat/ComposerPendingApprovalActions";
 import { CompactComposerControlsMenu } from "./chat/CompactComposerControlsMenu";
@@ -3009,13 +3010,22 @@ export default function ChatView({ threadId }: ChatViewProps) {
       };
 
       if (isLocalDraftThread) {
+        const threadWorkflowId = activeThread.workflowId;
+        const threadPatternId = threadWorkflowId
+          ? (() => {
+              const slug = normalizeWorkflowSlug(threadWorkflowId);
+              return BUILT_IN_THINKING_WORKFLOW_SLUGS.has(slug) ? slug : undefined;
+            })()
+          : undefined;
+
         await api.orchestration.dispatchCommand({
           type: "thread.create",
           commandId: newCommandId(),
           threadId: threadIdForSend,
           projectId: activeProject.id,
           title,
-          ...(activeThread.workflowId ? { workflowId: activeThread.workflowId } : {}),
+          ...(threadWorkflowId ? { workflowId: threadWorkflowId } : {}),
+          ...(threadPatternId ? { patternId: threadPatternId } : {}),
           modelSelection: threadCreateModelSelection,
           runtimeMode,
           interactionMode,
@@ -4234,29 +4244,16 @@ export default function ChatView({ threadId }: ChatViewProps) {
                             : "gap-1 overflow-x-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden sm:min-w-max sm:overflow-visible",
                         )}
                       >
-                        {isLocalDraftThread ? (
-                          <WorkflowPicker
-                            threadId={threadId}
-                            compact={isComposerFooterCompact}
-                            disabled={isConnecting || isSendBusy}
-                          />
-                        ) : null}
-
-                        {/* Provider/model picker */}
-                        <ProviderModelPicker
+                        <UnifiedThreadPicker
+                          threadId={threadId}
                           compact={isComposerFooterCompact}
                           provider={selectedProvider}
                           model={selectedModelForPickerWithCustomFallback}
                           lockedProvider={lockedProvider}
                           providers={providerStatuses}
                           modelOptionsByProvider={modelOptionsByProvider}
-                          {...(composerProviderState.modelPickerIconClassName
-                            ? {
-                                activeProviderIconClassName:
-                                  composerProviderState.modelPickerIconClassName,
-                              }
-                            : {})}
                           onProviderModelChange={onProviderModelSelect}
+                          disabled={isConnecting || isSendBusy}
                         />
 
                         {isComposerFooterCompact ? (

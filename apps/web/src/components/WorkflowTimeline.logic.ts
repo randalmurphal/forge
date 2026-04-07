@@ -665,9 +665,17 @@ export function resolveWorkflowTimelineOutput(input: {
 }
 
 export function isWorkflowContainerThread(
-  thread: Pick<Thread, "workflowId" | "phaseRunId" | "parentThreadId"> | null | undefined,
+  thread:
+    | Pick<Thread, "workflowId" | "phaseRunId" | "parentThreadId" | "patternId">
+    | null
+    | undefined,
 ): boolean {
-  return thread?.workflowId != null && thread.phaseRunId == null && thread.parentThreadId == null;
+  return (
+    thread?.workflowId != null &&
+    thread.phaseRunId == null &&
+    thread.parentThreadId == null &&
+    thread.patternId == null
+  );
 }
 
 export function buildWorkflowTimeline(input: {
