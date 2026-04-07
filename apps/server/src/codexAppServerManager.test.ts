@@ -167,6 +167,24 @@ function createDynamicToolHarness() {
   return { manager, context, writeMessage, emitEvent };
 }
 
+type DynamicToolRequestContext = ReturnType<typeof createDynamicToolHarness>["context"];
+
+type DynamicToolRequestHarnessContext = {
+  session: {
+    provider: string;
+    status: string;
+    threadId: ThreadId;
+    runtimeMode: string;
+    model: string;
+    resumeCursor: { threadId: string };
+    createdAt: string;
+    updatedAt: string;
+  };
+  pendingApprovals: Map<unknown, unknown>;
+  pendingUserInputs: Map<unknown, unknown>;
+  collabReceiverTurns: Map<unknown, unknown>;
+};
+
 function createCollabNotificationHarness() {
   const manager = new CodexAppServerManager();
   const context = {
@@ -854,9 +872,9 @@ describe("respondToUserInput", () => {
       collabReceiverTurns: new Map(),
     };
     type ApprovalRequestContext = {
-      session: typeof context.session;
-      pendingApprovals: typeof context.pendingApprovals;
-      pendingUserInputs: typeof context.pendingUserInputs;
+      session: Record<string, unknown>;
+      pendingApprovals: Map<unknown, unknown>;
+      pendingUserInputs: Map<unknown, unknown>;
     };
 
     (
@@ -887,7 +905,10 @@ describe("respondToUserInput", () => {
 
     (
       manager as unknown as {
-        handleServerRequest: (context: typeof context, request: Record<string, unknown>) => void;
+        handleServerRequest: (
+          context: DynamicToolRequestContext,
+          request: Record<string, unknown>,
+        ) => void;
       }
     ).handleServerRequest(context, {
       jsonrpc: "2.0",
@@ -950,7 +971,10 @@ describe("respondToUserInput", () => {
 
     (
       manager as unknown as {
-        handleServerRequest: (context: typeof context, request: Record<string, unknown>) => void;
+        handleServerRequest: (
+          context: DynamicToolRequestHarnessContext,
+          request: Record<string, unknown>,
+        ) => void;
       }
     ).handleServerRequest(context, {
       jsonrpc: "2.0",
