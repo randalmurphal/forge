@@ -301,11 +301,14 @@ export const makePatternReactor = Effect.gen(function* () {
       return;
     }
 
+    const mcpServerName = `forge-shared-chat-${input.childThreadId}`;
     registerPendingMcpServer(input.childThreadId, {
-      config: makeSharedChatMcpServer({
-        serverName: `forge-shared-chat-${input.childThreadId}`,
-        onPostMessage: postMessage,
-      }),
+      config: {
+        [mcpServerName]: makeSharedChatMcpServer({
+          serverName: mcpServerName,
+          onPostMessage: postMessage,
+        }),
+      },
     });
   };
 

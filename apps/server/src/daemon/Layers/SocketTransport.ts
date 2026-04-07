@@ -30,6 +30,7 @@ import {
   ThreadId,
   TrimmedNonEmptyString,
   type WorkflowDefinition,
+  workflowHasDeliberation,
   WorkflowId,
 } from "@forgetools/contracts";
 import { Effect, Layer, Option, Schema, Stream } from "effect";
@@ -1181,6 +1182,7 @@ const makeSocketTransport = Effect.gen(function* () {
             description: workflow.description,
             builtIn: workflow.builtIn,
             projectId: workflow.projectId,
+            hasDeliberation: workflowHasDeliberation(workflow.phases),
           }),
         ),
       })),

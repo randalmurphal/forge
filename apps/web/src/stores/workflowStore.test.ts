@@ -46,6 +46,7 @@ function makeWorkflowSummary(
     description: `${workflowId} description`,
     builtIn: true,
     projectId: null,
+    hasDeliberation: false,
     ...overrides,
   };
 }

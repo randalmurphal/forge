@@ -30,6 +30,7 @@ import {
   ModelSelection,
   ProjectId,
   ThreadId,
+  workflowHasDeliberation,
 } from "@forgetools/contracts";
 import { Effect, Layer, Option, Schema, Struct } from "effect";
 import * as SqlClient from "effect/unstable/sql/SqlClient";
@@ -989,6 +990,7 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
             description: row.description,
             builtIn: row.builtIn === 1,
             projectId: row.projectId,
+            hasDeliberation: workflowHasDeliberation(row.phases),
           }));
 
           const snapshot = {

@@ -4,7 +4,6 @@ import { Suspense, lazy, type ReactNode, useCallback, useEffect, useState } from
 
 import ChatView from "../components/ChatView";
 import { DiffWorkerPoolProvider } from "../components/DiffWorkerPoolProvider";
-import { WorkflowTimeline } from "../components/WorkflowTimeline";
 import {
   DiffPanelHeaderSkeleton,
   DiffPanelLoadingState,
@@ -19,10 +18,8 @@ import {
 } from "../diffRouteSearch";
 import { useMediaQuery } from "../hooks/useMediaQuery";
 import { useStore } from "../store";
-import { useThreadById } from "../storeSelectors";
 import { Sheet, SheetPopup } from "../components/ui/sheet";
 import { Sidebar, SidebarInset, SidebarProvider, SidebarRail } from "~/components/ui/sidebar";
-import { isWorkflowContainerThread } from "../components/WorkflowTimeline.logic";
 
 const DiffPanel = lazy(() => import("../components/DiffPanel"));
 const DIFF_INLINE_LAYOUT_MEDIA_QUERY = "(max-width: 1180px)";
@@ -169,7 +166,6 @@ function ChatThreadRouteView() {
   const threadId = Route.useParams({
     select: (params) => ThreadId.makeUnsafe(params.threadId),
   });
-  const thread = useThreadById(threadId);
   const search = Route.useSearch();
   const threadExists = useStore((store) => store.threads.some((thread) => thread.id === threadId));
   const draftThreadExists = useComposerDraftStore((store) =>
@@ -218,16 +214,6 @@ function ChatThreadRouteView() {
 
   if (!bootstrapComplete || !routeThreadExists) {
     return null;
-  }
-
-  // Workflow container sessions share the canonical thread URL. We dispatch to the
-  // workflow timeline here so existing `/$threadId` navigation continues to work.
-  if (isWorkflowContainerThread(thread)) {
-    return (
-      <SidebarInset className="h-dvh min-h-0 overflow-hidden overscroll-y-none bg-background text-foreground">
-        <WorkflowTimeline threadId={threadId} />
-      </SidebarInset>
-    );
   }
 
   const shouldRenderDiffContent = diffOpen || hasOpenedDiff;

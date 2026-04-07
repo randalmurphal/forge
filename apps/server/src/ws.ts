@@ -20,6 +20,7 @@ import {
   ThreadId,
   type WorkflowPushEvent,
   type WorkflowDefinition,
+  workflowHasDeliberation,
   WS_METHODS,
   WsRpcGroup,
 } from "@forgetools/contracts";
@@ -1068,6 +1069,7 @@ const WsRpcLayer = WsRpcGroup.toLayer(
                 description: workflow.description,
                 builtIn: workflow.builtIn,
                 projectId: workflow.projectId,
+                hasDeliberation: workflowHasDeliberation(workflow.phases),
               })),
             })),
             Effect.mapError(

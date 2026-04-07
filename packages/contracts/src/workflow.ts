@@ -164,6 +164,12 @@ export const WorkflowDefinition = Schema.Struct({
 });
 export type WorkflowDefinition = typeof WorkflowDefinition.Type;
 
+export function workflowHasDeliberation(
+  phases: ReadonlyArray<Pick<WorkflowPhase, "type" | "deliberation">>,
+): boolean {
+  return phases.some((phase) => phase.type === "multi-agent" && phase.deliberation !== undefined);
+}
+
 export function defaultSandboxMode(phaseType: PhaseType): ProviderSandboxMode {
   switch (phaseType) {
     case "single-agent":

@@ -1,13 +1,6 @@
 import type { ProjectId, WorkflowId, WorkflowSummary } from "@forgetools/contracts";
 
 export const NO_WORKFLOW_VALUE = "__none__";
-export const BUILT_IN_THINKING_WORKFLOW_SLUGS = new Set([
-  "code-review",
-  "debate",
-  "explore",
-  "interrogate",
-  "refine-prompt",
-]);
 
 export type WorkflowPickerCategory = "implementation" | "thinking";
 
@@ -17,28 +10,8 @@ export interface WorkflowPickerSection {
   workflows: WorkflowSummary[];
 }
 
-export function normalizeWorkflowSlug(value: string): string {
-  return value
-    .trim()
-    .toLowerCase()
-    .replace(/^workflow-built-in-/, "");
-}
-
 export function resolveWorkflowPickerCategory(workflow: WorkflowSummary): WorkflowPickerCategory {
-  if (!workflow.builtIn) {
-    return "implementation";
-  }
-
-  const workflowSlug = normalizeWorkflowSlug(workflow.workflowId);
-  const workflowName = normalizeWorkflowSlug(workflow.name);
-  if (
-    BUILT_IN_THINKING_WORKFLOW_SLUGS.has(workflowSlug) ||
-    BUILT_IN_THINKING_WORKFLOW_SLUGS.has(workflowName)
-  ) {
-    return "thinking";
-  }
-
-  return "implementation";
+  return workflow.hasDeliberation ? "thinking" : "implementation";
 }
 
 function workflowPickerScopeRank(workflow: WorkflowSummary): number {

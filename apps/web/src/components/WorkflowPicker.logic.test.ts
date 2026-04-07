@@ -20,6 +20,7 @@ function makeWorkflowSummary(
     description: `${workflowId} description`,
     builtIn: false,
     projectId: null,
+    hasDeliberation: false,
     ...overrides,
   };
 }
@@ -136,12 +137,25 @@ describe("buildWorkflowPickerSections", () => {
 });
 
 describe("resolveWorkflowPickerCategory", () => {
-  it("classifies built-in deliberation workflows as thinking patterns", () => {
+  it("classifies deliberation workflows as thinking patterns", () => {
     expect(
       resolveWorkflowPickerCategory(
         makeWorkflowSummary("workflow-built-in-interrogate", {
           builtIn: true,
           name: "interrogate",
+          hasDeliberation: true,
+        }),
+      ),
+    ).toBe("thinking");
+  });
+
+  it("classifies custom deliberation workflows as thinking patterns", () => {
+    expect(
+      resolveWorkflowPickerCategory(
+        makeWorkflowSummary("workflow-custom-123", {
+          builtIn: false,
+          name: "debate copy",
+          hasDeliberation: true,
         }),
       ),
     ).toBe("thinking");

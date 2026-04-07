@@ -91,7 +91,7 @@ import { resolveShortcutCommand, shortcutLabelForCommand } from "../keybindings"
 import PlanSidebar from "./PlanSidebar";
 import ThreadTerminalDrawer from "./ThreadTerminalDrawer";
 import { UnifiedThreadPicker } from "./chat/UnifiedThreadPicker";
-import { BUILT_IN_THINKING_WORKFLOW_SLUGS, normalizeWorkflowSlug } from "./WorkflowPicker.logic";
+import { useWorkflowStore } from "../stores/workflowStore";
 import {
   BotIcon,
   ChevronDownIcon,
@@ -570,24 +570,8 @@ function PersistentThreadTerminalDrawer({
   );
 }
 
-function isPatternWorkflowSelection(workflowId: string | null | undefined): boolean {
-  if (!workflowId) {
-    return false;
-  }
-  return BUILT_IN_THINKING_WORKFLOW_SLUGS.has(normalizeWorkflowSlug(workflowId));
-}
-
-function formatPatternDisplayName(input: {
-  workflowId?: string | null;
-  patternId?: string | null;
-}): string | null {
-  const raw =
-    input.patternId ?? (isPatternWorkflowSelection(input.workflowId) ? input.workflowId : null);
-  if (!raw) {
-    return null;
-  }
-
-  return normalizeWorkflowSlug(raw)
+function titleCase(value: string): string {
+  return value
     .split(/[-_\s]+/)
     .filter(Boolean)
     .map((part) => part[0]?.toUpperCase() + part.slice(1))
@@ -865,14 +849,24 @@ export default function ChatView({ threadId }: ChatViewProps) {
   );
   const activeThread = serverThread ?? localDraftThread;
   const childThreads = useThreadsByIds(activeThread?.childThreadIds);
+  const activeWorkflowHasDeliberation = useWorkflowStore((state) => {
+    const wid = activeThread?.workflowId;
+    if (!wid) return false;
+    return state.availableWorkflows.find((w) => w.workflowId === wid)?.hasDeliberation ?? false;
+  });
   const isPatternContainerThread =
     activeThread !== undefined &&
     activeThread.parentThreadId == null &&
-    (activeThread.patternId != null || isPatternWorkflowSelection(activeThread.workflowId));
-  const patternDisplayName = formatPatternDisplayName({
-    ...(activeThread?.workflowId !== undefined ? { workflowId: activeThread.workflowId } : {}),
-    ...(activeThread?.patternId !== undefined ? { patternId: activeThread.patternId } : {}),
-  });
+    (activeThread.patternId != null || activeWorkflowHasDeliberation);
+  const patternDisplayName = useMemo(() => {
+    if (!isPatternContainerThread || !activeThread) return null;
+    const workflowName = useWorkflowStore
+      .getState()
+      .availableWorkflows.find((w) => w.workflowId === activeThread.workflowId)?.name;
+    if (workflowName) return titleCase(workflowName);
+    if (activeThread.patternId) return titleCase(activeThread.patternId);
+    return null;
+  }, [isPatternContainerThread, activeThread]);
   const activePatternChildren = useMemo(
     () =>
       isPatternContainerThread
@@ -3103,17 +3097,20 @@ export default function ChatView({ threadId }: ChatViewProps) {
         ...(selectedModelSelection.options ? { options: selectedModelSelection.options } : {}),
       };
       const localDraftWorkflowId = isLocalDraftThread ? (activeThread.workflowId ?? null) : null;
+      const draftWorkflowSummary = localDraftWorkflowId
+        ? useWorkflowStore
+            .getState()
+            .availableWorkflows.find((w) => w.workflowId === localDraftWorkflowId)
+        : undefined;
       const isPatternDraftThread =
-        isLocalDraftThread && isPatternWorkflowSelection(localDraftWorkflowId);
+        isLocalDraftThread && (draftWorkflowSummary?.hasDeliberation ?? false);
 
       if (isLocalDraftThread) {
         const threadWorkflowId = localDraftWorkflowId;
-        const threadPatternId = threadWorkflowId
-          ? (() => {
-              const slug = normalizeWorkflowSlug(threadWorkflowId);
-              return BUILT_IN_THINKING_WORKFLOW_SLUGS.has(slug) ? slug : undefined;
-            })()
-          : undefined;
+        const threadPatternId =
+          threadWorkflowId && draftWorkflowSummary?.hasDeliberation
+            ? (draftWorkflowSummary.name ?? threadWorkflowId)
+            : undefined;
 
         await api.orchestration.dispatchCommand({
           type: "thread.create",

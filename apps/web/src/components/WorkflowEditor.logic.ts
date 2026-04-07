@@ -1,12 +1,13 @@
-import type {
-  GateAfter,
-  GateOnFail,
-  ModelSelection,
-  ProjectId,
-  QualityCheckReference,
-  WorkflowDefinition,
-  WorkflowPhase,
-  WorkflowSummary,
+import {
+  type GateAfter,
+  type GateOnFail,
+  type ModelSelection,
+  type ProjectId,
+  type QualityCheckReference,
+  type WorkflowDefinition,
+  type WorkflowPhase,
+  type WorkflowSummary,
+  workflowHasDeliberation,
 } from "@forgetools/contracts";
 import { WorkflowId, WorkflowPhaseId, defaultSandboxMode } from "@forgetools/contracts";
 import { randomUUID } from "../lib/utils";
@@ -274,6 +275,7 @@ export function toWorkflowSummaryRecord(workflow: WorkflowDefinition): WorkflowS
     description: workflow.description,
     builtIn: workflow.builtIn,
     projectId: workflow.projectId,
+    hasDeliberation: workflowHasDeliberation(workflow.phases),
   };
 }
 
