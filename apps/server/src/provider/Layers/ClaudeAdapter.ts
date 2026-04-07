@@ -75,6 +75,7 @@ import {
   type ProviderAdapterError,
 } from "../Errors.ts";
 import { ClaudeAdapter, type ClaudeAdapterShape } from "../Services/ClaudeAdapter.ts";
+import { makeClaudeOAuthTokenResolver } from "../claudeOAuthCredential.ts";
 import { type EventNdjsonLogger, makeEventNdjsonLogger } from "./EventNdjsonLogger.ts";
 
 const PROVIDER = "claudeAgent" as const;
@@ -914,6 +915,7 @@ const makeClaudeAdapter = Effect.fn("makeClaudeAdapter")(function* (
   options?: ClaudeAdapterLiveOptions,
 ) {
   const fileSystem = yield* FileSystem.FileSystem;
+  const oauthResolver = yield* makeClaudeOAuthTokenResolver;
   const serverConfig = yield* ServerConfig;
   const nativeEventLogger =
     options?.nativeEventLogger ??
@@ -2705,6 +2707,8 @@ const makeClaudeAdapter = Effect.fn("makeClaudeAdapter")(function* (
 
       const pendingMcp = getPendingMcpServer(threadId);
 
+      const oauthToken = yield* oauthResolver.getToken;
+
       const queryOptions: ClaudeQueryOptions = {
         ...(input.cwd ? { cwd: input.cwd } : {}),
         ...(apiModelId ? { model: apiModelId } : {}),
@@ -2720,7 +2724,10 @@ const makeClaudeAdapter = Effect.fn("makeClaudeAdapter")(function* (
         ...(newSessionId ? { sessionId: newSessionId } : {}),
         includePartialMessages: true,
         canUseTool,
-        env: process.env,
+        env: {
+          ...process.env,
+          ...(oauthToken ? { CLAUDE_CODE_OAUTH_TOKEN: oauthToken } : {}),
+        },
         ...(input.cwd ? { additionalDirectories: [input.cwd] } : {}),
         ...(pendingMcp ? { mcpServers: pendingMcp.config } : {}),
       } as ClaudeQueryOptions;
