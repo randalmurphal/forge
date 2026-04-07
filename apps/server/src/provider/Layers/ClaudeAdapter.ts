@@ -63,6 +63,7 @@ import {
 
 import { resolveAttachmentPath } from "../../attachmentStore.ts";
 import { ServerConfig } from "../../config.ts";
+import { getPendingMcpServer, registerPendingMcpServer } from "../../pattern/pendingMcpServers.ts";
 import { ServerSettingsService } from "../../serverSettings.ts";
 import { getClaudeModelCapabilities } from "./ClaudeProvider.ts";
 import {
@@ -932,10 +933,8 @@ const makeClaudeAdapter = Effect.fn("makeClaudeAdapter")(function* (
   const sessions = new Map<ThreadId, ClaudeSessionContext>();
   const runtimeEventQueue = yield* Queue.unbounded<ProviderRuntimeEvent>();
   const serverSettingsService = yield* ServerSettingsService;
-  const pendingMcpServers = new Map<string, { config: unknown }>();
-
   const registerMcpServer = (threadId: string, mcpConfig: { config: unknown }) => {
-    pendingMcpServers.set(threadId, mcpConfig);
+    registerPendingMcpServer(threadId, mcpConfig);
   };
 
   const nowIso = Effect.map(DateTime.now, DateTime.formatIso);
@@ -2704,10 +2703,7 @@ const makeClaudeAdapter = Effect.fn("makeClaudeAdapter")(function* (
         ...(fastMode ? { fastMode: true } : {}),
       };
 
-      const pendingMcp = pendingMcpServers.get(threadId);
-      if (pendingMcp) {
-        pendingMcpServers.delete(threadId);
-      }
+      const pendingMcp = getPendingMcpServer(threadId);
 
       const queryOptions: ClaudeQueryOptions = {
         ...(input.cwd ? { cwd: input.cwd } : {}),

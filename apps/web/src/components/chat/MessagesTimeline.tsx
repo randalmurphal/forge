@@ -68,6 +68,7 @@ interface MessagesTimelineProps {
   isWorking: boolean;
   activeTurnInProgress: boolean;
   activeTurnStartedAt: string | null;
+  workingParticipantLabels?: ReadonlyArray<string>;
   scrollContainer: HTMLDivElement | null;
   timelineEntries: ReturnType<typeof deriveTimelineEntries>;
   completionDividerBeforeEntryId: string | null;
@@ -103,6 +104,7 @@ export const MessagesTimeline = memo(function MessagesTimeline({
   isWorking,
   activeTurnInProgress,
   activeTurnStartedAt,
+  workingParticipantLabels,
   scrollContainer,
   timelineEntries,
   completionDividerBeforeEntryId,
@@ -157,8 +159,15 @@ export const MessagesTimeline = memo(function MessagesTimeline({
         completionDividerBeforeEntryId,
         isWorking,
         activeTurnStartedAt,
+        ...(workingParticipantLabels !== undefined ? { workingParticipantLabels } : {}),
       }),
-    [timelineEntries, completionDividerBeforeEntryId, isWorking, activeTurnStartedAt],
+    [
+      timelineEntries,
+      completionDividerBeforeEntryId,
+      isWorking,
+      activeTurnStartedAt,
+      workingParticipantLabels,
+    ],
   );
 
   const firstUnvirtualizedRowIndex = useMemo(() => {
@@ -438,6 +447,9 @@ export const MessagesTimeline = memo(function MessagesTimeline({
         row.message.role === "assistant" &&
         (() => {
           const messageText = row.message.text || (row.message.streaming ? "" : "(empty response)");
+          const attributionLabel = row.message.attribution
+            ? `${formatAttributionRole(row.message.attribution.role)} · ${row.message.attribution.model}`
+            : null;
           return (
             <>
               {row.showCompletionDivider && (
@@ -450,6 +462,11 @@ export const MessagesTimeline = memo(function MessagesTimeline({
                 </div>
               )}
               <div className="min-w-0 px-1 py-0.5">
+                {attributionLabel ? (
+                  <p className="mb-1.5 text-[10px] font-medium uppercase tracking-[0.12em] text-muted-foreground/70">
+                    {attributionLabel}
+                  </p>
+                ) : null}
                 <ChatMarkdown
                   text={messageText}
                   cwd={markdownCwd}
@@ -550,6 +567,18 @@ export const MessagesTimeline = memo(function MessagesTimeline({
                 : "Working..."}
             </span>
           </div>
+          {row.participantLabels.length > 0 ? (
+            <div className="mt-1 flex flex-wrap items-center gap-1.5 pl-4 text-[10px] text-muted-foreground/65">
+              {row.participantLabels.map((label) => (
+                <span
+                  key={`working-participant:${label}`}
+                  className="rounded-full border border-border/60 px-2 py-0.5"
+                >
+                  {label}
+                </span>
+              ))}
+            </div>
+          ) : null}
         </div>
       )}
     </div>
@@ -629,6 +658,14 @@ function formatWorkingTimer(startIso: string, endIso: string): string | null {
   }
 
   return seconds > 0 ? `${minutes}m ${seconds}s` : `${minutes}m`;
+}
+
+function formatAttributionRole(role: string): string {
+  return role
+    .split(/[-_\s]+/)
+    .filter(Boolean)
+    .map((part) => part[0]?.toUpperCase() + part.slice(1))
+    .join(" ");
 }
 
 function formatMessageMeta(

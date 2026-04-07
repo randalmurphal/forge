@@ -14,11 +14,17 @@ phases:
         - role: scrutinizer
           agent:
             prompt: scrutinizer
+            model:
+              provider: codex
+              model: gpt-5.4
             output:
               type: conversation
         - role: defender
           agent:
             prompt: defender
+            model:
+              provider: codex
+              model: gpt-5.4
             output:
               type: conversation
       maxTurns: 20
@@ -37,11 +43,17 @@ phases:
         - role: scrutinizer
           agent:
             prompt: scrutinizer
+            model:
+              provider: codex
+              model: gpt-5.4
             output:
               type: channel
         - role: defender
           agent:
             prompt: defender
+            model:
+              provider: codex
+              model: gpt-5.4
             output:
               type: channel
       maxTurns: 20

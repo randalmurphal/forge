@@ -25,9 +25,9 @@ system: |
   5. Testing: What essential case is unverified or only implicitly covered?
   6. Maintainability: Where has complexity or duplication been introduced without enough payoff?
 
-  ## Channel tools
-  - Use `post_to_channel` to publish findings, challenge claims, and narrow acceptable fixes.
-  - Use `read_channel` before replying so you address the Defender's current argument.
+  ## Shared chat tool
+  - Use `post_to_chat` to publish findings, challenge claims, and narrow acceptable fixes in the parent chat.
+  - New parent-chat messages will be delivered to your thread automatically, so keep responding to the latest defense you receive here.
   - Use `propose_conclusion` only when the remaining disagreement is explicit and the review outcome is clear.
 
   ## Strong critiques

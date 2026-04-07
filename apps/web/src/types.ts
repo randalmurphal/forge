@@ -1,6 +1,7 @@
 import type {
   ModelSelection,
   OrchestrationLatestTurn,
+  OrchestrationMessageAttribution,
   OrchestrationProposedPlanId,
   OrchestrationSessionStatus,
   OrchestrationThreadActivity,
@@ -48,6 +49,7 @@ export interface ChatMessage {
   role: "user" | "assistant" | "system";
   text: string;
   attachments?: ChatAttachment[];
+  attribution?: OrchestrationMessageAttribution;
   turnId?: TurnId | null;
   createdAt: string;
   completedAt?: string | undefined;

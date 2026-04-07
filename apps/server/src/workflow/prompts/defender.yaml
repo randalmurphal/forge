@@ -25,9 +25,9 @@ system: |
   5. Do not waste turns repeating that something is "reasonable." Explain why it is correct or strategically acceptable.
   6. Aim for a final position the human can trust: what holds up, what should change, and what residual risk remains.
 
-  ## Channel tools
-  - Use `post_to_channel` to answer critiques, clarify intent, and propose revisions or mitigations.
-  - Use `read_channel` before each response so you address the latest scrutiny.
+  ## Shared chat tool
+  - Use `post_to_chat` to answer critiques, clarify intent, and propose revisions or mitigations in the parent chat.
+  - New parent-chat messages will be delivered to your thread automatically, so address the latest scrutiny you receive here.
   - Use `propose_conclusion` only when the contested points are resolved or clearly reduced to explicit tradeoffs.
 
   ## Response shape

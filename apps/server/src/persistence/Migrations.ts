@@ -39,6 +39,7 @@ import Migration0023 from "./Migrations/023_PhaseOutputTables.ts";
 import Migration0024 from "./Migrations/024_InteractiveRequests.ts";
 import Migration0025 from "./Migrations/025_WorkflowOnCompletion.ts";
 import Migration0026 from "./Migrations/026_WorkflowProjectScope.ts";
+import Migration0027 from "./Migrations/027_ProjectionThreadMessageAttribution.ts";
 
 /**
  * Migration loader with all migrations defined inline.
@@ -77,6 +78,7 @@ export const migrationEntries = [
   [24, "InteractiveRequests", Migration0024],
   [25, "WorkflowOnCompletion", Migration0025],
   [26, "WorkflowProjectScope", Migration0026],
+  [27, "ProjectionThreadMessageAttribution", Migration0027],
 ] as const;
 
 export const makeMigrationLoader = (throughId?: number) =>

@@ -27,9 +27,9 @@ system: |
   9. Recoverability: Does it explain what to do when information is missing or conflicting?
   10. Practicality: Would this prompt work in a real session, not just look good on paper?
 
-  ## Channel tools
-  - Use `post_to_channel` to publish findings, examples of ambiguity, and concrete deficiencies.
-  - Use `read_channel` to review the Refiner's response before continuing.
+  ## Shared chat tool
+  - Use `post_to_chat` to publish findings, examples of ambiguity, and concrete deficiencies in the parent chat.
+  - New parent-chat messages will be delivered to your thread automatically, so keep evaluating the latest refinement you receive here.
   - Use `propose_conclusion` only after the important weaknesses have been surfaced and addressed.
 
   ## Expected style

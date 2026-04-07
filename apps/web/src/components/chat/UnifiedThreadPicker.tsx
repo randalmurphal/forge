@@ -51,6 +51,8 @@ export const UnifiedThreadPicker = memo(function UnifiedThreadPicker(props: {
   provider: ProviderKind;
   model: string;
   lockedProvider: ProviderKind | null;
+  patternLabelOverride?: string | null;
+  hideModelSection?: boolean;
   providers?: ReadonlyArray<ServerProvider>;
   modelOptionsByProvider: Record<ProviderKind, ReadonlyArray<{ slug: string; name: string }>>;
   onProviderModelChange: (provider: ProviderKind, model: string) => void;
@@ -150,9 +152,13 @@ export const UnifiedThreadPicker = memo(function UnifiedThreadPicker(props: {
   };
 
   // --- Trigger label ---
-  const triggerLabel = selectedPattern
-    ? `${selectedPattern.name} \u00b7 ${selectedModelLabel}`
-    : selectedModelLabel;
+  const resolvedPatternLabel = props.patternLabelOverride ?? selectedPattern?.name ?? null;
+  const triggerLabel =
+    resolvedPatternLabel !== null
+      ? props.hideModelSection
+        ? resolvedPatternLabel
+        : `${resolvedPatternLabel} \u00b7 ${selectedModelLabel}`
+      : selectedModelLabel;
 
   // When a draft thread doesn't exist (started thread), hide pattern section
   const showPatternSection = draftThread !== null;
@@ -188,17 +194,19 @@ export const UnifiedThreadPicker = memo(function UnifiedThreadPicker(props: {
             props.compact ? "max-w-44 sm:pl-1" : undefined,
           )}
         >
-          <ProviderIcon
-            aria-hidden="true"
-            className={cn("size-4 shrink-0", providerIconClassName(activeProvider))}
-          />
+          {!props.hideModelSection ? (
+            <ProviderIcon
+              aria-hidden="true"
+              className={cn("size-4 shrink-0", providerIconClassName(activeProvider))}
+            />
+          ) : null}
           <span className="min-w-0 flex-1 truncate">{triggerLabel}</span>
           <ChevronDownIcon aria-hidden="true" className="size-3 shrink-0 opacity-60" />
         </span>
       </MenuTrigger>
       <MenuPopup align="start" className="min-w-56">
         {/* Section 1: Models */}
-        {props.lockedProvider !== null ? (
+        {!props.hideModelSection && props.lockedProvider !== null ? (
           <MenuGroup>
             <MenuGroupLabel>Models</MenuGroupLabel>
             <MenuRadioGroup
@@ -216,7 +224,7 @@ export const UnifiedThreadPicker = memo(function UnifiedThreadPicker(props: {
               ))}
             </MenuRadioGroup>
           </MenuGroup>
-        ) : (
+        ) : !props.hideModelSection ? (
           <ModelSelectionSection
             provider={props.provider}
             model={props.model}
@@ -225,12 +233,12 @@ export const UnifiedThreadPicker = memo(function UnifiedThreadPicker(props: {
             onModelChange={handleModelChange}
             onCloseMenu={() => setIsMenuOpen(false)}
           />
-        )}
+        ) : null}
 
         {/* Section 2: Patterns */}
         {showPatternSection && thinkingPatterns.length > 0 ? (
           <>
-            <MenuSeparator />
+            {!props.hideModelSection ? <MenuSeparator /> : null}
             <MenuGroup>
               <MenuGroupLabel>Patterns</MenuGroupLabel>
               <MenuRadioGroup

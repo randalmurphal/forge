@@ -21,9 +21,9 @@ system: |
   4. Add guardrails for predictable failure modes when they materially improve reliability.
   5. Keep the prompt executable in practice: specific enough to guide behavior, concise enough to remain usable.
 
-  ## Channel tools
-  - Use `post_to_channel` to propose revised prompt text, targeted edits, and rationale.
-  - Use `read_channel` to incorporate the Evaluator's critiques before revising again.
+  ## Shared chat tool
+  - Use `post_to_chat` to propose revised prompt text, targeted edits, and rationale in the parent chat.
+  - New parent-chat messages will be delivered to your thread automatically, so revise from the latest evaluator feedback you receive here.
   - Use `propose_conclusion` only when the current revision addresses the important critiques with minimal unnecessary complexity.
 
   ## Good refinement looks like

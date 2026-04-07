@@ -37,13 +37,17 @@ import {
   CodexAppServerManager,
   type CodexAppServerStartSessionInput,
 } from "../../codexAppServerManager.ts";
-import { consumePendingSessionConfig } from "../../channel/pendingDynamicTools.ts";
+import { getPendingSessionTools } from "../../pattern/pendingSessionTools.ts";
 import { resolveAttachmentPath } from "../../attachmentStore.ts";
 import { ServerConfig } from "../../config.ts";
 import { ServerSettingsService } from "../../serverSettings.ts";
 import { type EventNdjsonLogger, makeEventNdjsonLogger } from "./EventNdjsonLogger.ts";
 
 const PROVIDER = "codex" as const;
+
+const registerDynamicToolsNoop: CodexAdapterShape["registerDynamicTools"] = () => {
+  // Pattern-specific dynamic tools are registered before the child session starts.
+};
 
 export interface CodexAdapterLiveOptions {
   readonly manager?: CodexAppServerManager;
@@ -1380,11 +1384,6 @@ const makeCodexAdapter = Effect.fn("makeCodexAdapter")(function* (
   );
   const serverSettingsService = yield* ServerSettingsService;
 
-  const registerDynamicTools: CodexAdapterShape["registerDynamicTools"] = () => {
-    // Dynamic tools are now registered via the shared pendingDynamicTools registry.
-    // This method exists only to satisfy the interface.
-  };
-
   const startSession: CodexAdapterShape["startSession"] = Effect.fn("startSession")(
     function* (input) {
       if (input.provider !== undefined && input.provider !== PROVIDER) {
@@ -1410,7 +1409,7 @@ const makeCodexAdapter = Effect.fn("makeCodexAdapter")(function* (
       const binaryPath = codexSettings.binaryPath;
       const homePath = codexSettings.homePath;
 
-      const pendingToolConfig = consumePendingSessionConfig(input.threadId);
+      const pendingToolConfig = getPendingSessionTools(input.threadId);
 
       const managerInput: CodexAppServerStartSessionInput = {
         threadId: input.threadId,
@@ -1430,9 +1429,6 @@ const makeCodexAdapter = Effect.fn("makeCodexAdapter")(function* (
           ? {
               dynamicTools: pendingToolConfig.tools,
               dynamicToolHandler: pendingToolConfig.handler,
-              ...(pendingToolConfig.baseInstructions
-                ? { baseInstructions: pendingToolConfig.baseInstructions }
-                : {}),
             }
           : {}),
       };
@@ -1649,7 +1645,7 @@ const makeCodexAdapter = Effect.fn("makeCodexAdapter")(function* (
     listSessions,
     hasSession,
     stopAll,
-    registerDynamicTools,
+    registerDynamicTools: registerDynamicToolsNoop,
     streamEvents: Stream.fromQueue(runtimeEventQueue),
   } satisfies CodexAdapterShape;
 });

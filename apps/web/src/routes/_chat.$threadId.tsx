@@ -3,7 +3,6 @@ import { createFileRoute, retainSearchParams, useNavigate } from "@tanstack/reac
 import { Suspense, lazy, type ReactNode, useCallback, useEffect, useState } from "react";
 
 import ChatView from "../components/ChatView";
-import ChannelView from "../components/ChannelView";
 import { DiffWorkerPoolProvider } from "../components/DiffWorkerPoolProvider";
 import { WorkflowTimeline } from "../components/WorkflowTimeline";
 import {
@@ -23,7 +22,6 @@ import { useStore } from "../store";
 import { useThreadById } from "../storeSelectors";
 import { Sheet, SheetPopup } from "../components/ui/sheet";
 import { Sidebar, SidebarInset, SidebarProvider, SidebarRail } from "~/components/ui/sidebar";
-import { isChannelContainerThread } from "../components/ChannelView.logic";
 import { isWorkflowContainerThread } from "../components/WorkflowTimeline.logic";
 
 const DiffPanel = lazy(() => import("../components/DiffPanel"));
@@ -228,14 +226,6 @@ function ChatThreadRouteView() {
     return (
       <SidebarInset className="h-dvh min-h-0 overflow-hidden overscroll-y-none bg-background text-foreground">
         <WorkflowTimeline threadId={threadId} />
-      </SidebarInset>
-    );
-  }
-
-  if (isChannelContainerThread(thread)) {
-    return (
-      <SidebarInset className="h-dvh min-h-0 overflow-hidden overscroll-y-none bg-background text-foreground">
-        <ChannelView threadId={threadId} />
       </SidebarInset>
     );
   }

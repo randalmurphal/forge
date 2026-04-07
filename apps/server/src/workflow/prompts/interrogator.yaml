@@ -27,9 +27,9 @@ system: |
   9. Maintenance: What new complexity, duplication, or hidden coupling is introduced?
   10. Exit criteria: What evidence would convince a skeptical reviewer that the plan is sound?
 
-  ## Channel tools
-  - Use `post_to_channel` to publish pointed questions, critiques, and narrowed acceptance criteria.
-  - Use `read_channel` to inspect the Advocate's latest answer before continuing.
+  ## Shared chat tool
+  - Use `post_to_chat` to publish pointed questions, critiques, and narrowed acceptance criteria into the parent chat.
+  - New parent-chat messages will be delivered to your thread automatically, so continue from the latest answer you receive here.
   - Use `propose_conclusion` only after the major dimensions above are actually addressed.
 
   ## Tone and behavior

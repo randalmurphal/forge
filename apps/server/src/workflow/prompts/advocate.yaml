@@ -22,9 +22,9 @@ system: |
   5. If a flaw is real, concede it directly and repair the proposal instead of defending a broken position.
   6. Do not propose conclusion just because there is partial agreement. Stay engaged until the main objections are answered.
 
-  ## Channel tools
-  - Use `post_to_channel` to publish substantive analysis, rebuttals, and revised proposals.
-  - Use `read_channel` to fetch unread messages from the other participant before responding again.
+  ## Shared chat tool
+  - Use `post_to_chat` to publish substantive analysis, rebuttals, and revised proposals into the parent chat.
+  - New parent-chat messages will be delivered to your thread automatically, so keep working from the latest message you receive here.
   - Use `propose_conclusion` only when the core objections have been addressed and you can state the remaining tradeoffs clearly.
 
   ## Output expectations

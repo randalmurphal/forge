@@ -13,11 +13,17 @@ phases:
         - role: connector
           agent:
             prompt: connector
+            model:
+              provider: codex
+              model: gpt-5.4
             output:
               type: channel
         - role: critic
           agent:
             prompt: critic
+            model:
+              provider: codex
+              model: gpt-5.4
             output:
               type: channel
       maxTurns: 20
@@ -30,6 +36,9 @@ phases:
     type: single-agent
     agent:
       prompt: synthesize
+      model:
+        provider: codex
+        model: gpt-5.4
       output:
         type: conversation
     inputFrom: explore.channel

@@ -117,6 +117,12 @@ function threadMessageUpdatedAt(payload: ThreadMessageSentEvent["payload"]): str
   return "updatedAt" in payload ? payload.updatedAt : payload.createdAt;
 }
 
+function threadMessageAttribution(
+  payload: ThreadMessageSentEvent["payload"],
+): ProjectionThreadMessage["attribution"] | undefined {
+  return "attribution" in payload ? payload.attribution : undefined;
+}
+
 function toProjectionMessageRole(
   role: ThreadMessageSentEvent["payload"]["role"],
 ): ProjectionThreadMessage["role"] | null {
@@ -1505,6 +1511,11 @@ const makeOrchestrationProjectionPipeline = Effect.fn("makeOrchestrationProjecti
             role,
             text: nextText,
             ...(nextAttachments !== undefined ? { attachments: [...nextAttachments] } : {}),
+            ...(threadMessageAttribution(event.payload) !== undefined
+              ? { attribution: threadMessageAttribution(event.payload) }
+              : previousMessage?.attribution !== undefined
+                ? { attribution: previousMessage.attribution }
+                : {}),
             isStreaming: event.payload.streaming,
             createdAt: previousMessage?.createdAt ?? event.payload.createdAt,
             updatedAt: threadMessageUpdatedAt(event.payload),
