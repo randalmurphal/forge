@@ -1,0 +1,183 @@
+- generic [ref=e1]:
+    - generic [ref=e3]:
+        - generic [ref=e6]:
+            - link "Go to threads" [ref=e9] [cursor=pointer]:
+                - /url: /
+                - generic [ref=e10]: F
+                - generic [ref=e11]: Forge
+                - generic [ref=e12]: Dev
+            - generic [ref=e15]:
+                - generic [ref=e16]:
+                    - generic [ref=e17]: Projects
+                    - generic [ref=e18]:
+                        - button [ref=e19] [cursor=pointer]:
+                            - img [ref=e20]
+                        - button "Add project" [ref=e23] [cursor=pointer]:
+                            - img [ref=e24]
+                - list [ref=e25]:
+                    - listitem [ref=e26]:
+                        - generic [ref=e27]:
+                            - button "forge" [ref=e28] [cursor=pointer]:
+                                - img [ref=e29]
+                                - generic [ref=e31]: forge
+                            - button "Create new thread in forge" [ref=e32] [cursor=pointer]:
+                                - img [ref=e33]
+                        - list [ref=e36]:
+                            - listitem [ref=e37]:
+                                - button "test debate — advocate Archive test debate — advocate 42s ago" [ref=e38] [cursor=pointer]:
+                                    - generic [ref=e41]: test debate — advocate
+                                    - generic [ref=e43]:
+                                        - generic:
+                                            - button "Archive test debate — advocate":
+                                                - img
+                                        - generic: 42s ago
+                            - listitem [ref=e44]:
+                                - button "test debate — critic Archive test debate — critic 43s ago" [ref=e45] [cursor=pointer]:
+                                    - generic [ref=e48]: test debate — critic
+                                    - generic [ref=e50]:
+                                        - generic:
+                                            - button "Archive test debate — critic":
+                                                - img
+                                        - generic: 43s ago
+                            - listitem [ref=e51]:
+                                - button "test debate Archive test debate 53s ago" [ref=e52] [cursor=pointer]:
+                                    - generic [ref=e55]: test debate
+                                    - generic [ref=e57]:
+                                        - generic:
+                                            - button "Archive test debate":
+                                                - img
+                                        - generic: 53s ago
+                            - listitem [ref=e58]:
+                                - button "Is functional programming or OOP better for large ... — critic Archive Is functional programming or OOP better for large ... — critic 4m ago" [ref=e59] [cursor=pointer]:
+                                    - generic [ref=e62]: Is functional programming or OOP better for large ... — critic
+                                    - generic [ref=e64]:
+                                        - generic:
+                                            - button "Archive Is functional programming or OOP better for large ... — critic":
+                                                - img
+                                        - generic: 4m ago
+                            - listitem [ref=e65]:
+                                - button "Is functional programming or OOP better for large ... — advocate Archive Is functional programming or OOP better for large ... — advocate 4m ago" [ref=e66] [cursor=pointer]:
+                                    - generic [ref=e69]: Is functional programming or OOP better for large ... — advocate
+                                    - generic [ref=e71]:
+                                        - generic:
+                                            - button "Archive Is functional programming or OOP better for large ... — advocate":
+                                                - img
+                                        - generic: 4m ago
+                            - listitem [ref=e72]:
+                                - button "Is functional programming or OOP better for large ... Archive Is functional programming or OOP better for large ... 8m ago" [ref=e73] [cursor=pointer]:
+                                    - generic [ref=e76]: Is functional programming or OOP better for large ...
+                                    - generic [ref=e78]:
+                                        - generic:
+                                            - button "Archive Is functional programming or OOP better for large ...":
+                                                - img
+                                        - generic: 8m ago
+                            - listitem [ref=e79]:
+                                - button "Paused Show more" [ref=e80] [cursor=pointer]:
+                                    - generic [ref=e81]:
+                                        - generic "Paused" [ref=e82]:
+                                            - generic [ref=e84]: Paused
+                                        - generic [ref=e85]: Show more
+                    - listitem [ref=e86]:
+                        - generic [ref=e87]:
+                            - button "server" [ref=e88] [cursor=pointer]:
+                                - img [ref=e89]
+                                - generic [ref=e91]: server
+                            - button "Create new thread in server" [ref=e92] [cursor=pointer]:
+                                - img [ref=e93]
+                        - list [ref=e96]:
+                            - listitem [ref=e97]:
+                                - button "New thread Archive New thread 3h ago" [ref=e98] [cursor=pointer]:
+                                    - generic [ref=e101]: New thread
+                                    - generic [ref=e103]:
+                                        - generic:
+                                            - button "Archive New thread":
+                                                - img
+                                        - generic: 3h ago
+            - separator [ref=e104]
+            - list [ref=e106]:
+                - listitem [ref=e107]:
+                    - button "Workflows" [ref=e108] [cursor=pointer]:
+                        - img [ref=e109]
+                        - generic [ref=e112]: Workflows
+                - listitem [ref=e113]:
+                    - button "Settings" [ref=e114] [cursor=pointer]:
+                        - img [ref=e115]
+                        - generic [ref=e118]: Settings
+            - button "Resize Sidebar" [ref=e119]
+        - main [ref=e120]:
+            - generic [ref=e121]:
+                - generic [ref=e123]:
+                    - generic [ref=e124]:
+                        - heading "test debate" [level=2] [ref=e125]
+                        - generic [ref=e127]: forge
+                    - generic [ref=e128]:
+                        - button "Add action" [ref=e129] [cursor=pointer]:
+                            - img
+                            - generic [ref=e130]: Add action
+                        - group "Subscription actions" [ref=e131]:
+                            - button "Open" [ref=e132] [cursor=pointer]:
+                                - img
+                                - generic [ref=e133]: Open
+                            - separator
+                            - button "Copy options" [ref=e134] [cursor=pointer]:
+                                - img
+                        - group "Git actions" [ref=e135]:
+                            - button "Commit" [disabled] [ref=e136]:
+                                - img
+                                - generic [ref=e137]: Commit
+                            - separator
+                            - button "Git action options" [ref=e138] [cursor=pointer]:
+                                - img
+                        - button "Toggle terminal drawer" [ref=e139] [cursor=pointer]:
+                            - img
+                        - button "Toggle diff panel" [ref=e140] [cursor=pointer]:
+                            - img
+                - generic [ref=e142]:
+                    - generic [ref=e149]:
+                        - generic [ref=e150]: test debate
+                        - generic [ref=e151]:
+                            - button "Copy message" [ref=e153] [cursor=pointer]:
+                                - img
+                            - paragraph [ref=e154]: 10:03:14 PM
+                    - generic [ref=e158]:
+                        - generic [ref=e160]:
+                            - textbox [active] [ref=e161]:
+                                - paragraph [ref=e162]
+                            - generic: Ask for follow-up changes or attach images
+                        - generic [ref=e163]:
+                            - generic [ref=e164]:
+                                - button "GPT-5.4" [ref=e165] [cursor=pointer]:
+                                    - generic [ref=e166]:
+                                        - img
+                                        - generic [ref=e167]: GPT-5.4
+                                        - img
+                                - separator [ref=e168]
+                                - button "High" [ref=e169] [cursor=pointer]:
+                                    - generic [ref=e170]:
+                                        - text: High
+                                        - img
+                                - separator [ref=e171]
+                                - button "Chat" [ref=e172] [cursor=pointer]:
+                                    - img
+                                    - generic [ref=e173]: Chat
+                                - separator [ref=e174]
+                                - button "Full access" [ref=e175] [cursor=pointer]:
+                                    - img
+                                    - generic [ref=e176]: Full access
+                            - generic [ref=e177]:
+                                - button "Send message" [disabled]:
+                                    - img
+                    - generic [ref=e178]:
+                        - generic [ref=e179]:
+                            - img [ref=e180]
+                            - text: Worktree
+                        - combobox [disabled]:
+                            - generic: forge/df699cab-5394-47c0-9131-a3964817b4d5
+                            - img
+                        - textbox [ref=e185]: forge/df699cab-5394-47c0-9131-a3964817b4d5
+        - generic [ref=e187]:
+            - button "Toggle Sidebar"
+    - generic:
+        - region "Notifications"
+    - generic:
+        - region "Notifications"
