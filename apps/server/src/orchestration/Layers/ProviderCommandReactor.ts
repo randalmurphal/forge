@@ -20,6 +20,7 @@ import {
 } from "@forgetools/shared/git";
 
 import { resolveThreadWorkspaceCwd } from "../../checkpointing/Utils.ts";
+import { getPendingSystemPrompt } from "../../pattern/pendingSystemPrompt.ts";
 import { GitCore } from "../../git/Services/GitCore.ts";
 import { increment, orchestrationEventsProcessedTotal } from "../../observability/Metrics.ts";
 import { ProviderAdapterRequestError, ProviderServiceError } from "../../provider/Errors.ts";
@@ -254,6 +255,7 @@ const make = Effect.gen(function* () {
         .listSessions()
         .pipe(Effect.map((sessions) => sessions.find((session) => session.threadId === threadId)));
 
+    const pendingSystemPrompt = getPendingSystemPrompt(threadId);
     const startProviderSession = (input?: {
       readonly resumeCursor?: unknown;
       readonly provider?: ProviderKind;
@@ -265,6 +267,7 @@ const make = Effect.gen(function* () {
         modelSelection: desiredModelSelection,
         ...(input?.resumeCursor !== undefined ? { resumeCursor: input.resumeCursor } : {}),
         runtimeMode: desiredRuntimeMode,
+        ...(pendingSystemPrompt !== undefined ? { systemPrompt: pendingSystemPrompt } : {}),
       });
 
     const bindSessionToThread = (session: ProviderSession) =>

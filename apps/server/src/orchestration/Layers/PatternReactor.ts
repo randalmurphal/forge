@@ -15,6 +15,7 @@ import { Cause, Effect, Layer, Option, Stream } from "effect";
 
 import { registerPendingMcpServer } from "../../pattern/pendingMcpServers.ts";
 import { registerPendingSessionTools } from "../../pattern/pendingSessionTools.ts";
+import { registerPendingSystemPrompt } from "../../pattern/pendingSystemPrompt.ts";
 import { makeSharedChatMcpServer } from "../../pattern/sharedChatMcpServer.ts";
 import { PromptResolver } from "../../workflow/Services/PromptResolver.ts";
 import { WorkflowRegistry } from "../../workflow/Services/WorkflowRegistry.ts";
@@ -27,7 +28,7 @@ type SharedChatParticipant = {
   readonly threadId: ThreadId;
   readonly role: string;
   readonly modelLabel: string;
-  readonly initialPromptText: string;
+  readonly systemPrompt: string;
   readonly modelSelection: ModelSelection;
 };
 
@@ -47,20 +48,18 @@ function formatRoleLabel(role: string): string {
     .join(" ");
 }
 
-function buildInitialChildPrompt(input: {
+function buildSystemPrompt(input: {
   readonly role: string;
-  readonly systemPrompt: string;
-  readonly messageText: string;
+  readonly promptSystemText: string;
 }): string {
   return [
     `You are the ${input.role} participant in a shared parent chat.`,
-    input.systemPrompt.trim(),
+    input.promptSystemText.trim(),
     [
       "Messages sent to this thread are copies of messages from the shared parent chat.",
       "Other participants may respond independently while you continue your work.",
       "When you are ready to contribute to the shared parent chat, call `post_to_chat` with only the message you want shown there.",
     ].join("\n"),
-    `Initial message from User:\n${input.messageText}`,
   ].join("\n\n");
 }
 
@@ -345,7 +344,11 @@ export const makePatternReactor = Effect.gen(function* () {
         const resolvedPrompt = yield* promptResolver
           .resolve({
             name: participant.agent.prompt,
-            variables: { DESCRIPTION: input.messageText },
+            variables: {
+              DESCRIPTION: input.messageText,
+              PREVIOUS_OUTPUT: "",
+              ITERATION_CONTEXT: "",
+            },
           })
           .pipe(
             Effect.catch(() =>
@@ -362,10 +365,9 @@ export const makePatternReactor = Effect.gen(function* () {
           role: participant.role,
           modelLabel: participant.agent.model.model,
           modelSelection: participant.agent.model,
-          initialPromptText: buildInitialChildPrompt({
+          systemPrompt: buildSystemPrompt({
             role: participant.role,
-            systemPrompt: resolvedPrompt.system,
-            messageText: input.messageText,
+            promptSystemText: resolvedPrompt.system,
           }),
         });
       }
@@ -387,6 +389,8 @@ export const makePatternReactor = Effect.gen(function* () {
           createdAt: nowIso(),
         });
 
+        registerPendingSystemPrompt(participant.threadId, participant.systemPrompt);
+
         registerSharedChatTool({
           childThreadId: participant.threadId,
           provider: participant.modelSelection.provider,
@@ -397,7 +401,7 @@ export const makePatternReactor = Effect.gen(function* () {
 
         yield* sendMessageToChild({
           threadId: participant.threadId,
-          text: participant.initialPromptText,
+          text: input.messageText,
           ...(input.attachments !== undefined ? { attachments: input.attachments } : {}),
           runtimeMode: parentThread.runtimeMode,
           interactionMode: parentThread.interactionMode,

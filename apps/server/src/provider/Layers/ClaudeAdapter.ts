@@ -2730,6 +2730,7 @@ const makeClaudeAdapter = Effect.fn("makeClaudeAdapter")(function* (
         },
         ...(input.cwd ? { additionalDirectories: [input.cwd] } : {}),
         ...(pendingMcp ? { mcpServers: pendingMcp.config } : {}),
+        ...(input.systemPrompt !== undefined ? { systemPrompt: input.systemPrompt } : {}),
       } as ClaudeQueryOptions;
 
       const queryRuntime = yield* Effect.try({

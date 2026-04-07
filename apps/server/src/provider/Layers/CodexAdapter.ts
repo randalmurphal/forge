@@ -1431,6 +1431,7 @@ const makeCodexAdapter = Effect.fn("makeCodexAdapter")(function* (
               dynamicToolHandler: pendingToolConfig.handler,
             }
           : {}),
+        ...(input.systemPrompt !== undefined ? { baseInstructions: input.systemPrompt } : {}),
       };
 
       return yield* Effect.tryPromise({
