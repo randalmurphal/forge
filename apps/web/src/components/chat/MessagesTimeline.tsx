@@ -38,6 +38,7 @@ import { Button } from "../ui/button";
 import { clamp } from "effect/Number";
 import { buildExpandedImagePreview, ExpandedImagePreview } from "./ExpandedImagePreview";
 import { ProposedPlanCard } from "./ProposedPlanCard";
+import { SummaryCard } from "./SummaryCard";
 import { ChangedFilesTree } from "./ChangedFilesTree";
 import { DiffStatLabel, hasNonZeroStat } from "./DiffStatLabel";
 import { MessageCopyButton } from "./MessageCopyButton";
@@ -446,6 +447,23 @@ export const MessagesTimeline = memo(function MessagesTimeline({
 
       {row.kind === "message" &&
         row.message.role === "assistant" &&
+        row.message.attribution?.role === "summary" &&
+        (() => {
+          return (
+            <div className="min-w-0 px-1 py-0.5">
+              <SummaryCard
+                text={row.message.text}
+                model={row.message.attribution.model}
+                cwd={markdownCwd}
+                isStreaming={Boolean(row.message.streaming)}
+              />
+            </div>
+          );
+        })()}
+
+      {row.kind === "message" &&
+        row.message.role === "assistant" &&
+        row.message.attribution?.role !== "summary" &&
         (() => {
           const messageText = row.message.text || (row.message.streaming ? "" : "(empty response)");
           const attributionLabel = row.message.attribution

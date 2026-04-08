@@ -22,7 +22,10 @@ import { WorkflowRegistry } from "../../workflow/Services/WorkflowRegistry.ts";
 import { OrchestrationEngineService } from "../Services/OrchestrationEngine.ts";
 import { PatternReactor, type PatternReactorShape } from "../Services/PatternReactor.ts";
 
-type PatternReactorEvent = Extract<ForgeEvent, { type: "thread.turn-start-requested" }>;
+type PatternReactorEvent = Extract<
+  ForgeEvent,
+  { type: "thread.turn-start-requested" | "thread.summary-requested" }
+>;
 
 type SharedChatParticipant = {
   readonly threadId: ThreadId;
@@ -242,12 +245,22 @@ export const makePatternReactor = Effect.gen(function* () {
         createdAt: nowIso(),
       });
 
-      yield* relayChildMessageToPeers({
-        parentThreadId: parentThread.id,
-        senderThreadId: input.senderThreadId,
-        speakerLabel: formatRoleLabel(input.role),
-        messageText: trimmedMessage,
-      });
+      if (input.role !== "summary") {
+        yield* relayChildMessageToPeers({
+          parentThreadId: parentThread.id,
+          senderThreadId: input.senderThreadId,
+          speakerLabel: formatRoleLabel(input.role),
+          messageText: trimmedMessage,
+        });
+      }
+
+      if (input.role === "summary") {
+        yield* orchestrationEngine.dispatch({
+          type: "thread.archive",
+          commandId: patternCommandId(`archive-summary:${input.senderThreadId}`),
+          threadId: input.senderThreadId,
+        });
+      }
 
       return {
         content: "Message posted to the shared parent chat.",
@@ -411,7 +424,7 @@ export const makePatternReactor = Effect.gen(function* () {
   );
 
   const processTurnStartRequested = Effect.fn("PatternReactor.processTurnStartRequested")(
-    function* (event: PatternReactorEvent) {
+    function* (event: Extract<PatternReactorEvent, { type: "thread.turn-start-requested" }>) {
       const thread = yield* resolveThread(event.payload.threadId);
       if (!thread || thread.patternId === null || thread.parentThreadId !== null) {
         return;
@@ -444,8 +457,83 @@ export const makePatternReactor = Effect.gen(function* () {
     },
   );
 
+  const processSummaryRequested = Effect.fn("PatternReactor.processSummaryRequested")(function* (
+    event: Extract<PatternReactorEvent, { type: "thread.summary-requested" }>,
+  ) {
+    const parentThread = yield* resolveThread(event.payload.threadId);
+    if (!parentThread) {
+      return;
+    }
+
+    const isPatternContainer =
+      parentThread.patternId !== null || parentThread.childThreadIds.length > 0;
+    if (!isPatternContainer) {
+      return;
+    }
+
+    const transcript = parentThread.messages
+      .map((msg) => {
+        const label =
+          msg.attribution !== undefined
+            ? `${formatRoleLabel(msg.attribution.role)} (${msg.attribution.model})`
+            : msg.role === "user"
+              ? "User"
+              : msg.role === "system"
+                ? "System"
+                : "Assistant";
+        return `[${label}] ${msg.text}`;
+      })
+      .join("\n\n");
+
+    const summaryThreadId = ThreadId.makeUnsafe(crypto.randomUUID());
+    const parentTitle = parentThread.title ?? "Untitled";
+
+    yield* orchestrationEngine.dispatch({
+      type: "thread.create",
+      commandId: patternCommandId(`summary:${event.payload.threadId}`),
+      threadId: summaryThreadId,
+      projectId: parentThread.projectId,
+      title: `Summary — ${parentTitle}`,
+      modelSelection: event.payload.modelSelection,
+      runtimeMode: parentThread.runtimeMode,
+      interactionMode: parentThread.interactionMode,
+      branch: parentThread.branch,
+      worktreePath: parentThread.worktreePath,
+      parentThreadId: event.payload.threadId,
+      role: "summary",
+      createdAt: nowIso(),
+    });
+
+    registerPendingSystemPrompt(
+      summaryThreadId,
+      [
+        "You are a summarizer. Your only job is to read the transcript below and produce a structured markdown summary of the discussion.",
+        "Do NOT participate in the discussion or add your own opinions. Only summarize what was said.",
+        "When your summary is ready, call `post_to_chat` with the full markdown summary.",
+      ].join("\n\n"),
+    );
+
+    registerSharedChatTool({
+      childThreadId: summaryThreadId,
+      provider: event.payload.modelSelection.provider,
+      parentThreadId: event.payload.threadId,
+      role: "summary",
+      modelLabel: event.payload.modelSelection.model,
+    });
+
+    yield* sendMessageToChild({
+      threadId: summaryThreadId,
+      text: `Please summarize the following discussion transcript:\n\n${transcript}`,
+      runtimeMode: parentThread.runtimeMode,
+      interactionMode: parentThread.interactionMode,
+    });
+  });
+
   const processEventSafely = (event: PatternReactorEvent) =>
-    processTurnStartRequested(event).pipe(
+    (event.type === "thread.summary-requested"
+      ? processSummaryRequested(event)
+      : processTurnStartRequested(event)
+    ).pipe(
       Effect.catchCause((cause) => {
         if (Cause.hasInterruptsOnly(cause)) {
           return Effect.void;
@@ -463,7 +551,8 @@ export const makePatternReactor = Effect.gen(function* () {
     Stream.runForEach(
       Stream.filter(
         orchestrationEngine.streamDomainEvents as unknown as Stream.Stream<ForgeEvent>,
-        (event) => event.type === "thread.turn-start-requested",
+        (event) =>
+          event.type === "thread.turn-start-requested" || event.type === "thread.summary-requested",
       ).pipe(Stream.map((event) => event as PatternReactorEvent)),
       worker.enqueue,
     ).pipe(Effect.forkScoped, Effect.asVoid);

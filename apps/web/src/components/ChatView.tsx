@@ -162,6 +162,7 @@ import { ContextWindowMeter } from "./chat/ContextWindowMeter";
 import { buildExpandedImagePreview, ExpandedImagePreview } from "./chat/ExpandedImagePreview";
 import { AVAILABLE_PROVIDER_OPTIONS } from "./chat/ProviderModelPicker";
 import { DiscussionRolesPicker } from "./chat/DiscussionRolesPicker";
+import { SummarizeButton } from "./chat/SummarizeButton";
 import { ComposerCommandItem, ComposerCommandMenu } from "./chat/ComposerCommandMenu";
 import { ComposerPendingApprovalActions } from "./chat/ComposerPendingApprovalActions";
 import { CompactComposerControlsMenu } from "./chat/CompactComposerControlsMenu";
@@ -4517,6 +4518,29 @@ export default function ChatView({ threadId }: ChatViewProps) {
                               modelOptionsByProvider={modelOptionsByProvider}
                               compact={isComposerFooterCompact}
                               disabled={isConnecting || isSendBusy}
+                            />
+                            <Separator
+                              orientation="vertical"
+                              className="mx-0.5 hidden h-4 sm:block"
+                            />
+                            <SummarizeButton
+                              threadId={threadId}
+                              providers={providerStatuses}
+                              modelOptionsByProvider={modelOptionsByProvider}
+                              disabled={isConnecting || isSendBusy}
+                            />
+                          </>
+                        ) : isPatternContainerThread ? (
+                          <>
+                            <Separator
+                              orientation="vertical"
+                              className="mx-0.5 hidden h-4 sm:block"
+                            />
+                            <SummarizeButton
+                              threadId={threadId}
+                              providers={providerStatuses}
+                              modelOptionsByProvider={modelOptionsByProvider}
+                              disabled={activePatternChildren.length > 0}
                             />
                           </>
                         ) : null}
