@@ -6,6 +6,62 @@ import { __resetWsRpcClientForTests, getWsRpcClient } from "./wsRpcClient";
 
 let instance: { api: NativeApi } | null = null;
 
+function showConfirmFallback(message: string): Promise<boolean> {
+  return new Promise<boolean>((resolve) => {
+    const overlay = document.createElement("div");
+    overlay.style.cssText =
+      "position:fixed;inset:0;z-index:9999;display:flex;align-items:center;justify-content:center;background:rgba(0,0,0,0.32);backdrop-filter:blur(4px)";
+
+    const dialog = document.createElement("div");
+    dialog.className =
+      "w-full max-w-sm rounded-2xl border border-border bg-popover p-6 shadow-lg text-popover-foreground";
+
+    const text = document.createElement("p");
+    text.className = "text-sm whitespace-pre-line mb-6";
+    text.textContent = message;
+
+    const footer = document.createElement("div");
+    footer.className = "flex justify-end gap-2";
+
+    const cancelBtn = document.createElement("button");
+    cancelBtn.type = "button";
+    cancelBtn.textContent = "Cancel";
+    cancelBtn.className =
+      "inline-flex h-9 items-center justify-center rounded-md border border-input bg-background px-4 text-sm font-medium text-foreground hover:bg-accent cursor-default";
+
+    const confirmBtn = document.createElement("button");
+    confirmBtn.type = "button";
+    confirmBtn.textContent = "Confirm";
+    confirmBtn.className =
+      "inline-flex h-9 items-center justify-center rounded-md bg-destructive px-4 text-sm font-medium text-destructive-foreground hover:bg-destructive/90 cursor-default";
+
+    function cleanup(result: boolean) {
+      document.removeEventListener("keydown", onKeyDown);
+      overlay.remove();
+      resolve(result);
+    }
+
+    function onKeyDown(event: KeyboardEvent) {
+      if (event.key === "Escape") {
+        event.preventDefault();
+        cleanup(false);
+      }
+    }
+
+    cancelBtn.addEventListener("click", () => cleanup(false));
+    confirmBtn.addEventListener("click", () => cleanup(true));
+    document.addEventListener("keydown", onKeyDown);
+
+    footer.appendChild(cancelBtn);
+    footer.appendChild(confirmBtn);
+    dialog.appendChild(text);
+    dialog.appendChild(footer);
+    overlay.appendChild(dialog);
+    document.body.appendChild(overlay);
+    confirmBtn.focus();
+  });
+}
+
 export function __resetWsNativeApiForTests() {
   instance = null;
   __resetWsRpcClientForTests();
@@ -29,7 +85,7 @@ export function createWsNativeApi(): NativeApi {
         if (window.desktopBridge) {
           return window.desktopBridge.confirm(message);
         }
-        return window.confirm(message);
+        return showConfirmFallback(message);
       },
     },
     terminal: {

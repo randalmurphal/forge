@@ -125,7 +125,6 @@ export function useThreadActions() {
           threadId,
         });
       } catch (error) {
-        console.error("Failed to delete thread", { threadId, error });
         toastManager.add({
           type: "error",
           title: "Failed to delete thread",
