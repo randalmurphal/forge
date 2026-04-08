@@ -103,7 +103,17 @@ export const SummarizeButton = memo(function SummarizeButton(props: {
         onClick={handleDirectClick}
       >
         <FileTextIcon aria-hidden="true" className="size-4 shrink-0" />
-        <span className="sr-only sm:not-sr-only">Summarize</span>
+        <span className="sr-only sm:not-sr-only">
+          Summarize
+          {stickyModel ? (
+            <span className="ml-1 text-muted-foreground/50">
+              ·{" "}
+              {props.modelOptionsByProvider[stickyModel.provider]?.find(
+                (o) => o.slug === stickyModel.model,
+              )?.name ?? stickyModel.model}
+            </span>
+          ) : null}
+        </span>
       </Button>
       <Menu open={isMenuOpen} onOpenChange={setIsMenuOpen}>
         <MenuTrigger
