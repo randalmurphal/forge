@@ -9,6 +9,7 @@ import {
   type WorkflowDefinition,
 } from "@forgetools/contracts";
 import { makeDrainableWorker } from "@forgetools/shared/DrainableWorker";
+import { resolveThreadSpawnMode } from "@forgetools/shared/threadWorkspace";
 import { Cause, Effect, Layer, Option, Stream } from "effect";
 
 import { ProjectionInteractiveRequestRepository } from "../../persistence/Services/ProjectionInteractiveRequests.ts";
@@ -89,7 +90,7 @@ export const makeWorkflowReactor = Effect.gen(function* () {
     }
 
     // No worktree and no pending bootstrap — local mode, start immediately
-    return thread.bootstrapStatus === null && thread.branch === null;
+    return thread.bootstrapStatus === null && resolveThreadSpawnMode(thread) === "local";
   });
 
   const startWorkflowIfAvailable = Effect.fn("WorkflowReactor.startWorkflowIfAvailable")(function* (

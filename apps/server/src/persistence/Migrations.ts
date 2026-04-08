@@ -41,6 +41,8 @@ import Migration0025 from "./Migrations/025_WorkflowOnCompletion.ts";
 import Migration0026 from "./Migrations/026_WorkflowProjectScope.ts";
 import Migration0027 from "./Migrations/027_ProjectionThreadMessageAttribution.ts";
 import Migration0028 from "./Migrations/028_RenamePatternIdToDiscussionId.ts";
+import Migration0029 from "./Migrations/029_ProjectionThreadSpawnWorkspace.ts";
+import Migration0030 from "./Migrations/030_ProjectionThreadSpawnMode.ts";
 
 /**
  * Migration loader with all migrations defined inline.
@@ -81,6 +83,8 @@ export const migrationEntries = [
   [26, "WorkflowProjectScope", Migration0026],
   [27, "ProjectionThreadMessageAttribution", Migration0027],
   [28, "RenamePatternIdToDiscussionId", Migration0028],
+  [29, "ProjectionThreadSpawnWorkspace", Migration0029],
+  [30, "ProjectionThreadSpawnMode", Migration0030],
 ] as const;
 
 export const makeMigrationLoader = (throughId?: number) =>

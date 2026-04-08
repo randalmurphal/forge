@@ -25,6 +25,7 @@ import {
 } from "@forgetools/contracts";
 import { Schema } from "effect";
 import { resolveModelSlugForProvider } from "@forgetools/shared/model";
+import { resolveThreadSpawnWorkspace } from "@forgetools/shared/threadWorkspace";
 import { create } from "zustand";
 import {
   findLatestProposedPlan,
@@ -187,6 +188,7 @@ function mapTurnDiffSummary(
 }
 
 function mapThread(thread: OrchestrationThread): Thread {
+  const spawnWorkspace = resolveThreadSpawnWorkspace(thread);
   return {
     id: thread.id,
     codexThreadId: null,
@@ -213,8 +215,11 @@ function mapThread(thread: OrchestrationThread): Thread {
     pendingSourceProposedPlan: thread.latestTurn?.sourceProposedPlan,
     branch: thread.branch,
     worktreePath: thread.worktreePath,
+    spawnBranch: spawnWorkspace.branch,
+    spawnWorktreePath: spawnWorkspace.worktreePath,
     turnDiffSummaries: thread.checkpoints.map(mapTurnDiffSummary),
     activities: thread.activities.map((activity) => ({ ...activity })),
+    ...(thread.spawnMode !== undefined ? { spawnMode: thread.spawnMode } : {}),
   };
 }
 
@@ -269,12 +274,15 @@ function buildSidebarThreadSummary(thread: Thread): SidebarThreadSummary {
     latestTurn: thread.latestTurn,
     branch: thread.branch,
     worktreePath: thread.worktreePath,
+    spawnBranch: thread.spawnBranch ?? null,
+    spawnWorktreePath: thread.spawnWorktreePath ?? null,
     latestUserMessageAt: getLatestUserMessageAt(thread.messages),
     hasPendingApprovals: derivePendingApprovals(thread.activities).length > 0,
     hasPendingUserInput: derivePendingUserInputs(thread.activities).length > 0,
     hasActionableProposedPlan: hasActionableProposedPlan(
       findLatestProposedPlan(thread.proposedPlans, thread.latestTurn?.turnId ?? null),
     ),
+    ...(thread.spawnMode !== undefined ? { spawnMode: thread.spawnMode } : {}),
   };
 }
 
@@ -305,6 +313,9 @@ function sidebarThreadSummariesEqual(
     left.latestTurn === right.latestTurn &&
     left.branch === right.branch &&
     left.worktreePath === right.worktreePath &&
+    left.spawnMode === right.spawnMode &&
+    left.spawnBranch === right.spawnBranch &&
+    left.spawnWorktreePath === right.spawnWorktreePath &&
     left.latestUserMessageAt === right.latestUserMessageAt &&
     left.hasPendingApprovals === right.hasPendingApprovals &&
     left.hasPendingUserInput === right.hasPendingUserInput &&
@@ -743,6 +754,7 @@ export function applyOrchestrationEvent(state: AppState, event: ForgeEvent): App
       if (!isThreadCreatedPayload(event.payload)) {
         return state;
       }
+      const payload = event.payload;
       const existing = state.threads.find((thread) => thread.id === event.payload.threadId);
       const stagedThreadPayload = event.payload as Partial<
         Pick<
@@ -767,20 +779,34 @@ export function applyOrchestrationEvent(state: AppState, event: ForgeEvent): App
       const role: OrchestrationThread["role"] = stagedThreadPayload.role ?? null;
       const childThreadIds: OrchestrationThread["childThreadIds"] =
         stagedThreadPayload.childThreadIds ?? [];
+      const spawnMode: OrchestrationThread["spawnMode"] =
+        payload.spawnMode ??
+        ((
+          payload.spawnWorktreePath !== undefined ? payload.spawnWorktreePath : payload.worktreePath
+        )
+          ? "worktree"
+          : "local");
+      const spawnBranch: OrchestrationThread["spawnBranch"] =
+        payload.spawnBranch !== undefined ? payload.spawnBranch : payload.branch;
+      const spawnWorktreePath: OrchestrationThread["spawnWorktreePath"] =
+        payload.spawnWorktreePath !== undefined ? payload.spawnWorktreePath : payload.worktreePath;
       const nextThread = mapThread({
-        id: event.payload.threadId,
-        projectId: event.payload.projectId,
-        title: event.payload.title,
-        modelSelection: event.payload.modelSelection,
-        runtimeMode: event.payload.runtimeMode,
-        interactionMode: event.payload.interactionMode,
-        branch: event.payload.branch,
-        worktreePath: event.payload.worktreePath,
+        id: payload.threadId,
+        projectId: payload.projectId,
+        title: payload.title,
+        modelSelection: payload.modelSelection,
+        runtimeMode: payload.runtimeMode,
+        interactionMode: payload.interactionMode,
+        branch: payload.branch,
+        worktreePath: payload.worktreePath,
+        spawnMode,
         latestTurn: null,
-        createdAt: event.payload.createdAt,
-        updatedAt: event.payload.updatedAt,
+        createdAt: payload.createdAt,
+        updatedAt: payload.updatedAt,
         archivedAt: null,
         deletedAt: null,
+        spawnBranch,
+        spawnWorktreePath,
         parentThreadId,
         phaseRunId,
         workflowId,

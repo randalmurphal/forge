@@ -152,6 +152,9 @@ export default function Sidebar() {
           projectId: activeThread.projectId,
           branch: activeThread.branch,
           worktreePath: activeThread.worktreePath,
+          spawnMode: activeThread.spawnMode,
+          spawnBranch: activeThread.spawnBranch,
+          spawnWorktreePath: activeThread.spawnWorktreePath,
         }
       : null;
   const activeDraftThreadSeed =

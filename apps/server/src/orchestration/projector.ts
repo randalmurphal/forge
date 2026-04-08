@@ -23,6 +23,7 @@ import {
   PhaseRunId,
   WorkflowPhaseId,
 } from "@forgetools/contracts";
+import { resolveThreadSpawnMode } from "@forgetools/shared/threadWorkspace";
 import { Effect, Schema } from "effect";
 
 import { toProjectorDecodeError, type OrchestrationProjectorDecodeError } from "./Errors.ts";
@@ -467,6 +468,18 @@ export function projectEvent(
             interactionMode: payload.interactionMode,
             branch: payload.branch,
             worktreePath: payload.worktreePath,
+            spawnMode: resolveThreadSpawnMode({
+              branch: payload.branch,
+              worktreePath: payload.worktreePath,
+              ...("spawnMode" in payload ? { spawnMode: payload.spawnMode } : {}),
+              ...("spawnBranch" in payload ? { spawnBranch: payload.spawnBranch } : {}),
+              ...("spawnWorktreePath" in payload
+                ? { spawnWorktreePath: payload.spawnWorktreePath }
+                : {}),
+            }),
+            spawnBranch: "spawnBranch" in payload ? payload.spawnBranch : payload.branch,
+            spawnWorktreePath:
+              "spawnWorktreePath" in payload ? payload.spawnWorktreePath : payload.worktreePath,
             latestTurn: null,
             createdAt: payload.createdAt,
             updatedAt: payload.updatedAt,

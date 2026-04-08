@@ -22,6 +22,7 @@ import {
 } from "@forgetools/contracts";
 import { applyClaudePromptEffortPrefix, normalizeModelSlug } from "@forgetools/shared/model";
 import { truncate } from "@forgetools/shared/String";
+import { resolveThreadSpawnWorkspace } from "@forgetools/shared/threadWorkspace";
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useDebouncedValue } from "@tanstack/react-pacer";
@@ -3114,6 +3115,7 @@ export default function ChatView({ threadId }: ChatViewProps) {
           ...(threadDiscussionId && draftThread?.discussionRoleModels
             ? { discussionRoleModels: draftThread.discussionRoleModels }
             : {}),
+          spawnMode: envMode,
           modelSelection: threadCreateModelSelection,
           runtimeMode,
           interactionMode,
@@ -3575,6 +3577,7 @@ export default function ChatView({ threadId }: ChatViewProps) {
     });
     const nextThreadTitle = truncate(buildPlanImplementationThreadTitle(planMarkdown));
     const nextThreadModelSelection: ModelSelection = selectedModelSelection;
+    const activeThreadSpawnWorkspace = resolveThreadSpawnWorkspace(activeThread);
 
     sendInFlightRef.current = true;
     beginLocalDispatch({ preparingWorktree: false });
@@ -3593,8 +3596,9 @@ export default function ChatView({ threadId }: ChatViewProps) {
         modelSelection: nextThreadModelSelection,
         runtimeMode,
         interactionMode: "default",
-        branch: activeThread.branch,
-        worktreePath: activeThread.worktreePath,
+        spawnMode: activeThreadSpawnWorkspace.mode,
+        branch: activeThreadSpawnWorkspace.branch,
+        worktreePath: activeThreadSpawnWorkspace.worktreePath,
         createdAt,
       })
       .then(() => {

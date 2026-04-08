@@ -239,6 +239,9 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
           interactionMode: command.interactionMode,
           branch: command.branch,
           worktreePath: command.worktreePath,
+          spawnMode: command.spawnMode ?? (command.worktreePath !== null ? "worktree" : "local"),
+          spawnBranch: command.branch,
+          spawnWorktreePath: command.worktreePath,
           workflowId:
             "workflowId" in command && command.workflowId !== undefined ? command.workflowId : null,
           discussionId:

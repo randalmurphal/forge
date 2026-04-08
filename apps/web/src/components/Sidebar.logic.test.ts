@@ -175,15 +175,60 @@ describe("resolveSidebarNewThreadSeedContext", () => {
         defaultEnvMode: "local",
         activeThread: {
           projectId: "project-1",
-          branch: "effect-atom",
-          worktreePath: null,
+          branch: "feature/current-workspace",
+          worktreePath: "/repo/current-worktree",
+          spawnBranch: null,
+          spawnWorktreePath: null,
         },
         activeDraftThread: null,
       }),
     ).toEqual({
-      branch: "effect-atom",
+      branch: null,
       worktreePath: null,
       envMode: "local",
+    });
+  });
+
+  it("uses the immutable spawn workspace for active server threads", () => {
+    expect(
+      resolveSidebarNewThreadSeedContext({
+        projectId: "project-1",
+        defaultEnvMode: "local",
+        activeThread: {
+          projectId: "project-1",
+          branch: "feature/current-workspace",
+          worktreePath: "/repo/current-worktree",
+          spawnBranch: "feature/original",
+          spawnWorktreePath: "/repo/original-worktree",
+        },
+        activeDraftThread: null,
+      }),
+    ).toEqual({
+      branch: "feature/original",
+      worktreePath: "/repo/original-worktree",
+      envMode: "worktree",
+    });
+  });
+
+  it("preserves an explicit worktree spawn mode before the worktree path exists", () => {
+    expect(
+      resolveSidebarNewThreadSeedContext({
+        projectId: "project-1",
+        defaultEnvMode: "local",
+        activeThread: {
+          projectId: "project-1",
+          branch: "forge/thread-child",
+          worktreePath: null,
+          spawnMode: "worktree",
+          spawnBranch: "forge/thread-child",
+          spawnWorktreePath: null,
+        },
+        activeDraftThread: null,
+      }),
+    ).toEqual({
+      branch: "forge/thread-child",
+      worktreePath: null,
+      envMode: "worktree",
     });
   });
 

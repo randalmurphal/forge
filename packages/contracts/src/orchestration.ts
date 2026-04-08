@@ -57,6 +57,8 @@ export const ORCHESTRATION_WS_METHODS = {
 export const RuntimeMode = Schema.Literals(["approval-required", "full-access"]);
 export type RuntimeMode = typeof RuntimeMode.Type;
 export const DEFAULT_RUNTIME_MODE: RuntimeMode = "full-access";
+export const ThreadSpawnMode = Schema.Literals(["local", "worktree"]);
+export type ThreadSpawnMode = typeof ThreadSpawnMode.Type;
 export const ProviderInteractionMode = Schema.Literals(["default", "plan"]);
 export type ProviderInteractionMode = typeof ProviderInteractionMode.Type;
 export const DEFAULT_PROVIDER_INTERACTION_MODE: ProviderInteractionMode = "default";
@@ -277,6 +279,9 @@ export const OrchestrationThread = Schema.Struct({
   ),
   branch: Schema.NullOr(TrimmedNonEmptyString),
   worktreePath: Schema.NullOr(TrimmedNonEmptyString),
+  spawnMode: Schema.optional(ThreadSpawnMode),
+  spawnBranch: Schema.optional(Schema.NullOr(TrimmedNonEmptyString)),
+  spawnWorktreePath: Schema.optional(Schema.NullOr(TrimmedNonEmptyString)),
   latestTurn: Schema.NullOr(OrchestrationLatestTurn),
   createdAt: IsoDateTime,
   updatedAt: IsoDateTime,
@@ -557,6 +562,7 @@ const ThreadCreateCommand = Schema.Struct({
   ),
   branch: Schema.NullOr(TrimmedNonEmptyString),
   worktreePath: Schema.NullOr(TrimmedNonEmptyString),
+  spawnMode: Schema.optional(ThreadSpawnMode),
   workflowId: Schema.optional(WorkflowId),
   discussionId: Schema.optional(TrimmedNonEmptyString),
   discussionRoleModels: Schema.optional(Schema.Record(Schema.String, ModelSelection)),
@@ -1323,6 +1329,9 @@ export const ThreadCreatedPayload = Schema.Struct({
   ),
   branch: Schema.NullOr(TrimmedNonEmptyString),
   worktreePath: Schema.NullOr(TrimmedNonEmptyString),
+  spawnMode: Schema.optional(ThreadSpawnMode),
+  spawnBranch: Schema.optional(Schema.NullOr(TrimmedNonEmptyString)),
+  spawnWorktreePath: Schema.optional(Schema.NullOr(TrimmedNonEmptyString)),
   workflowId: Schema.NullOr(WorkflowId).pipe(Schema.withDecodingDefault(() => null)),
   discussionId: Schema.NullOr(TrimmedNonEmptyString).pipe(Schema.withDecodingDefault(() => null)),
   discussionRoleModels: Schema.optional(Schema.Record(Schema.String, ModelSelection)),

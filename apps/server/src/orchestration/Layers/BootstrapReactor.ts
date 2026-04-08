@@ -9,6 +9,7 @@ import {
   type ThreadId,
 } from "@forgetools/contracts";
 import { makeDrainableWorker } from "@forgetools/shared/DrainableWorker";
+import { resolveThreadSpawnMode } from "@forgetools/shared/threadWorkspace";
 import {
   Cause,
   Effect,
@@ -122,9 +123,23 @@ function needsBootstrapFromThreadCreated(
   const payload = event.payload as Record<string, unknown>;
   const bootstrapStatus =
     typeof payload.bootstrapStatus === "string" ? payload.bootstrapStatus : null;
-  const branch = typeof payload.branch === "string" ? payload.branch : null;
-  const worktreePath = typeof payload.worktreePath === "string" ? payload.worktreePath : null;
-  return bootstrapStatus === "queued" || (branch !== null && worktreePath === null);
+  const spawnMode =
+    typeof payload.spawnMode === "string" &&
+    (payload.spawnMode === "local" || payload.spawnMode === "worktree")
+      ? payload.spawnMode
+      : resolveThreadSpawnMode({
+          branch: typeof payload.branch === "string" ? payload.branch : null,
+          worktreePath: typeof payload.worktreePath === "string" ? payload.worktreePath : null,
+          ...(typeof payload.spawnBranch === "string" || payload.spawnBranch === null
+            ? { spawnBranch: payload.spawnBranch as string | null }
+            : {}),
+          ...(typeof payload.spawnWorktreePath === "string" || payload.spawnWorktreePath === null
+            ? {
+                spawnWorktreePath: payload.spawnWorktreePath as string | null,
+              }
+            : {}),
+        });
+  return bootstrapStatus === "queued" || spawnMode === "worktree";
 }
 
 function runShellCommand(

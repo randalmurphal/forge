@@ -1,4 +1,5 @@
 import * as React from "react";
+import { resolveThreadSpawnWorkspace } from "@forgetools/shared/threadWorkspace";
 import type {
   SidebarProjectSortOrder,
   SidebarThreadSortOrder,
@@ -180,6 +181,9 @@ export function resolveSidebarNewThreadSeedContext(input: {
     projectId: string;
     branch: string | null;
     worktreePath: string | null;
+    spawnMode?: "local" | "worktree";
+    spawnBranch?: string | null;
+    spawnWorktreePath?: string | null;
   } | null;
   activeDraftThread?: {
     projectId: string;
@@ -201,10 +205,11 @@ export function resolveSidebarNewThreadSeedContext(input: {
   }
 
   if (input.activeThread?.projectId === input.projectId) {
+    const spawnWorkspace = resolveThreadSpawnWorkspace(input.activeThread);
     return {
-      branch: input.activeThread.branch,
-      worktreePath: input.activeThread.worktreePath,
-      envMode: input.activeThread.worktreePath ? "worktree" : "local",
+      branch: spawnWorkspace.branch,
+      worktreePath: spawnWorkspace.worktreePath,
+      envMode: spawnWorkspace.mode,
     };
   }
 

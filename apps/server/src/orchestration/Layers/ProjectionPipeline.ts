@@ -5,6 +5,7 @@ import {
   type ForgeEvent,
   WorkflowId,
 } from "@forgetools/contracts";
+import { resolveThreadSpawnMode } from "@forgetools/shared/threadWorkspace";
 import { Effect, FileSystem, Layer, Option, Path, Stream } from "effect";
 import * as SqlClient from "effect/unstable/sql/SqlClient";
 
@@ -510,6 +511,21 @@ const makeOrchestrationProjectionPipeline = Effect.fn("makeOrchestrationProjecti
             interactionMode: event.payload.interactionMode,
             branch: event.payload.branch,
             worktreePath: event.payload.worktreePath,
+            spawnMode: resolveThreadSpawnMode({
+              branch: event.payload.branch,
+              worktreePath: event.payload.worktreePath,
+              spawnMode: event.payload.spawnMode,
+              spawnBranch: event.payload.spawnBranch,
+              spawnWorktreePath: event.payload.spawnWorktreePath,
+            }),
+            spawnBranch:
+              event.payload.spawnBranch !== undefined
+                ? event.payload.spawnBranch
+                : event.payload.branch,
+            spawnWorktreePath:
+              event.payload.spawnWorktreePath !== undefined
+                ? event.payload.spawnWorktreePath
+                : event.payload.worktreePath,
             latestTurnId: null,
             createdAt: event.payload.createdAt,
             updatedAt: event.payload.updatedAt,

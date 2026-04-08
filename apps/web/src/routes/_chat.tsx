@@ -1,4 +1,5 @@
 import { Outlet, createFileRoute } from "@tanstack/react-router";
+import { resolveThreadSpawnWorkspace } from "@forgetools/shared/threadWorkspace";
 import { useEffect } from "react";
 
 import { useHandleNewThread } from "../hooks/useHandleNewThread";
@@ -57,11 +58,14 @@ function ChatRouteGlobalShortcuts() {
       if (command === "chat.new") {
         event.preventDefault();
         event.stopPropagation();
+        const activeThreadSpawnWorkspace = activeThread
+          ? resolveThreadSpawnWorkspace(activeThread)
+          : null;
         void handleNewThread(projectId, {
-          branch: activeThread?.branch ?? activeDraftThread?.branch ?? null,
-          worktreePath: activeThread?.worktreePath ?? activeDraftThread?.worktreePath ?? null,
-          envMode:
-            activeDraftThread?.envMode ?? (activeThread?.worktreePath ? "worktree" : "local"),
+          branch: activeThreadSpawnWorkspace?.branch ?? activeDraftThread?.branch ?? null,
+          worktreePath:
+            activeThreadSpawnWorkspace?.worktreePath ?? activeDraftThread?.worktreePath ?? null,
+          envMode: activeDraftThread?.envMode ?? activeThreadSpawnWorkspace?.mode ?? "local",
         });
         return;
       }

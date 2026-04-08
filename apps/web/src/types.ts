@@ -15,6 +15,7 @@ import type {
   CheckpointRef,
   ProviderInteractionMode,
   RuntimeMode,
+  ThreadSpawnMode,
   WorkflowId,
   WorkflowPhaseId,
 } from "@forgetools/contracts";
@@ -119,6 +120,9 @@ export interface Thread {
   pendingSourceProposedPlan?: OrchestrationLatestTurn["sourceProposedPlan"];
   branch: string | null;
   worktreePath: string | null;
+  spawnMode?: ThreadSpawnMode;
+  spawnBranch?: string | null;
+  spawnWorktreePath?: string | null;
   turnDiffSummaries: TurnDiffSummary[];
   activities: OrchestrationThreadActivity[];
 }
@@ -142,6 +146,9 @@ export interface SidebarThreadSummary {
   latestTurn: OrchestrationLatestTurn | null;
   branch: string | null;
   worktreePath: string | null;
+  spawnMode?: ThreadSpawnMode;
+  spawnBranch?: string | null;
+  spawnWorktreePath?: string | null;
   latestUserMessageAt: string | null;
   hasPendingApprovals: boolean;
   hasPendingUserInput: boolean;

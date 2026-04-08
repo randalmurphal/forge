@@ -10,6 +10,7 @@ import {
   ThreadId,
 } from "@forgetools/contracts";
 import { makeDrainableWorker } from "@forgetools/shared/DrainableWorker";
+import { resolveThreadSpawnWorkspace } from "@forgetools/shared/threadWorkspace";
 import { Cause, Effect, Layer, Option, Stream } from "effect";
 
 import { registerPendingMcpServer } from "../../discussion/pendingMcpServers.ts";
@@ -346,6 +347,7 @@ export const makeDiscussionReactor = Effect.gen(function* () {
     }
 
     const discussion: DiscussionDefinition = discussionOption.value;
+    const parentSpawnWorkspace = resolveThreadSpawnWorkspace(parentThread);
     const roleOverrides = parentThread.discussionRoleModels ?? null;
     const participants: SharedChatParticipant[] = [];
 
@@ -381,8 +383,9 @@ export const makeDiscussionReactor = Effect.gen(function* () {
         modelSelection: participant.modelSelection,
         runtimeMode: parentThread.runtimeMode,
         interactionMode: parentThread.interactionMode,
-        branch: parentThread.branch,
-        worktreePath: parentThread.worktreePath,
+        spawnMode: parentSpawnWorkspace.mode,
+        branch: parentSpawnWorkspace.branch,
+        worktreePath: parentSpawnWorkspace.worktreePath,
         parentThreadId: input.parentThreadId,
         role: participant.role,
         createdAt: nowIso(),
@@ -472,6 +475,7 @@ export const makeDiscussionReactor = Effect.gen(function* () {
 
     const summaryThreadId = ThreadId.makeUnsafe(crypto.randomUUID());
     const parentTitle = parentThread.title ?? "Untitled";
+    const parentSpawnWorkspace = resolveThreadSpawnWorkspace(parentThread);
 
     yield* orchestrationEngine.dispatch({
       type: "thread.create",
@@ -482,8 +486,9 @@ export const makeDiscussionReactor = Effect.gen(function* () {
       modelSelection: event.payload.modelSelection,
       runtimeMode: parentThread.runtimeMode,
       interactionMode: parentThread.interactionMode,
-      branch: parentThread.branch,
-      worktreePath: parentThread.worktreePath,
+      spawnMode: parentSpawnWorkspace.mode,
+      branch: parentSpawnWorkspace.branch,
+      worktreePath: parentSpawnWorkspace.worktreePath,
       parentThreadId: event.payload.threadId,
       role: "summary",
       createdAt: nowIso(),

@@ -173,6 +173,7 @@ describe("BootstrapReactor", () => {
         },
         interactionMode: DEFAULT_PROVIDER_INTERACTION_MODE,
         runtimeMode: "approval-required",
+        spawnMode: "worktree",
         branch: "forge/thread-bootstrap-success",
         worktreePath: null,
         createdAt,
@@ -219,6 +220,7 @@ describe("BootstrapReactor", () => {
         },
         interactionMode: DEFAULT_PROVIDER_INTERACTION_MODE,
         runtimeMode: "approval-required",
+        spawnMode: "worktree",
         branch: "forge/thread-bootstrap-fail",
         worktreePath: null,
         createdAt,
@@ -267,6 +269,7 @@ describe("BootstrapReactor", () => {
         },
         interactionMode: DEFAULT_PROVIDER_INTERACTION_MODE,
         runtimeMode: "approval-required",
+        spawnMode: "worktree",
         branch: "forge/thread-bootstrap-retry",
         worktreePath: null,
         createdAt,
@@ -331,6 +334,7 @@ describe("BootstrapReactor", () => {
         },
         interactionMode: DEFAULT_PROVIDER_INTERACTION_MODE,
         runtimeMode: "approval-required",
+        spawnMode: "worktree",
         branch: "forge/thread-bootstrap-idempotent",
         worktreePath: null,
         createdAt,
@@ -472,5 +476,50 @@ describe("BootstrapReactor", () => {
         commandId: "bootstrap:thread-bootstrap-duplicate-resolution:2:skip",
       },
     ]);
+  });
+
+  it("does not bootstrap local threads created on the main workspace", async () => {
+    const harness = await createHarness();
+    writeForgeConfig(
+      harness.projectRoot,
+      `node -e "require('fs').writeFileSync('should-not-run.txt','nope\\n')"`,
+    );
+
+    const createdAt = new Date().toISOString();
+    await Effect.runPromise(
+      harness.engine.dispatch({
+        type: "thread.create",
+        commandId: CommandId.makeUnsafe("cmd-thread-create-local-main"),
+        threadId: ThreadId.makeUnsafe("thread-local-main"),
+        projectId: asProjectId("project-1"),
+        title: "Local Main",
+        modelSelection: {
+          provider: "codex",
+          model: "gpt-5-codex",
+        },
+        interactionMode: DEFAULT_PROVIDER_INTERACTION_MODE,
+        runtimeMode: "approval-required",
+        spawnMode: "local",
+        branch: "main",
+        worktreePath: null,
+        createdAt,
+      }),
+    );
+
+    await harness.drain();
+
+    expect(fs.existsSync(path.join(harness.worktreesDir, "thread-local-main"))).toBe(false);
+
+    const readModel = await Effect.runPromise(harness.engine.getReadModel());
+    const thread = readModel.threads.find((entry) => entry.id === "thread-local-main");
+    expect(thread?.bootstrapStatus).toBe(null);
+
+    const events = await Effect.runPromise(
+      Stream.runCollect(harness.engine.readEvents(0)).pipe(
+        Effect.map((chunk) => Array.from(chunk)),
+      ),
+    );
+    expect(events.map((event) => event.type)).not.toContain("thread.bootstrap-completed");
+    expect(fs.existsSync(path.join(harness.projectRoot, "should-not-run.txt"))).toBe(false);
   });
 });
