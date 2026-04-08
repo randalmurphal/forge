@@ -14,10 +14,6 @@ import {
   SessionTurnRestartedPayload,
   SessionTurnStartedPayload,
   ThreadArchivedPayload,
-  ThreadBootstrapCompletedPayload,
-  ThreadBootstrapFailedPayload,
-  ThreadBootstrapSkippedPayload,
-  ThreadBootstrapStartedPayload,
   ThreadCreatedPayload,
   ThreadMessageSentPayload,
   ThreadId,
@@ -73,10 +69,6 @@ const isSessionStatusChangedPayload = Schema.is(SessionStatusChangedPayload);
 const isSessionCompletedPayload = Schema.is(SessionCompletedPayload);
 const isSessionFailedPayload = Schema.is(SessionFailedPayload);
 const isSessionCancelledPayload = Schema.is(SessionCancelledPayload);
-const isThreadBootstrapStartedPayload = Schema.is(ThreadBootstrapStartedPayload);
-const isThreadBootstrapCompletedPayload = Schema.is(ThreadBootstrapCompletedPayload);
-const isThreadBootstrapFailedPayload = Schema.is(ThreadBootstrapFailedPayload);
-const isThreadBootstrapSkippedPayload = Schema.is(ThreadBootstrapSkippedPayload);
 
 // ── Pure helpers ──────────────────────────────────────────────────────
 
@@ -904,7 +896,6 @@ export function applyOrchestrationEvent(state: AppState, event: ForgeEvent): App
         ...(event.payload.worktreePath !== undefined
           ? { worktreePath: event.payload.worktreePath }
           : {}),
-        updatedAt: event.payload.updatedAt,
       }));
     }
 
@@ -912,7 +903,6 @@ export function applyOrchestrationEvent(state: AppState, event: ForgeEvent): App
       return updateThreadState(state, event.payload.threadId, (thread) => ({
         ...thread,
         runtimeMode: event.payload.runtimeMode,
-        updatedAt: event.payload.updatedAt,
       }));
     }
 
@@ -920,7 +910,6 @@ export function applyOrchestrationEvent(state: AppState, event: ForgeEvent): App
       return updateThreadState(state, event.payload.threadId, (thread) => ({
         ...thread,
         interactionMode: event.payload.interactionMode,
-        updatedAt: event.payload.updatedAt,
       }));
     }
 
@@ -957,7 +946,6 @@ export function applyOrchestrationEvent(state: AppState, event: ForgeEvent): App
             completedAt: latestTurn.completedAt ?? event.payload.createdAt,
             assistantMessageId: latestTurn.assistantMessageId,
           }),
-          updatedAt: event.occurredAt,
         };
       });
     }
@@ -1067,7 +1055,6 @@ export function applyOrchestrationEvent(state: AppState, event: ForgeEvent): App
           messages: cappedMessages,
           turnDiffSummaries,
           latestTurn,
-          updatedAt: event.occurredAt,
         };
       });
     }
@@ -1099,7 +1086,6 @@ export function applyOrchestrationEvent(state: AppState, event: ForgeEvent): App
               : null,
           sourceProposedPlan: thread.pendingSourceProposedPlan,
         }),
-        updatedAt: event.payload.startedAt,
       }));
     }
 
@@ -1127,7 +1113,6 @@ export function applyOrchestrationEvent(state: AppState, event: ForgeEvent): App
                 sourceProposedPlan: thread.pendingSourceProposedPlan,
               })
             : thread.latestTurn,
-        updatedAt: event.payload.completedAt,
       }));
     }
 
@@ -1151,7 +1136,6 @@ export function applyOrchestrationEvent(state: AppState, event: ForgeEvent): App
                 startedAt: thread.latestTurn.startedAt ?? event.payload.restartedAt,
                 completedAt: event.payload.restartedAt,
               },
-        updatedAt: event.payload.restartedAt,
       }));
     }
 
@@ -1248,7 +1232,6 @@ export function applyOrchestrationEvent(state: AppState, event: ForgeEvent): App
                 sourceProposedPlan: thread.pendingSourceProposedPlan,
               })
             : thread.latestTurn,
-        updatedAt: event.occurredAt,
       }));
     }
 
@@ -1285,7 +1268,6 @@ export function applyOrchestrationEvent(state: AppState, event: ForgeEvent): App
         return {
           ...thread,
           proposedPlans,
-          updatedAt: event.occurredAt,
         };
       });
     }
@@ -1334,7 +1316,6 @@ export function applyOrchestrationEvent(state: AppState, event: ForgeEvent): App
           ...thread,
           turnDiffSummaries,
           latestTurn,
-          updatedAt: event.occurredAt,
         };
       });
     }
@@ -1386,7 +1367,6 @@ export function applyOrchestrationEvent(state: AppState, event: ForgeEvent): App
                   completedAt: latestCheckpoint.completedAt,
                   assistantMessageId: latestCheckpoint.assistantMessageId ?? null,
                 },
-          updatedAt: event.occurredAt,
         };
       });
     }
@@ -1402,50 +1382,15 @@ export function applyOrchestrationEvent(state: AppState, event: ForgeEvent): App
         return {
           ...thread,
           activities,
-          updatedAt: event.occurredAt,
         };
       });
     }
 
-    case "thread.bootstrap-started": {
-      if (!isThreadBootstrapStartedPayload(event.payload)) {
-        return state;
-      }
-      return updateThreadState(state, event.payload.threadId, (thread) => ({
-        ...thread,
-        updatedAt: event.occurredAt,
-      }));
-    }
-
-    case "thread.bootstrap-completed": {
-      if (!isThreadBootstrapCompletedPayload(event.payload)) {
-        return state;
-      }
-      return updateThreadState(state, event.payload.threadId, (thread) => ({
-        ...thread,
-        updatedAt: event.occurredAt,
-      }));
-    }
-
-    case "thread.bootstrap-failed": {
-      if (!isThreadBootstrapFailedPayload(event.payload)) {
-        return state;
-      }
-      return updateThreadState(state, event.payload.threadId, (thread) => ({
-        ...thread,
-        updatedAt: event.occurredAt,
-      }));
-    }
-
-    case "thread.bootstrap-skipped": {
-      if (!isThreadBootstrapSkippedPayload(event.payload)) {
-        return state;
-      }
-      return updateThreadState(state, event.payload.threadId, (thread) => ({
-        ...thread,
-        updatedAt: event.occurredAt,
-      }));
-    }
+    case "thread.bootstrap-started":
+    case "thread.bootstrap-completed":
+    case "thread.bootstrap-failed":
+    case "thread.bootstrap-skipped":
+      return state;
 
     case "thread.approval-response-requested":
     case "thread.user-input-response-requested":
