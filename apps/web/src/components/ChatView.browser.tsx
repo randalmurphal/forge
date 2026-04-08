@@ -1178,6 +1178,7 @@ describe("ChatView timeline estimator parity (full app)", () => {
       draftThreadsByThreadId: {},
       projectDraftThreadIdByProjectId: {},
       stickyModelSelectionByProvider: {},
+      stickyModelSelectionByModelKey: {},
       stickyActiveProvider: null,
     });
     useStore.setState({
@@ -2365,6 +2366,16 @@ describe("ChatView timeline estimator parity (full app)", () => {
           },
         },
       },
+      stickyModelSelectionByModelKey: {
+        "codex:gpt-5.3-codex": {
+          provider: "codex",
+          model: "gpt-5.3-codex",
+          options: {
+            reasoningEffort: "medium",
+            fastMode: true,
+          },
+        },
+      },
       stickyActiveProvider: "codex",
     });
 
@@ -2410,6 +2421,16 @@ describe("ChatView timeline estimator parity (full app)", () => {
     useComposerDraftStore.setState({
       stickyModelSelectionByProvider: {
         claudeAgent: {
+          provider: "claudeAgent",
+          model: "claude-opus-4-6",
+          options: {
+            effort: "max",
+            fastMode: true,
+          },
+        },
+      },
+      stickyModelSelectionByModelKey: {
+        "claudeAgent:claude-opus-4-6": {
           provider: "claudeAgent",
           model: "claude-opus-4-6",
           options: {
@@ -2492,6 +2513,16 @@ describe("ChatView timeline estimator parity (full app)", () => {
     useComposerDraftStore.setState({
       stickyModelSelectionByProvider: {
         codex: {
+          provider: "codex",
+          model: "gpt-5.3-codex",
+          options: {
+            reasoningEffort: "medium",
+            fastMode: true,
+          },
+        },
+      },
+      stickyModelSelectionByModelKey: {
+        "codex:gpt-5.3-codex": {
           provider: "codex",
           model: "gpt-5.3-codex",
           options: {

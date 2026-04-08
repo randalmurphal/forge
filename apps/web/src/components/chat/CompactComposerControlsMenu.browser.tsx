@@ -154,6 +154,8 @@ describe("CompactComposerControlsMenu", () => {
       draftThreadsByThreadId: {},
       projectDraftThreadIdByProjectId: {},
       stickyModelSelectionByProvider: {},
+      stickyModelSelectionByModelKey: {},
+      stickyActiveProvider: null,
     });
   });
 

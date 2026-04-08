@@ -74,6 +74,7 @@ function resetComposerDraftStore() {
     draftThreadsByThreadId: {},
     projectDraftThreadIdByProjectId: {},
     stickyModelSelectionByProvider: {},
+    stickyModelSelectionByModelKey: {},
     stickyActiveProvider: null,
   });
 }
@@ -222,6 +223,7 @@ describe("composerDraftStore syncPersistedAttachments", () => {
       draftThreadsByThreadId: {},
       projectDraftThreadIdByProjectId: {},
       stickyModelSelectionByProvider: {},
+      stickyModelSelectionByModelKey: {},
       stickyActiveProvider: null,
     });
   });
@@ -305,6 +307,7 @@ describe("composerDraftStore terminal contexts", () => {
       draftThreadsByThreadId: {},
       projectDraftThreadIdByProjectId: {},
       stickyModelSelectionByProvider: {},
+      stickyModelSelectionByModelKey: {},
       stickyActiveProvider: null,
     });
   });
@@ -889,7 +892,7 @@ describe("composerDraftStore modelSelection", () => {
     expect(draft?.modelSelectionByProvider.claudeAgent?.options).toEqual({ effort: "max" });
   });
 
-  it("preserves other provider options when switching the active model selection", () => {
+  it("keeps off-provider options while resetting a newly selected model to its own defaults", () => {
     const store = useComposerDraftStore.getState();
 
     store.setModelOptions(
@@ -904,7 +907,7 @@ describe("composerDraftStore modelSelection", () => {
 
     const draft = useComposerDraftStore.getState().draftsByThreadId[threadId];
     expect(draft?.modelSelectionByProvider.claudeAgent).toEqual(
-      modelSelection("claudeAgent", "claude-opus-4-6", { effort: "max" }),
+      modelSelection("claudeAgent", "claude-opus-4-6"),
     );
     expect(draft?.modelSelectionByProvider.codex?.options).toEqual({ fastMode: true });
     expect(draft?.activeProvider).toBe("claudeAgent");
@@ -1004,6 +1007,14 @@ describe("composerDraftStore sticky composer settings", () => {
         fastMode: true,
       }),
     );
+    expect(
+      useComposerDraftStore.getState().stickyModelSelectionByModelKey["codex:gpt-5.3-codex"],
+    ).toEqual(
+      modelSelection("codex", "gpt-5.3-codex", {
+        reasoningEffort: "medium",
+        fastMode: true,
+      }),
+    );
     expect(useComposerDraftStore.getState().stickyActiveProvider).toBe("codex");
   });
 
@@ -1015,6 +1026,9 @@ describe("composerDraftStore sticky composer settings", () => {
     expect(useComposerDraftStore.getState().stickyModelSelectionByProvider.codex).toEqual(
       modelSelection("codex", "gpt-5.4"),
     );
+    expect(
+      useComposerDraftStore.getState().stickyModelSelectionByModelKey["codex:gpt-5.4"],
+    ).toEqual(modelSelection("codex", "gpt-5.4"));
     expect(useComposerDraftStore.getState().stickyActiveProvider).toBe("codex");
   });
 
@@ -1031,6 +1045,28 @@ describe("composerDraftStore sticky composer settings", () => {
       },
       activeProvider: "claudeAgent",
     });
+  });
+
+  it("restores remembered options for the selected model without leaking them to other models", () => {
+    const store = useComposerDraftStore.getState();
+    const threadId = ThreadId.makeUnsafe("thread-sticky-model-memory");
+
+    store.setStickyModelSelection(
+      modelSelection("claudeAgent", "claude-opus-4-6", { contextWindow: "1m" }),
+    );
+    store.setStickyModelSelection(modelSelection("claudeAgent", "claude-sonnet-4-6"));
+
+    store.setModelSelection(threadId, modelSelection("claudeAgent", "claude-opus-4-6"));
+    expect(
+      useComposerDraftStore.getState().draftsByThreadId[threadId]?.modelSelectionByProvider
+        .claudeAgent,
+    ).toEqual(modelSelection("claudeAgent", "claude-opus-4-6", { contextWindow: "1m" }));
+
+    store.setModelSelection(threadId, modelSelection("claudeAgent", "claude-sonnet-4-6"));
+    expect(
+      useComposerDraftStore.getState().draftsByThreadId[threadId]?.modelSelectionByProvider
+        .claudeAgent,
+    ).toEqual(modelSelection("claudeAgent", "claude-sonnet-4-6"));
   });
 });
 

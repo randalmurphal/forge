@@ -340,7 +340,6 @@ export const TraitsPicker = memo(function TraitsPicker({
     fastModeEnabled,
     contextWindowOptions,
     contextWindow,
-    defaultContextWindow,
     ultrathinkPromptControlled,
   } = getSelectedTraits(provider, models, model, prompt, modelOptions, allowPromptInjectedEffort);
 
@@ -348,7 +347,7 @@ export const TraitsPicker = memo(function TraitsPicker({
     ? (effortLevels.find((l) => l.value === effort)?.label ?? effort)
     : null;
   const contextWindowLabel =
-    contextWindowOptions.length > 1 && contextWindow !== defaultContextWindow
+    contextWindowOptions.length > 1
       ? (contextWindowOptions.find((o) => o.value === contextWindow)?.label ?? null)
       : null;
   const triggerLabel = [

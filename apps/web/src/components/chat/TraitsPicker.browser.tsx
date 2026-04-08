@@ -78,7 +78,10 @@ const TEST_PROVIDERS: ReadonlyArray<ServerProvider> = [
           ],
           supportsFastMode: true,
           supportsThinkingToggle: false,
-          contextWindowOptions: [],
+          contextWindowOptions: [
+            { value: "200k", label: "200k", isDefault: true },
+            { value: "1m", label: "1M" },
+          ],
           promptInjectedEffortLevels: ["ultrathink"],
         },
       },
@@ -95,7 +98,10 @@ const TEST_PROVIDERS: ReadonlyArray<ServerProvider> = [
           ],
           supportsFastMode: false,
           supportsThinkingToggle: false,
-          contextWindowOptions: [],
+          contextWindowOptions: [
+            { value: "200k", label: "200k", isDefault: true },
+            { value: "1m", label: "1M" },
+          ],
           promptInjectedEffortLevels: ["ultrathink"],
         },
       },
@@ -162,6 +168,7 @@ async function mountClaudePicker(props?: {
     effort?: "low" | "medium" | "high" | "max" | "ultrathink";
     thinking?: boolean;
     fastMode?: boolean;
+    contextWindow?: "200k" | "1m";
   } | null;
   skipDraftModelOptions?: boolean;
   triggerVariant?: "ghost" | "outline";
@@ -234,6 +241,8 @@ describe("TraitsPicker (Claude)", () => {
       draftThreadsByThreadId: {},
       projectDraftThreadIdByProjectId: {},
       stickyModelSelectionByProvider: {},
+      stickyModelSelectionByModelKey: {},
+      stickyActiveProvider: null,
     });
   });
 
@@ -274,6 +283,24 @@ describe("TraitsPicker (Claude)", () => {
       expect(text).toContain("High");
       expect(text).not.toContain("Max");
       expect(text).toContain("Ultrathink");
+    });
+  });
+
+  it("shows the default Claude context window in the trigger and menu", async () => {
+    await using _ = await mountClaudePicker({
+      model: "claude-sonnet-4-6",
+    });
+
+    await vi.waitFor(() => {
+      expect(document.body.textContent ?? "").toContain("High · 200k");
+    });
+    await page.getByRole("button").click();
+
+    await vi.waitFor(() => {
+      const text = document.body.textContent ?? "";
+      expect(text).toContain("Context Window");
+      expect(text).toContain("200k (default)");
+      expect(text).toContain("1M");
     });
   });
 
@@ -348,6 +375,27 @@ describe("TraitsPicker (Claude)", () => {
       provider: "claudeAgent",
       options: {
         effort: "max",
+      },
+    });
+  });
+
+  it("persists sticky Claude context-window choices by model", async () => {
+    await using _ = await mountClaudePicker({
+      model: "claude-opus-4-6",
+      options: { effort: "medium" },
+    });
+
+    await page.getByRole("button").click();
+    await page.getByRole("menuitemradio", { name: "1M" }).click();
+
+    expect(
+      useComposerDraftStore.getState().stickyModelSelectionByProvider.claudeAgent,
+    ).toMatchObject({
+      provider: "claudeAgent",
+      model: "claude-opus-4-6",
+      options: {
+        effort: "medium",
+        contextWindow: "1m",
       },
     });
   });
@@ -433,6 +481,8 @@ describe("TraitsPicker (Codex)", () => {
       draftThreadsByThreadId: {},
       projectDraftThreadIdByProjectId: {},
       stickyModelSelectionByProvider: {},
+      stickyModelSelectionByModelKey: {},
+      stickyActiveProvider: null,
     });
   });
 

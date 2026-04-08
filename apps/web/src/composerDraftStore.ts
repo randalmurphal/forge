@@ -163,6 +163,7 @@ const PersistedComposerDraftStoreState = Schema.Struct({
   stickyModelSelectionByProvider: Schema.optionalKey(
     Schema.Record(ProviderKind, Schema.optionalKey(ModelSelection)),
   ),
+  stickyModelSelectionByModelKey: Schema.optionalKey(Schema.Record(Schema.String, ModelSelection)),
   stickyActiveProvider: Schema.optionalKey(Schema.NullOr(ProviderKind)),
 });
 type PersistedComposerDraftStoreState = typeof PersistedComposerDraftStoreState.Type;
@@ -207,6 +208,7 @@ interface ComposerDraftStoreState {
   draftThreadsByThreadId: Record<ThreadId, DraftThreadState>;
   projectDraftThreadIdByProjectId: Record<ProjectId, ThreadId>;
   stickyModelSelectionByProvider: Partial<Record<ProviderKind, ModelSelection>>;
+  stickyModelSelectionByModelKey: Record<string, ModelSelection>;
   stickyActiveProvider: ProviderKind | null;
   getDraftThreadByProjectId: (projectId: ProjectId) => ProjectDraftThread | null;
   getDraftThread: (threadId: ThreadId) => DraftThreadState | null;
@@ -324,6 +326,7 @@ const EMPTY_PERSISTED_DRAFT_STORE_STATE = Object.freeze<PersistedComposerDraftSt
   draftThreadsByThreadId: {},
   projectDraftThreadIdByProjectId: {},
   stickyModelSelectionByProvider: {},
+  stickyModelSelectionByModelKey: {},
   stickyActiveProvider: null,
 });
 
@@ -336,6 +339,69 @@ Object.freeze(EMPTY_IDS);
 Object.freeze(EMPTY_PERSISTED_ATTACHMENTS);
 const EMPTY_MODEL_SELECTION_BY_PROVIDER: Partial<Record<ProviderKind, ModelSelection>> =
   Object.freeze({});
+
+function getStickyModelSelectionKey(
+  provider: ProviderKind,
+  model: string | null | undefined,
+): string | null {
+  const normalizedModel = normalizeModelSlug(model, provider);
+  return normalizedModel ? `${provider}:${normalizedModel}` : null;
+}
+
+function rememberStickyModelSelectionByKey(
+  map: Record<string, ModelSelection>,
+  selection: ModelSelection,
+): Record<string, ModelSelection> {
+  const key = getStickyModelSelectionKey(selection.provider, selection.model);
+  if (!key) {
+    return map;
+  }
+  const current = map[key];
+  if (current && Equal.equals(current, selection)) {
+    return map;
+  }
+  return {
+    ...map,
+    [key]: selection,
+  };
+}
+
+function getRememberedStickyModelSelection(
+  map: Record<string, ModelSelection>,
+  selection: ModelSelection,
+): ModelSelection | null {
+  const key = getStickyModelSelectionKey(selection.provider, selection.model);
+  return key ? (map[key] ?? null) : null;
+}
+
+function stickyModelSelectionByProviderToModelKeyMap(
+  map: Partial<Record<ProviderKind, ModelSelection>>,
+): Record<string, ModelSelection> {
+  let nextMap: Record<string, ModelSelection> = {};
+  for (const selection of Object.values(map)) {
+    if (!selection) {
+      continue;
+    }
+    nextMap = rememberStickyModelSelectionByKey(nextMap, selection);
+  }
+  return nextMap;
+}
+
+function normalizeStickyModelSelectionByModelKey(value: unknown): Record<string, ModelSelection> {
+  if (!value || typeof value !== "object") {
+    return {};
+  }
+
+  let nextMap: Record<string, ModelSelection> = {};
+  for (const candidate of Object.values(value)) {
+    const normalized = normalizeModelSelection(candidate);
+    if (!normalized) {
+      continue;
+    }
+    nextMap = rememberStickyModelSelectionByKey(nextMap, normalized);
+  }
+  return nextMap;
+}
 
 const EMPTY_THREAD_DRAFT = Object.freeze<ComposerThreadDraftState>({
   prompt: "",
@@ -1020,6 +1086,9 @@ function migratePersistedComposerDraftStoreState(
     nextStickyModelOptions,
   );
   const stickyActiveProvider = normalizeProviderKind(candidate.stickyProvider) ?? null;
+  const stickyModelSelectionByModelKey = stickyModelSelectionByProviderToModelKeyMap(
+    stickyModelSelectionByProvider,
+  );
 
   const { draftThreadsByThreadId, projectDraftThreadIdByProjectId } =
     normalizePersistedDraftThreads(rawDraftThreadsByThreadId, rawProjectDraftThreadIdByProjectId);
@@ -1029,6 +1098,7 @@ function migratePersistedComposerDraftStoreState(
     draftThreadsByThreadId,
     projectDraftThreadIdByProjectId,
     stickyModelSelectionByProvider,
+    stickyModelSelectionByModelKey,
     stickyActiveProvider,
   };
 }
@@ -1087,6 +1157,7 @@ function partializeComposerDraftStoreState(
     draftThreadsByThreadId: state.draftThreadsByThreadId,
     projectDraftThreadIdByProjectId: state.projectDraftThreadIdByProjectId,
     stickyModelSelectionByProvider: state.stickyModelSelectionByProvider,
+    stickyModelSelectionByModelKey: state.stickyModelSelectionByModelKey,
     stickyActiveProvider: state.stickyActiveProvider,
   };
 }
@@ -1106,6 +1177,7 @@ function normalizeCurrentPersistedComposerDraftStoreState(
 
   // Handle both v3 (modelSelectionByProvider) and v2/legacy formats
   let stickyModelSelectionByProvider: Partial<Record<ProviderKind, ModelSelection>> = {};
+  let stickyModelSelectionByModelKey: Record<string, ModelSelection> = {};
   let stickyActiveProvider: ProviderKind | null = null;
   if (
     normalizedPersistedState.stickyModelSelectionByProvider &&
@@ -1115,6 +1187,14 @@ function normalizeCurrentPersistedComposerDraftStoreState(
       normalizedPersistedState.stickyModelSelectionByProvider as Partial<
         Record<ProviderKind, ModelSelection>
       >;
+    stickyModelSelectionByModelKey = normalizeStickyModelSelectionByModelKey(
+      normalizedPersistedState.stickyModelSelectionByModelKey,
+    );
+    if (Object.keys(stickyModelSelectionByModelKey).length === 0) {
+      stickyModelSelectionByModelKey = stickyModelSelectionByProviderToModelKeyMap(
+        stickyModelSelectionByProvider,
+      );
+    }
     stickyActiveProvider = normalizeProviderKind(normalizedPersistedState.stickyActiveProvider);
   } else {
     // Legacy migration path
@@ -1140,6 +1220,9 @@ function normalizeCurrentPersistedComposerDraftStoreState(
       stickyModelSelection,
       nextStickyModelOptions,
     );
+    stickyModelSelectionByModelKey = stickyModelSelectionByProviderToModelKeyMap(
+      stickyModelSelectionByProvider,
+    );
     stickyActiveProvider = normalizeProviderKind(normalizedPersistedState.stickyProvider);
   }
 
@@ -1148,6 +1231,7 @@ function normalizeCurrentPersistedComposerDraftStoreState(
     draftThreadsByThreadId,
     projectDraftThreadIdByProjectId,
     stickyModelSelectionByProvider,
+    stickyModelSelectionByModelKey,
     stickyActiveProvider,
   };
 }
@@ -1304,6 +1388,7 @@ export const useComposerDraftStore = create<ComposerDraftStoreState>()(
       draftThreadsByThreadId: {},
       projectDraftThreadIdByProjectId: {},
       stickyModelSelectionByProvider: {},
+      stickyModelSelectionByModelKey: {},
       stickyActiveProvider: null,
       getDraftThreadByProjectId: (projectId) => {
         if (projectId.length === 0) {
@@ -1584,18 +1669,33 @@ export const useComposerDraftStore = create<ComposerDraftStoreState>()(
           if (!normalized) {
             return state;
           }
+          const effectiveSelection =
+            normalized.options !== undefined
+              ? normalized
+              : (getRememberedStickyModelSelection(
+                  state.stickyModelSelectionByModelKey,
+                  normalized,
+                ) ?? normalized);
           const nextMap: Partial<Record<ProviderKind, ModelSelection>> = {
             ...state.stickyModelSelectionByProvider,
-            [normalized.provider]: normalized,
+            [effectiveSelection.provider]: effectiveSelection,
           };
-          if (Equal.equals(state.stickyModelSelectionByProvider, nextMap)) {
-            return state.stickyActiveProvider === normalized.provider
+          const nextByModelKey = rememberStickyModelSelectionByKey(
+            state.stickyModelSelectionByModelKey,
+            effectiveSelection,
+          );
+          if (
+            Equal.equals(state.stickyModelSelectionByProvider, nextMap) &&
+            Equal.equals(state.stickyModelSelectionByModelKey, nextByModelKey)
+          ) {
+            return state.stickyActiveProvider === effectiveSelection.provider
               ? state
-              : { stickyActiveProvider: normalized.provider };
+              : { stickyActiveProvider: effectiveSelection.provider };
           }
           return {
             stickyModelSelectionByProvider: nextMap,
-            stickyActiveProvider: normalized.provider,
+            stickyModelSelectionByModelKey: nextByModelKey,
+            stickyActiveProvider: effectiveSelection.provider,
           };
         });
       },
@@ -1702,12 +1802,14 @@ export const useComposerDraftStore = create<ComposerDraftStoreState>()(
               // Explicit options provided → use them
               nextMap[normalized.provider] = normalized;
             } else {
-              // No options in selection → preserve existing options, update provider+model
-              nextMap[normalized.provider] = {
-                provider: normalized.provider,
-                model: normalized.model,
-                ...(current?.options ? { options: current.options } : {}),
-              };
+              const remembered =
+                current?.model === normalized.model
+                  ? current
+                  : getRememberedStickyModelSelection(
+                      state.stickyModelSelectionByModelKey,
+                      normalized,
+                    );
+              nextMap[normalized.provider] = remembered ?? normalized;
             }
           }
           const nextActiveProvider = normalized?.provider ?? base.activeProvider;
@@ -1811,32 +1913,43 @@ export const useComposerDraftStore = create<ComposerDraftStoreState>()(
 
           // Handle sticky persistence
           let nextStickyMap = state.stickyModelSelectionByProvider;
+          let nextStickyModelSelectionByModelKey = state.stickyModelSelectionByModelKey;
           let nextStickyActiveProvider = state.stickyActiveProvider;
           if (options?.persistSticky === true) {
             nextStickyMap = { ...state.stickyModelSelectionByProvider };
             const stickyBase =
-              nextStickyMap[normalizedProvider] ??
               base.modelSelectionByProvider[normalizedProvider] ??
+              nextStickyMap[normalizedProvider] ??
               ({
                 provider: normalizedProvider,
                 model: DEFAULT_MODEL_BY_PROVIDER[normalizedProvider],
               } as ModelSelection);
+            let nextStickySelection = stickyBase;
             if (providerOpts) {
-              nextStickyMap[normalizedProvider] = {
+              nextStickySelection = {
                 ...stickyBase,
                 provider: normalizedProvider,
                 options: providerOpts,
               };
             } else if (stickyBase.options) {
               const { options: _, ...rest } = stickyBase;
-              nextStickyMap[normalizedProvider] = rest as ModelSelection;
+              nextStickySelection = rest as ModelSelection;
             }
+            nextStickyMap[normalizedProvider] = nextStickySelection;
+            nextStickyModelSelectionByModelKey = rememberStickyModelSelectionByKey(
+              state.stickyModelSelectionByModelKey,
+              nextStickySelection,
+            );
             nextStickyActiveProvider = base.activeProvider ?? normalizedProvider;
           }
 
           if (
             Equal.equals(base.modelSelectionByProvider, nextMap) &&
             Equal.equals(state.stickyModelSelectionByProvider, nextStickyMap) &&
+            Equal.equals(
+              state.stickyModelSelectionByModelKey,
+              nextStickyModelSelectionByModelKey,
+            ) &&
             state.stickyActiveProvider === nextStickyActiveProvider
           ) {
             return state;
@@ -1858,6 +1971,7 @@ export const useComposerDraftStore = create<ComposerDraftStoreState>()(
             ...(options?.persistSticky === true
               ? {
                   stickyModelSelectionByProvider: nextStickyMap,
+                  stickyModelSelectionByModelKey: nextStickyModelSelectionByModelKey,
                   stickyActiveProvider: nextStickyActiveProvider,
                 }
               : {}),
@@ -2229,6 +2343,7 @@ export const useComposerDraftStore = create<ComposerDraftStoreState>()(
           draftThreadsByThreadId,
           projectDraftThreadIdByProjectId: normalizedPersisted.projectDraftThreadIdByProjectId,
           stickyModelSelectionByProvider: normalizedPersisted.stickyModelSelectionByProvider ?? {},
+          stickyModelSelectionByModelKey: normalizedPersisted.stickyModelSelectionByModelKey ?? {},
           stickyActiveProvider: normalizedPersisted.stickyActiveProvider ?? null,
         };
       },
