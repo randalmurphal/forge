@@ -2,7 +2,12 @@ import { Effect, Layer } from "effect";
 import { FetchHttpClient, HttpRouter, HttpServer } from "effect/unstable/http";
 
 import { ServerConfig } from "./config";
-import { attachmentsRouteLayer, projectFaviconRouteLayer, staticAndDevRouteLayer } from "./http";
+import {
+  attachmentsRouteLayer,
+  projectFaviconRouteLayer,
+  sharedChatBridgeRouteLayer,
+  staticAndDevRouteLayer,
+} from "./http";
 import { fixPath } from "./os-jank";
 import { websocketRpcRouteLayer } from "./ws";
 import { OpenLive } from "./open";
@@ -392,6 +397,7 @@ const DaemonRuntimeEnvironmentLive = DaemonLayerLive.pipe(
 export const makeRoutesLayer = Layer.mergeAll(
   attachmentsRouteLayer,
   projectFaviconRouteLayer,
+  sharedChatBridgeRouteLayer,
   staticAndDevRouteLayer,
   websocketRpcRouteLayer,
 );

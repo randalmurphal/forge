@@ -193,6 +193,10 @@ function requestKindFromCanonicalRequestType(
   }
 }
 
+function isApprovalRequestType(requestType: string | undefined): boolean {
+  return requestKindFromCanonicalRequestType(requestType) !== undefined;
+}
+
 function runtimeEventToActivities(
   event: ProviderRuntimeEvent,
 ): ReadonlyArray<OrchestrationThreadActivity> {
@@ -204,7 +208,7 @@ function runtimeEventToActivities(
   })();
   switch (event.type) {
     case "request.opened": {
-      if (event.payload.requestType === "tool_user_input") {
+      if (!isApprovalRequestType(event.payload.requestType)) {
         return [];
       }
       const requestKind = requestKindFromCanonicalRequestType(event.payload.requestType);
@@ -235,7 +239,7 @@ function runtimeEventToActivities(
     }
 
     case "request.resolved": {
-      if (event.payload.requestType === "tool_user_input") {
+      if (!isApprovalRequestType(event.payload.requestType)) {
         return [];
       }
       const requestKind = requestKindFromCanonicalRequestType(event.payload.requestType);

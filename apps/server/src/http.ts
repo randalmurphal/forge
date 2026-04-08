@@ -1,5 +1,5 @@
 import Mime from "@effect/platform-node/Mime";
-import { Effect, FileSystem, Option, Path } from "effect";
+import { Effect, FileSystem, Option, Path, Schema } from "effect";
 import { HttpRouter, HttpServerRequest, HttpServerResponse } from "effect/unstable/http";
 
 import {
@@ -9,6 +9,11 @@ import {
 } from "./attachmentPaths";
 import { resolveAttachmentPathById } from "./attachmentStore";
 import { ServerConfig } from "./config";
+import {
+  hasSharedChatBridge,
+  invokeSharedChatBridge,
+  SHARED_CHAT_BRIDGE_ROUTE,
+} from "./discussion/sharedChatBridge";
 import { ProjectFaviconResolver } from "./project/Services/ProjectFaviconResolver";
 
 const PROJECT_FAVICON_CACHE_CONTROL = "public, max-age=3600";
@@ -106,6 +111,65 @@ export const projectFaviconRouteLayer = HttpRouter.add(
         Effect.succeed(HttpServerResponse.text("Internal Server Error", { status: 500 })),
       ),
     );
+  }),
+);
+
+const SharedChatBridgeRequest = Schema.Struct({
+  token: Schema.String,
+  message: Schema.String,
+});
+
+class SharedChatBridgeHttpError extends Error {
+  readonly _tag = "SharedChatBridgeHttpError";
+}
+
+export const sharedChatBridgeRouteLayer = HttpRouter.add(
+  "POST",
+  SHARED_CHAT_BRIDGE_ROUTE,
+  Effect.gen(function* () {
+    const httpRequest = yield* HttpServerRequest.HttpServerRequest;
+    const config = yield* ServerConfig;
+    const request = yield* HttpServerRequest.schemaBodyJson(SharedChatBridgeRequest);
+
+    if (config.authToken) {
+      const authorizationHeader = httpRequest.headers.authorization;
+      if (authorizationHeader !== `Bearer ${config.authToken}`) {
+        return HttpServerResponse.text("Unauthorized shared chat bridge request", { status: 401 });
+      }
+    }
+
+    if (!hasSharedChatBridge(request.token)) {
+      return HttpServerResponse.jsonUnsafe(
+        {
+          content: "Shared chat bridge token was not found.",
+          success: false,
+        },
+        { status: 404 },
+      );
+    }
+
+    const result = yield* Effect.tryPromise({
+      try: () =>
+        invokeSharedChatBridge({
+          token: request.token,
+          message: request.message,
+        }),
+      catch: (cause) =>
+        new SharedChatBridgeHttpError(
+          cause instanceof Error ? cause.message : `Shared chat bridge failed: ${String(cause)}.`,
+        ),
+    }).pipe(
+      Effect.catch((error) =>
+        Effect.succeed({
+          content: error.message,
+          success: false,
+        }),
+      ),
+    );
+
+    return HttpServerResponse.jsonUnsafe(result, {
+      status: result.success ? 200 : 500,
+    });
   }),
 );
 

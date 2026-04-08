@@ -1,5 +1,5 @@
-type PendingMcpServerConfig = {
-  readonly config: unknown;
+export type PendingMcpServerConfig = {
+  readonly config: Record<string, unknown>;
 };
 
 const pendingMcpServers = new Map<string, PendingMcpServerConfig>();

@@ -37,16 +37,16 @@ import {
   CodexAppServerManager,
   type CodexAppServerStartSessionInput,
 } from "../../codexAppServerManager.ts";
-import { getPendingSessionTools } from "../../discussion/pendingSessionTools.ts";
 import { resolveAttachmentPath } from "../../attachmentStore.ts";
 import { ServerConfig } from "../../config.ts";
+import { getPendingMcpServer } from "../../discussion/pendingMcpServers.ts";
 import { ServerSettingsService } from "../../serverSettings.ts";
 import { type EventNdjsonLogger, makeEventNdjsonLogger } from "./EventNdjsonLogger.ts";
 
 const PROVIDER = "codex" as const;
 
 const registerDynamicToolsNoop: CodexAdapterShape["registerDynamicTools"] = () => {
-  // Discussion-specific dynamic tools are registered before the child session starts.
+  // Codex discussion tools are injected as MCP server config before the child session starts.
 };
 
 export interface CodexAdapterLiveOptions {
@@ -288,6 +288,7 @@ function toRequestTypeFromMethod(method: string): CanonicalRequestType {
     case "item/tool/requestUserInput":
       return "tool_user_input";
     case "item/tool/call":
+    case "dynamicToolCall":
       return "dynamic_tool_call";
     case "account/chatgptAuthTokens/refresh":
       return "auth_tokens_refresh";
@@ -1411,7 +1412,7 @@ const makeCodexAdapter = Effect.fn("makeCodexAdapter")(function* (
       const binaryPath = codexSettings.binaryPath;
       const homePath = codexSettings.homePath;
 
-      const pendingToolConfig = getPendingSessionTools(input.threadId);
+      const pendingMcp = getPendingMcpServer(input.threadId);
 
       const managerInput: CodexAppServerStartSessionInput = {
         threadId: input.threadId,
@@ -1427,10 +1428,11 @@ const makeCodexAdapter = Effect.fn("makeCodexAdapter")(function* (
         ...(input.modelSelection?.provider === "codex" && input.modelSelection.options?.fastMode
           ? { serviceTier: "fast" }
           : {}),
-        ...(pendingToolConfig
+        ...(pendingMcp
           ? {
-              dynamicTools: pendingToolConfig.tools,
-              dynamicToolHandler: pendingToolConfig.handler,
+              configOverrides: {
+                mcp_servers: pendingMcp.config,
+              },
             }
           : {}),
         ...(input.systemPrompt !== undefined ? { baseInstructions: input.systemPrompt } : {}),

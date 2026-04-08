@@ -1701,6 +1701,49 @@ describe("ProviderRuntimeIngestion", () => {
     expect(resolvedPayload?.requestType).toBe("command_execution_approval");
   });
 
+  it("ignores non-approval request events such as dynamic tool calls", async () => {
+    const harness = await createHarness();
+    const now = new Date().toISOString();
+
+    harness.emit({
+      type: "request.opened",
+      eventId: asEventId("evt-dynamic-tool-opened"),
+      provider: "codex",
+      createdAt: now,
+      threadId: asThreadId("thread-1"),
+      payload: {
+        requestType: "dynamic_tool_call",
+        detail: "post_to_chat",
+      },
+    });
+
+    harness.emit({
+      type: "request.resolved",
+      eventId: asEventId("evt-dynamic-tool-resolved"),
+      provider: "codex",
+      createdAt: now,
+      threadId: asThreadId("thread-1"),
+      payload: {
+        requestType: "dynamic_tool_call",
+      },
+    });
+
+    const thread = await waitForThread(harness.engine, (entry) => entry.id === "thread-1");
+
+    expect(
+      thread.activities.some(
+        (activity: ProviderRuntimeTestActivity) =>
+          activity.id === "evt-dynamic-tool-opened" || activity.id === "evt-dynamic-tool-resolved",
+      ),
+    ).toBe(false);
+    expect(
+      thread.activities.some(
+        (activity: ProviderRuntimeTestActivity) =>
+          activity.kind === "approval.requested" || activity.kind === "approval.resolved",
+      ),
+    ).toBe(false);
+  });
+
   it("maps runtime.error into errored session state", async () => {
     const harness = await createHarness();
     const now = new Date().toISOString();

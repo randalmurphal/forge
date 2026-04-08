@@ -13,10 +13,17 @@ import { makeDrainableWorker } from "@forgetools/shared/DrainableWorker";
 import { resolveThreadSpawnWorkspace } from "@forgetools/shared/threadWorkspace";
 import { Cause, Effect, Layer, Option, Stream } from "effect";
 
+import { ServerConfig } from "../../config.ts";
 import { registerPendingMcpServer } from "../../discussion/pendingMcpServers.ts";
-import { registerPendingSessionTools } from "../../discussion/pendingSessionTools.ts";
 import { registerPendingSystemPrompt } from "../../discussion/pendingSystemPrompt.ts";
-import { makeSharedChatMcpServer } from "../../discussion/sharedChatMcpServer.ts";
+import {
+  registerSharedChatBridge,
+  SHARED_CHAT_BRIDGE_ROUTE,
+} from "../../discussion/sharedChatBridge.ts";
+import {
+  makeSharedChatCodexMcpServerConfig,
+  makeSharedChatMcpServer,
+} from "../../discussion/sharedChatMcpServer.ts";
 import { DiscussionRegistry } from "../../discussion/Services/DiscussionRegistry.ts";
 import { OrchestrationEngineService } from "../Services/OrchestrationEngine.ts";
 import { DiscussionReactor, type DiscussionReactorShape } from "../Services/DiscussionReactor.ts";
@@ -36,6 +43,21 @@ type SharedChatParticipant = {
 
 function nowIso(): string {
   return new Date().toISOString();
+}
+
+function resolveLocalServerBaseUrl(input: {
+  readonly host: string | undefined;
+  readonly port: number;
+}): string {
+  const host =
+    input.host === undefined || input.host === "0.0.0.0"
+      ? "127.0.0.1"
+      : input.host === "::"
+        ? "[::1]"
+        : input.host.includes(":") && !input.host.startsWith("[")
+          ? `[${input.host}]`
+          : input.host;
+  return `http://${host}:${input.port}`;
 }
 
 function discussionCommandId(tag: string): CommandId {
@@ -80,8 +102,10 @@ function buildRelayedChildPrompt(input: {
 export const makeDiscussionReactor = Effect.gen(function* () {
   const orchestrationEngine = yield* OrchestrationEngineService;
   const discussionRegistry = yield* DiscussionRegistry;
+  const serverConfig = yield* ServerConfig;
   const services = yield* Effect.services();
   const runPromise = Effect.runPromiseWith(services);
+  const serverBaseUrl = resolveLocalServerBaseUrl(serverConfig);
 
   const resolveThread = Effect.fn("DiscussionReactor.resolveThread")(function* (
     threadId: ThreadId,
@@ -278,40 +302,27 @@ export const makeDiscussionReactor = Effect.gen(function* () {
         }),
       );
 
-    if (input.provider === "codex") {
-      registerPendingSessionTools(input.childThreadId, {
-        tools: [
-          {
-            name: "post_to_chat",
-            description: "Post a message into the shared parent chat.",
-            inputSchema: {
-              type: "object",
-              properties: {
-                message: { type: "string", description: "The message to show in the shared chat." },
-              },
-              required: ["message"],
-            },
-          },
-        ],
-        handler: async (toolName, args) => {
-          if (toolName !== "post_to_chat") {
-            return { content: `Unknown tool: ${toolName}`, success: false };
-          }
-          const message = typeof args.message === "string" ? args.message : JSON.stringify(args);
-          return await postMessage({ message });
-        },
-      });
-      return;
-    }
-
     const mcpServerName = `forge-shared-chat-${input.childThreadId}`;
+    const bridgeToken = registerSharedChatBridge(postMessage);
     registerPendingMcpServer(input.childThreadId, {
-      config: {
-        [mcpServerName]: makeSharedChatMcpServer({
-          serverName: mcpServerName,
-          onPostMessage: postMessage,
-        }),
-      },
+      config:
+        input.provider === "claudeAgent"
+          ? {
+              [mcpServerName]: makeSharedChatMcpServer({
+                serverName: mcpServerName,
+                onPostMessage: postMessage,
+              }),
+            }
+          : {
+              [mcpServerName]: makeSharedChatCodexMcpServerConfig({
+                serverName: mcpServerName,
+                bridgeToken,
+                bridgeUrl: `${serverBaseUrl}${SHARED_CHAT_BRIDGE_ROUTE}`,
+                ...(serverConfig.authToken === undefined
+                  ? {}
+                  : { bridgeAuthToken: serverConfig.authToken }),
+              }),
+            },
     });
   };
 

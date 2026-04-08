@@ -36,6 +36,7 @@ import {
   waitForDaemonReady,
   waitForDaemonStopped,
 } from "./daemon/cliClient";
+import { runSharedChatMcpProcess } from "./discussion/sharedChatMcpProcess";
 
 const PortSchema = Schema.Int.check(Schema.isBetween({ minimum: 1, maximum: 65535 }));
 
@@ -1144,6 +1145,11 @@ const daemonCommand = Command.make("daemon").pipe(
   ]),
 );
 
+const sharedChatMcpCommand = Command.make("shared-chat-mcp").pipe(
+  Command.withDescription("Internal stdio MCP server for shared discussion chat."),
+  Command.withHandler(() => Effect.promise(() => runSharedChatMcpProcess())),
+);
+
 export const cli = rootCommand.pipe(
   Command.withSubcommands([
     listCommand,
@@ -1164,5 +1170,6 @@ export const cli = rootCommand.pipe(
     eventsCommand,
     cleanupCommand,
     daemonCommand,
+    sharedChatMcpCommand,
   ]),
 );

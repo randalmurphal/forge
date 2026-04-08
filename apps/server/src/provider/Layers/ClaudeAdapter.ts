@@ -65,6 +65,7 @@ import { resolveAttachmentPath } from "../../attachmentStore.ts";
 import { ServerConfig } from "../../config.ts";
 import {
   getPendingMcpServer,
+  type PendingMcpServerConfig,
   registerPendingMcpServer,
 } from "../../discussion/pendingMcpServers.ts";
 import { buildClaudeToolResultDiffFragment } from "../ClaudeTurnDiff.ts";
@@ -945,7 +946,7 @@ const makeClaudeAdapter = Effect.fn("makeClaudeAdapter")(function* (
   const sessions = new Map<ThreadId, ClaudeSessionContext>();
   const runtimeEventQueue = yield* Queue.unbounded<ProviderRuntimeEvent>();
   const serverSettingsService = yield* ServerSettingsService;
-  const registerMcpServer = (threadId: string, mcpConfig: { config: unknown }) => {
+  const registerMcpServer = (threadId: string, mcpConfig: PendingMcpServerConfig) => {
     registerPendingMcpServer(threadId, mcpConfig);
   };
 

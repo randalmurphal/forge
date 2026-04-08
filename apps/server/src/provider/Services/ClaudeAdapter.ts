@@ -16,7 +16,7 @@ import type { ProviderAdapterError } from "../Errors.ts";
 import type { ProviderAdapterShape } from "./ProviderAdapter.ts";
 
 export interface PendingMcpServerConfig {
-  readonly config: unknown;
+  readonly config: Record<string, unknown>;
 }
 
 /**

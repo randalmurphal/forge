@@ -21,9 +21,9 @@ const DEFAULT_SERVER_NAME = "forge-channels";
 const decodePositiveInt = Schema.decodeSync(PositiveInt);
 
 type McpTextResult = {
-  readonly content: ReadonlyArray<{
-    readonly type: "text";
-    readonly text: string;
+  content: Array<{
+    type: "text";
+    text: string;
   }>;
   readonly isError?: boolean;
 };

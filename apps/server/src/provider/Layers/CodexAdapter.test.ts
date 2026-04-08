@@ -22,6 +22,7 @@ import {
   type CodexAppServerSendTurnInput,
 } from "../../codexAppServerManager.ts";
 import { ServerConfig } from "../../config.ts";
+import { registerPendingMcpServer } from "../../discussion/pendingMcpServers.ts";
 import { ServerSettingsService } from "../../serverSettings.ts";
 import { ProviderAdapterValidationError } from "../Errors.ts";
 import { CodexAdapter } from "../Services/CodexAdapter.ts";
@@ -207,6 +208,44 @@ validationLayer("CodexAdapterLive validation", (it) => {
         model: "gpt-5.3-codex",
         serviceTier: "fast",
         runtimeMode: "full-access",
+      });
+    }),
+  );
+
+  it.effect("passes pending MCP discussion config through thread start config overrides", () =>
+    Effect.gen(function* () {
+      validationManager.startSessionImpl.mockClear();
+      const threadId = asThreadId("thread-with-mcp");
+      registerPendingMcpServer(threadId, {
+        config: {
+          "forge-shared-chat-thread-with-mcp": {
+            command: process.execPath,
+            args: [process.argv[1] ?? "apps/server/src/bin.ts", "shared-chat-mcp"],
+          },
+        },
+      });
+
+      const adapter = yield* CodexAdapter;
+
+      yield* adapter.startSession({
+        provider: "codex",
+        threadId,
+        runtimeMode: "approval-required",
+      });
+
+      assert.deepStrictEqual(validationManager.startSessionImpl.mock.calls[0]?.[0], {
+        provider: "codex",
+        threadId,
+        binaryPath: "codex",
+        runtimeMode: "approval-required",
+        configOverrides: {
+          mcp_servers: {
+            "forge-shared-chat-thread-with-mcp": {
+              command: process.execPath,
+              args: [process.argv[1] ?? "apps/server/src/bin.ts", "shared-chat-mcp"],
+            },
+          },
+        },
       });
     }),
   );

@@ -140,6 +140,7 @@ export interface CodexAppServerStartSessionInput {
   readonly dynamicTools?: ReadonlyArray<DynamicToolSpec>;
   readonly dynamicToolHandler?: DynamicToolHandler;
   readonly baseInstructions?: string;
+  readonly configOverrides?: Record<string, unknown>;
 }
 
 export interface CodexThreadTurnSnapshot {
@@ -548,6 +549,7 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
       const threadStartParams = {
         ...sessionOverrides,
         experimentalRawEvents: false,
+        ...(input.configOverrides !== undefined ? { config: input.configOverrides } : {}),
         ...(input.dynamicTools !== undefined && input.dynamicTools.length > 0
           ? { dynamicTools: input.dynamicTools }
           : {}),
@@ -581,6 +583,7 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
           threadOpenMethod = "thread/resume";
           threadOpenResponse = await this.sendRequest(context, "thread/resume", {
             ...sessionOverrides,
+            ...(input.configOverrides !== undefined ? { config: input.configOverrides } : {}),
             threadId: resumeThreadId,
           });
         } catch (error) {
