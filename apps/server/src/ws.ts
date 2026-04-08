@@ -638,7 +638,7 @@ const WsRpcLayer = WsRpcGroup.toLayer(
         runtimeMode: thread.runtimeMode,
         workflowId: thread.workflowId,
         currentPhaseId: thread.currentPhaseId,
-        patternId: thread.patternId,
+        discussionId: thread.discussionId,
         branch: thread.branch,
         bootstrapStatus: thread.bootstrapStatus,
         childThreadIds: allThreads

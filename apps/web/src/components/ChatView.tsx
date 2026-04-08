@@ -580,7 +580,7 @@ function titleCase(value: string): string {
     .join(" ");
 }
 
-function formatPatternParticipant(thread: Pick<Thread, "role" | "modelSelection">): {
+function formatDiscussionParticipant(thread: Pick<Thread, "role" | "modelSelection">): {
   label: string;
   role: string;
 } {
@@ -864,44 +864,44 @@ export default function ChatView({ threadId }: ChatViewProps) {
     if (!wid) return false;
     return state.availableWorkflows.find((w) => w.workflowId === wid)?.hasDeliberation ?? false;
   });
-  const isPatternContainerThread =
+  const isDiscussionContainerThread =
     activeThread !== undefined &&
     activeThread.parentThreadId == null &&
-    (activeThread.patternId != null || activeWorkflowHasDeliberation);
-  const patternDisplayName = useMemo(() => {
-    if (!isPatternContainerThread || !activeThread) return null;
+    (activeThread.discussionId != null || activeWorkflowHasDeliberation);
+  const discussionDisplayName = useMemo(() => {
+    if (!isDiscussionContainerThread || !activeThread) return null;
     const workflowName = useWorkflowStore
       .getState()
       .availableWorkflows.find((w) => w.workflowId === activeThread.workflowId)?.name;
     if (workflowName) return titleCase(workflowName);
-    if (activeThread.patternId) return titleCase(activeThread.patternId);
+    if (activeThread.discussionId) return titleCase(activeThread.discussionId);
     return null;
-  }, [isPatternContainerThread, activeThread]);
-  const activePatternChildren = useMemo(
+  }, [isDiscussionContainerThread, activeThread]);
+  const activeDiscussionChildren = useMemo(
     () =>
-      isPatternContainerThread
+      isDiscussionContainerThread
         ? childThreads.filter((thread) => {
             const childPhase = derivePhase(thread.session ?? null);
             return childPhase === "connecting" || childPhase === "running";
           })
         : [],
-    [childThreads, isPatternContainerThread],
+    [childThreads, isDiscussionContainerThread],
   );
-  const patternWorkingParticipantLabels = useMemo(
-    () => activePatternChildren.map(formatPatternParticipant),
-    [activePatternChildren],
+  const discussionWorkingParticipantLabels = useMemo(
+    () => activeDiscussionChildren.map(formatDiscussionParticipant),
+    [activeDiscussionChildren],
   );
-  const patternActiveTurnStartedAt = useMemo(() => {
-    if (!isPatternContainerThread) {
+  const discussionActiveTurnStartedAt = useMemo(() => {
+    if (!isDiscussionContainerThread) {
       return null;
     }
     return (
-      activePatternChildren
+      activeDiscussionChildren
         .map((thread) => thread.latestTurn?.startedAt ?? null)
         .filter((value): value is string => value !== null)
         .toSorted((left, right) => left.localeCompare(right))[0] ?? null
     );
-  }, [activePatternChildren, isPatternContainerThread]);
+  }, [activeDiscussionChildren, isDiscussionContainerThread]);
   const runtimeMode =
     composerDraft.runtimeMode ?? activeThread?.runtimeMode ?? DEFAULT_RUNTIME_MODE;
   const interactionMode =
@@ -948,8 +948,8 @@ export default function ChatView({ threadId }: ChatViewProps) {
         : nextThreadIds;
     });
   }, [activeThreadId, existingOpenTerminalThreadIds, terminalState.terminalOpen]);
-  const latestTurnSettled = isPatternContainerThread
-    ? activePatternChildren.length === 0
+  const latestTurnSettled = isDiscussionContainerThread
+    ? activeDiscussionChildren.length === 0
     : isLatestTurnSettled(activeLatestTurn, activeThread?.session ?? null);
   const activeProject = useProjectById(activeThread?.projectId);
 
@@ -1109,8 +1109,8 @@ export default function ChatView({ threadId }: ChatViewProps) {
     [selectedModel, selectedModelOptionsForDispatch, selectedProvider],
   );
   const selectedModelForPicker = selectedModel;
-  const phase = isPatternContainerThread
-    ? activePatternChildren.length > 0
+  const phase = isDiscussionContainerThread
+    ? activeDiscussionChildren.length > 0
       ? "running"
       : "ready"
     : derivePhase(activeThread?.session ?? null);
@@ -1188,7 +1188,7 @@ export default function ChatView({ threadId }: ChatViewProps) {
     [activeLatestTurn?.turnId, threadActivities],
   );
   const showPlanFollowUpPrompt =
-    !isPatternContainerThread &&
+    !isDiscussionContainerThread &&
     pendingUserInputs.length === 0 &&
     interactionMode === "plan" &&
     latestTurnSettled &&
@@ -1210,8 +1210,8 @@ export default function ChatView({ threadId }: ChatViewProps) {
   });
   const isWorking = phase === "running" || isSendBusy || isConnecting || isRevertingCheckpoint;
   const nowIso = new Date(nowTick).toISOString();
-  const activeWorkStartedAt = isPatternContainerThread
-    ? patternActiveTurnStartedAt
+  const activeWorkStartedAt = isDiscussionContainerThread
+    ? discussionActiveTurnStartedAt
     : deriveActiveWorkStartedAt(
         activeLatestTurn,
         activeThread?.session ?? null,
@@ -1504,7 +1504,7 @@ export default function ChatView({ threadId }: ChatViewProps) {
   }, [modelOptionsByProvider, selectedModelForPicker, selectedProvider]);
   const searchableModelOptions = useMemo(
     () =>
-      isPatternContainerThread
+      isDiscussionContainerThread
         ? []
         : AVAILABLE_PROVIDER_OPTIONS.filter(
             (option) => lockedProvider === null || option.value === lockedProvider,
@@ -1519,7 +1519,7 @@ export default function ChatView({ threadId }: ChatViewProps) {
               searchProvider: option.label.toLowerCase(),
             })),
           ),
-    [isPatternContainerThread, lockedProvider, modelOptionsByProvider],
+    [isDiscussionContainerThread, lockedProvider, modelOptionsByProvider],
   );
   const workspaceEntriesQuery = useQuery(
     projectSearchEntriesQueryOptions({
@@ -1544,7 +1544,7 @@ export default function ChatView({ threadId }: ChatViewProps) {
     }
 
     if (composerTrigger.kind === "slash-command") {
-      if (isPatternContainerThread) {
+      if (isDiscussionContainerThread) {
         return [];
       }
       const slashCommandItems = [
@@ -1579,7 +1579,7 @@ export default function ChatView({ threadId }: ChatViewProps) {
       );
     }
 
-    if (isPatternContainerThread) {
+    if (isDiscussionContainerThread) {
       return [];
     }
 
@@ -1599,7 +1599,7 @@ export default function ChatView({ threadId }: ChatViewProps) {
         label: name,
         description: `${providerLabel} · ${slug}`,
       }));
-  }, [composerTrigger, isPatternContainerThread, searchableModelOptions, workspaceEntries]);
+  }, [composerTrigger, isDiscussionContainerThread, searchableModelOptions, workspaceEntries]);
   const composerMenuOpen = Boolean(composerTrigger) && composerMenuItems.length > 0;
   const activeComposerMenuItem = useMemo(
     () =>
@@ -1617,10 +1617,10 @@ export default function ChatView({ threadId }: ChatViewProps) {
   );
   const activeProviderStatus = useMemo(
     () =>
-      isPatternContainerThread
+      isDiscussionContainerThread
         ? null
         : (providerStatuses.find((status) => status.provider === selectedProvider) ?? null),
-    [isPatternContainerThread, selectedProvider, providerStatuses],
+    [isDiscussionContainerThread, selectedProvider, providerStatuses],
   );
   // Default true while loading to avoid toolbar flicker.
   const isGitRepo = gitStatusQuery.data?.isRepo ?? true;
@@ -2934,7 +2934,7 @@ export default function ChatView({ threadId }: ChatViewProps) {
       return;
     }
     const standaloneSlashCommand =
-      !isPatternContainerThread &&
+      !isDiscussionContainerThread &&
       composerImages.length === 0 &&
       sendableComposerTerminalContexts.length === 0
         ? parseStandaloneComposerSlashCommand(trimmed)
@@ -3112,12 +3112,12 @@ export default function ChatView({ threadId }: ChatViewProps) {
             .getState()
             .availableWorkflows.find((w) => w.workflowId === localDraftWorkflowId)
         : undefined;
-      const isPatternDraftThread =
+      const isDiscussionDraftThread =
         isLocalDraftThread && (draftWorkflowSummary?.hasDeliberation ?? false);
 
       if (isLocalDraftThread) {
         const threadWorkflowId = localDraftWorkflowId;
-        const threadPatternId =
+        const threadDiscussionId =
           threadWorkflowId && draftWorkflowSummary?.hasDeliberation
             ? (draftWorkflowSummary.name ?? threadWorkflowId)
             : undefined;
@@ -3129,7 +3129,7 @@ export default function ChatView({ threadId }: ChatViewProps) {
           projectId: activeProject.id,
           title,
           ...(threadWorkflowId ? { workflowId: threadWorkflowId } : {}),
-          ...(threadPatternId ? { patternId: threadPatternId } : {}),
+          ...(threadDiscussionId ? { discussionId: threadDiscussionId } : {}),
           modelSelection: threadCreateModelSelection,
           runtimeMode,
           interactionMode,
@@ -3205,7 +3205,7 @@ export default function ChatView({ threadId }: ChatViewProps) {
       });
       turnStartSucceeded = true;
       if (isLocalDraftThread) {
-        const materialized = isPatternDraftThread
+        const materialized = isDiscussionDraftThread
           ? await waitForServerThreadMatch(
               threadIdForSend,
               (thread) => (thread.childThreadIds?.length ?? 0) > 0,
@@ -3265,9 +3265,9 @@ export default function ChatView({ threadId }: ChatViewProps) {
   const onInterrupt = async () => {
     const api = readNativeApi();
     if (!api || !activeThread) return;
-    if (isPatternContainerThread) {
+    if (isDiscussionContainerThread) {
       await Promise.all(
-        activePatternChildren.map((thread) =>
+        activeDiscussionChildren.map((thread) =>
           api.orchestration.dispatchCommand({
             type: "thread.turn.interrupt",
             commandId: newCommandId(),
@@ -3728,7 +3728,7 @@ export default function ChatView({ threadId }: ChatViewProps) {
     },
     [scheduleComposerFocus, setPrompt],
   );
-  const providerTraitsMenuContent = isPatternContainerThread
+  const providerTraitsMenuContent = isDiscussionContainerThread
     ? null
     : renderProviderTraitsMenuContent({
         provider: selectedProvider,
@@ -3739,7 +3739,7 @@ export default function ChatView({ threadId }: ChatViewProps) {
         prompt,
         onPromptChange: setPromptFromTraits,
       });
-  const providerTraitsPicker = isPatternContainerThread
+  const providerTraitsPicker = isDiscussionContainerThread
     ? null
     : renderProviderTraitsPicker({
         provider: selectedProvider,
@@ -4141,7 +4141,7 @@ export default function ChatView({ threadId }: ChatViewProps) {
                 isWorking={isWorking}
                 activeTurnInProgress={isWorking || !latestTurnSettled}
                 activeTurnStartedAt={activeWorkStartedAt}
-                workingParticipantLabels={patternWorkingParticipantLabels}
+                workingParticipantLabels={discussionWorkingParticipantLabels}
                 scrollContainer={messagesScrollElement}
                 timelineEntries={timelineEntries}
                 completionDividerBeforeEntryId={completionDividerBeforeEntryId}
@@ -4346,7 +4346,7 @@ export default function ChatView({ threadId }: ChatViewProps) {
                               ? "Add feedback to refine the plan, or leave this blank to implement it"
                               : phase === "disconnected"
                                 ? "Ask for follow-up changes or attach images"
-                                : isPatternContainerThread
+                                : isDiscussionContainerThread
                                   ? "Send a message to the shared chat or attach images"
                                   : "Ask anything, @tag files/folders, or use / to show available commands"
                       }
@@ -4390,18 +4390,18 @@ export default function ChatView({ threadId }: ChatViewProps) {
                           provider={selectedProvider}
                           model={selectedModelForPickerWithCustomFallback}
                           lockedProvider={lockedProvider}
-                          patternLabelOverride={patternDisplayName}
+                          discussionLabelOverride={discussionDisplayName}
                           providers={providerStatuses}
                           modelOptionsByProvider={modelOptionsByProvider}
                           onProviderModelChange={onProviderModelSelect}
                           disabled={
                             isConnecting ||
                             isSendBusy ||
-                            (isPatternContainerThread && draftThread === null)
+                            (isDiscussionContainerThread && draftThread === null)
                           }
                         />
 
-                        {isComposerFooterCompact && !isPatternContainerThread ? (
+                        {isComposerFooterCompact && !isDiscussionContainerThread ? (
                           <CompactComposerControlsMenu
                             activePlan={Boolean(
                               activePlan || sidebarProposedPlan || planSidebarOpen,
@@ -4414,7 +4414,7 @@ export default function ChatView({ threadId }: ChatViewProps) {
                             onTogglePlanSidebar={togglePlanSidebar}
                             onToggleRuntimeMode={toggleRuntimeMode}
                           />
-                        ) : !isPatternContainerThread ? (
+                        ) : !isDiscussionContainerThread ? (
                           <>
                             {providerTraitsPicker ? (
                               <>
@@ -4530,7 +4530,7 @@ export default function ChatView({ threadId }: ChatViewProps) {
                               disabled={isConnecting || isSendBusy}
                             />
                           </>
-                        ) : isPatternContainerThread ? (
+                        ) : isDiscussionContainerThread ? (
                           <>
                             <Separator
                               orientation="vertical"
@@ -4540,7 +4540,7 @@ export default function ChatView({ threadId }: ChatViewProps) {
                               threadId={threadId}
                               providers={providerStatuses}
                               modelOptionsByProvider={modelOptionsByProvider}
-                              disabled={activePatternChildren.length > 0}
+                              disabled={activeDiscussionChildren.length > 0}
                             />
                           </>
                         ) : null}

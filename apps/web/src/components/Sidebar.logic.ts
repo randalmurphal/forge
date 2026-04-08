@@ -58,7 +58,7 @@ type ThreadStatusInput = Pick<
   | "hasPendingUserInput"
   | "interactionMode"
   | "latestTurn"
-  | "patternId"
+  | "discussionId"
   | "role"
   | "session"
 > & {
@@ -323,7 +323,7 @@ export function resolveThreadStatusPill(input: {
   thread: ThreadStatusInput;
 }): ThreadStatusPill | null {
   const { thread } = input;
-  const isDeliberationThread = thread.patternId != null || thread.role != null;
+  const isDeliberationThread = thread.discussionId != null || thread.role != null;
 
   if (thread.hasPendingApprovals) {
     return {

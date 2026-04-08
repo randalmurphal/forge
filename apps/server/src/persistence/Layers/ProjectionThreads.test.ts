@@ -74,7 +74,7 @@ layer("ProjectionThreadRepository", (it) => {
         workflowId: WorkflowId.makeUnsafe("workflow-thread-projection"),
         workflowSnapshot,
         currentPhaseId: WorkflowPhaseId.makeUnsafe("phase-thread-projection"),
-        patternId: "ping-pong-review",
+        discussionId: "ping-pong-review",
         role: "reviewer",
         deliberationState: {
           strategy: "ping-pong",
@@ -123,7 +123,7 @@ layer("ProjectionThreadRepository", (it) => {
         workflowId: WorkflowId.makeUnsafe("workflow-thread-projection"),
         workflowSnapshot,
         currentPhaseId: WorkflowPhaseId.makeUnsafe("phase-thread-projection"),
-        patternId: "ping-pong-review",
+        discussionId: "ping-pong-review",
         role: "reviewer",
         deliberationState: {
           strategy: "ping-pong",
@@ -178,7 +178,7 @@ layer("ProjectionThreadRepository", (it) => {
           workflow_id,
           workflow_snapshot_json,
           current_phase_id,
-          pattern_id,
+          discussion_id,
           role,
           deliberation_state_json,
           bootstrap_status,

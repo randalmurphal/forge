@@ -402,7 +402,7 @@ describe("resolveThreadStatusPill", () => {
     interactionMode: "plan" as const,
     latestTurn: null,
     lastVisitedAt: undefined,
-    patternId: null,
+    discussionId: null,
     role: null,
     session: {
       provider: "codex" as const,
@@ -453,7 +453,7 @@ describe("resolveThreadStatusPill", () => {
       resolveThreadStatusPill({
         thread: {
           ...baseThread,
-          patternId: "interrogate",
+          discussionId: "interrogate",
         },
       }),
     ).toMatchObject({

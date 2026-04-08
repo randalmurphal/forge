@@ -46,7 +46,7 @@ export const UnifiedThreadPicker = memo(function UnifiedThreadPicker(props: {
   provider: ProviderKind;
   model: string;
   lockedProvider: ProviderKind | null;
-  patternLabelOverride?: string | null;
+  discussionLabelOverride?: string | null;
   providers?: ReadonlyArray<ServerProvider>;
   modelOptionsByProvider: Record<ProviderKind, ReadonlyArray<{ slug: string; name: string }>>;
   onProviderModelChange: (provider: ProviderKind, model: string) => void;
@@ -137,9 +137,9 @@ export const UnifiedThreadPicker = memo(function UnifiedThreadPicker(props: {
   };
 
   // --- Trigger label ---
-  const resolvedPatternLabel = props.patternLabelOverride ?? selectedWorkflow?.name ?? null;
-  const isWorkflowActive = resolvedPatternLabel !== null;
-  const triggerLabel = isWorkflowActive ? resolvedPatternLabel : selectedModelLabel;
+  const resolvedDiscussionLabel = props.discussionLabelOverride ?? selectedWorkflow?.name ?? null;
+  const isWorkflowActive = resolvedDiscussionLabel !== null;
+  const triggerLabel = isWorkflowActive ? resolvedDiscussionLabel : selectedModelLabel;
 
   const showWorkflowSection = draftThread !== null;
 

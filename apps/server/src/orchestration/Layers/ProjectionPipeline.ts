@@ -520,7 +520,7 @@ const makeOrchestrationProjectionPipeline = Effect.fn("makeOrchestrationProjecti
             workflowId: event.payload.workflowId ?? null,
             workflowSnapshot: null,
             currentPhaseId: null,
-            patternId: event.payload.patternId ?? null,
+            discussionId: event.payload.discussionId ?? null,
             role: event.payload.role ?? null,
             deliberationState: null,
             bootstrapStatus: null,

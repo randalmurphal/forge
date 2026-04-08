@@ -13,16 +13,16 @@ import {
 import { makeDrainableWorker } from "@forgetools/shared/DrainableWorker";
 import { Cause, Effect, Layer, Option, Stream } from "effect";
 
-import { registerPendingMcpServer } from "../../pattern/pendingMcpServers.ts";
-import { registerPendingSessionTools } from "../../pattern/pendingSessionTools.ts";
-import { registerPendingSystemPrompt } from "../../pattern/pendingSystemPrompt.ts";
-import { makeSharedChatMcpServer } from "../../pattern/sharedChatMcpServer.ts";
+import { registerPendingMcpServer } from "../../discussion/pendingMcpServers.ts";
+import { registerPendingSessionTools } from "../../discussion/pendingSessionTools.ts";
+import { registerPendingSystemPrompt } from "../../discussion/pendingSystemPrompt.ts";
+import { makeSharedChatMcpServer } from "../../discussion/sharedChatMcpServer.ts";
 import { PromptResolver } from "../../workflow/Services/PromptResolver.ts";
 import { WorkflowRegistry } from "../../workflow/Services/WorkflowRegistry.ts";
 import { OrchestrationEngineService } from "../Services/OrchestrationEngine.ts";
-import { PatternReactor, type PatternReactorShape } from "../Services/PatternReactor.ts";
+import { DiscussionReactor, type DiscussionReactorShape } from "../Services/DiscussionReactor.ts";
 
-type PatternReactorEvent = Extract<
+type DiscussionReactorEvent = Extract<
   ForgeEvent,
   { type: "thread.turn-start-requested" | "thread.summary-requested" }
 >;
@@ -39,8 +39,8 @@ function nowIso(): string {
   return new Date().toISOString();
 }
 
-function patternCommandId(tag: string): CommandId {
-  return CommandId.makeUnsafe(`pattern:${tag}:${crypto.randomUUID()}`);
+function discussionCommandId(tag: string): CommandId {
+  return CommandId.makeUnsafe(`discussion:${tag}:${crypto.randomUUID()}`);
 }
 
 function formatRoleLabel(role: string): string {
@@ -78,19 +78,21 @@ function buildRelayedChildPrompt(input: {
   ].join("\n\n");
 }
 
-export const makePatternReactor = Effect.gen(function* () {
+export const makeDiscussionReactor = Effect.gen(function* () {
   const orchestrationEngine = yield* OrchestrationEngineService;
   const workflowRegistry = yield* WorkflowRegistry;
   const promptResolver = yield* PromptResolver;
   const services = yield* Effect.services();
   const runPromise = Effect.runPromiseWith(services);
 
-  const resolveThread = Effect.fn("PatternReactor.resolveThread")(function* (threadId: ThreadId) {
+  const resolveThread = Effect.fn("DiscussionReactor.resolveThread")(function* (
+    threadId: ThreadId,
+  ) {
     const readModel = yield* orchestrationEngine.getReadModel();
     return readModel.threads.find((entry) => entry.id === threadId);
   });
 
-  const resolveDeliberationConfig = Effect.fn("PatternReactor.resolveDeliberationConfig")(
+  const resolveDeliberationConfig = Effect.fn("DiscussionReactor.resolveDeliberationConfig")(
     function* (workflowId: WorkflowId) {
       const workflowOption = yield* workflowRegistry.queryById({ workflowId });
       if (Option.isNone(workflowOption)) {
@@ -108,13 +110,13 @@ export const makePatternReactor = Effect.gen(function* () {
     },
   );
 
-  const appendSystemMessage = Effect.fn("PatternReactor.appendSystemMessage")(function* (
+  const appendSystemMessage = Effect.fn("DiscussionReactor.appendSystemMessage")(function* (
     threadId: ThreadId,
     text: string,
   ) {
     yield* orchestrationEngine.dispatch({
       type: "thread.message.append",
-      commandId: patternCommandId(`system:${threadId}`),
+      commandId: discussionCommandId(`system:${threadId}`),
       threadId,
       message: {
         messageId: MessageId.makeUnsafe(crypto.randomUUID()),
@@ -125,7 +127,7 @@ export const makePatternReactor = Effect.gen(function* () {
     });
   });
 
-  const sendMessageToChild = Effect.fn("PatternReactor.sendMessageToChild")(function* (input: {
+  const sendMessageToChild = Effect.fn("DiscussionReactor.sendMessageToChild")(function* (input: {
     readonly threadId: ThreadId;
     readonly text: string;
     readonly attachments?: ReadonlyArray<ChatAttachment>;
@@ -134,7 +136,7 @@ export const makePatternReactor = Effect.gen(function* () {
   }) {
     yield* orchestrationEngine.dispatch({
       type: "thread.turn.start",
-      commandId: patternCommandId(`turn:${input.threadId}`),
+      commandId: discussionCommandId(`turn:${input.threadId}`),
       threadId: input.threadId,
       message: {
         messageId: MessageId.makeUnsafe(crypto.randomUUID()),
@@ -148,34 +150,34 @@ export const makePatternReactor = Effect.gen(function* () {
     });
   });
 
-  const deliverParentMessageToChildren = Effect.fn("PatternReactor.deliverParentMessageToChildren")(
-    function* (input: {
-      readonly parentThreadId: ThreadId;
-      readonly speakerLabel: string;
-      readonly messageText: string;
-      readonly attachments?: ReadonlyArray<ChatAttachment>;
-    }) {
-      const parentThread = yield* resolveThread(input.parentThreadId);
-      if (!parentThread) {
-        return;
-      }
+  const deliverParentMessageToChildren = Effect.fn(
+    "DiscussionReactor.deliverParentMessageToChildren",
+  )(function* (input: {
+    readonly parentThreadId: ThreadId;
+    readonly speakerLabel: string;
+    readonly messageText: string;
+    readonly attachments?: ReadonlyArray<ChatAttachment>;
+  }) {
+    const parentThread = yield* resolveThread(input.parentThreadId);
+    if (!parentThread) {
+      return;
+    }
 
-      for (const childThreadId of parentThread.childThreadIds) {
-        yield* sendMessageToChild({
-          threadId: childThreadId,
-          text: buildRelayedChildPrompt({
-            speakerLabel: input.speakerLabel,
-            messageText: input.messageText,
-          }),
-          ...(input.attachments !== undefined ? { attachments: input.attachments } : {}),
-          runtimeMode: parentThread.runtimeMode,
-          interactionMode: parentThread.interactionMode,
-        });
-      }
-    },
-  );
+    for (const childThreadId of parentThread.childThreadIds) {
+      yield* sendMessageToChild({
+        threadId: childThreadId,
+        text: buildRelayedChildPrompt({
+          speakerLabel: input.speakerLabel,
+          messageText: input.messageText,
+        }),
+        ...(input.attachments !== undefined ? { attachments: input.attachments } : {}),
+        runtimeMode: parentThread.runtimeMode,
+        interactionMode: parentThread.interactionMode,
+      });
+    }
+  });
 
-  const relayChildMessageToPeers = Effect.fn("PatternReactor.relayChildMessageToPeers")(
+  const relayChildMessageToPeers = Effect.fn("DiscussionReactor.relayChildMessageToPeers")(
     function* (input: {
       readonly parentThreadId: ThreadId;
       readonly senderThreadId: ThreadId;
@@ -204,7 +206,7 @@ export const makePatternReactor = Effect.gen(function* () {
     },
   );
 
-  const postChildMessageToParent = Effect.fn("PatternReactor.postChildMessageToParent")(
+  const postChildMessageToParent = Effect.fn("DiscussionReactor.postChildMessageToParent")(
     function* (input: {
       readonly parentThreadId: ThreadId;
       readonly senderThreadId: ThreadId;
@@ -230,7 +232,7 @@ export const makePatternReactor = Effect.gen(function* () {
 
       yield* orchestrationEngine.dispatch({
         type: "thread.message.append",
-        commandId: patternCommandId(`parent-message:${input.parentThreadId}`),
+        commandId: discussionCommandId(`parent-message:${input.parentThreadId}`),
         threadId: parentThread.id,
         message: {
           messageId: MessageId.makeUnsafe(crypto.randomUUID()),
@@ -257,7 +259,7 @@ export const makePatternReactor = Effect.gen(function* () {
       if (input.role === "summary") {
         yield* orchestrationEngine.dispatch({
           type: "thread.archive",
-          commandId: patternCommandId(`archive-summary:${input.senderThreadId}`),
+          commandId: discussionCommandId(`archive-summary:${input.senderThreadId}`),
           threadId: input.senderThreadId,
         });
       }
@@ -324,115 +326,115 @@ export const makePatternReactor = Effect.gen(function* () {
     });
   };
 
-  const createChildrenForParentThread = Effect.fn("PatternReactor.createChildrenForParentThread")(
-    function* (input: {
-      readonly parentThreadId: ThreadId;
-      readonly messageText: string;
-      readonly attachments?: ReadonlyArray<ChatAttachment>;
-    }) {
-      const parentThread = yield* resolveThread(input.parentThreadId);
-      if (!parentThread || parentThread.workflowId === null) {
-        return;
-      }
+  const createChildrenForParentThread = Effect.fn(
+    "DiscussionReactor.createChildrenForParentThread",
+  )(function* (input: {
+    readonly parentThreadId: ThreadId;
+    readonly messageText: string;
+    readonly attachments?: ReadonlyArray<ChatAttachment>;
+  }) {
+    const parentThread = yield* resolveThread(input.parentThreadId);
+    if (!parentThread || parentThread.workflowId === null) {
+      return;
+    }
 
-      const deliberationOption = yield* resolveDeliberationConfig(parentThread.workflowId);
-      if (Option.isNone(deliberationOption)) {
+    const deliberationOption = yield* resolveDeliberationConfig(parentThread.workflowId);
+    if (Option.isNone(deliberationOption)) {
+      yield* appendSystemMessage(
+        input.parentThreadId,
+        "This discussion does not define any shared-chat participants.",
+      );
+      return;
+    }
+
+    const participants: SharedChatParticipant[] = [];
+    for (const participant of deliberationOption.value.participants) {
+      if (participant.agent.model === undefined) {
         yield* appendSystemMessage(
           input.parentThreadId,
-          "This pattern does not define any shared-chat participants.",
+          `Discussion participant '${participant.role}' is missing a configured model.`,
         );
         return;
       }
 
-      const participants: SharedChatParticipant[] = [];
-      for (const participant of deliberationOption.value.participants) {
-        if (participant.agent.model === undefined) {
-          yield* appendSystemMessage(
-            input.parentThreadId,
-            `Pattern participant '${participant.role}' is missing a configured model.`,
-          );
-          return;
-        }
+      const resolvedPrompt = yield* promptResolver
+        .resolve({
+          name: participant.agent.prompt,
+          variables: {
+            DESCRIPTION: input.messageText,
+            PREVIOUS_OUTPUT: "",
+            ITERATION_CONTEXT: "",
+          },
+        })
+        .pipe(
+          Effect.catch(() =>
+            Effect.succeed({
+              name: participant.agent.prompt,
+              description: "",
+              system: `Act as the ${participant.role} participant in the shared chat and use post_to_chat when you want to contribute there.`,
+            }),
+          ),
+        );
 
-        const resolvedPrompt = yield* promptResolver
-          .resolve({
-            name: participant.agent.prompt,
-            variables: {
-              DESCRIPTION: input.messageText,
-              PREVIOUS_OUTPUT: "",
-              ITERATION_CONTEXT: "",
-            },
-          })
-          .pipe(
-            Effect.catch(() =>
-              Effect.succeed({
-                name: participant.agent.prompt,
-                description: "",
-                system: `Act as the ${participant.role} participant in the shared chat and use post_to_chat when you want to contribute there.`,
-              }),
-            ),
-          );
-
-        participants.push({
-          threadId: ThreadId.makeUnsafe(crypto.randomUUID()),
+      participants.push({
+        threadId: ThreadId.makeUnsafe(crypto.randomUUID()),
+        role: participant.role,
+        modelLabel: participant.agent.model.model,
+        modelSelection: participant.agent.model,
+        systemPrompt: buildSystemPrompt({
           role: participant.role,
-          modelLabel: participant.agent.model.model,
-          modelSelection: participant.agent.model,
-          systemPrompt: buildSystemPrompt({
-            role: participant.role,
-            promptSystemText: resolvedPrompt.system,
-          }),
-        });
-      }
+          promptSystemText: resolvedPrompt.system,
+        }),
+      });
+    }
 
-      for (const participant of participants) {
-        yield* orchestrationEngine.dispatch({
-          type: "thread.create",
-          commandId: patternCommandId(`child:${input.parentThreadId}:${participant.role}`),
-          threadId: participant.threadId,
-          projectId: parentThread.projectId,
-          title: `${parentThread.title} — ${formatRoleLabel(participant.role)}`,
-          modelSelection: participant.modelSelection,
-          runtimeMode: parentThread.runtimeMode,
-          interactionMode: parentThread.interactionMode,
-          branch: parentThread.branch,
-          worktreePath: parentThread.worktreePath,
-          parentThreadId: input.parentThreadId,
-          role: participant.role,
-          createdAt: nowIso(),
-        });
+    for (const participant of participants) {
+      yield* orchestrationEngine.dispatch({
+        type: "thread.create",
+        commandId: discussionCommandId(`child:${input.parentThreadId}:${participant.role}`),
+        threadId: participant.threadId,
+        projectId: parentThread.projectId,
+        title: `${parentThread.title} — ${formatRoleLabel(participant.role)}`,
+        modelSelection: participant.modelSelection,
+        runtimeMode: parentThread.runtimeMode,
+        interactionMode: parentThread.interactionMode,
+        branch: parentThread.branch,
+        worktreePath: parentThread.worktreePath,
+        parentThreadId: input.parentThreadId,
+        role: participant.role,
+        createdAt: nowIso(),
+      });
 
-        registerPendingSystemPrompt(participant.threadId, participant.systemPrompt);
+      registerPendingSystemPrompt(participant.threadId, participant.systemPrompt);
 
-        registerSharedChatTool({
-          childThreadId: participant.threadId,
-          provider: participant.modelSelection.provider,
-          parentThreadId: input.parentThreadId,
-          role: participant.role,
-          modelLabel: participant.modelLabel,
-        });
+      registerSharedChatTool({
+        childThreadId: participant.threadId,
+        provider: participant.modelSelection.provider,
+        parentThreadId: input.parentThreadId,
+        role: participant.role,
+        modelLabel: participant.modelLabel,
+      });
 
-        yield* sendMessageToChild({
-          threadId: participant.threadId,
-          text: input.messageText,
-          ...(input.attachments !== undefined ? { attachments: input.attachments } : {}),
-          runtimeMode: parentThread.runtimeMode,
-          interactionMode: parentThread.interactionMode,
-        });
-      }
-    },
-  );
+      yield* sendMessageToChild({
+        threadId: participant.threadId,
+        text: input.messageText,
+        ...(input.attachments !== undefined ? { attachments: input.attachments } : {}),
+        runtimeMode: parentThread.runtimeMode,
+        interactionMode: parentThread.interactionMode,
+      });
+    }
+  });
 
-  const processTurnStartRequested = Effect.fn("PatternReactor.processTurnStartRequested")(
-    function* (event: Extract<PatternReactorEvent, { type: "thread.turn-start-requested" }>) {
+  const processTurnStartRequested = Effect.fn("DiscussionReactor.processTurnStartRequested")(
+    function* (event: Extract<DiscussionReactorEvent, { type: "thread.turn-start-requested" }>) {
       const thread = yield* resolveThread(event.payload.threadId);
-      if (!thread || thread.patternId === null || thread.parentThreadId !== null) {
+      if (!thread || thread.discussionId === null || thread.parentThreadId !== null) {
         return;
       }
 
       const message = thread.messages.find((entry) => entry.id === event.payload.messageId);
       if (!message || message.role !== "user") {
-        yield* Effect.logWarning("pattern reactor: user message not found", {
+        yield* Effect.logWarning("discussion reactor: user message not found", {
           threadId: event.payload.threadId,
           messageId: event.payload.messageId,
         });
@@ -457,17 +459,17 @@ export const makePatternReactor = Effect.gen(function* () {
     },
   );
 
-  const processSummaryRequested = Effect.fn("PatternReactor.processSummaryRequested")(function* (
-    event: Extract<PatternReactorEvent, { type: "thread.summary-requested" }>,
+  const processSummaryRequested = Effect.fn("DiscussionReactor.processSummaryRequested")(function* (
+    event: Extract<DiscussionReactorEvent, { type: "thread.summary-requested" }>,
   ) {
     const parentThread = yield* resolveThread(event.payload.threadId);
     if (!parentThread) {
       return;
     }
 
-    const isPatternContainer =
-      parentThread.patternId !== null || parentThread.childThreadIds.length > 0;
-    if (!isPatternContainer) {
+    const isDiscussionContainer =
+      parentThread.discussionId !== null || parentThread.childThreadIds.length > 0;
+    if (!isDiscussionContainer) {
       return;
     }
 
@@ -490,7 +492,7 @@ export const makePatternReactor = Effect.gen(function* () {
 
     yield* orchestrationEngine.dispatch({
       type: "thread.create",
-      commandId: patternCommandId(`summary:${event.payload.threadId}`),
+      commandId: discussionCommandId(`summary:${event.payload.threadId}`),
       threadId: summaryThreadId,
       projectId: parentThread.projectId,
       title: `Summary — ${parentTitle}`,
@@ -529,7 +531,7 @@ export const makePatternReactor = Effect.gen(function* () {
     });
   });
 
-  const processEventSafely = (event: PatternReactorEvent) =>
+  const processEventSafely = (event: DiscussionReactorEvent) =>
     (event.type === "thread.summary-requested"
       ? processSummaryRequested(event)
       : processTurnStartRequested(event)
@@ -538,7 +540,7 @@ export const makePatternReactor = Effect.gen(function* () {
         if (Cause.hasInterruptsOnly(cause)) {
           return Effect.void;
         }
-        return Effect.logError("pattern reactor failed to process orchestration event", {
+        return Effect.logError("discussion reactor failed to process orchestration event", {
           eventType: event.type,
           cause: Cause.pretty(cause),
         });
@@ -547,20 +549,20 @@ export const makePatternReactor = Effect.gen(function* () {
 
   const worker = yield* makeDrainableWorker(processEventSafely);
 
-  const start: PatternReactorShape["start"] = () =>
+  const start: DiscussionReactorShape["start"] = () =>
     Stream.runForEach(
       Stream.filter(
         orchestrationEngine.streamDomainEvents as unknown as Stream.Stream<ForgeEvent>,
         (event) =>
           event.type === "thread.turn-start-requested" || event.type === "thread.summary-requested",
-      ).pipe(Stream.map((event) => event as PatternReactorEvent)),
+      ).pipe(Stream.map((event) => event as DiscussionReactorEvent)),
       worker.enqueue,
     ).pipe(Effect.forkScoped, Effect.asVoid);
 
   return {
     start,
     drain: worker.drain,
-  } satisfies PatternReactorShape;
+  } satisfies DiscussionReactorShape;
 });
 
-export const PatternReactorLive = Layer.effect(PatternReactor, makePatternReactor);
+export const DiscussionReactorLive = Layer.effect(DiscussionReactor, makeDiscussionReactor);

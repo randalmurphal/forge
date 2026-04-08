@@ -241,8 +241,10 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
           worktreePath: command.worktreePath,
           workflowId:
             "workflowId" in command && command.workflowId !== undefined ? command.workflowId : null,
-          patternId:
-            "patternId" in command && command.patternId !== undefined ? command.patternId : null,
+          discussionId:
+            "discussionId" in command && command.discussionId !== undefined
+              ? command.discussionId
+              : null,
           parentThreadId:
             "parentThreadId" in command && command.parentThreadId !== undefined
               ? command.parentThreadId

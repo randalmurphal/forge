@@ -21,7 +21,7 @@ function makeThread(
     interactionMode: "default",
     workflowId: null,
     currentPhaseId: null,
-    patternId: null,
+    discussionId: null,
     role: null,
     childThreadIds: [],
     session: null,

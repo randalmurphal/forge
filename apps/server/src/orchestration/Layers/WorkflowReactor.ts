@@ -72,7 +72,7 @@ export const makeWorkflowReactor = Effect.gen(function* () {
     }
 
     const thread = threadOption.value;
-    if (thread.patternId !== null) {
+    if (thread.discussionId !== null) {
       return false;
     }
     const hasWorkflow = thread.workflowSnapshot !== null || thread.workflowId !== null;

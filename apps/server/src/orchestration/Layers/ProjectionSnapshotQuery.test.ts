@@ -297,7 +297,7 @@ projectionSnapshotLayer("ProjectionSnapshotQuery", (it) => {
           phaseRunId: null,
           workflowId: null,
           currentPhaseId: null,
-          patternId: null,
+          discussionId: null,
           role: null,
           childThreadIds: [],
           bootstrapStatus: null,
@@ -421,7 +421,7 @@ projectionSnapshotLayer("ProjectionSnapshotQuery", (it) => {
           phase_run_id,
           workflow_id,
           current_phase_id,
-          pattern_id,
+          discussion_id,
           role,
           bootstrap_status
         )

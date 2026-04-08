@@ -2,7 +2,7 @@ export interface ForgeSessionIdentityInput {
   readonly parentThreadId: string | null;
   readonly phaseRunId: string | null;
   readonly workflowId: string | null;
-  readonly patternId: string | null;
+  readonly discussionId: string | null;
   readonly role: string | null;
 }
 
@@ -12,7 +12,7 @@ export function deriveForgeSessionType(input: ForgeSessionIdentityInput): ForgeS
   if (input.parentThreadId === null && input.workflowId !== null) {
     return "workflow";
   }
-  if (input.parentThreadId === null && input.patternId !== null) {
+  if (input.parentThreadId === null && input.discussionId !== null) {
     return "chat";
   }
   return "agent";
@@ -24,7 +24,7 @@ export function isStandaloneAgentSession(input: ForgeSessionIdentityInput): bool
     input.parentThreadId === null &&
     input.phaseRunId === null &&
     input.workflowId === null &&
-    input.patternId === null &&
+    input.discussionId === null &&
     input.role === null
   );
 }

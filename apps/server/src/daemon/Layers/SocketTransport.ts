@@ -130,7 +130,7 @@ const ThreadCreateParams = Schema.Struct({
   parentThreadId: Schema.optional(ThreadId),
   phaseRunId: Schema.optional(PhaseRunId),
   workflowId: Schema.optional(WorkflowId),
-  patternId: Schema.optional(TrimmedNonEmptyString),
+  discussionId: Schema.optional(TrimmedNonEmptyString),
   title: TrimmedNonEmptyString,
   description: Schema.optional(Schema.String),
   runtimeMode: Schema.optional(RuntimeMode),
@@ -317,7 +317,7 @@ function deriveSessionType(thread: OrchestrationThread): SessionSummary["session
 function inferSessionType(input: {
   readonly parentThreadId: ThreadId | undefined;
   readonly workflowId: WorkflowId | undefined;
-  readonly patternId: string | undefined;
+  readonly discussionId: string | undefined;
 }): "agent" | "workflow" | "chat" {
   if (input.parentThreadId !== undefined) {
     return "agent";
@@ -325,7 +325,7 @@ function inferSessionType(input: {
   if (input.workflowId !== undefined) {
     return "workflow";
   }
-  if (input.patternId !== undefined) {
+  if (input.discussionId !== undefined) {
     return "chat";
   }
   return "agent";
@@ -435,7 +435,7 @@ function toSessionSummary(
     runtimeMode: thread.runtimeMode,
     workflowId: thread.workflowId,
     currentPhaseId: thread.currentPhaseId,
-    patternId: thread.patternId,
+    discussionId: thread.discussionId,
     branch: thread.branch,
     bootstrapStatus: thread.bootstrapStatus,
     childThreadIds: thread.childThreadIds,
@@ -1018,12 +1018,12 @@ const makeSocketTransport = Effect.gen(function* () {
           sessionType: inferSessionType({
             parentThreadId: input.parentThreadId,
             workflowId: input.workflowId,
-            patternId: input.patternId,
+            discussionId: input.discussionId,
           }),
           title: input.title,
           description: input.description ?? "",
           ...(input.workflowId === undefined ? {} : { workflowId: input.workflowId }),
-          ...(input.patternId === undefined ? {} : { patternId: input.patternId }),
+          ...(input.discussionId === undefined ? {} : { discussionId: input.discussionId }),
           runtimeMode: input.runtimeMode ?? "full-access",
           model: resolved.modelSelection,
           ...(input.provider === undefined ? {} : { provider: input.provider }),

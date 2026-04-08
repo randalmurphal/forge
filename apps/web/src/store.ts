@@ -199,7 +199,7 @@ function mapThread(thread: OrchestrationThread): Thread {
     interactionMode: thread.interactionMode,
     workflowId: thread.workflowId ?? null,
     currentPhaseId: thread.currentPhaseId ?? null,
-    patternId: thread.patternId ?? null,
+    discussionId: thread.discussionId ?? null,
     role: thread.role ?? null,
     childThreadIds: [...(thread.childThreadIds ?? [])],
     session: thread.session ? mapSession(thread.session) : null,
@@ -259,7 +259,7 @@ function buildSidebarThreadSummary(thread: Thread): SidebarThreadSummary {
     interactionMode: thread.interactionMode,
     workflowId: thread.workflowId ?? null,
     currentPhaseId: thread.currentPhaseId ?? null,
-    patternId: thread.patternId ?? null,
+    discussionId: thread.discussionId ?? null,
     role: thread.role ?? null,
     childThreadIds: [...(thread.childThreadIds ?? [])],
     session: thread.session,
@@ -292,7 +292,7 @@ function sidebarThreadSummariesEqual(
     left.interactionMode === right.interactionMode &&
     left.workflowId === right.workflowId &&
     left.currentPhaseId === right.currentPhaseId &&
-    (left.patternId ?? null) === (right.patternId ?? null) &&
+    (left.discussionId ?? null) === (right.discussionId ?? null) &&
     left.role === right.role &&
     (left.childThreadIds ?? []).length === (right.childThreadIds ?? []).length &&
     (left.childThreadIds ?? []).every(
@@ -751,7 +751,7 @@ export function applyOrchestrationEvent(state: AppState, event: ForgeEvent): App
           | "phaseRunId"
           | "workflowId"
           | "currentPhaseId"
-          | "patternId"
+          | "discussionId"
           | "role"
           | "childThreadIds"
         >
@@ -762,7 +762,8 @@ export function applyOrchestrationEvent(state: AppState, event: ForgeEvent): App
       const workflowId: OrchestrationThread["workflowId"] = stagedThreadPayload.workflowId ?? null;
       const currentPhaseId: OrchestrationThread["currentPhaseId"] =
         stagedThreadPayload.currentPhaseId ?? null;
-      const patternId: OrchestrationThread["patternId"] = stagedThreadPayload.patternId ?? null;
+      const discussionId: OrchestrationThread["discussionId"] =
+        stagedThreadPayload.discussionId ?? null;
       const role: OrchestrationThread["role"] = stagedThreadPayload.role ?? null;
       const childThreadIds: OrchestrationThread["childThreadIds"] =
         stagedThreadPayload.childThreadIds ?? [];
@@ -784,7 +785,7 @@ export function applyOrchestrationEvent(state: AppState, event: ForgeEvent): App
         phaseRunId,
         workflowId,
         currentPhaseId,
-        patternId,
+        discussionId: discussionId,
         role,
         childThreadIds,
         bootstrapStatus: null,

@@ -125,7 +125,7 @@ function makeWorkflowEngineTestLayer(options: {
                       ? buildLoopWorkflow
                       : options.threadWorkflow,
                   currentPhaseId: null,
-                  patternId: null,
+                  discussionId: null,
                   role: null,
                   deliberationState: null,
                   bootstrapStatus: "completed",

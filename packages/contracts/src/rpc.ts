@@ -384,7 +384,7 @@ const ForgeThreadCreateInput = Schema.Struct({
   parentThreadId: Schema.optional(ThreadId),
   phaseRunId: Schema.optional(PhaseRunId),
   workflowId: Schema.optional(WorkflowId),
-  patternId: Schema.optional(TrimmedNonEmptyString),
+  discussionId: Schema.optional(TrimmedNonEmptyString),
   title: TrimmedNonEmptyString,
   description: Schema.optional(Schema.String),
   runtimeMode: Schema.optional(RuntimeMode),

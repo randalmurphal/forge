@@ -20,7 +20,7 @@ import {
 } from "@forgetools/shared/git";
 
 import { resolveThreadWorkspaceCwd } from "../../checkpointing/Utils.ts";
-import { getPendingSystemPrompt } from "../../pattern/pendingSystemPrompt.ts";
+import { getPendingSystemPrompt } from "../../discussion/pendingSystemPrompt.ts";
 import { GitCore } from "../../git/Services/GitCore.ts";
 import { increment, orchestrationEventsProcessedTotal } from "../../observability/Metrics.ts";
 import { ProviderAdapterRequestError, ProviderServiceError } from "../../provider/Errors.ts";
@@ -518,8 +518,8 @@ const make = Effect.gen(function* () {
       return;
     }
 
-    // Skip pattern container threads — PatternReactor handles these.
-    if (thread.patternId !== null && thread.parentThreadId === null) {
+    // Skip discussion container threads — DiscussionReactor handles these.
+    if (thread.discussionId !== null && thread.parentThreadId === null) {
       return;
     }
 

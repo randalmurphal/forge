@@ -89,7 +89,7 @@ function buildReadModel(channel: Channel): OrchestrationReadModel {
     phaseRunId: null,
     workflowId: channel.phaseRunId === undefined ? null : workflowId,
     currentPhaseId: channel.phaseRunId === undefined ? null : phaseId,
-    patternId: channel.phaseRunId === undefined ? "debate" : null,
+    discussionId: channel.phaseRunId === undefined ? "debate" : null,
     role: null,
     childThreadIds: [participantAId, participantBId],
     bootstrapStatus: null,
@@ -122,7 +122,7 @@ function buildReadModel(channel: Channel): OrchestrationReadModel {
       phaseRunId: channel.phaseRunId === undefined ? null : phaseRunId,
       workflowId: null,
       currentPhaseId: null,
-      patternId: null,
+      discussionId: null,
       role: "advocate",
       childThreadIds: [],
       bootstrapStatus: null,
@@ -153,7 +153,7 @@ function buildReadModel(channel: Channel): OrchestrationReadModel {
       phaseRunId: channel.phaseRunId === undefined ? null : phaseRunId,
       workflowId: null,
       currentPhaseId: null,
-      patternId: null,
+      discussionId: null,
       role: "critic",
       childThreadIds: [],
       bootstrapStatus: null,
@@ -199,7 +199,7 @@ function buildProjectionThread(input: {
   readonly role: string | null;
   readonly deliberationState: ProjectionThread["deliberationState"];
   readonly workflowId?: WorkflowId | null;
-  readonly patternId?: string | null;
+  readonly discussionId?: string | null;
 }): ProjectionThread {
   return {
     threadId: input.threadId,
@@ -229,7 +229,7 @@ function buildProjectionThread(input: {
     workflowId: input.workflowId ?? null,
     workflowSnapshot: null,
     currentPhaseId: input.phaseRunId === null ? null : phaseId,
-    patternId: input.patternId ?? null,
+    discussionId: input.discussionId ?? null,
     role: input.role,
     deliberationState: input.deliberationState,
     bootstrapStatus: null,
@@ -342,7 +342,7 @@ async function seedChatTarget(
         phaseRunId: null,
         role: null,
         deliberationState: initialState,
-        patternId: "debate",
+        discussionId: "debate",
       }),
     ),
   );

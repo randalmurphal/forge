@@ -90,7 +90,7 @@ const ProjectionThreadDbRowSchema = Schema.Struct({
   phaseRunId: Schema.NullOr(PhaseRunId),
   workflowId: Schema.NullOr(WorkflowId),
   currentPhaseId: Schema.NullOr(WorkflowPhaseId),
-  patternId: Schema.NullOr(Schema.String),
+  discussionId: Schema.NullOr(Schema.String),
   role: Schema.NullOr(Schema.String),
   bootstrapStatus: Schema.NullOr(Schema.String),
 });
@@ -283,7 +283,7 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
           phase_run_id AS "phaseRunId",
           workflow_id AS "workflowId",
           current_phase_id AS "currentPhaseId",
-          pattern_id AS "patternId",
+          discussion_id AS "discussionId",
           role,
           bootstrap_status AS "bootstrapStatus"
         FROM projection_threads
@@ -919,7 +919,7 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
             phaseRunId: row.phaseRunId,
             workflowId: row.workflowId,
             currentPhaseId: row.currentPhaseId,
-            patternId: row.patternId,
+            discussionId: row.discussionId,
             role: row.role,
             childThreadIds: childThreadIdsByParent.get(row.threadId) ?? [],
             bootstrapStatus: row.bootstrapStatus,

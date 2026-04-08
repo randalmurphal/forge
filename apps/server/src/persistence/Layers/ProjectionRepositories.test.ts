@@ -94,7 +94,7 @@ projectionRepositoriesLayer("Projection repositories", (it) => {
         workflowId: null,
         workflowSnapshot: null,
         currentPhaseId: null,
-        patternId: null,
+        discussionId: null,
         role: null,
         deliberationState: null,
         bootstrapStatus: null,

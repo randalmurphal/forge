@@ -63,7 +63,10 @@ import {
 
 import { resolveAttachmentPath } from "../../attachmentStore.ts";
 import { ServerConfig } from "../../config.ts";
-import { getPendingMcpServer, registerPendingMcpServer } from "../../pattern/pendingMcpServers.ts";
+import {
+  getPendingMcpServer,
+  registerPendingMcpServer,
+} from "../../discussion/pendingMcpServers.ts";
 import { ServerSettingsService } from "../../serverSettings.ts";
 import { getClaudeModelCapabilities } from "./ClaudeProvider.ts";
 import {

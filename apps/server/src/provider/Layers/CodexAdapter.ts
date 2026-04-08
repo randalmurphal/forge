@@ -37,7 +37,7 @@ import {
   CodexAppServerManager,
   type CodexAppServerStartSessionInput,
 } from "../../codexAppServerManager.ts";
-import { getPendingSessionTools } from "../../pattern/pendingSessionTools.ts";
+import { getPendingSessionTools } from "../../discussion/pendingSessionTools.ts";
 import { resolveAttachmentPath } from "../../attachmentStore.ts";
 import { ServerConfig } from "../../config.ts";
 import { ServerSettingsService } from "../../serverSettings.ts";
@@ -46,7 +46,7 @@ import { type EventNdjsonLogger, makeEventNdjsonLogger } from "./EventNdjsonLogg
 const PROVIDER = "codex" as const;
 
 const registerDynamicToolsNoop: CodexAdapterShape["registerDynamicTools"] = () => {
-  // Pattern-specific dynamic tools are registered before the child session starts.
+  // Discussion-specific dynamic tools are registered before the child session starts.
 };
 
 export interface CodexAdapterLiveOptions {

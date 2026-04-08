@@ -107,7 +107,7 @@ const makeSessionSummary = ({
   runtimeMode: "full-access",
   workflowId: null,
   currentPhaseId: null,
-  patternId: null,
+  discussionId: null,
   branch: null,
   bootstrapStatus: null,
   childThreadIds: [],

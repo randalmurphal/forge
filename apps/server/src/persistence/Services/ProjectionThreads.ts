@@ -45,7 +45,7 @@ export const ProjectionThread = Schema.Struct({
   workflowId: Schema.NullOr(WorkflowId),
   workflowSnapshot: Schema.NullOr(WorkflowDefinition),
   currentPhaseId: Schema.NullOr(WorkflowPhaseId),
-  patternId: Schema.NullOr(TrimmedNonEmptyString),
+  discussionId: Schema.NullOr(TrimmedNonEmptyString),
   role: Schema.NullOr(TrimmedNonEmptyString),
   deliberationState: Schema.NullOr(DeliberationState),
   bootstrapStatus: Schema.NullOr(TrimmedNonEmptyString),

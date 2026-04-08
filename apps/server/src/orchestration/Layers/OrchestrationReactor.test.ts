@@ -4,7 +4,7 @@ import { afterEach, describe, expect, it } from "vitest";
 import { BootstrapReactor } from "../Services/BootstrapReactor.ts";
 import { ChannelReactor } from "../Services/ChannelReactor.ts";
 import { CheckpointReactor } from "../Services/CheckpointReactor.ts";
-import { PatternReactor } from "../Services/PatternReactor.ts";
+import { DiscussionReactor } from "../Services/DiscussionReactor.ts";
 import { ProviderCommandReactor } from "../Services/ProviderCommandReactor.ts";
 import { ProviderRuntimeIngestionService } from "../Services/ProviderRuntimeIngestion.ts";
 import { OrchestrationReactor } from "../Services/OrchestrationReactor.ts";
@@ -36,7 +36,7 @@ describe("OrchestrationReactor", () => {
           }),
         ),
         Layer.provideMerge(
-          Layer.succeed(PatternReactor, {
+          Layer.succeed(DiscussionReactor, {
             start: () => {
               started.push("pattern-reactor");
               return Effect.void;

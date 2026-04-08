@@ -44,7 +44,7 @@ const makeThread = (threadId: string, projectId: string): OrchestrationThread =>
   phaseRunId: null,
   workflowId: null,
   currentPhaseId: null,
-  patternId: null,
+  discussionId: null,
   role: null,
   childThreadIds: [],
   bootstrapStatus: null,

@@ -139,7 +139,7 @@ type ProjectedThread = OrchestrationThread & {
   readonly phaseRunId: PhaseRunId | null;
   readonly workflowId: WorkflowId | null;
   readonly currentPhaseId: WorkflowPhaseId | null;
-  readonly patternId: string | null;
+  readonly discussionId: string | null;
   readonly role: string | null;
   readonly childThreadIds: ReadonlyArray<ThreadId>;
   readonly bootstrapStatus: string | null;
@@ -172,7 +172,7 @@ function toProjectedThread(thread: OrchestrationThread): ProjectedThread {
     phaseRunId: projected.phaseRunId ?? null,
     workflowId: projected.workflowId ?? null,
     currentPhaseId: projected.currentPhaseId ?? null,
-    patternId: projected.patternId ?? null,
+    discussionId: projected.discussionId ?? null,
     role: projected.role ?? null,
     childThreadIds: projected.childThreadIds ?? [],
     bootstrapStatus: projected.bootstrapStatus ?? null,
@@ -476,7 +476,7 @@ export function projectEvent(
             phaseRunId: "phaseRunId" in payload ? (payload.phaseRunId ?? null) : null,
             workflowId: payload.workflowId ?? null,
             currentPhaseId: null,
-            patternId: payload.patternId ?? null,
+            discussionId: payload.discussionId ?? null,
             role: "role" in payload ? (payload.role ?? null) : null,
             childThreadIds: [],
             bootstrapStatus: null,

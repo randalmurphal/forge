@@ -117,7 +117,7 @@ function createMinimalSnapshot(): OrchestrationReadModel {
         phaseRunId: null,
         workflowId: null,
         currentPhaseId: null,
-        patternId: null,
+        discussionId: null,
         role: null,
         childThreadIds: [],
         bootstrapStatus: null,
