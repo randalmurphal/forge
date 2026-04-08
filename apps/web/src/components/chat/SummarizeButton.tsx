@@ -79,16 +79,12 @@ export const SummarizeButton = memo(function SummarizeButton(props: {
     [props.threadId],
   );
 
-  const handleModelSelect = useCallback(
-    (provider: ProviderKind, model: string) => {
-      const selection = { provider, model } as ModelSelection;
-      setStickyModel(selection);
-      saveStickyModel(selection);
-      dispatchSummary(selection);
-      setIsMenuOpen(false);
-    },
-    [dispatchSummary],
-  );
+  const handleModelSelect = useCallback((provider: ProviderKind, model: string) => {
+    const selection = { provider, model } as ModelSelection;
+    setStickyModel(selection);
+    saveStickyModel(selection);
+    setIsMenuOpen(false);
+  }, []);
 
   const handleDirectClick = useCallback(() => {
     if (!stickyModel) return;
