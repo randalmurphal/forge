@@ -85,6 +85,7 @@ export const SummarizeButton = memo(function SummarizeButton(props: {
       setStickyModel(selection);
       saveStickyModel(selection);
       dispatchSummary(selection);
+      setIsMenuOpen(false);
     },
     [dispatchSummary],
   );
@@ -93,6 +94,8 @@ export const SummarizeButton = memo(function SummarizeButton(props: {
     if (!stickyModel) return;
     dispatchSummary(stickyModel);
   }, [stickyModel, dispatchSummary]);
+
+  const [isMenuOpen, setIsMenuOpen] = useState(false);
 
   return (
     <div className="flex items-center">
@@ -106,7 +109,7 @@ export const SummarizeButton = memo(function SummarizeButton(props: {
         <FileTextIcon aria-hidden="true" className="size-4 shrink-0" />
         <span className="sr-only sm:not-sr-only">Summarize</span>
       </Button>
-      <Menu>
+      <Menu open={isMenuOpen} onOpenChange={setIsMenuOpen}>
         <MenuTrigger
           render={
             <Button
