@@ -44,9 +44,8 @@ export function WorkflowEditorTopBar(props: {
   return (
     <header className="border-b border-border px-3 py-2 sm:px-5">
       <div className="flex flex-wrap items-center gap-2">
-        <SidebarTrigger className="size-7 shrink-0 md:hidden" />
         <div className="min-w-0 flex-1">
-          <p className="text-sm font-medium text-foreground">Workflow editor</p>
+          <p className="text-sm font-medium text-foreground">Workflows</p>
           <p className="text-xs text-muted-foreground">
             Build list-based workflows with phase gates, deliberation, and retry behavior.
           </p>

@@ -36,7 +36,10 @@ import {
 import { Effect, Layer, Option, Schema, Stream } from "effect";
 
 import { ChannelService } from "../../channel/Services/ChannelService.ts";
-import { DiscussionRegistry } from "../../discussion/Services/DiscussionRegistry.ts";
+import {
+  DiscussionRegistry,
+  type DiscussionRegistryShape,
+} from "../../discussion/Services/DiscussionRegistry.ts";
 import {
   OrchestrationEngineService,
   type OrchestrationEngineShape,
@@ -1279,6 +1282,175 @@ const makeSocketTransport = Effect.gen(function* () {
       return { discussion: discussionOption.value };
     });
 
+  const handleDiscussionListManaged = (params: unknown) =>
+    Effect.gen(function* () {
+      const input =
+        params != null && typeof params === "object" && "workspaceRoot" in params
+          ? { workspaceRoot: (params as Record<string, unknown>).workspaceRoot as string }
+          : {};
+      const discussions = yield* discussionRegistry.queryManagedAll(input).pipe(
+        Effect.mapError(
+          (cause) =>
+            new OrchestrationGetSnapshotError({
+              message: "Failed to load managed discussions.",
+              cause: cause instanceof Error ? cause : new Error(String(cause)),
+            }),
+        ),
+      );
+      return {
+        discussions: discussions.map((discussion) => ({
+          name: discussion.name,
+          description: discussion.description,
+          participantRoles: discussion.participants.map((participant) => participant.role),
+          scope: discussion.scope,
+          effective: discussion.effective,
+        })),
+      };
+    });
+
+  const handleDiscussionGetManaged = (params: unknown) =>
+    Effect.gen(function* () {
+      const input = params as {
+        name: string;
+        scope: "global" | "project";
+        workspaceRoot?: string;
+      } | null;
+      if (!input?.name || !input.scope) {
+        return yield* new OrchestrationGetSnapshotError({
+          message: "discussion.getManaged requires name and scope parameters.",
+        });
+      }
+      const discussionOption = yield* discussionRegistry
+        .queryManagedByName(
+          input.workspaceRoot
+            ? { name: input.name, scope: input.scope, workspaceRoot: input.workspaceRoot }
+            : { name: input.name, scope: input.scope },
+        )
+        .pipe(
+          Effect.mapError(
+            (cause) =>
+              new OrchestrationGetSnapshotError({
+                message: "Failed to load managed discussion.",
+                cause: cause instanceof Error ? cause : new Error(String(cause)),
+              }),
+          ),
+        );
+      if (Option.isNone(discussionOption)) {
+        return yield* new OrchestrationGetSnapshotError({
+          message: `Discussion '${input.name}' with scope '${input.scope}' not found.`,
+        });
+      }
+      return { discussion: discussionOption.value };
+    });
+
+  const handleDiscussionCreate = (params: unknown) =>
+    Effect.gen(function* () {
+      const input = params as {
+        discussion: Parameters<DiscussionRegistryShape["create"]>[0]["discussion"];
+        scope: "global" | "project";
+        workspaceRoot?: string;
+      } | null;
+      if (!input?.discussion || !input.scope) {
+        return yield* new OrchestrationGetSnapshotError({
+          message: "discussion.create requires discussion and scope parameters.",
+        });
+      }
+      const discussion = yield* discussionRegistry
+        .create(
+          input.workspaceRoot
+            ? {
+                discussion: input.discussion,
+                scope: input.scope,
+                workspaceRoot: input.workspaceRoot,
+              }
+            : { discussion: input.discussion, scope: input.scope },
+        )
+        .pipe(
+          Effect.mapError(
+            (cause) =>
+              new OrchestrationGetSnapshotError({
+                message: "Failed to create discussion.",
+                cause: cause instanceof Error ? cause : new Error(String(cause)),
+              }),
+          ),
+        );
+      return { discussion };
+    });
+
+  const handleDiscussionUpdate = (params: unknown) =>
+    Effect.gen(function* () {
+      const input = params as {
+        previousName: string;
+        previousScope: "global" | "project";
+        discussion: Parameters<DiscussionRegistryShape["update"]>[0]["discussion"];
+        scope: "global" | "project";
+        workspaceRoot?: string;
+      } | null;
+      if (!input?.discussion || !input.scope || !input.previousName || !input.previousScope) {
+        return yield* new OrchestrationGetSnapshotError({
+          message:
+            "discussion.update requires previousName, previousScope, discussion, and scope parameters.",
+        });
+      }
+      const discussion = yield* discussionRegistry
+        .update(
+          input.workspaceRoot
+            ? {
+                previousName: input.previousName,
+                previousScope: input.previousScope,
+                discussion: input.discussion,
+                scope: input.scope,
+                workspaceRoot: input.workspaceRoot,
+              }
+            : {
+                previousName: input.previousName,
+                previousScope: input.previousScope,
+                discussion: input.discussion,
+                scope: input.scope,
+              },
+        )
+        .pipe(
+          Effect.mapError(
+            (cause) =>
+              new OrchestrationGetSnapshotError({
+                message: "Failed to update discussion.",
+                cause: cause instanceof Error ? cause : new Error(String(cause)),
+              }),
+          ),
+        );
+      return { discussion };
+    });
+
+  const handleDiscussionDelete = (params: unknown) =>
+    Effect.gen(function* () {
+      const input = params as {
+        name: string;
+        scope: "global" | "project";
+        workspaceRoot?: string;
+      } | null;
+      if (!input?.name || !input.scope) {
+        return yield* new OrchestrationGetSnapshotError({
+          message: "discussion.delete requires name and scope parameters.",
+        });
+      }
+      yield* discussionRegistry
+        .delete(
+          input.workspaceRoot
+            ? { name: input.name, scope: input.scope, workspaceRoot: input.workspaceRoot }
+            : { name: input.name, scope: input.scope },
+        )
+        .pipe(
+          Effect.mapError(
+            (cause) =>
+              new OrchestrationGetSnapshotError({
+                message: "Failed to delete discussion.",
+                cause: cause instanceof Error ? cause : new Error(String(cause)),
+              }),
+          ),
+        );
+      return {};
+    });
+
   const handleGateApprove = (params: unknown) =>
     Effect.gen(function* () {
       const input = decodeParams(GateApproveParams, params, "gate.approve");
@@ -1800,6 +1972,11 @@ const makeSocketTransport = Effect.gen(function* () {
     ["workflow.get", (params) => handleWorkflowGet(params)],
     ["discussion.list", (params) => handleDiscussionList(params)],
     ["discussion.get", (params) => handleDiscussionGet(params)],
+    ["discussion.listManaged", (params) => handleDiscussionListManaged(params)],
+    ["discussion.getManaged", (params) => handleDiscussionGetManaged(params)],
+    ["discussion.create", (params) => handleDiscussionCreate(params)],
+    ["discussion.update", (params) => handleDiscussionUpdate(params)],
+    ["discussion.delete", (params) => handleDiscussionDelete(params)],
   ]);
 
   const bind: SocketTransportShape["bind"] = (input) =>

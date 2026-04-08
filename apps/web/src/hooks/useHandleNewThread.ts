@@ -1,6 +1,6 @@
 import { DEFAULT_RUNTIME_MODE, type ProjectId, ThreadId } from "@forgetools/contracts";
 import { useNavigate, useParams } from "@tanstack/react-router";
-import { useCallback, useMemo } from "react";
+import { useCallback, useEffect, useMemo } from "react";
 import { useShallow } from "zustand/react/shallow";
 import {
   type DraftThreadEnvMode,
@@ -16,6 +16,8 @@ import { useUiStateStore } from "../uiStateStore";
 export function useHandleNewThread() {
   const projectIds = useStore(useShallow((store) => store.projects.map((project) => project.id)));
   const projectOrder = useUiStateStore((store) => store.projectOrder);
+  const lastActiveProjectId = useUiStateStore((store) => store.lastActiveProjectId);
+  const setLastActiveProject = useUiStateStore((store) => store.setLastActiveProject);
   const navigate = useNavigate();
   const routeThreadId = useParams({
     strict: false,
@@ -32,6 +34,13 @@ export function useHandleNewThread() {
       getId: (projectId) => projectId,
     });
   }, [projectIds, projectOrder]);
+
+  useEffect(() => {
+    const activeProjectId = activeThread?.projectId ?? activeDraftThread?.projectId ?? null;
+    if (activeProjectId) {
+      setLastActiveProject(activeProjectId);
+    }
+  }, [activeDraftThread?.projectId, activeThread?.projectId, setLastActiveProject]);
 
   const handleNewThread = useCallback(
     (
@@ -59,6 +68,7 @@ export function useHandleNewThread() {
         : null;
       if (storedDraftThread) {
         return (async () => {
+          setLastActiveProject(projectId);
           if (hasBranchOption || hasWorktreePathOption || hasEnvModeOption) {
             setDraftThreadContext(storedDraftThread.threadId, {
               ...(hasBranchOption ? { branch: options?.branch ?? null } : {}),
@@ -84,6 +94,7 @@ export function useHandleNewThread() {
         routeThreadId &&
         latestActiveDraftThread.projectId === projectId
       ) {
+        setLastActiveProject(projectId);
         if (hasBranchOption || hasWorktreePathOption || hasEnvModeOption) {
           setDraftThreadContext(routeThreadId, {
             ...(hasBranchOption ? { branch: options?.branch ?? null } : {}),
@@ -98,6 +109,7 @@ export function useHandleNewThread() {
       const threadId = newThreadId();
       const createdAt = new Date().toISOString();
       return (async () => {
+        setLastActiveProject(projectId);
         setProjectDraftThreadId(projectId, threadId, {
           createdAt,
           branch: options?.branch ?? null,
@@ -113,13 +125,13 @@ export function useHandleNewThread() {
         });
       })();
     },
-    [navigate, routeThreadId],
+    [navigate, routeThreadId, setLastActiveProject],
   );
 
   return {
     activeDraftThread,
     activeThread,
-    defaultProjectId: orderedProjects[0] ?? null,
+    defaultProjectId: lastActiveProjectId ?? orderedProjects[0] ?? null,
     handleNewThread,
     routeThreadId,
   };

@@ -139,6 +139,11 @@ export interface WsRpcClient {
   readonly discussion: {
     readonly list: RpcUnaryMethod<typeof WS_METHODS.discussionList>;
     readonly get: RpcUnaryMethod<typeof WS_METHODS.discussionGet>;
+    readonly listManaged: RpcUnaryMethod<typeof WS_METHODS.discussionListManaged>;
+    readonly getManaged: RpcUnaryMethod<typeof WS_METHODS.discussionGetManaged>;
+    readonly create: RpcUnaryMethod<typeof WS_METHODS.discussionCreate>;
+    readonly update: RpcUnaryMethod<typeof WS_METHODS.discussionUpdate>;
+    readonly delete: RpcUnaryMethod<typeof WS_METHODS.discussionDelete>;
   };
 }
 
@@ -300,6 +305,13 @@ export function createWsRpcClient(transport = new WsTransport()): WsRpcClient {
     discussion: {
       list: (input) => transport.request((client) => client[WS_METHODS.discussionList](input)),
       get: (input) => transport.request((client) => client[WS_METHODS.discussionGet](input)),
+      listManaged: (input) =>
+        transport.request((client) => client[WS_METHODS.discussionListManaged](input)),
+      getManaged: (input) =>
+        transport.request((client) => client[WS_METHODS.discussionGetManaged](input)),
+      create: (input) => transport.request((client) => client[WS_METHODS.discussionCreate](input)),
+      update: (input) => transport.request((client) => client[WS_METHODS.discussionUpdate](input)),
+      delete: (input) => transport.request((client) => client[WS_METHODS.discussionDelete](input)),
     },
   };
 }

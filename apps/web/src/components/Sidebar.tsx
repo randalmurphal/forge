@@ -275,7 +275,7 @@ export default function Sidebar() {
       </SidebarContent>
       <SidebarSeparator />
       <SidebarFooterNav
-        onOpenWorkflows={() => void navigate({ to: "/workflow/editor" })}
+        onOpenAgentModes={() => void navigate({ to: "/agent-modes" })}
         onOpenSettings={() => void navigate({ to: "/settings" })}
       />
     </>

@@ -23,6 +23,7 @@ import { getProviderSnapshot } from "../../providerModels";
 import { useComposerDraftStore } from "../../composerDraftStore";
 import { useWorkflowStore, useWorkflows } from "../../stores/workflowStore";
 import { useDiscussionStore, useDiscussions } from "../../stores/discussionStore";
+import { useStore } from "../../store";
 import {
   filterWorkflowSummariesForProject,
   sortWorkflowSummariesForPicker,
@@ -91,6 +92,7 @@ export const UnifiedThreadPicker = memo(function UnifiedThreadPicker(props: {
   // --- Workflow/discussion selection state ---
   const draftThread = useComposerDraftStore((store) => store.getDraftThread(props.threadId));
   const setDraftThreadContext = useComposerDraftStore((store) => store.setDraftThreadContext);
+  const projects = useStore((store) => store.projects);
   const storedWorkflows = useWorkflowStore((store) => store.availableWorkflows);
   const selectedWorkflowId = useWorkflowStore((store) => store.selectedWorkflowId);
   const setSelectedWorkflowId = useWorkflowStore((store) => store.setSelectedWorkflowId);
@@ -108,7 +110,10 @@ export const UnifiedThreadPicker = memo(function UnifiedThreadPicker(props: {
 
   // Discussions: loaded from discussion.list API via dedicated store
   const storedDiscussions = useDiscussionStore((store) => store.availableDiscussions);
-  const discussionQuery = useDiscussions();
+  const discussionWorkspaceRoot = projects.find(
+    (project) => project.id === (draftThread?.projectId ?? null),
+  )?.cwd;
+  const discussionQuery = useDiscussions(discussionWorkspaceRoot);
   const discussions: ReadonlyArray<DiscussionSummary> =
     (discussionQuery.data as ReadonlyArray<DiscussionSummary> | undefined) ?? storedDiscussions;
 

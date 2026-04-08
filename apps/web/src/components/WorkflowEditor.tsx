@@ -22,12 +22,11 @@ import { getWsRpcClient } from "../wsRpcClient";
 import { useSettings } from "../hooks/useSettings";
 import { toastManager } from "./ui/toast";
 import { Button } from "./ui/button";
-import { SidebarInset } from "./ui/sidebar";
 import { PhaseCard } from "./PhaseCard";
+import { AgentModesPage } from "./AgentModesPage";
 import {
   WorkflowEditorBasicsSection,
   WorkflowEditorFootnote,
-  WorkflowEditorShell,
   WorkflowEditorSidebar,
   WorkflowEditorTopBar,
 } from "./WorkflowEditor.parts";
@@ -137,8 +136,7 @@ export function WorkflowEditor(props: { workflowId: WorkflowId | null }) {
       : null) ?? null;
   const providers = serverConfig?.providers ?? [];
   const resolvedProjectId = resolveWorkflowScopeProjectId(scope, projectId);
-  const currentProject =
-    projects.find((project) => project.id === resolvedProjectId) ?? projects[0] ?? null;
+  const currentProject = projects.find((project) => project.id === resolvedProjectId) ?? null;
   const fallbackModelSelection =
     currentProject?.defaultModelSelection ?? resolveAppModelSelectionState(settings, providers);
   const availableSummaries = workflowListQuery.data ?? cachedWorkflowSummaries;
@@ -166,7 +164,7 @@ export function WorkflowEditor(props: { workflowId: WorkflowId | null }) {
         workflowId: null,
         draft: createEmptyWorkflowDefinition(new Date().toISOString()),
         scope: "global",
-        projectId: projects[0]?.id ?? null,
+        projectId,
         dirty: false,
       });
       return;
@@ -191,6 +189,7 @@ export function WorkflowEditor(props: { workflowId: WorkflowId | null }) {
     draft,
     draftDirty,
     editingWorkflowId,
+    projectId,
     projects,
     props.workflowId,
     setEditingState,
@@ -276,7 +275,7 @@ export function WorkflowEditor(props: { workflowId: WorkflowId | null }) {
 
       if (props.workflowId !== workflow.id) {
         await navigate({
-          to: "/workflow/editor/$workflowId",
+          to: "/agent-modes/workflows/$workflowId",
           params: { workflowId: workflow.id },
         });
       }
@@ -310,35 +309,31 @@ export function WorkflowEditor(props: { workflowId: WorkflowId | null }) {
 
   if (props.workflowId !== null && workflowDetailQuery.isPending && !sourceWorkflow) {
     return (
-      <SidebarInset className="h-dvh min-h-0 overflow-hidden overscroll-y-none bg-background text-foreground">
-        <WorkflowEditorShell>
-          <div className="flex flex-1 items-center justify-center text-sm text-muted-foreground">
-            Loading workflow…
-          </div>
-        </WorkflowEditorShell>
-      </SidebarInset>
+      <AgentModesPage activeTab="workflows">
+        <div className="flex flex-1 items-center justify-center text-sm text-muted-foreground">
+          Loading workflow…
+        </div>
+      </AgentModesPage>
     );
   }
 
   if (props.workflowId !== null && workflowDetailQuery.isError && !sourceWorkflow) {
     return (
-      <SidebarInset className="h-dvh min-h-0 overflow-hidden overscroll-y-none bg-background text-foreground">
-        <WorkflowEditorShell>
-          <div className="flex flex-1 items-center justify-center px-6 text-center text-sm text-muted-foreground">
-            {workflowDetailQuery.error instanceof Error
-              ? workflowDetailQuery.error.message
-              : "Unable to load this workflow."}
-          </div>
-        </WorkflowEditorShell>
-      </SidebarInset>
+      <AgentModesPage activeTab="workflows">
+        <div className="flex flex-1 items-center justify-center px-6 text-center text-sm text-muted-foreground">
+          {workflowDetailQuery.error instanceof Error
+            ? workflowDetailQuery.error.message
+            : "Unable to load this workflow."}
+        </div>
+      </AgentModesPage>
     );
   }
 
   return (
-    <SidebarInset className="h-dvh min-h-0 overflow-hidden overscroll-y-none bg-background text-foreground">
-      <div className="flex min-h-0 flex-1 flex-col bg-background">
+    <AgentModesPage activeTab="workflows">
+      <div className="flex min-h-0 flex-1 flex-col">
         <WorkflowEditorTopBar
-          onCreateNew={() => void navigate({ to: "/workflow/editor" })}
+          onCreateNew={() => void navigate({ to: "/agent-modes/workflows" })}
           onSave={() => void saveMutation.mutateAsync()}
           saveDisabled={saveMutation.isPending || validationMessage !== null || isReadOnlyBuiltIn}
           savePending={saveMutation.isPending}
@@ -347,10 +342,10 @@ export function WorkflowEditor(props: { workflowId: WorkflowId | null }) {
           <WorkflowEditorSidebar
             workflows={renderedDefinitions}
             activeWorkflowId={props.workflowId}
-            onCreateNew={() => void navigate({ to: "/workflow/editor" })}
+            onCreateNew={() => void navigate({ to: "/agent-modes/workflows" })}
             onSelectWorkflow={(workflowId) =>
               void navigate({
-                to: "/workflow/editor/$workflowId",
+                to: "/agent-modes/workflows/$workflowId",
                 params: { workflowId },
               })
             }
@@ -476,6 +471,6 @@ export function WorkflowEditor(props: { workflowId: WorkflowId | null }) {
           </main>
         </div>
       </div>
-    </SidebarInset>
+    </AgentModesPage>
   );
 }

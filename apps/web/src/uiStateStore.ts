@@ -20,11 +20,13 @@ const LEGACY_PERSISTED_STATE_KEYS = [
 interface PersistedUiState {
   expandedProjectCwds?: string[];
   projectOrderCwds?: string[];
+  lastActiveProjectCwd?: string;
 }
 
 export interface UiProjectState {
   projectExpandedById: Record<string, boolean>;
   projectOrder: ProjectId[];
+  lastActiveProjectId: ProjectId | null;
 }
 
 export interface UiThreadState {
@@ -46,11 +48,13 @@ export interface SyncThreadInput {
 const initialState: UiState = {
   projectExpandedById: {},
   projectOrder: [],
+  lastActiveProjectId: null,
   threadLastVisitedAtById: {},
 };
 
 const persistedExpandedProjectCwds = new Set<string>();
 const persistedProjectOrderCwds: string[] = [];
+let persistedLastActiveProjectCwd: string | null = null;
 const currentProjectCwdById = new Map<ProjectId, string>();
 let legacyKeysCleanedUp = false;
 
@@ -81,6 +85,7 @@ function readPersistedState(): UiState {
 function hydratePersistedProjectState(parsed: PersistedUiState): void {
   persistedExpandedProjectCwds.clear();
   persistedProjectOrderCwds.length = 0;
+  persistedLastActiveProjectCwd = null;
   for (const cwd of parsed.expandedProjectCwds ?? []) {
     if (typeof cwd === "string" && cwd.length > 0) {
       persistedExpandedProjectCwds.add(cwd);
@@ -90,6 +95,9 @@ function hydratePersistedProjectState(parsed: PersistedUiState): void {
     if (typeof cwd === "string" && cwd.length > 0 && !persistedProjectOrderCwds.includes(cwd)) {
       persistedProjectOrderCwds.push(cwd);
     }
+  }
+  if (typeof parsed.lastActiveProjectCwd === "string" && parsed.lastActiveProjectCwd.length > 0) {
+    persistedLastActiveProjectCwd = parsed.lastActiveProjectCwd;
   }
 }
 
@@ -108,11 +116,15 @@ function persistState(state: UiState): void {
       const cwd = currentProjectCwdById.get(projectId);
       return cwd ? [cwd] : [];
     });
+    const lastActiveProjectCwd = state.lastActiveProjectId
+      ? (currentProjectCwdById.get(state.lastActiveProjectId) ?? null)
+      : null;
     window.localStorage.setItem(
       PERSISTED_STATE_KEY,
       JSON.stringify({
         expandedProjectCwds,
         projectOrderCwds,
+        ...(lastActiveProjectCwd ? { lastActiveProjectCwd } : {}),
       } satisfies PersistedUiState),
     );
     if (!legacyKeysCleanedUp) {
@@ -230,10 +242,19 @@ export function syncProjects(state: UiState, projects: readonly SyncProjectInput
             return left.incomingIndex - right.incomingIndex;
           })
           .map((project) => project.id);
+  const nextLastActiveProjectId =
+    (state.lastActiveProjectId && nextExpandedById[state.lastActiveProjectId] !== undefined
+      ? state.lastActiveProjectId
+      : undefined) ??
+    (persistedLastActiveProjectCwd
+      ? mappedProjects.find((project) => project.cwd === persistedLastActiveProjectCwd)?.id
+      : undefined) ??
+    null;
 
   if (
     recordsEqual(state.projectExpandedById, nextExpandedById) &&
     projectOrdersEqual(state.projectOrder, nextProjectOrder) &&
+    state.lastActiveProjectId === nextLastActiveProjectId &&
     !cwdMappingChanged
   ) {
     return state;
@@ -243,6 +264,7 @@ export function syncProjects(state: UiState, projects: readonly SyncProjectInput
     ...state,
     projectExpandedById: nextExpandedById,
     projectOrder: nextProjectOrder,
+    lastActiveProjectId: nextLastActiveProjectId,
   };
 }
 
@@ -382,6 +404,16 @@ export function reorderProjects(
   };
 }
 
+export function setLastActiveProject(state: UiState, projectId: ProjectId): UiState {
+  if (state.lastActiveProjectId === projectId) {
+    return state;
+  }
+  return {
+    ...state,
+    lastActiveProjectId: projectId,
+  };
+}
+
 interface UiStateStore extends UiState {
   syncProjects: (projects: readonly SyncProjectInput[]) => void;
   syncThreads: (threads: readonly SyncThreadInput[]) => void;
@@ -391,6 +423,7 @@ interface UiStateStore extends UiState {
   toggleProject: (projectId: ProjectId) => void;
   setProjectExpanded: (projectId: ProjectId, expanded: boolean) => void;
   reorderProjects: (draggedProjectId: ProjectId, targetProjectId: ProjectId) => void;
+  setLastActiveProject: (projectId: ProjectId) => void;
 }
 
 export const useUiStateStore = create<UiStateStore>((set) => ({
@@ -407,6 +440,7 @@ export const useUiStateStore = create<UiStateStore>((set) => ({
     set((state) => setProjectExpanded(state, projectId, expanded)),
   reorderProjects: (draggedProjectId, targetProjectId) =>
     set((state) => reorderProjects(state, draggedProjectId, targetProjectId)),
+  setLastActiveProject: (projectId) => set((state) => setLastActiveProject(state, projectId)),
 }));
 
 useUiStateStore.subscribe((state) => debouncedPersistState.maybeExecute(state));

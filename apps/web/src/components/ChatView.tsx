@@ -4398,6 +4398,7 @@ export default function ChatView({ threadId }: ChatViewProps) {
                             <DiscussionRolesPicker
                               threadId={threadId}
                               discussionId={draftThread.discussionId}
+                              {...(activeProject?.cwd ? { workspaceRoot: activeProject.cwd } : {})}
                               providers={providerStatuses}
                               modelOptionsByProvider={modelOptionsByProvider}
                               compact={isComposerFooterCompact}

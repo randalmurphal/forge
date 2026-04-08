@@ -54,12 +54,13 @@ function formatRoleLabel(role: string): string {
 export const DiscussionRolesPicker = memo(function DiscussionRolesPicker(props: {
   threadId: ThreadId;
   discussionId: string;
+  workspaceRoot?: string;
   providers?: ReadonlyArray<ServerProvider>;
   modelOptionsByProvider: Record<ProviderKind, ReadonlyArray<{ slug: string; name: string }>>;
   compact?: boolean;
   disabled?: boolean;
 }) {
-  const discussionQuery = useDiscussion(props.discussionId);
+  const discussionQuery = useDiscussion(props.discussionId, props.workspaceRoot);
   const discussion = discussionQuery.data;
   const draftThread = useComposerDraftStore((store) => store.getDraftThread(props.threadId));
   const setDraftThreadContext = useComposerDraftStore((store) => store.setDraftThreadContext);

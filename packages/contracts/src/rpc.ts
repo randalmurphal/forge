@@ -89,7 +89,13 @@ import {
   TerminalSessionSnapshot,
   TerminalWriteInput,
 } from "./terminal";
-import { DiscussionDefinition, DiscussionSummary } from "./discussion";
+import {
+  DiscussionDefinition,
+  DiscussionManagedSummary,
+  DiscussionRecord,
+  DiscussionScope,
+  DiscussionSummary,
+} from "./discussion";
 import { WorkflowDefinition } from "./workflow";
 import { GateResult, PhaseRunStatus, PhaseType, QualityCheckResult } from "./workflow";
 import {
@@ -146,6 +152,11 @@ export const FORGE_WS_METHODS = {
   // Discussion operations
   discussionList: "discussion.list",
   discussionGet: "discussion.get",
+  discussionListManaged: "discussion.listManaged",
+  discussionGetManaged: "discussion.getManaged",
+  discussionCreate: "discussion.create",
+  discussionUpdate: "discussion.update",
+  discussionDelete: "discussion.delete",
 
   // Push subscriptions
   subscribeWorkflowEvents: "subscribeWorkflowEvents",
@@ -579,6 +590,44 @@ const ForgeDiscussionGetResult = Schema.Struct({
   discussion: DiscussionDefinition,
 });
 
+const ForgeDiscussionManagedLocatorInput = Schema.Struct({
+  name: TrimmedNonEmptyString,
+  scope: DiscussionScope,
+  workspaceRoot: Schema.optional(TrimmedNonEmptyString),
+});
+
+const ForgeDiscussionListManagedInput = Schema.Struct({
+  workspaceRoot: Schema.optional(TrimmedNonEmptyString),
+});
+
+const ForgeDiscussionListManagedResult = Schema.Struct({
+  discussions: Schema.Array(DiscussionManagedSummary),
+});
+
+const ForgeDiscussionGetManagedResult = Schema.Struct({
+  discussion: DiscussionRecord,
+});
+
+const ForgeDiscussionCreateInput = Schema.Struct({
+  discussion: DiscussionDefinition,
+  scope: DiscussionScope,
+  workspaceRoot: Schema.optional(TrimmedNonEmptyString),
+});
+
+const ForgeDiscussionUpdateInput = Schema.Struct({
+  previousName: TrimmedNonEmptyString,
+  previousScope: DiscussionScope,
+  discussion: DiscussionDefinition,
+  scope: DiscussionScope,
+  workspaceRoot: Schema.optional(TrimmedNonEmptyString),
+});
+
+const ForgeDiscussionMutationResult = Schema.Struct({
+  discussion: DiscussionRecord,
+});
+
+const ForgeDiscussionDeleteInput = ForgeDiscussionManagedLocatorInput;
+
 const ForgeWorkflowListInput = Schema.Struct({});
 
 const ForgeWorkflowListResult = Schema.Struct({
@@ -745,6 +794,36 @@ export const WsForgeDiscussionGetRpc = Rpc.make(WS_METHODS.discussionGet, {
   error: OrchestrationGetSnapshotError,
 });
 
+export const WsForgeDiscussionListManagedRpc = Rpc.make(WS_METHODS.discussionListManaged, {
+  payload: ForgeDiscussionListManagedInput,
+  success: ForgeDiscussionListManagedResult,
+  error: OrchestrationGetSnapshotError,
+});
+
+export const WsForgeDiscussionGetManagedRpc = Rpc.make(WS_METHODS.discussionGetManaged, {
+  payload: ForgeDiscussionManagedLocatorInput,
+  success: ForgeDiscussionGetManagedResult,
+  error: OrchestrationGetSnapshotError,
+});
+
+export const WsForgeDiscussionCreateRpc = Rpc.make(WS_METHODS.discussionCreate, {
+  payload: ForgeDiscussionCreateInput,
+  success: ForgeDiscussionMutationResult,
+  error: OrchestrationGetSnapshotError,
+});
+
+export const WsForgeDiscussionUpdateRpc = Rpc.make(WS_METHODS.discussionUpdate, {
+  payload: ForgeDiscussionUpdateInput,
+  success: ForgeDiscussionMutationResult,
+  error: OrchestrationGetSnapshotError,
+});
+
+export const WsForgeDiscussionDeleteRpc = Rpc.make(WS_METHODS.discussionDelete, {
+  payload: ForgeDiscussionDeleteInput,
+  success: Schema.Struct({}),
+  error: OrchestrationGetSnapshotError,
+});
+
 export const WsForgeWorkflowListRpc = Rpc.make(WS_METHODS.workflowList, {
   payload: ForgeWorkflowListInput,
   success: ForgeWorkflowListResult,
@@ -901,4 +980,9 @@ export const WsRpcGroup = RpcGroup.make(
   WsForgeWorkflowUpdateRpc,
   WsForgeDiscussionListRpc,
   WsForgeDiscussionGetRpc,
+  WsForgeDiscussionListManagedRpc,
+  WsForgeDiscussionGetManagedRpc,
+  WsForgeDiscussionCreateRpc,
+  WsForgeDiscussionUpdateRpc,
+  WsForgeDiscussionDeleteRpc,
 );

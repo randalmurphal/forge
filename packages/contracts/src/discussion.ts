@@ -38,3 +38,23 @@ export const DiscussionSummary = Schema.Struct({
   scope: DiscussionScope,
 });
 export type DiscussionSummary = typeof DiscussionSummary.Type;
+
+export const DiscussionRecord = Schema.Struct({
+  name: TrimmedNonEmptyString,
+  description: Schema.String.pipe(Schema.withDecodingDefault(() => "")),
+  participants: Schema.Array(DiscussionParticipant).check(Schema.isMinLength(2)),
+  settings: DiscussionSettings.pipe(
+    Schema.withDecodingDefault(() => ({ maxTurns: DEFAULT_MAX_TURNS })),
+  ),
+  scope: DiscussionScope,
+});
+export type DiscussionRecord = typeof DiscussionRecord.Type;
+
+export const DiscussionManagedSummary = Schema.Struct({
+  name: TrimmedNonEmptyString,
+  description: Schema.String,
+  participantRoles: Schema.Array(TrimmedNonEmptyString),
+  scope: DiscussionScope,
+  effective: Schema.Boolean,
+});
+export type DiscussionManagedSummary = typeof DiscussionManagedSummary.Type;

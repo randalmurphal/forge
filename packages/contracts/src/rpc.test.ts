@@ -8,6 +8,13 @@ import {
   WsForgeChannelGetChannelRpc,
   WsForgeChannelGetMessagesRpc,
   WsForgeChannelInterveneRpc,
+  WsForgeDiscussionCreateRpc,
+  WsForgeDiscussionDeleteRpc,
+  WsForgeDiscussionGetManagedRpc,
+  WsForgeDiscussionGetRpc,
+  WsForgeDiscussionListManagedRpc,
+  WsForgeDiscussionListRpc,
+  WsForgeDiscussionUpdateRpc,
   WsForgeGateApproveRpc,
   WsForgeGateRejectRpc,
   WsForgePhaseOutputGetRpc,
@@ -71,6 +78,11 @@ it("exports the staged Forge websocket method registry", () => {
     workflowUpdate: "workflow.update",
     discussionList: "discussion.list",
     discussionGet: "discussion.get",
+    discussionListManaged: "discussion.listManaged",
+    discussionGetManaged: "discussion.getManaged",
+    discussionCreate: "discussion.create",
+    discussionUpdate: "discussion.update",
+    discussionDelete: "discussion.delete",
     subscribeWorkflowEvents: "subscribeWorkflowEvents",
     subscribeChannelMessages: "subscribeChannelMessages",
     subscribeWorkflowPhase: "workflow.phase",
@@ -130,6 +142,13 @@ it("exports the Forge websocket RPC definitions", () => {
   assert.ok(WsForgeWorkflowGetRpc);
   assert.ok(WsForgeWorkflowCreateRpc);
   assert.ok(WsForgeWorkflowUpdateRpc);
+  assert.ok(WsForgeDiscussionListRpc);
+  assert.ok(WsForgeDiscussionGetRpc);
+  assert.ok(WsForgeDiscussionListManagedRpc);
+  assert.ok(WsForgeDiscussionGetManagedRpc);
+  assert.ok(WsForgeDiscussionCreateRpc);
+  assert.ok(WsForgeDiscussionUpdateRpc);
+  assert.ok(WsForgeDiscussionDeleteRpc);
 });
 
 it("registers workflow, phase, channel, and session rpc methods in the shared websocket RPC group", () => {
@@ -153,6 +172,13 @@ it("registers workflow, phase, channel, and session rpc methods in the shared we
   assert.ok(methods.has(WS_METHODS.workflowGet));
   assert.ok(methods.has(WS_METHODS.workflowCreate));
   assert.ok(methods.has(WS_METHODS.workflowUpdate));
+  assert.ok(methods.has(WS_METHODS.discussionList));
+  assert.ok(methods.has(WS_METHODS.discussionGet));
+  assert.ok(methods.has(WS_METHODS.discussionListManaged));
+  assert.ok(methods.has(WS_METHODS.discussionGetManaged));
+  assert.ok(methods.has(WS_METHODS.discussionCreate));
+  assert.ok(methods.has(WS_METHODS.discussionUpdate));
+  assert.ok(methods.has(WS_METHODS.discussionDelete));
   assert.ok(!methods.has(WS_METHODS.threadCreate));
   assert.ok(methods.has(WS_METHODS.threadGetTranscript));
   assert.ok(methods.has(WS_METHODS.threadGetChildren));

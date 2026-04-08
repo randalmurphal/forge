@@ -10,18 +10,28 @@
 
 import { Route as rootRouteImport } from './routes/__root'
 import { Route as SettingsRouteImport } from './routes/settings'
+import { Route as AgentModesRouteImport } from './routes/agent-modes'
 import { Route as ChatRouteImport } from './routes/_chat'
 import { Route as ChatIndexRouteImport } from './routes/_chat.index'
-import { Route as WorkflowEditorRouteImport } from './routes/workflow.editor'
 import { Route as SettingsGeneralRouteImport } from './routes/settings.general'
 import { Route as SettingsArchivedRouteImport } from './routes/settings.archived'
+import { Route as AgentModesWorkflowsRouteImport } from './routes/agent-modes.workflows'
+import { Route as AgentModesDiscussionsRouteImport } from './routes/agent-modes.discussions'
 import { Route as ChatThreadIdRouteImport } from './routes/_chat.$threadId'
-import { Route as WorkflowEditorIndexRouteImport } from './routes/workflow.editor.index'
-import { Route as WorkflowEditorWorkflowIdRouteImport } from './routes/workflow.editor.$workflowId'
+import { Route as AgentModesWorkflowsIndexRouteImport } from './routes/agent-modes.workflows.index'
+import { Route as AgentModesDiscussionsIndexRouteImport } from './routes/agent-modes.discussions.index'
+import { Route as AgentModesWorkflowsWorkflowIdRouteImport } from './routes/agent-modes.workflows.$workflowId'
+import { Route as AgentModesDiscussionsGlobalDiscussionNameRouteImport } from './routes/agent-modes.discussions.global.$discussionName'
+import { Route as AgentModesDiscussionsProjectProjectIdDiscussionNameRouteImport } from './routes/agent-modes.discussions.project.$projectId.$discussionName'
 
 const SettingsRoute = SettingsRouteImport.update({
   id: '/settings',
   path: '/settings',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const AgentModesRoute = AgentModesRouteImport.update({
+  id: '/agent-modes',
+  path: '/agent-modes',
   getParentRoute: () => rootRouteImport,
 } as any)
 const ChatRoute = ChatRouteImport.update({
@@ -33,11 +43,6 @@ const ChatIndexRoute = ChatIndexRouteImport.update({
   path: '/',
   getParentRoute: () => ChatRoute,
 } as any)
-const WorkflowEditorRoute = WorkflowEditorRouteImport.update({
-  id: '/workflow/editor',
-  path: '/workflow/editor',
-  getParentRoute: () => rootRouteImport,
-} as any)
 const SettingsGeneralRoute = SettingsGeneralRouteImport.update({
   id: '/general',
   path: '/general',
@@ -48,91 +53,148 @@ const SettingsArchivedRoute = SettingsArchivedRouteImport.update({
   path: '/archived',
   getParentRoute: () => SettingsRoute,
 } as any)
+const AgentModesWorkflowsRoute = AgentModesWorkflowsRouteImport.update({
+  id: '/workflows',
+  path: '/workflows',
+  getParentRoute: () => AgentModesRoute,
+} as any)
+const AgentModesDiscussionsRoute = AgentModesDiscussionsRouteImport.update({
+  id: '/discussions',
+  path: '/discussions',
+  getParentRoute: () => AgentModesRoute,
+} as any)
 const ChatThreadIdRoute = ChatThreadIdRouteImport.update({
   id: '/$threadId',
   path: '/$threadId',
   getParentRoute: () => ChatRoute,
 } as any)
-const WorkflowEditorIndexRoute = WorkflowEditorIndexRouteImport.update({
-  id: '/',
-  path: '/',
-  getParentRoute: () => WorkflowEditorRoute,
-} as any)
-const WorkflowEditorWorkflowIdRoute =
-  WorkflowEditorWorkflowIdRouteImport.update({
+const AgentModesWorkflowsIndexRoute =
+  AgentModesWorkflowsIndexRouteImport.update({
+    id: '/',
+    path: '/',
+    getParentRoute: () => AgentModesWorkflowsRoute,
+  } as any)
+const AgentModesDiscussionsIndexRoute =
+  AgentModesDiscussionsIndexRouteImport.update({
+    id: '/',
+    path: '/',
+    getParentRoute: () => AgentModesDiscussionsRoute,
+  } as any)
+const AgentModesWorkflowsWorkflowIdRoute =
+  AgentModesWorkflowsWorkflowIdRouteImport.update({
     id: '/$workflowId',
     path: '/$workflowId',
-    getParentRoute: () => WorkflowEditorRoute,
+    getParentRoute: () => AgentModesWorkflowsRoute,
+  } as any)
+const AgentModesDiscussionsGlobalDiscussionNameRoute =
+  AgentModesDiscussionsGlobalDiscussionNameRouteImport.update({
+    id: '/global/$discussionName',
+    path: '/global/$discussionName',
+    getParentRoute: () => AgentModesDiscussionsRoute,
+  } as any)
+const AgentModesDiscussionsProjectProjectIdDiscussionNameRoute =
+  AgentModesDiscussionsProjectProjectIdDiscussionNameRouteImport.update({
+    id: '/project/$projectId/$discussionName',
+    path: '/project/$projectId/$discussionName',
+    getParentRoute: () => AgentModesDiscussionsRoute,
   } as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof ChatIndexRoute
+  '/agent-modes': typeof AgentModesRouteWithChildren
   '/settings': typeof SettingsRouteWithChildren
   '/$threadId': typeof ChatThreadIdRoute
+  '/agent-modes/discussions': typeof AgentModesDiscussionsRouteWithChildren
+  '/agent-modes/workflows': typeof AgentModesWorkflowsRouteWithChildren
   '/settings/archived': typeof SettingsArchivedRoute
   '/settings/general': typeof SettingsGeneralRoute
-  '/workflow/editor': typeof WorkflowEditorRouteWithChildren
-  '/workflow/editor/$workflowId': typeof WorkflowEditorWorkflowIdRoute
-  '/workflow/editor/': typeof WorkflowEditorIndexRoute
+  '/agent-modes/workflows/$workflowId': typeof AgentModesWorkflowsWorkflowIdRoute
+  '/agent-modes/discussions/': typeof AgentModesDiscussionsIndexRoute
+  '/agent-modes/workflows/': typeof AgentModesWorkflowsIndexRoute
+  '/agent-modes/discussions/global/$discussionName': typeof AgentModesDiscussionsGlobalDiscussionNameRoute
+  '/agent-modes/discussions/project/$projectId/$discussionName': typeof AgentModesDiscussionsProjectProjectIdDiscussionNameRoute
 }
 export interface FileRoutesByTo {
+  '/agent-modes': typeof AgentModesRouteWithChildren
   '/settings': typeof SettingsRouteWithChildren
   '/$threadId': typeof ChatThreadIdRoute
   '/settings/archived': typeof SettingsArchivedRoute
   '/settings/general': typeof SettingsGeneralRoute
   '/': typeof ChatIndexRoute
-  '/workflow/editor/$workflowId': typeof WorkflowEditorWorkflowIdRoute
-  '/workflow/editor': typeof WorkflowEditorIndexRoute
+  '/agent-modes/workflows/$workflowId': typeof AgentModesWorkflowsWorkflowIdRoute
+  '/agent-modes/discussions': typeof AgentModesDiscussionsIndexRoute
+  '/agent-modes/workflows': typeof AgentModesWorkflowsIndexRoute
+  '/agent-modes/discussions/global/$discussionName': typeof AgentModesDiscussionsGlobalDiscussionNameRoute
+  '/agent-modes/discussions/project/$projectId/$discussionName': typeof AgentModesDiscussionsProjectProjectIdDiscussionNameRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/_chat': typeof ChatRouteWithChildren
+  '/agent-modes': typeof AgentModesRouteWithChildren
   '/settings': typeof SettingsRouteWithChildren
   '/_chat/$threadId': typeof ChatThreadIdRoute
+  '/agent-modes/discussions': typeof AgentModesDiscussionsRouteWithChildren
+  '/agent-modes/workflows': typeof AgentModesWorkflowsRouteWithChildren
   '/settings/archived': typeof SettingsArchivedRoute
   '/settings/general': typeof SettingsGeneralRoute
-  '/workflow/editor': typeof WorkflowEditorRouteWithChildren
   '/_chat/': typeof ChatIndexRoute
-  '/workflow/editor/$workflowId': typeof WorkflowEditorWorkflowIdRoute
-  '/workflow/editor/': typeof WorkflowEditorIndexRoute
+  '/agent-modes/workflows/$workflowId': typeof AgentModesWorkflowsWorkflowIdRoute
+  '/agent-modes/discussions/': typeof AgentModesDiscussionsIndexRoute
+  '/agent-modes/workflows/': typeof AgentModesWorkflowsIndexRoute
+  '/agent-modes/discussions/global/$discussionName': typeof AgentModesDiscussionsGlobalDiscussionNameRoute
+  '/agent-modes/discussions/project/$projectId/$discussionName': typeof AgentModesDiscussionsProjectProjectIdDiscussionNameRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
   fullPaths:
     | '/'
+    | '/agent-modes'
     | '/settings'
     | '/$threadId'
+    | '/agent-modes/discussions'
+    | '/agent-modes/workflows'
     | '/settings/archived'
     | '/settings/general'
-    | '/workflow/editor'
-    | '/workflow/editor/$workflowId'
-    | '/workflow/editor/'
+    | '/agent-modes/workflows/$workflowId'
+    | '/agent-modes/discussions/'
+    | '/agent-modes/workflows/'
+    | '/agent-modes/discussions/global/$discussionName'
+    | '/agent-modes/discussions/project/$projectId/$discussionName'
   fileRoutesByTo: FileRoutesByTo
   to:
+    | '/agent-modes'
     | '/settings'
     | '/$threadId'
     | '/settings/archived'
     | '/settings/general'
     | '/'
-    | '/workflow/editor/$workflowId'
-    | '/workflow/editor'
+    | '/agent-modes/workflows/$workflowId'
+    | '/agent-modes/discussions'
+    | '/agent-modes/workflows'
+    | '/agent-modes/discussions/global/$discussionName'
+    | '/agent-modes/discussions/project/$projectId/$discussionName'
   id:
     | '__root__'
     | '/_chat'
+    | '/agent-modes'
     | '/settings'
     | '/_chat/$threadId'
+    | '/agent-modes/discussions'
+    | '/agent-modes/workflows'
     | '/settings/archived'
     | '/settings/general'
-    | '/workflow/editor'
     | '/_chat/'
-    | '/workflow/editor/$workflowId'
-    | '/workflow/editor/'
+    | '/agent-modes/workflows/$workflowId'
+    | '/agent-modes/discussions/'
+    | '/agent-modes/workflows/'
+    | '/agent-modes/discussions/global/$discussionName'
+    | '/agent-modes/discussions/project/$projectId/$discussionName'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
   ChatRoute: typeof ChatRouteWithChildren
+  AgentModesRoute: typeof AgentModesRouteWithChildren
   SettingsRoute: typeof SettingsRouteWithChildren
-  WorkflowEditorRoute: typeof WorkflowEditorRouteWithChildren
 }
 
 declare module '@tanstack/react-router' {
@@ -142,6 +204,13 @@ declare module '@tanstack/react-router' {
       path: '/settings'
       fullPath: '/settings'
       preLoaderRoute: typeof SettingsRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/agent-modes': {
+      id: '/agent-modes'
+      path: '/agent-modes'
+      fullPath: '/agent-modes'
+      preLoaderRoute: typeof AgentModesRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/_chat': {
@@ -158,13 +227,6 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ChatIndexRouteImport
       parentRoute: typeof ChatRoute
     }
-    '/workflow/editor': {
-      id: '/workflow/editor'
-      path: '/workflow/editor'
-      fullPath: '/workflow/editor'
-      preLoaderRoute: typeof WorkflowEditorRouteImport
-      parentRoute: typeof rootRouteImport
-    }
     '/settings/general': {
       id: '/settings/general'
       path: '/general'
@@ -179,6 +241,20 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof SettingsArchivedRouteImport
       parentRoute: typeof SettingsRoute
     }
+    '/agent-modes/workflows': {
+      id: '/agent-modes/workflows'
+      path: '/workflows'
+      fullPath: '/agent-modes/workflows'
+      preLoaderRoute: typeof AgentModesWorkflowsRouteImport
+      parentRoute: typeof AgentModesRoute
+    }
+    '/agent-modes/discussions': {
+      id: '/agent-modes/discussions'
+      path: '/discussions'
+      fullPath: '/agent-modes/discussions'
+      preLoaderRoute: typeof AgentModesDiscussionsRouteImport
+      parentRoute: typeof AgentModesRoute
+    }
     '/_chat/$threadId': {
       id: '/_chat/$threadId'
       path: '/$threadId'
@@ -186,19 +262,40 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ChatThreadIdRouteImport
       parentRoute: typeof ChatRoute
     }
-    '/workflow/editor/': {
-      id: '/workflow/editor/'
+    '/agent-modes/workflows/': {
+      id: '/agent-modes/workflows/'
       path: '/'
-      fullPath: '/workflow/editor/'
-      preLoaderRoute: typeof WorkflowEditorIndexRouteImport
-      parentRoute: typeof WorkflowEditorRoute
+      fullPath: '/agent-modes/workflows/'
+      preLoaderRoute: typeof AgentModesWorkflowsIndexRouteImport
+      parentRoute: typeof AgentModesWorkflowsRoute
     }
-    '/workflow/editor/$workflowId': {
-      id: '/workflow/editor/$workflowId'
+    '/agent-modes/discussions/': {
+      id: '/agent-modes/discussions/'
+      path: '/'
+      fullPath: '/agent-modes/discussions/'
+      preLoaderRoute: typeof AgentModesDiscussionsIndexRouteImport
+      parentRoute: typeof AgentModesDiscussionsRoute
+    }
+    '/agent-modes/workflows/$workflowId': {
+      id: '/agent-modes/workflows/$workflowId'
       path: '/$workflowId'
-      fullPath: '/workflow/editor/$workflowId'
-      preLoaderRoute: typeof WorkflowEditorWorkflowIdRouteImport
-      parentRoute: typeof WorkflowEditorRoute
+      fullPath: '/agent-modes/workflows/$workflowId'
+      preLoaderRoute: typeof AgentModesWorkflowsWorkflowIdRouteImport
+      parentRoute: typeof AgentModesWorkflowsRoute
+    }
+    '/agent-modes/discussions/global/$discussionName': {
+      id: '/agent-modes/discussions/global/$discussionName'
+      path: '/global/$discussionName'
+      fullPath: '/agent-modes/discussions/global/$discussionName'
+      preLoaderRoute: typeof AgentModesDiscussionsGlobalDiscussionNameRouteImport
+      parentRoute: typeof AgentModesDiscussionsRoute
+    }
+    '/agent-modes/discussions/project/$projectId/$discussionName': {
+      id: '/agent-modes/discussions/project/$projectId/$discussionName'
+      path: '/project/$projectId/$discussionName'
+      fullPath: '/agent-modes/discussions/project/$projectId/$discussionName'
+      preLoaderRoute: typeof AgentModesDiscussionsProjectProjectIdDiscussionNameRouteImport
+      parentRoute: typeof AgentModesDiscussionsRoute
     }
   }
 }
@@ -215,6 +312,52 @@ const ChatRouteChildren: ChatRouteChildren = {
 
 const ChatRouteWithChildren = ChatRoute._addFileChildren(ChatRouteChildren)
 
+interface AgentModesDiscussionsRouteChildren {
+  AgentModesDiscussionsIndexRoute: typeof AgentModesDiscussionsIndexRoute
+  AgentModesDiscussionsGlobalDiscussionNameRoute: typeof AgentModesDiscussionsGlobalDiscussionNameRoute
+  AgentModesDiscussionsProjectProjectIdDiscussionNameRoute: typeof AgentModesDiscussionsProjectProjectIdDiscussionNameRoute
+}
+
+const AgentModesDiscussionsRouteChildren: AgentModesDiscussionsRouteChildren = {
+  AgentModesDiscussionsIndexRoute: AgentModesDiscussionsIndexRoute,
+  AgentModesDiscussionsGlobalDiscussionNameRoute:
+    AgentModesDiscussionsGlobalDiscussionNameRoute,
+  AgentModesDiscussionsProjectProjectIdDiscussionNameRoute:
+    AgentModesDiscussionsProjectProjectIdDiscussionNameRoute,
+}
+
+const AgentModesDiscussionsRouteWithChildren =
+  AgentModesDiscussionsRoute._addFileChildren(
+    AgentModesDiscussionsRouteChildren,
+  )
+
+interface AgentModesWorkflowsRouteChildren {
+  AgentModesWorkflowsWorkflowIdRoute: typeof AgentModesWorkflowsWorkflowIdRoute
+  AgentModesWorkflowsIndexRoute: typeof AgentModesWorkflowsIndexRoute
+}
+
+const AgentModesWorkflowsRouteChildren: AgentModesWorkflowsRouteChildren = {
+  AgentModesWorkflowsWorkflowIdRoute: AgentModesWorkflowsWorkflowIdRoute,
+  AgentModesWorkflowsIndexRoute: AgentModesWorkflowsIndexRoute,
+}
+
+const AgentModesWorkflowsRouteWithChildren =
+  AgentModesWorkflowsRoute._addFileChildren(AgentModesWorkflowsRouteChildren)
+
+interface AgentModesRouteChildren {
+  AgentModesDiscussionsRoute: typeof AgentModesDiscussionsRouteWithChildren
+  AgentModesWorkflowsRoute: typeof AgentModesWorkflowsRouteWithChildren
+}
+
+const AgentModesRouteChildren: AgentModesRouteChildren = {
+  AgentModesDiscussionsRoute: AgentModesDiscussionsRouteWithChildren,
+  AgentModesWorkflowsRoute: AgentModesWorkflowsRouteWithChildren,
+}
+
+const AgentModesRouteWithChildren = AgentModesRoute._addFileChildren(
+  AgentModesRouteChildren,
+)
+
 interface SettingsRouteChildren {
   SettingsArchivedRoute: typeof SettingsArchivedRoute
   SettingsGeneralRoute: typeof SettingsGeneralRoute
@@ -229,24 +372,10 @@ const SettingsRouteWithChildren = SettingsRoute._addFileChildren(
   SettingsRouteChildren,
 )
 
-interface WorkflowEditorRouteChildren {
-  WorkflowEditorWorkflowIdRoute: typeof WorkflowEditorWorkflowIdRoute
-  WorkflowEditorIndexRoute: typeof WorkflowEditorIndexRoute
-}
-
-const WorkflowEditorRouteChildren: WorkflowEditorRouteChildren = {
-  WorkflowEditorWorkflowIdRoute: WorkflowEditorWorkflowIdRoute,
-  WorkflowEditorIndexRoute: WorkflowEditorIndexRoute,
-}
-
-const WorkflowEditorRouteWithChildren = WorkflowEditorRoute._addFileChildren(
-  WorkflowEditorRouteChildren,
-)
-
 const rootRouteChildren: RootRouteChildren = {
   ChatRoute: ChatRouteWithChildren,
+  AgentModesRoute: AgentModesRouteWithChildren,
   SettingsRoute: SettingsRouteWithChildren,
-  WorkflowEditorRoute: WorkflowEditorRouteWithChildren,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)

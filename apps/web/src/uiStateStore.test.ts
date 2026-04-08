@@ -15,6 +15,7 @@ function makeUiState(overrides: Partial<UiState> = {}): UiState {
   return {
     projectExpandedById: {},
     projectOrder: [],
+    lastActiveProjectId: null,
     threadLastVisitedAtById: {},
     ...overrides,
   };

@@ -1182,6 +1182,116 @@ const WsRpcLayer = WsRpcGroup.toLayer(
           ),
           { "rpc.aggregate": "discussion" },
         ),
+      [WS_METHODS.discussionListManaged]: ({ workspaceRoot }) =>
+        observeRpcEffect(
+          WS_METHODS.discussionListManaged,
+          discussionRegistry.queryManagedAll(workspaceRoot ? { workspaceRoot } : {}).pipe(
+            Effect.map((discussions) => ({
+              discussions: discussions.map((discussion) => ({
+                name: discussion.name,
+                description: discussion.description,
+                participantRoles: discussion.participants.map((participant) => participant.role),
+                scope: discussion.scope,
+                effective: discussion.effective,
+              })),
+            })),
+            Effect.mapError(
+              (cause) =>
+                new OrchestrationGetSnapshotError({
+                  message: "Failed to load managed discussions",
+                  cause,
+                }),
+            ),
+          ),
+          { "rpc.aggregate": "discussion" },
+        ),
+      [WS_METHODS.discussionGetManaged]: ({ name, scope, workspaceRoot }) =>
+        observeRpcEffect(
+          WS_METHODS.discussionGetManaged,
+          discussionRegistry
+            .queryManagedByName(workspaceRoot ? { name, scope, workspaceRoot } : { name, scope })
+            .pipe(
+              Effect.flatMap((discussionOption) =>
+                Option.isNone(discussionOption)
+                  ? Effect.fail(
+                      new OrchestrationGetSnapshotError({
+                        message: `Discussion '${name}' with scope '${scope}' not found.`,
+                      }),
+                    )
+                  : Effect.succeed({ discussion: discussionOption.value }),
+              ),
+              Effect.mapError((cause) =>
+                Schema.is(OrchestrationGetSnapshotError)(cause)
+                  ? cause
+                  : new OrchestrationGetSnapshotError({
+                      message: "Failed to load managed discussion",
+                      cause,
+                    }),
+              ),
+            ),
+          { "rpc.aggregate": "discussion" },
+        ),
+      [WS_METHODS.discussionCreate]: ({ discussion, scope, workspaceRoot }) =>
+        observeRpcEffect(
+          WS_METHODS.discussionCreate,
+          discussionRegistry
+            .create(workspaceRoot ? { discussion, scope, workspaceRoot } : { discussion, scope })
+            .pipe(
+              Effect.map((createdDiscussion) => ({ discussion: createdDiscussion })),
+              Effect.mapError(
+                (cause) =>
+                  new OrchestrationGetSnapshotError({
+                    message: "Failed to create discussion",
+                    cause,
+                  }),
+              ),
+            ),
+          { "rpc.aggregate": "discussion" },
+        ),
+      [WS_METHODS.discussionUpdate]: ({
+        previousName,
+        previousScope,
+        discussion,
+        scope,
+        workspaceRoot,
+      }) =>
+        observeRpcEffect(
+          WS_METHODS.discussionUpdate,
+          discussionRegistry
+            .update(
+              workspaceRoot
+                ? { previousName, previousScope, discussion, scope, workspaceRoot }
+                : { previousName, previousScope, discussion, scope },
+            )
+            .pipe(
+              Effect.map((updatedDiscussion) => ({ discussion: updatedDiscussion })),
+              Effect.mapError(
+                (cause) =>
+                  new OrchestrationGetSnapshotError({
+                    message: "Failed to update discussion",
+                    cause,
+                  }),
+              ),
+            ),
+          { "rpc.aggregate": "discussion" },
+        ),
+      [WS_METHODS.discussionDelete]: ({ name, scope, workspaceRoot }) =>
+        observeRpcEffect(
+          WS_METHODS.discussionDelete,
+          discussionRegistry
+            .delete(workspaceRoot ? { name, scope, workspaceRoot } : { name, scope })
+            .pipe(
+              Effect.map(() => ({})),
+              Effect.mapError(
+                (cause) =>
+                  new OrchestrationGetSnapshotError({
+                    message: "Failed to delete discussion",
+                    cause,
+                  }),
+              ),
+            ),
+          { "rpc.aggregate": "discussion" },
+        ),
       [WS_METHODS.subscribeOrchestrationDomainEvents]: (input) =>
         observeRpcStreamEffect(
           WS_METHODS.subscribeOrchestrationDomainEvents,

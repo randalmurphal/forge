@@ -3,7 +3,7 @@ import { SidebarFooter, SidebarMenu, SidebarMenuButton, SidebarMenuItem } from "
 import { SidebarUpdatePill } from "./SidebarUpdatePill";
 
 export function SidebarFooterNav(props: {
-  onOpenWorkflows: () => void;
+  onOpenAgentModes: () => void;
   onOpenSettings: () => void;
 }) {
   return (
@@ -15,10 +15,10 @@ export function SidebarFooterNav(props: {
             <SidebarMenuButton
               size="sm"
               className="gap-2 px-2 py-1.5 text-muted-foreground/70 hover:bg-accent hover:text-foreground"
-              onClick={props.onOpenWorkflows}
+              onClick={props.onOpenAgentModes}
             >
               <SquarePenIcon className="size-3.5" />
-              <span className="text-xs">Workflows</span>
+              <span className="text-xs">Agent Modes</span>
             </SidebarMenuButton>
           </SidebarMenuItem>
           <SidebarMenuItem>

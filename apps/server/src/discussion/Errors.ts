@@ -53,6 +53,18 @@ export class DiscussionRegistryInvariantError extends Schema.TaggedErrorClass<Di
   }
 }
 
+export class DiscussionRegistryScopeError extends Schema.TaggedErrorClass<DiscussionRegistryScopeError>()(
+  "DiscussionRegistryScopeError",
+  {
+    scope: Schema.String,
+    detail: Schema.String,
+  },
+) {
+  override get message(): string {
+    return `Discussion registry scope error for '${this.scope}': ${this.detail}`;
+  }
+}
+
 export class DiscussionNotFoundError extends Schema.TaggedErrorClass<DiscussionNotFoundError>()(
   "DiscussionNotFoundError",
   {
@@ -70,6 +82,7 @@ export type DiscussionRegistryError =
   | DiscussionRegistryParseError
   | DiscussionRegistryDecodeError
   | DiscussionRegistryInvariantError
+  | DiscussionRegistryScopeError
   | DiscussionNotFoundError;
 
 export function toDiscussionRegistryDecodeError(path: string) {
