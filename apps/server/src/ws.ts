@@ -8,7 +8,9 @@ import {
   type GitManagerServiceError,
   OrchestrationDispatchCommandError,
   type OrchestrationEvent,
+  OrchestrationGetFullThreadAgentDiffError,
   type OrchestrationReadModel,
+  OrchestrationGetTurnAgentDiffError,
   OrchestrationGetFullThreadDiffError,
   OrchestrationGetSnapshotError,
   OrchestrationGetTurnDiffError,
@@ -29,6 +31,7 @@ import { HttpRouter, HttpServerRequest, HttpServerResponse } from "effect/unstab
 import { RpcSerialization, RpcServer } from "effect/unstable/rpc";
 
 import { CheckpointDiffQuery } from "./checkpointing/Services/CheckpointDiffQuery";
+import { AgentDiffQuery } from "./orchestration/Services/AgentDiffQuery";
 import { ChannelService } from "./channel/Services/ChannelService.ts";
 import { ServerConfig } from "./config";
 import { GitCore } from "./git/Services/GitCore";
@@ -578,6 +581,7 @@ const WsRpcLayer = WsRpcGroup.toLayer(
     const projectionSnapshotQuery = yield* ProjectionSnapshotQuery;
     const orchestrationEngine = yield* OrchestrationEngineService;
     const checkpointDiffQuery = yield* CheckpointDiffQuery;
+    const agentDiffQuery = yield* AgentDiffQuery;
     const channelService = yield* ChannelService;
     const keybindings = yield* Keybindings;
     const open = yield* Open;
@@ -922,6 +926,34 @@ const WsRpcLayer = WsRpcGroup.toLayer(
               (cause) =>
                 new OrchestrationGetFullThreadDiffError({
                   message: "Failed to load full thread diff",
+                  cause,
+                }),
+            ),
+          ),
+          { "rpc.aggregate": "orchestration" },
+        ),
+      [ORCHESTRATION_WS_METHODS.getTurnAgentDiff]: (input) =>
+        observeRpcEffect(
+          ORCHESTRATION_WS_METHODS.getTurnAgentDiff,
+          agentDiffQuery.getTurnAgentDiff(input).pipe(
+            Effect.mapError(
+              (cause) =>
+                new OrchestrationGetTurnAgentDiffError({
+                  message: "Failed to load turn agent diff",
+                  cause,
+                }),
+            ),
+          ),
+          { "rpc.aggregate": "orchestration" },
+        ),
+      [ORCHESTRATION_WS_METHODS.getFullThreadAgentDiff]: (input) =>
+        observeRpcEffect(
+          ORCHESTRATION_WS_METHODS.getFullThreadAgentDiff,
+          agentDiffQuery.getFullThreadAgentDiff(input).pipe(
+            Effect.mapError(
+              (cause) =>
+                new OrchestrationGetFullThreadAgentDiffError({
+                  message: "Failed to load full thread agent diff",
                   cause,
                 }),
             ),
@@ -1474,6 +1506,10 @@ const WsRpcLayer = WsRpcGroup.toLayer(
         }),
       [WS_METHODS.gitStatus]: (input) =>
         observeRpcEffect(WS_METHODS.gitStatus, gitManager.status(input), {
+          "rpc.aggregate": "git",
+        }),
+      [WS_METHODS.gitWorkingTreeDiff]: (input) =>
+        observeRpcEffect(WS_METHODS.gitWorkingTreeDiff, git.workingTreeDiff(input.cwd), {
           "rpc.aggregate": "git",
         }),
       [WS_METHODS.gitPull]: (input) =>

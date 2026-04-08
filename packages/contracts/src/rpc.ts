@@ -38,6 +38,8 @@ import {
   GitRunStackedActionInput,
   GitStatusInput,
   GitStatusResult,
+  GitWorkingTreeDiffInput,
+  GitWorkingTreeDiffResult,
 } from "./git";
 import { KeybindingsConfigError } from "./keybindings";
 import {
@@ -50,8 +52,12 @@ import {
   ORCHESTRATION_WS_METHODS,
   OrchestrationDispatchCommandError,
   OrchestrationGetFullThreadDiffError,
+  OrchestrationGetFullThreadAgentDiffError,
+  OrchestrationGetFullThreadAgentDiffInput,
   OrchestrationGetFullThreadDiffInput,
   OrchestrationGetSnapshotInput,
+  OrchestrationGetTurnAgentDiffError,
+  OrchestrationGetTurnAgentDiffInput,
   OrchestrationGetTurnDiffError,
   OrchestrationGetTurnDiffInput,
   OrchestrationReplayEventsError,
@@ -182,6 +188,7 @@ export const WS_METHODS = {
   // Git methods
   gitPull: "git.pull",
   gitStatus: "git.status",
+  gitWorkingTreeDiff: "git.workingTreeDiff",
   gitRunStackedAction: "git.runStackedAction",
   gitListBranches: "git.listBranches",
   gitCreateWorktree: "git.createWorktree",
@@ -267,6 +274,12 @@ export const WsGitStatusRpc = Rpc.make(WS_METHODS.gitStatus, {
   payload: GitStatusInput,
   success: GitStatusResult,
   error: GitManagerServiceError,
+});
+
+export const WsGitWorkingTreeDiffRpc = Rpc.make(WS_METHODS.gitWorkingTreeDiff, {
+  payload: GitWorkingTreeDiffInput,
+  success: GitWorkingTreeDiffResult,
+  error: GitCommandError,
 });
 
 export const WsGitPullRpc = Rpc.make(WS_METHODS.gitPull, {
@@ -385,6 +398,24 @@ export const WsOrchestrationGetFullThreadDiffRpc = Rpc.make(
     payload: OrchestrationGetFullThreadDiffInput,
     success: OrchestrationRpcSchemas.getFullThreadDiff.output,
     error: OrchestrationGetFullThreadDiffError,
+  },
+);
+
+export const WsOrchestrationGetTurnAgentDiffRpc = Rpc.make(
+  ORCHESTRATION_WS_METHODS.getTurnAgentDiff,
+  {
+    payload: OrchestrationGetTurnAgentDiffInput,
+    success: OrchestrationRpcSchemas.getTurnAgentDiff.output,
+    error: OrchestrationGetTurnAgentDiffError,
+  },
+);
+
+export const WsOrchestrationGetFullThreadAgentDiffRpc = Rpc.make(
+  ORCHESTRATION_WS_METHODS.getFullThreadAgentDiff,
+  {
+    payload: OrchestrationGetFullThreadAgentDiffInput,
+    success: OrchestrationRpcSchemas.getFullThreadAgentDiff.output,
+    error: OrchestrationGetFullThreadAgentDiffError,
   },
 );
 
@@ -933,6 +964,7 @@ export const WsRpcGroup = RpcGroup.make(
   WsProjectsWriteFileRpc,
   WsShellOpenInEditorRpc,
   WsGitStatusRpc,
+  WsGitWorkingTreeDiffRpc,
   WsGitPullRpc,
   WsGitRunStackedActionRpc,
   WsGitResolvePullRequestRpc,
@@ -964,6 +996,8 @@ export const WsRpcGroup = RpcGroup.make(
   WsOrchestrationDispatchCommandRpc,
   WsOrchestrationGetTurnDiffRpc,
   WsOrchestrationGetFullThreadDiffRpc,
+  WsOrchestrationGetTurnAgentDiffRpc,
+  WsOrchestrationGetFullThreadAgentDiffRpc,
   WsOrchestrationReplayEventsRpc,
   WsForgeThreadGetTranscriptRpc,
   WsForgeThreadGetChildrenRpc,

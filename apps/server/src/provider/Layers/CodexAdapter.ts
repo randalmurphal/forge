@@ -867,6 +867,8 @@ function mapToRuntimeEvents(
             asString(payload?.diff) ??
             asString(payload?.patch) ??
             "",
+          source: "native_turn_diff",
+          coverage: "complete",
         },
       },
     ];

@@ -12,7 +12,11 @@ import {
   TrimmedNonEmptyString,
   TurnId,
 } from "./baseSchemas";
-import { ProviderKind } from "./orchestration";
+import {
+  OrchestrationAgentDiffCoverage,
+  OrchestrationAgentDiffSource,
+  ProviderKind,
+} from "./orchestration";
 
 const TrimmedNonEmptyStringSchema = TrimmedNonEmptyString;
 const UnknownRecordSchema = Schema.Record(Schema.String, Schema.Unknown);
@@ -389,6 +393,8 @@ export type TurnProposedCompletedPayload = typeof TurnProposedCompletedPayload.T
 
 const TurnDiffUpdatedPayload = Schema.Struct({
   unifiedDiff: Schema.String,
+  source: Schema.optional(OrchestrationAgentDiffSource),
+  coverage: Schema.optional(OrchestrationAgentDiffCoverage),
 });
 export type TurnDiffUpdatedPayload = typeof TurnDiffUpdatedPayload.Type;
 

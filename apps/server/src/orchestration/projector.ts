@@ -16,6 +16,7 @@ import {
   ChannelId,
   ChannelMessageId,
   LinkId,
+  OrchestrationAgentDiffSummary,
   OrchestrationCheckpointSummary,
   OrchestrationMessage,
   OrchestrationSession,
@@ -74,6 +75,7 @@ import {
   ThreadPhaseSkippedPayload,
   ThreadPhaseStartedPayload,
   ThreadProposedPlanUpsertedPayload,
+  ThreadAgentDiffUpsertedPayload,
   ThreadPromotedPayload,
   ThreadQualityCheckCompletedPayload,
   ThreadQualityCheckStartedPayload,
@@ -497,8 +499,10 @@ export function projectEvent(
             childThreadIds: [],
             bootstrapStatus: null,
             messages: [],
+            proposedPlans: [],
             activities: [],
             checkpoints: [],
+            agentDiffs: [],
             session: null,
           },
           event.type,
@@ -918,6 +922,50 @@ export function projectEvent(
         };
       });
 
+    case "thread.agent-diff-upserted":
+      return Effect.gen(function* () {
+        const payload = yield* decodeForEvent(
+          ThreadAgentDiffUpsertedPayload,
+          event.payload,
+          event.type,
+          "payload",
+        );
+        const thread = nextBase.threads.find((entry) => entry.id === payload.threadId);
+        if (!thread) {
+          return nextBase;
+        }
+
+        const agentDiff = yield* decodeForEvent(
+          OrchestrationAgentDiffSummary,
+          {
+            turnId: payload.turnId,
+            files: payload.files,
+            source: payload.source,
+            coverage: payload.coverage,
+            completedAt: payload.completedAt,
+          },
+          event.type,
+          "agentDiff",
+        );
+
+        const agentDiffs = [
+          ...(thread.agentDiffs ?? []).filter((entry) => entry.turnId !== agentDiff.turnId),
+          agentDiff,
+        ].toSorted(
+          (left, right) =>
+            left.completedAt.localeCompare(right.completedAt) ||
+            left.turnId.localeCompare(right.turnId),
+        );
+
+        return {
+          ...nextBase,
+          threads: updateThread(nextBase.threads, payload.threadId, {
+            agentDiffs,
+            updatedAt: event.occurredAt,
+          }),
+        };
+      });
+
     case "thread.reverted":
       return decodeForEvent(ThreadRevertedPayload, event.payload, event.type, "payload").pipe(
         Effect.map((payload) => {
@@ -943,6 +991,13 @@ export function projectEvent(
             retainedTurnIds,
           ).slice(-200);
           const activities = retainThreadActivitiesAfterRevert(thread.activities, retainedTurnIds);
+          const agentDiffs = (thread.agentDiffs ?? [])
+            .filter((entry) => retainedTurnIds.has(entry.turnId))
+            .toSorted(
+              (left, right) =>
+                left.completedAt.localeCompare(right.completedAt) ||
+                left.turnId.localeCompare(right.turnId),
+            );
 
           const latestCheckpoint = checkpoints.at(-1) ?? null;
           const latestTurn =
@@ -964,6 +1019,7 @@ export function projectEvent(
               messages,
               proposedPlans,
               activities,
+              agentDiffs,
               latestTurn,
               updatedAt: event.occurredAt,
             }),

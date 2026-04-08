@@ -94,6 +94,7 @@ async function waitFor(assertion: () => void, timeoutMs = 1_000): Promise<void> 
 
 beforeEach(() => {
   sockets.length = 0;
+  vi.stubEnv("VITE_WS_URL", "");
 
   Object.defineProperty(globalThis, "window", {
     configurable: true,
@@ -113,6 +114,7 @@ beforeEach(() => {
 
 afterEach(() => {
   globalThis.WebSocket = originalWebSocket;
+  vi.unstubAllEnvs();
   vi.restoreAllMocks();
 });
 

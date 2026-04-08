@@ -277,6 +277,9 @@ projectionSnapshotLayer("ProjectionSnapshotQuery", (it) => {
           runtimeMode: "full-access",
           branch: null,
           worktreePath: null,
+          spawnMode: undefined,
+          spawnBranch: null,
+          spawnWorktreePath: null,
           latestTurn: {
             turnId: asTurnId("turn-1"),
             state: "completed",
@@ -345,6 +348,7 @@ projectionSnapshotLayer("ProjectionSnapshotQuery", (it) => {
               completedAt: "2026-02-24T00:00:08.000Z",
             },
           ],
+          agentDiffs: [],
           session: {
             threadId: ThreadId.makeUnsafe("thread-1"),
             status: "running",

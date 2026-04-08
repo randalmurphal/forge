@@ -1398,14 +1398,44 @@ export default function ChatView({ threadId }: ChatViewProps) {
   );
   const { turnDiffSummaries, inferredCheckpointTurnCountByTurnId } =
     useTurnDiffSummaries(activeThread);
-  const turnDiffSummaryByAssistantMessageId = useMemo(() => {
+  const checkpointTurnDiffSummaryByAssistantMessageId = useMemo(() => {
     const byMessageId = new Map<MessageId, TurnDiffSummary>();
+    const assistantMessageIdByTurnId = new Map<TurnId, MessageId>();
+    for (const message of timelineMessages) {
+      if (message.role !== "assistant" || !message.turnId) continue;
+      assistantMessageIdByTurnId.set(message.turnId, message.id);
+    }
     for (const summary of turnDiffSummaries) {
-      if (!summary.assistantMessageId) continue;
-      byMessageId.set(summary.assistantMessageId, summary);
+      const assistantMessageId =
+        summary.assistantMessageId ?? assistantMessageIdByTurnId.get(summary.turnId);
+      if (!assistantMessageId) continue;
+      byMessageId.set(assistantMessageId, summary);
     }
     return byMessageId;
-  }, [turnDiffSummaries]);
+  }, [timelineMessages, turnDiffSummaries]);
+  const turnDiffSummaryByAssistantMessageId = useMemo(() => {
+    const byMessageId = new Map<MessageId, TurnDiffSummary>();
+    const assistantMessageIdByTurnId = new Map<TurnId, MessageId>();
+    for (const message of timelineMessages) {
+      if (message.role !== "assistant" || !message.turnId) continue;
+      assistantMessageIdByTurnId.set(message.turnId, message.id);
+    }
+
+    for (const summary of activeThread?.agentDiffSummaries ?? []) {
+      const assistantMessageId = assistantMessageIdByTurnId.get(summary.turnId);
+      if (!assistantMessageId) continue;
+      byMessageId.set(assistantMessageId, summary);
+    }
+
+    for (const summary of turnDiffSummaries) {
+      const assistantMessageId =
+        summary.assistantMessageId ?? assistantMessageIdByTurnId.get(summary.turnId);
+      if (!assistantMessageId || byMessageId.has(assistantMessageId)) continue;
+      byMessageId.set(assistantMessageId, summary);
+    }
+
+    return byMessageId;
+  }, [activeThread?.agentDiffSummaries, timelineMessages, turnDiffSummaries]);
   const revertTurnCountByUserMessageId = useMemo(() => {
     const byUserMessageId = new Map<MessageId, number>();
     for (let index = 0; index < timelineEntries.length; index += 1) {
@@ -1422,7 +1452,7 @@ export default function ChatView({ threadId }: ChatViewProps) {
         if (nextEntry.message.role === "user") {
           break;
         }
-        const summary = turnDiffSummaryByAssistantMessageId.get(nextEntry.message.id);
+        const summary = checkpointTurnDiffSummaryByAssistantMessageId.get(nextEntry.message.id);
         if (!summary) {
           continue;
         }
@@ -1437,7 +1467,11 @@ export default function ChatView({ threadId }: ChatViewProps) {
     }
 
     return byUserMessageId;
-  }, [inferredCheckpointTurnCountByTurnId, timelineEntries, turnDiffSummaryByAssistantMessageId]);
+  }, [
+    checkpointTurnDiffSummaryByAssistantMessageId,
+    inferredCheckpointTurnCountByTurnId,
+    timelineEntries,
+  ]);
 
   const completionSummary = useMemo(() => {
     if (!latestTurnSettled) return null;
@@ -4017,8 +4051,8 @@ export default function ChatView({ threadId }: ChatViewProps) {
         search: (previous) => {
           const rest = stripDiffSearchParams(previous);
           return filePath
-            ? { ...rest, diff: "1", diffTurnId: turnId, diffFilePath: filePath }
-            : { ...rest, diff: "1", diffTurnId: turnId };
+            ? { ...rest, diff: "1", diffMode: "agent", diffTurnId: turnId, diffFilePath: filePath }
+            : { ...rest, diff: "1", diffMode: "agent", diffTurnId: turnId };
         },
       });
     },

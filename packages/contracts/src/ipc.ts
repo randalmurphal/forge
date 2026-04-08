@@ -15,6 +15,8 @@ import type {
   GitResolvePullRequestResult,
   GitStatusInput,
   GitStatusResult,
+  GitWorkingTreeDiffInput,
+  GitWorkingTreeDiffResult,
 } from "./git";
 import type {
   ProjectSearchEntriesInput,
@@ -43,6 +45,10 @@ import type {
   ForgeEvent,
   OrchestrationGetFullThreadDiffInput,
   OrchestrationGetFullThreadDiffResult,
+  OrchestrationGetFullThreadAgentDiffInput,
+  OrchestrationGetFullThreadAgentDiffResult,
+  OrchestrationGetTurnAgentDiffInput,
+  OrchestrationGetTurnAgentDiffResult,
   OrchestrationGetTurnDiffInput,
   OrchestrationGetTurnDiffResult,
   OrchestrationReadModel,
@@ -158,6 +164,7 @@ export interface NativeApi {
     // Stacked action API
     pull: (input: GitPullInput) => Promise<GitPullResult>;
     status: (input: GitStatusInput) => Promise<GitStatusResult>;
+    getWorkingTreeDiff: (input: GitWorkingTreeDiffInput) => Promise<GitWorkingTreeDiffResult>;
   };
   contextMenu: {
     show: <T extends string>(
@@ -179,6 +186,12 @@ export interface NativeApi {
     getFullThreadDiff: (
       input: OrchestrationGetFullThreadDiffInput,
     ) => Promise<OrchestrationGetFullThreadDiffResult>;
+    getTurnAgentDiff: (
+      input: OrchestrationGetTurnAgentDiffInput,
+    ) => Promise<OrchestrationGetTurnAgentDiffResult>;
+    getFullThreadAgentDiff: (
+      input: OrchestrationGetFullThreadAgentDiffInput,
+    ) => Promise<OrchestrationGetFullThreadAgentDiffResult>;
     replayEvents: (fromSequenceExclusive: number) => Promise<ForgeEvent[]>;
     onDomainEvent: (callback: (event: ForgeEvent) => void) => () => void;
   };

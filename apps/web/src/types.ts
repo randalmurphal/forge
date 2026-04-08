@@ -78,6 +78,9 @@ export interface TurnDiffSummary {
   turnId: TurnId;
   completedAt: string;
   status?: string | undefined;
+  provenance?: "agent" | "workspace" | undefined;
+  coverage?: "complete" | "partial" | "unavailable" | undefined;
+  source?: "native_turn_diff" | "derived_tool_results" | undefined;
   files: TurnDiffFileChange[];
   checkpointRef?: CheckpointRef | undefined;
   assistantMessageId?: MessageId | undefined;
@@ -123,6 +126,7 @@ export interface Thread {
   spawnMode?: ThreadSpawnMode;
   spawnBranch?: string | null;
   spawnWorktreePath?: string | null;
+  agentDiffSummaries?: TurnDiffSummary[];
   turnDiffSummaries: TurnDiffSummary[];
   activities: OrchestrationThreadActivity[];
 }

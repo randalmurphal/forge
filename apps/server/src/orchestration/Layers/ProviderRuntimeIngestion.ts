@@ -16,6 +16,7 @@ import {
 import { Cache, Cause, Duration, Effect, Layer, Option, Stream } from "effect";
 import { makeDrainableWorker } from "@forgetools/shared/DrainableWorker";
 
+import { parseTurnDiffFilesFromUnifiedDiff } from "../../checkpointing/Diffs.ts";
 import { ProviderService } from "../../provider/Services/ProviderService.ts";
 import { ProjectionTurnRepository } from "../../persistence/Services/ProjectionTurns.ts";
 import { ProjectionTurnRepositoryLive } from "../../persistence/Layers/ProjectionTurns.ts";
@@ -96,6 +97,40 @@ function proposedPlanIdFromEvent(event: ProviderRuntimeEvent, threadId: ThreadId
     return `plan:${threadId}:item:${event.itemId}`;
   }
   return `plan:${threadId}:event:${event.eventId}`;
+}
+
+function mergeDiffFilesByPath(
+  files: ReadonlyArray<{
+    path: string;
+    kind: string;
+    additions: number;
+    deletions: number;
+  }>,
+) {
+  const merged = new Map<
+    string,
+    {
+      path: string;
+      kind: string;
+      additions: number;
+      deletions: number;
+    }
+  >();
+
+  for (const file of files) {
+    const existing = merged.get(file.path);
+    if (existing) {
+      merged.set(file.path, {
+        ...existing,
+        additions: existing.additions + file.additions,
+        deletions: existing.deletions + file.deletions,
+      });
+      continue;
+    }
+    merged.set(file.path, file);
+  }
+
+  return Array.from(merged.values()).toSorted((left, right) => left.path.localeCompare(right.path));
 }
 
 function buildContextWindowActivityPayload(
@@ -1178,7 +1213,32 @@ const make = Effect.fn("make")(function* () {
 
     if (event.type === "turn.diff.updated") {
       const turnId = toTurnId(event.turnId);
-      if (turnId && (yield* isGitRepoForThread(thread.id))) {
+      if (turnId) {
+        const files = mergeDiffFilesByPath(
+          parseTurnDiffFilesFromUnifiedDiff(event.payload.unifiedDiff).map((file) => ({
+            path: file.path,
+            kind: "modified",
+            additions: file.additions,
+            deletions: file.deletions,
+          })),
+        );
+        yield* orchestrationEngine.dispatch({
+          type: "thread.agent-diff.upsert",
+          commandId: providerCommandId(event, "thread-agent-diff-upsert"),
+          threadId: thread.id,
+          turnId,
+          diff: event.payload.unifiedDiff,
+          files,
+          source:
+            event.payload.source ??
+            (event.provider === "codex" ? "native_turn_diff" : "derived_tool_results"),
+          coverage: event.payload.coverage ?? "complete",
+          completedAt: now,
+          createdAt: now,
+        });
+      }
+
+      if (turnId && event.provider === "codex" && (yield* isGitRepoForThread(thread.id))) {
         // Skip if a checkpoint already exists for this turn. A real
         // (non-placeholder) capture from CheckpointReactor should not
         // be clobbered, and dispatching a duplicate placeholder for the

@@ -67,6 +67,7 @@ import {
   getPendingMcpServer,
   registerPendingMcpServer,
 } from "../../discussion/pendingMcpServers.ts";
+import { buildClaudeToolResultDiffFragment } from "../ClaudeTurnDiff.ts";
 import { ServerSettingsService } from "../../serverSettings.ts";
 import { getClaudeModelCapabilities } from "./ClaudeProvider.ts";
 import {
@@ -111,6 +112,9 @@ interface ClaudeTurnState {
   readonly assistantTextBlocks: Map<number, AssistantTextBlockState>;
   readonly assistantTextBlockOrder: Array<AssistantTextBlockState>;
   readonly capturedProposedPlanKeys: Set<string>;
+  readonly agentDiffPatchesByToolUseId: Map<string, string>;
+  agentDiffCoverage: "complete" | "partial";
+  lastEmittedUnifiedDiff: string | null;
   nextSyntheticAssistantBlockIndex: number;
 }
 
@@ -771,6 +775,7 @@ function toolResultBlocksFromUserMessage(message: SDKMessage): Array<{
   readonly block: Record<string, unknown>;
   readonly text: string;
   readonly isError: boolean;
+  readonly sdkToolUseResult: unknown;
 }> {
   if (message.type !== "user") {
     return [];
@@ -786,6 +791,7 @@ function toolResultBlocksFromUserMessage(message: SDKMessage): Array<{
     readonly block: Record<string, unknown>;
     readonly text: string;
     readonly isError: boolean;
+    readonly sdkToolUseResult: unknown;
   }> = [];
 
   for (const entry of content) {
@@ -808,6 +814,7 @@ function toolResultBlocksFromUserMessage(message: SDKMessage): Array<{
       block,
       text: extractTextContent(block.content),
       isError: block.is_error === true,
+      sdkToolUseResult: (message as SDKUserMessage).tool_use_result,
     });
   }
 
@@ -948,6 +955,85 @@ const makeClaudeAdapter = Effect.fn("makeClaudeAdapter")(function* (
 
   const offerRuntimeEvent = (event: ProviderRuntimeEvent): Effect.Effect<void> =>
     Queue.offer(runtimeEventQueue, event).pipe(Effect.asVoid);
+
+  const emitTurnDiffUpdated = Effect.fn("emitTurnDiffUpdated")(function* (
+    context: ClaudeSessionContext,
+    message: SDKMessage,
+  ) {
+    if (!context.turnState) {
+      return;
+    }
+
+    const unifiedDiff = Array.from(context.turnState.agentDiffPatchesByToolUseId.values())
+      .map((patch) => patch.trim())
+      .filter((patch) => patch.length > 0)
+      .join("\n\n");
+
+    if (
+      context.turnState.lastEmittedUnifiedDiff === unifiedDiff &&
+      context.turnState.agentDiffCoverage === "complete"
+    ) {
+      return;
+    }
+
+    context.turnState.lastEmittedUnifiedDiff = unifiedDiff;
+
+    const stamp = yield* makeEventStamp();
+    yield* offerRuntimeEvent({
+      type: "turn.diff.updated",
+      eventId: stamp.eventId,
+      provider: PROVIDER,
+      createdAt: stamp.createdAt,
+      threadId: context.session.threadId,
+      turnId: context.turnState.turnId,
+      payload: {
+        unifiedDiff,
+        source: "derived_tool_results",
+        coverage: context.turnState.agentDiffCoverage,
+      },
+      raw: {
+        source: "claude.sdk.message",
+        method: "claude/user",
+        payload: message,
+      },
+    });
+  });
+
+  const recordClaudeTurnDiffFromToolResult = Effect.fn("recordClaudeTurnDiffFromToolResult")(
+    function* (
+      context: ClaudeSessionContext,
+      tool: ToolInFlight,
+      toolResult: {
+        readonly toolUseId: string;
+        readonly sdkToolUseResult: unknown;
+      },
+      message: SDKMessage,
+    ) {
+      if (!context.turnState || tool.itemType !== "file_change") {
+        return;
+      }
+
+      const patch = buildClaudeToolResultDiffFragment(
+        context.session.cwd
+          ? {
+              cwd: context.session.cwd,
+              toolUseResult: toolResult.sdkToolUseResult,
+            }
+          : {
+              toolUseResult: toolResult.sdkToolUseResult,
+            },
+      );
+
+      if (patch === null) {
+        context.turnState.agentDiffCoverage = "partial";
+        yield* emitTurnDiffUpdated(context, message);
+        return;
+      }
+
+      context.turnState.agentDiffPatchesByToolUseId.set(toolResult.toolUseId, patch);
+      yield* emitTurnDiffUpdated(context, message);
+    },
+  );
 
   const logNativeSdkMessage = Effect.fn("logNativeSdkMessage")(function* (
     context: ClaudeSessionContext,
@@ -1768,6 +1854,10 @@ const makeClaudeAdapter = Effect.fn("makeClaudeAdapter")(function* (
         },
       });
 
+      if (!toolResult.isError) {
+        yield* recordClaudeTurnDiffFromToolResult(context, tool, toolResult, message);
+      }
+
       const streamKind = toolResultStreamKind(tool.itemType);
       if (streamKind && toolResult.text.length > 0 && context.turnState) {
         const deltaStamp = yield* makeEventStamp();
@@ -1840,6 +1930,9 @@ const makeClaudeAdapter = Effect.fn("makeClaudeAdapter")(function* (
         assistantTextBlocks: new Map(),
         assistantTextBlockOrder: [],
         capturedProposedPlanKeys: new Set(),
+        agentDiffPatchesByToolUseId: new Map(),
+        agentDiffCoverage: "complete",
+        lastEmittedUnifiedDiff: null,
         nextSyntheticAssistantBlockIndex: -1,
       };
       context.session = {
@@ -2913,6 +3006,9 @@ const makeClaudeAdapter = Effect.fn("makeClaudeAdapter")(function* (
       assistantTextBlocks: new Map(),
       assistantTextBlockOrder: [],
       capturedProposedPlanKeys: new Set(),
+      agentDiffPatchesByToolUseId: new Map(),
+      agentDiffCoverage: "complete",
+      lastEmittedUnifiedDiff: null,
       nextSyntheticAssistantBlockIndex: -1,
     };
 

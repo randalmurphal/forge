@@ -16,12 +16,14 @@ import { ProjectionChannelMessageRepositoryLive } from "./persistence/Layers/Pro
 import { ProjectionChannelReadRepositoryLive } from "./persistence/Layers/ProjectionChannelReads";
 import { ProjectionChannelRepositoryLive } from "./persistence/Layers/ProjectionChannels";
 import { ProjectionInteractiveRequestRepositoryLive } from "./persistence/Layers/ProjectionInteractiveRequests";
+import { ProjectionAgentDiffRepositoryLive } from "./persistence/Layers/ProjectionAgentDiffs";
 import { ProjectionPhaseOutputRepositoryLive } from "./persistence/Layers/ProjectionPhaseOutputs";
 import { ProjectionPhaseRunRepositoryLive } from "./persistence/Layers/ProjectionPhaseRuns";
 import { ProjectionProjectRepositoryLive } from "./persistence/Layers/ProjectionProjects";
 import { ProjectionThreadMessageRepositoryLive } from "./persistence/Layers/ProjectionThreadMessages";
 import { ProjectionThreadRepositoryLive } from "./persistence/Layers/ProjectionThreads";
 import { ProjectionThreadSessionRepositoryLive } from "./persistence/Layers/ProjectionThreadSessions";
+import { ProjectionTurnRepositoryLive } from "./persistence/Layers/ProjectionTurns";
 import { ProjectionWorkflowRepositoryLive } from "./persistence/Layers/ProjectionWorkflows";
 import { makeCodexAdapterLive } from "./provider/Layers/CodexAdapter";
 import { makeClaudeAdapterLive } from "./provider/Layers/ClaudeAdapter";
@@ -32,6 +34,7 @@ import { OrchestrationProjectionPipelineLive } from "./orchestration/Layers/Proj
 import { OrchestrationEventStoreLive } from "./persistence/Layers/OrchestrationEventStore";
 import { OrchestrationCommandReceiptRepositoryLive } from "./persistence/Layers/OrchestrationCommandReceipts";
 import { CheckpointDiffQueryLive } from "./checkpointing/Layers/CheckpointDiffQuery";
+import { AgentDiffQueryLive } from "./orchestration/Layers/AgentDiffQuery";
 import { OrchestrationProjectionSnapshotQueryLive } from "./orchestration/Layers/ProjectionSnapshotQuery";
 import { CheckpointStoreLive } from "./checkpointing/Layers/CheckpointStore";
 import { GitCoreLive } from "./git/Layers/GitCore";
@@ -187,6 +190,7 @@ const ProjectionRepositoriesLayerLive = Layer.mergeAll(
   ProjectionChannelMessageRepositoryLive,
   ProjectionChannelReadRepositoryLive,
   ProjectionInteractiveRequestRepositoryLive,
+  ProjectionAgentDiffRepositoryLive,
   ProviderSessionRuntimeRepositoryLive,
 );
 
@@ -229,9 +233,15 @@ const CheckpointDiffQueryRuntimeLive = CheckpointDiffQueryLive.pipe(
   Layer.provide(CheckpointStoreRuntimeLive),
 );
 
+const AgentDiffQueryRuntimeLive = AgentDiffQueryLive.pipe(
+  Layer.provide(ProjectionTurnRepositoryLive.pipe(Layer.provide(PersistenceLayerLive))),
+  Layer.provide(ProjectionAgentDiffRepositoryLive.pipe(Layer.provide(PersistenceLayerLive))),
+);
+
 const CheckpointingLayerLive = Layer.mergeAll(
   CheckpointStoreRuntimeLive,
   CheckpointDiffQueryRuntimeLive,
+  AgentDiffQueryRuntimeLive,
 );
 
 const ProviderRuntimeIngestionRuntimeLive = ProviderRuntimeIngestionLive.pipe(

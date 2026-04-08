@@ -118,6 +118,7 @@ export function createWsNativeApi(): NativeApi {
     git: {
       pull: rpcClient.git.pull,
       status: rpcClient.git.status,
+      getWorkingTreeDiff: rpcClient.git.getWorkingTreeDiff,
       listBranches: rpcClient.git.listBranches,
       createWorktree: rpcClient.git.createWorktree,
       removeWorktree: rpcClient.git.removeWorktree,
@@ -150,6 +151,8 @@ export function createWsNativeApi(): NativeApi {
       dispatchCommand: rpcClient.orchestration.dispatchCommand,
       getTurnDiff: rpcClient.orchestration.getTurnDiff,
       getFullThreadDiff: rpcClient.orchestration.getFullThreadDiff,
+      getTurnAgentDiff: rpcClient.orchestration.getTurnAgentDiff,
+      getFullThreadAgentDiff: rpcClient.orchestration.getFullThreadAgentDiff,
       replayEvents: (fromSequenceExclusive) =>
         rpcClient.orchestration
           .replayEvents({ fromSequenceExclusive })

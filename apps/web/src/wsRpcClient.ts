@@ -69,6 +69,7 @@ export interface WsRpcClient {
   readonly git: {
     readonly pull: RpcUnaryMethod<typeof WS_METHODS.gitPull>;
     readonly status: RpcUnaryMethod<typeof WS_METHODS.gitStatus>;
+    readonly getWorkingTreeDiff: RpcUnaryMethod<typeof WS_METHODS.gitWorkingTreeDiff>;
     readonly runStackedAction: (
       input: GitRunStackedActionInput,
       options?: GitRunStackedActionOptions,
@@ -100,6 +101,10 @@ export interface WsRpcClient {
     readonly dispatchCommand: RpcUnaryMethod<typeof ORCHESTRATION_WS_METHODS.dispatchCommand>;
     readonly getTurnDiff: RpcUnaryMethod<typeof ORCHESTRATION_WS_METHODS.getTurnDiff>;
     readonly getFullThreadDiff: RpcUnaryMethod<typeof ORCHESTRATION_WS_METHODS.getFullThreadDiff>;
+    readonly getTurnAgentDiff: RpcUnaryMethod<typeof ORCHESTRATION_WS_METHODS.getTurnAgentDiff>;
+    readonly getFullThreadAgentDiff: RpcUnaryMethod<
+      typeof ORCHESTRATION_WS_METHODS.getFullThreadAgentDiff
+    >;
     readonly replayEvents: RpcUnaryMethod<typeof ORCHESTRATION_WS_METHODS.replayEvents>;
     readonly onDomainEvent: RpcStreamMethod<typeof WS_METHODS.subscribeOrchestrationDomainEvents>;
   };
@@ -192,6 +197,8 @@ export function createWsRpcClient(transport = new WsTransport()): WsRpcClient {
     git: {
       pull: (input) => transport.request((client) => client[WS_METHODS.gitPull](input)),
       status: (input) => transport.request((client) => client[WS_METHODS.gitStatus](input)),
+      getWorkingTreeDiff: (input) =>
+        transport.request((client) => client[WS_METHODS.gitWorkingTreeDiff](input)),
       runStackedAction: async (input, options) => {
         let result: GitRunStackedActionResult | null = null;
 
@@ -249,6 +256,12 @@ export function createWsRpcClient(transport = new WsTransport()): WsRpcClient {
         transport.request((client) => client[ORCHESTRATION_WS_METHODS.getTurnDiff](input)),
       getFullThreadDiff: (input) =>
         transport.request((client) => client[ORCHESTRATION_WS_METHODS.getFullThreadDiff](input)),
+      getTurnAgentDiff: (input) =>
+        transport.request((client) => client[ORCHESTRATION_WS_METHODS.getTurnAgentDiff](input)),
+      getFullThreadAgentDiff: (input) =>
+        transport.request((client) =>
+          client[ORCHESTRATION_WS_METHODS.getFullThreadAgentDiff](input),
+        ),
       replayEvents: (input) =>
         transport
           .request((client) => client[ORCHESTRATION_WS_METHODS.replayEvents](input))

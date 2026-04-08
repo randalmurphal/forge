@@ -139,6 +139,9 @@ describe("orchestration projector", () => {
         interactionMode: "default",
         branch: null,
         worktreePath: null,
+        spawnMode: "local",
+        spawnBranch: null,
+        spawnWorktreePath: null,
         latestTurn: null,
         createdAt: now,
         updatedAt: now,
@@ -156,6 +159,7 @@ describe("orchestration projector", () => {
         proposedPlans: [],
         activities: [],
         checkpoints: [],
+        agentDiffs: [],
         session: null,
       },
     ]);

@@ -18,6 +18,7 @@ import {
   ProjectId,
   ResolvedKeybindingRule,
   ThreadId,
+  TurnId,
   WorkflowId,
   WorkflowPhaseId,
   WS_METHODS,
@@ -47,6 +48,10 @@ import {
   OrchestrationEngineService,
   type OrchestrationEngineShape,
 } from "./orchestration/Services/OrchestrationEngine.ts";
+import {
+  AgentDiffQuery,
+  type AgentDiffQueryShape,
+} from "./orchestration/Services/AgentDiffQuery.ts";
 import {
   ProjectionSnapshotQuery,
   type ProjectionSnapshotQueryShape,
@@ -195,6 +200,7 @@ const buildAppUnderTest = (options?: {
     projectionThreadSessionRepository?: Partial<ProjectionThreadSessionRepositoryShape>;
     projectionInteractiveRequestRepository?: Partial<ProjectionInteractiveRequestRepositoryShape>;
     checkpointDiffQuery?: Partial<CheckpointDiffQueryShape>;
+    agentDiffQuery?: Partial<AgentDiffQueryShape>;
     serverLifecycleEvents?: Partial<ServerLifecycleEventsShape>;
     serverRuntimeStartup?: Partial<ServerRuntimeStartupShape>;
   };
@@ -255,6 +261,7 @@ const buildAppUnderTest = (options?: {
         ...options?.layers?.open,
       }),
       Layer.mock(GitCore)({
+        workingTreeDiff: () => Effect.succeed({ diff: "" }),
         ...options?.layers?.gitCore,
       }),
       Layer.mock(GitManager)({
@@ -361,6 +368,26 @@ const buildAppUnderTest = (options?: {
             diff: "",
           }),
         ...options?.layers?.checkpointDiffQuery,
+      }),
+      Layer.mock(AgentDiffQuery)({
+        getTurnAgentDiff: () =>
+          Effect.succeed({
+            threadId: defaultThreadId,
+            turnId: TurnId.makeUnsafe("turn-default"),
+            diff: "",
+            files: [],
+            source: "derived_tool_results",
+            coverage: "unavailable",
+            completedAt: new Date(0).toISOString(),
+          }),
+        getFullThreadAgentDiff: () =>
+          Effect.succeed({
+            threadId: defaultThreadId,
+            diff: "",
+            files: [],
+            coverage: "unavailable",
+          }),
+        ...options?.layers?.agentDiffQuery,
       }),
       Layer.mock(ServerLifecycleEvents)({
         publish: (event) => Effect.succeed({ ...(event as any), sequence: 1 }),

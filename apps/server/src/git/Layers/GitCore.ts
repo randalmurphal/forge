@@ -1635,6 +1635,90 @@ export const makeGitCore = Effect.fn("makeGitCore")(function* (options?: {
       ),
     );
 
+  const workingTreeDiff: GitCoreShape["workingTreeDiff"] = Effect.fn("workingTreeDiff")(
+    function* (cwd) {
+      const trackedDiff = yield* executeGit(
+        "GitCore.workingTreeDiff.tracked",
+        cwd,
+        ["diff", "--patch", "--minimal", "--no-color", "HEAD"],
+        {
+          timeoutMs: 10_000,
+          fallbackErrorMessage: "git diff HEAD failed",
+          maxOutputBytes: DEFAULT_MAX_OUTPUT_BYTES,
+          truncateOutputAtMaxBytes: true,
+        },
+      ).pipe(Effect.map((result) => result.stdout.trim()));
+
+      const untrackedPaths = yield* executeGit(
+        "GitCore.workingTreeDiff.untrackedPaths",
+        cwd,
+        ["ls-files", "--others", "--exclude-standard", "-z"],
+        {
+          timeoutMs: 10_000,
+          fallbackErrorMessage: "git ls-files for untracked paths failed",
+          maxOutputBytes: WORKSPACE_FILES_MAX_OUTPUT_BYTES,
+          truncateOutputAtMaxBytes: true,
+        },
+      ).pipe(
+        Effect.map((result) => splitNullSeparatedPaths(result.stdout, result.stdoutTruncated)),
+      );
+
+      const untrackedDiffs = yield* Effect.forEach(
+        untrackedPaths,
+        (relativePath) =>
+          executeGit(
+            "GitCore.workingTreeDiff.untrackedPatch",
+            cwd,
+            [
+              "diff",
+              "--no-index",
+              "--patch",
+              "--minimal",
+              "--no-color",
+              "--",
+              "/dev/null",
+              relativePath,
+            ],
+            {
+              timeoutMs: 10_000,
+              allowNonZeroExit: true,
+              maxOutputBytes: DEFAULT_MAX_OUTPUT_BYTES,
+              truncateOutputAtMaxBytes: true,
+            },
+          ).pipe(
+            Effect.flatMap((result) =>
+              result.code === 0 || result.code === 1
+                ? Effect.succeed(result.stdout.trim())
+                : Effect.fail(
+                    createGitCommandError(
+                      "GitCore.workingTreeDiff.untrackedPatch",
+                      cwd,
+                      [
+                        "diff",
+                        "--no-index",
+                        "--patch",
+                        "--minimal",
+                        "--no-color",
+                        "--",
+                        "/dev/null",
+                        relativePath,
+                      ],
+                      result.stderr.trim().length > 0
+                        ? result.stderr.trim()
+                        : `git diff for untracked file '${relativePath}' failed`,
+                    ),
+                  ),
+            ),
+          ),
+        { concurrency: 4 },
+      );
+
+      return {
+        diff: [trackedDiff, ...untrackedDiffs].filter((chunk) => chunk.length > 0).join("\n\n"),
+      };
+    },
+  );
+
   const filterIgnoredPaths: GitCoreShape["filterIgnoredPaths"] = (cwd, relativePaths) =>
     Effect.gen(function* () {
       if (relativePaths.length === 0) {
@@ -2113,6 +2197,7 @@ export const makeGitCore = Effect.fn("makeGitCore")(function* (options?: {
     readRangeContext,
     readConfigValue,
     isInsideWorkTree,
+    workingTreeDiff,
     listWorkspaceFiles,
     filterIgnoredPaths,
     listBranches,

@@ -20,6 +20,7 @@ import type {
   GitRemoveWorktreeInput,
   GitStatusInput,
   GitStatusResult,
+  GitWorkingTreeDiffResult,
 } from "@forgetools/contracts";
 
 import type { GitCommandError } from "@forgetools/contracts";
@@ -150,6 +151,13 @@ export interface GitCoreShape {
    * Read Git status for a repository.
    */
   readonly status: (input: GitStatusInput) => Effect.Effect<GitStatusResult, GitCommandError>;
+
+  /**
+   * Read live working tree diff against HEAD, including untracked files.
+   */
+  readonly workingTreeDiff: (
+    cwd: string,
+  ) => Effect.Effect<GitWorkingTreeDiffResult, GitCommandError>;
 
   /**
    * Read detailed working tree / branch status for a repository.

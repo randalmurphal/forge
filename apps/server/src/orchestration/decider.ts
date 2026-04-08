@@ -779,6 +779,32 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
       };
     }
 
+    case "thread.agent-diff.upsert": {
+      yield* requireThread({
+        readModel,
+        command,
+        threadId: command.threadId,
+      });
+      return {
+        ...withEventBase({
+          aggregateKind: "thread",
+          aggregateId: command.threadId,
+          occurredAt: command.createdAt,
+          commandId: command.commandId,
+        }),
+        type: "thread.agent-diff-upserted",
+        payload: {
+          threadId: command.threadId,
+          turnId: command.turnId,
+          diff: command.diff,
+          files: command.files,
+          source: command.source,
+          coverage: command.coverage,
+          completedAt: command.completedAt,
+        },
+      };
+    }
+
     case "thread.revert.complete": {
       yield* requireThread({
         readModel,

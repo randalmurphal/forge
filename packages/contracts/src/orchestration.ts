@@ -51,6 +51,8 @@ export const ORCHESTRATION_WS_METHODS = {
   dispatchCommand: "orchestration.dispatchCommand",
   getTurnDiff: "orchestration.getTurnDiff",
   getFullThreadDiff: "orchestration.getFullThreadDiff",
+  getTurnAgentDiff: "orchestration.getTurnAgentDiff",
+  getFullThreadAgentDiff: "orchestration.getFullThreadAgentDiff",
   replayEvents: "orchestration.replayEvents",
 } as const;
 
@@ -229,6 +231,28 @@ export const OrchestrationCheckpointSummary = Schema.Struct({
 });
 export type OrchestrationCheckpointSummary = typeof OrchestrationCheckpointSummary.Type;
 
+export const OrchestrationAgentDiffSource = Schema.Literals([
+  "native_turn_diff",
+  "derived_tool_results",
+]);
+export type OrchestrationAgentDiffSource = typeof OrchestrationAgentDiffSource.Type;
+
+export const OrchestrationAgentDiffCoverage = Schema.Literals([
+  "complete",
+  "partial",
+  "unavailable",
+]);
+export type OrchestrationAgentDiffCoverage = typeof OrchestrationAgentDiffCoverage.Type;
+
+export const OrchestrationAgentDiffSummary = Schema.Struct({
+  turnId: TurnId,
+  files: Schema.Array(OrchestrationCheckpointFile),
+  source: OrchestrationAgentDiffSource,
+  coverage: OrchestrationAgentDiffCoverage,
+  completedAt: IsoDateTime,
+});
+export type OrchestrationAgentDiffSummary = typeof OrchestrationAgentDiffSummary.Type;
+
 export const OrchestrationThreadActivityTone = Schema.Literals([
   "info",
   "tool",
@@ -302,6 +326,7 @@ export const OrchestrationThread = Schema.Struct({
   proposedPlans: Schema.Array(OrchestrationProposedPlan).pipe(Schema.withDecodingDefault(() => [])),
   activities: Schema.Array(OrchestrationThreadActivity),
   checkpoints: Schema.Array(OrchestrationCheckpointSummary),
+  agentDiffs: Schema.optional(Schema.Array(OrchestrationAgentDiffSummary)),
   session: Schema.NullOr(OrchestrationSession),
 });
 export type OrchestrationThread = typeof OrchestrationThread.Type;
@@ -1179,6 +1204,19 @@ const ThreadTurnDiffCompleteCommand = Schema.Struct({
   createdAt: IsoDateTime,
 });
 
+const ThreadAgentDiffUpsertCommand = Schema.Struct({
+  type: Schema.Literal("thread.agent-diff.upsert"),
+  commandId: CommandId,
+  threadId: ThreadId,
+  turnId: TurnId,
+  diff: Schema.String,
+  files: Schema.Array(OrchestrationCheckpointFile),
+  source: OrchestrationAgentDiffSource,
+  coverage: OrchestrationAgentDiffCoverage,
+  completedAt: IsoDateTime,
+  createdAt: IsoDateTime,
+});
+
 const ThreadActivityAppendCommand = Schema.Struct({
   type: Schema.Literal("thread.activity.append"),
   commandId: CommandId,
@@ -1202,6 +1240,7 @@ const InternalOrchestrationCommand = Schema.Union([
   ThreadMessageAppendCommand,
   ThreadProposedPlanUpsertCommand,
   ThreadTurnDiffCompleteCommand,
+  ThreadAgentDiffUpsertCommand,
   ThreadActivityAppendCommand,
   ThreadRevertCompleteCommand,
 ]);
@@ -1286,6 +1325,7 @@ export const OrchestrationEventType = Schema.Literals([
   "thread.session-set",
   "thread.proposed-plan-upserted",
   "thread.turn-diff-completed",
+  "thread.agent-diff-upserted",
   "thread.activity-appended",
 ]);
 export type OrchestrationEventType = typeof OrchestrationEventType.Type;
@@ -1578,6 +1618,16 @@ export const ThreadTurnDiffCompletedPayload = Schema.Struct({
   completedAt: IsoDateTime,
 });
 
+export const ThreadAgentDiffUpsertedPayload = Schema.Struct({
+  threadId: ThreadId,
+  turnId: TurnId,
+  diff: Schema.String,
+  files: Schema.Array(OrchestrationCheckpointFile),
+  source: OrchestrationAgentDiffSource,
+  coverage: OrchestrationAgentDiffCoverage,
+  completedAt: IsoDateTime,
+});
+
 export const SessionCheckpointCapturedPayload = Schema.Struct({
   threadId: ThreadId,
   turnId: TurnId,
@@ -1752,6 +1802,11 @@ export const OrchestrationEvent = Schema.Union([
     ...EventBaseFields,
     type: Schema.Literal("thread.turn-diff-completed"),
     payload: ThreadTurnDiffCompletedPayload,
+  }),
+  Schema.Struct({
+    ...EventBaseFields,
+    type: Schema.Literal("thread.agent-diff-upserted"),
+    payload: ThreadAgentDiffUpsertedPayload,
   }),
   Schema.Struct({
     ...EventBaseFields,
@@ -2470,6 +2525,38 @@ export type OrchestrationGetFullThreadDiffInput = typeof OrchestrationGetFullThr
 export const OrchestrationGetFullThreadDiffResult = ThreadTurnDiff;
 export type OrchestrationGetFullThreadDiffResult = typeof OrchestrationGetFullThreadDiffResult.Type;
 
+export const OrchestrationGetTurnAgentDiffInput = Schema.Struct({
+  threadId: ThreadId,
+  turnId: TurnId,
+});
+export type OrchestrationGetTurnAgentDiffInput = typeof OrchestrationGetTurnAgentDiffInput.Type;
+
+export const OrchestrationGetTurnAgentDiffResult = Schema.Struct({
+  threadId: ThreadId,
+  turnId: TurnId,
+  diff: Schema.String,
+  files: Schema.Array(OrchestrationCheckpointFile),
+  source: OrchestrationAgentDiffSource,
+  coverage: OrchestrationAgentDiffCoverage,
+  completedAt: IsoDateTime,
+});
+export type OrchestrationGetTurnAgentDiffResult = typeof OrchestrationGetTurnAgentDiffResult.Type;
+
+export const OrchestrationGetFullThreadAgentDiffInput = Schema.Struct({
+  threadId: ThreadId,
+});
+export type OrchestrationGetFullThreadAgentDiffInput =
+  typeof OrchestrationGetFullThreadAgentDiffInput.Type;
+
+export const OrchestrationGetFullThreadAgentDiffResult = Schema.Struct({
+  threadId: ThreadId,
+  diff: Schema.String,
+  files: Schema.Array(OrchestrationCheckpointFile),
+  coverage: OrchestrationAgentDiffCoverage,
+});
+export type OrchestrationGetFullThreadAgentDiffResult =
+  typeof OrchestrationGetFullThreadAgentDiffResult.Type;
+
 export const OrchestrationReplayEventsInput = Schema.Struct({
   fromSequenceExclusive: NonNegativeInt,
 });
@@ -2494,6 +2581,14 @@ export const OrchestrationRpcSchemas = {
   getFullThreadDiff: {
     input: OrchestrationGetFullThreadDiffInput,
     output: OrchestrationGetFullThreadDiffResult,
+  },
+  getTurnAgentDiff: {
+    input: OrchestrationGetTurnAgentDiffInput,
+    output: OrchestrationGetTurnAgentDiffResult,
+  },
+  getFullThreadAgentDiff: {
+    input: OrchestrationGetFullThreadAgentDiffInput,
+    output: OrchestrationGetFullThreadAgentDiffResult,
   },
   replayEvents: {
     input: OrchestrationReplayEventsInput,
@@ -2527,6 +2622,22 @@ export class OrchestrationGetTurnDiffError extends Schema.TaggedErrorClass<Orche
 
 export class OrchestrationGetFullThreadDiffError extends Schema.TaggedErrorClass<OrchestrationGetFullThreadDiffError>()(
   "OrchestrationGetFullThreadDiffError",
+  {
+    message: TrimmedNonEmptyString,
+    cause: Schema.optional(Schema.Defect),
+  },
+) {}
+
+export class OrchestrationGetTurnAgentDiffError extends Schema.TaggedErrorClass<OrchestrationGetTurnAgentDiffError>()(
+  "OrchestrationGetTurnAgentDiffError",
+  {
+    message: TrimmedNonEmptyString,
+    cause: Schema.optional(Schema.Defect),
+  },
+) {}
+
+export class OrchestrationGetFullThreadAgentDiffError extends Schema.TaggedErrorClass<OrchestrationGetFullThreadAgentDiffError>()(
+  "OrchestrationGetFullThreadAgentDiffError",
   {
     message: TrimmedNonEmptyString,
     cause: Schema.optional(Schema.Defect),

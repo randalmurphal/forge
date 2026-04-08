@@ -11,6 +11,7 @@ import * as SqlClient from "effect/unstable/sql/SqlClient";
 
 import { toPersistenceSqlError, type ProjectionRepositoryError } from "../../persistence/Errors.ts";
 import { OrchestrationEventStore } from "../../persistence/Services/OrchestrationEventStore.ts";
+import { ProjectionAgentDiffRepository } from "../../persistence/Services/ProjectionAgentDiffs.ts";
 import { ProjectionPendingApprovalRepository } from "../../persistence/Services/ProjectionPendingApprovals.ts";
 import { ProjectionChannelMessageRepository } from "../../persistence/Services/ProjectionChannelMessages.ts";
 import { ProjectionChannelReadRepository } from "../../persistence/Services/ProjectionChannelReads.ts";
@@ -36,6 +37,7 @@ import {
   ProjectionTurnRepository,
 } from "../../persistence/Services/ProjectionTurns.ts";
 import { ProjectionThreadRepository } from "../../persistence/Services/ProjectionThreads.ts";
+import { ProjectionAgentDiffRepositoryLive } from "../../persistence/Layers/ProjectionAgentDiffs.ts";
 import { ProjectionPendingApprovalRepositoryLive } from "../../persistence/Layers/ProjectionPendingApprovals.ts";
 import { ProjectionChannelMessageRepositoryLive } from "../../persistence/Layers/ProjectionChannelMessages.ts";
 import { ProjectionChannelReadRepositoryLive } from "../../persistence/Layers/ProjectionChannelReads.ts";
@@ -77,6 +79,7 @@ export const ORCHESTRATION_PROJECTOR_NAMES = {
   threadSessions: "projection.thread-sessions",
   threadTurns: "projection.thread-turns",
   checkpoints: "projection.checkpoints",
+  agentDiffs: "projection.agent-diffs",
   pendingApprovals: "projection.pending-approvals",
   interactiveRequests: "projection.interactive-requests",
 } as const;
@@ -428,6 +431,7 @@ const makeOrchestrationProjectionPipeline = Effect.fn("makeOrchestrationProjecti
     const projectionThreadActivityRepository = yield* ProjectionThreadActivityRepository;
     const projectionThreadSessionRepository = yield* ProjectionThreadSessionRepository;
     const projectionTurnRepository = yield* ProjectionTurnRepository;
+    const projectionAgentDiffRepository = yield* ProjectionAgentDiffRepository;
     const projectionPendingApprovalRepository = yield* ProjectionPendingApprovalRepository;
     const projectionInteractiveRequestRepository = yield* ProjectionInteractiveRequestRepository;
 
@@ -2101,6 +2105,61 @@ const makeOrchestrationProjectionPipeline = Effect.fn("makeOrchestrationProjecti
 
     const applyCheckpointsProjection: ProjectorDefinition["apply"] = () => Effect.void;
 
+    const applyAgentDiffsProjection: ProjectorDefinition["apply"] = Effect.fn(
+      "applyAgentDiffsProjection",
+    )(function* (event, _attachmentSideEffects) {
+      switch (event.type) {
+        case "thread.agent-diff-upserted":
+          yield* projectionAgentDiffRepository.upsert({
+            threadId: event.payload.threadId,
+            turnId: event.payload.turnId,
+            diff: event.payload.diff,
+            files: event.payload.files,
+            source: event.payload.source,
+            coverage: event.payload.coverage,
+            completedAt: event.payload.completedAt,
+          });
+          return;
+
+        case "thread.reverted": {
+          const existingTurns = yield* projectionTurnRepository.listByThreadId({
+            threadId: event.payload.threadId,
+          });
+          const retainedTurnIds = new Set(
+            existingTurns
+              .filter(
+                (turn) =>
+                  turn.turnId !== null &&
+                  turn.checkpointTurnCount !== null &&
+                  turn.checkpointTurnCount <= event.payload.turnCount,
+              )
+              .flatMap((turn) => (turn.turnId === null ? [] : [turn.turnId])),
+          );
+          const existingRows = yield* projectionAgentDiffRepository.listByThreadId({
+            threadId: event.payload.threadId,
+          });
+          yield* projectionAgentDiffRepository.deleteByThreadId({
+            threadId: event.payload.threadId,
+          });
+          yield* Effect.forEach(
+            existingRows.filter((row) => retainedTurnIds.has(row.turnId)),
+            (row) => projectionAgentDiffRepository.upsert(row),
+            { concurrency: 1 },
+          ).pipe(Effect.asVoid);
+          return;
+        }
+
+        case "thread.deleted":
+          yield* projectionAgentDiffRepository.deleteByThreadId({
+            threadId: event.payload.threadId,
+          });
+          return;
+
+        default:
+          return;
+      }
+    });
+
     const applyPendingApprovalsProjection: ProjectorDefinition["apply"] = Effect.fn(
       "applyPendingApprovalsProjection",
     )(function* (event, _attachmentSideEffects) {
@@ -2239,6 +2298,10 @@ const makeOrchestrationProjectionPipeline = Effect.fn("makeOrchestrationProjecti
         apply: applyCheckpointsProjection,
       },
       {
+        name: ORCHESTRATION_PROJECTOR_NAMES.agentDiffs,
+        apply: applyAgentDiffsProjection,
+      },
+      {
         name: ORCHESTRATION_PROJECTOR_NAMES.pendingApprovals,
         apply: applyPendingApprovalsProjection,
       },
@@ -2356,6 +2419,7 @@ export const OrchestrationProjectionPipelineLive = Layer.effect(
   Layer.provideMerge(ProjectionThreadActivityRepositoryLive),
   Layer.provideMerge(ProjectionThreadSessionRepositoryLive),
   Layer.provideMerge(ProjectionTurnRepositoryLive),
+  Layer.provideMerge(ProjectionAgentDiffRepositoryLive),
   Layer.provideMerge(ProjectionPendingApprovalRepositoryLive),
   Layer.provideMerge(ProjectionInteractiveRequestRepositoryLive),
   Layer.provideMerge(ProjectionStateRepositoryLive),

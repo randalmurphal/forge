@@ -1,7 +1,10 @@
 import {
+  OrchestrationGetFullThreadAgentDiffInput,
   OrchestrationGetFullThreadDiffInput,
+  OrchestrationGetTurnAgentDiffInput,
   OrchestrationGetTurnDiffInput,
   ThreadId,
+  type TurnId,
 } from "@forgetools/contracts";
 import { queryOptions } from "@tanstack/react-query";
 import { Option, Schema } from "effect";
@@ -15,6 +18,13 @@ interface CheckpointDiffQueryInput {
   enabled?: boolean;
 }
 
+interface AgentDiffQueryInput {
+  threadId: ThreadId | null;
+  turnId?: TurnId | null;
+  cacheScope?: string | null;
+  enabled?: boolean;
+}
+
 export const providerQueryKeys = {
   all: ["providers"] as const,
   checkpointDiff: (input: CheckpointDiffQueryInput) =>
@@ -24,6 +34,14 @@ export const providerQueryKeys = {
       input.threadId,
       input.fromTurnCount,
       input.toTurnCount,
+      input.cacheScope ?? null,
+    ] as const,
+  agentDiff: (input: AgentDiffQueryInput) =>
+    [
+      "providers",
+      "agentDiff",
+      input.threadId,
+      input.turnId ?? null,
       input.cacheScope ?? null,
     ] as const,
 };
@@ -41,6 +59,19 @@ function decodeCheckpointDiffRequest(input: CheckpointDiffQueryInput) {
     fromTurnCount: input.fromTurnCount,
     toTurnCount: input.toTurnCount,
   }).pipe(Option.map((fields) => ({ kind: "turnDiff" as const, input: fields })));
+}
+
+function decodeAgentDiffRequest(input: AgentDiffQueryInput) {
+  if (input.turnId) {
+    return Schema.decodeUnknownOption(OrchestrationGetTurnAgentDiffInput)({
+      threadId: input.threadId,
+      turnId: input.turnId,
+    }).pipe(Option.map((fields) => ({ kind: "turnAgentDiff" as const, input: fields })));
+  }
+
+  return Schema.decodeUnknownOption(OrchestrationGetFullThreadAgentDiffInput)({
+    threadId: input.threadId,
+  }).pipe(Option.map((fields) => ({ kind: "fullThreadAgentDiff" as const, input: fields })));
 }
 
 function asCheckpointErrorMessage(error: unknown): string {
@@ -120,5 +151,26 @@ export function checkpointDiffQueryOptions(input: CheckpointDiffQueryInput) {
       isCheckpointTemporarilyUnavailable(error)
         ? Math.min(5_000, 250 * 2 ** (attempt - 1))
         : Math.min(1_000, 100 * 2 ** (attempt - 1)),
+  });
+}
+
+export function agentDiffQueryOptions(input: AgentDiffQueryInput) {
+  const decodedRequest = decodeAgentDiffRequest(input);
+
+  return queryOptions({
+    queryKey: providerQueryKeys.agentDiff(input),
+    queryFn: async () => {
+      const api = ensureNativeApi();
+      if (!input.threadId || decodedRequest._tag === "None") {
+        throw new Error("Agent diff is unavailable.");
+      }
+      if (decodedRequest.value.kind === "turnAgentDiff") {
+        return await api.orchestration.getTurnAgentDiff(decodedRequest.value.input);
+      }
+      return await api.orchestration.getFullThreadAgentDiff(decodedRequest.value.input);
+    },
+    enabled: (input.enabled ?? true) && !!input.threadId && decodedRequest._tag === "Some",
+    staleTime: Infinity,
+    retry: 2,
   });
 }

@@ -1,5 +1,6 @@
 import {
   type ForgeEvent,
+  type OrchestrationAgentDiffSummary,
   type OrchestrationMessage,
   type OrchestrationProposedPlan,
   type ProjectId,
@@ -180,10 +181,24 @@ function mapTurnDiffSummary(
     turnId: checkpoint.turnId,
     completedAt: checkpoint.completedAt,
     status: checkpoint.status,
+    provenance: "workspace",
     assistantMessageId: checkpoint.assistantMessageId ?? undefined,
     checkpointTurnCount: checkpoint.checkpointTurnCount,
     checkpointRef: checkpoint.checkpointRef,
     files: checkpoint.files.map((file) => ({ ...file })),
+  };
+}
+
+function mapAgentDiffSummary(
+  agentDiff: OrchestrationAgentDiffSummary,
+): NonNullable<Thread["agentDiffSummaries"]>[number] {
+  return {
+    turnId: agentDiff.turnId,
+    completedAt: agentDiff.completedAt,
+    provenance: "agent",
+    coverage: agentDiff.coverage,
+    source: agentDiff.source,
+    files: agentDiff.files.map((file) => ({ ...file })),
   };
 }
 
@@ -217,6 +232,7 @@ function mapThread(thread: OrchestrationThread): Thread {
     worktreePath: thread.worktreePath,
     spawnBranch: spawnWorkspace.branch,
     spawnWorktreePath: spawnWorkspace.worktreePath,
+    agentDiffSummaries: (thread.agentDiffs ?? []).map(mapAgentDiffSummary),
     turnDiffSummaries: thread.checkpoints.map(mapTurnDiffSummary),
     activities: thread.activities.map((activity) => ({ ...activity })),
     ...(thread.spawnMode !== undefined ? { spawnMode: thread.spawnMode } : {}),
@@ -818,6 +834,7 @@ export function applyOrchestrationEvent(state: AppState, event: ForgeEvent): App
         messages: [],
         proposedPlans: [],
         activities: [],
+        agentDiffs: [],
         checkpoints: [],
         session: null,
       });
@@ -1347,6 +1364,32 @@ export function applyOrchestrationEvent(state: AppState, event: ForgeEvent): App
       });
     }
 
+    case "thread.agent-diff-upserted": {
+      return updateThreadState(state, event.payload.threadId, (thread) => {
+        const agentDiffSummary = mapAgentDiffSummary({
+          turnId: event.payload.turnId,
+          files: event.payload.files,
+          source: event.payload.source,
+          coverage: event.payload.coverage,
+          completedAt: event.payload.completedAt,
+        });
+        const agentDiffSummaries = [
+          ...(thread.agentDiffSummaries ?? []).filter(
+            (entry) => entry.turnId !== agentDiffSummary.turnId,
+          ),
+          agentDiffSummary,
+        ].toSorted(
+          (left, right) =>
+            left.completedAt.localeCompare(right.completedAt) ||
+            left.turnId.localeCompare(right.turnId),
+        );
+        return {
+          ...thread,
+          agentDiffSummaries,
+        };
+      });
+    }
+
     case "thread.reverted": {
       return updateThreadState(state, event.payload.threadId, (thread) => {
         const turnDiffSummaries = thread.turnDiffSummaries
@@ -1362,6 +1405,13 @@ export function applyOrchestrationEvent(state: AppState, event: ForgeEvent): App
           )
           .slice(-MAX_THREAD_CHECKPOINTS);
         const retainedTurnIds = new Set(turnDiffSummaries.map((entry) => entry.turnId));
+        const agentDiffSummaries = (thread.agentDiffSummaries ?? [])
+          .filter((entry) => retainedTurnIds.has(entry.turnId))
+          .toSorted(
+            (left, right) =>
+              left.completedAt.localeCompare(right.completedAt) ||
+              left.turnId.localeCompare(right.turnId),
+          );
         const messages = retainThreadMessagesAfterRevert(
           thread.messages,
           retainedTurnIds,
@@ -1376,6 +1426,7 @@ export function applyOrchestrationEvent(state: AppState, event: ForgeEvent): App
 
         return {
           ...thread,
+          agentDiffSummaries,
           turnDiffSummaries,
           messages,
           proposedPlans,

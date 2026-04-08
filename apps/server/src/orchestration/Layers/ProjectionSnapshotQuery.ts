@@ -20,6 +20,7 @@ import {
   WorkflowPhase,
   WorkflowPhaseId,
   type OrchestrationCheckpointSummary,
+  type OrchestrationAgentDiffSummary,
   type OrchestrationLatestTurn,
   type OrchestrationMessage,
   type OrchestrationProposedPlan,
@@ -43,6 +44,7 @@ import {
   type ProjectionRepositoryError,
 } from "../../persistence/Errors.ts";
 import { ProjectionCheckpoint } from "../../persistence/Services/ProjectionCheckpoints.ts";
+import { ProjectionAgentDiff } from "../../persistence/Services/ProjectionAgentDiffs.ts";
 import { ProjectionProject } from "../../persistence/Services/ProjectionProjects.ts";
 import { ProjectionState } from "../../persistence/Services/ProjectionState.ts";
 import { ProjectionThreadActivity } from "../../persistence/Services/ProjectionThreadActivities.ts";
@@ -81,7 +83,7 @@ const ProjectionThreadDbRowSchema = Schema.Struct({
   interactionMode: ProviderInteractionMode,
   branch: Schema.NullOr(Schema.String),
   worktreePath: Schema.NullOr(Schema.String),
-  spawnMode: Schema.optional(Schema.Literals(["local", "worktree"])),
+  spawnMode: Schema.NullOr(Schema.Literals(["local", "worktree"])),
   spawnBranch: Schema.NullOr(Schema.String),
   spawnWorktreePath: Schema.NullOr(Schema.String),
   latestTurnId: Schema.NullOr(TurnId),
@@ -153,6 +155,11 @@ const ProjectionCheckpointDbRowSchema = ProjectionCheckpoint.mapFields(
     files: Schema.fromJsonString(Schema.Array(OrchestrationCheckpointFile)),
   }),
 );
+const ProjectionAgentDiffDbRowSchema = ProjectionAgentDiff.mapFields(
+  Struct.assign({
+    files: Schema.fromJsonString(Schema.Array(OrchestrationCheckpointFile)),
+  }),
+);
 const ProjectionLatestTurnDbRowSchema = Schema.Struct({
   threadId: ThreadId,
   turnId: TurnId,
@@ -201,6 +208,7 @@ const REQUIRED_SNAPSHOT_PROJECTORS = [
   ORCHESTRATION_PROJECTOR_NAMES.threadSessions,
   ORCHESTRATION_PROJECTOR_NAMES.threadTurns,
   ORCHESTRATION_PROJECTOR_NAMES.checkpoints,
+  ORCHESTRATION_PROJECTOR_NAMES.agentDiffs,
 ] as const;
 
 function maxIso(left: string | null, right: string): string {
@@ -399,6 +407,24 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
         FROM projection_turns
         WHERE checkpoint_turn_count IS NOT NULL
         ORDER BY thread_id ASC, checkpoint_turn_count ASC
+      `,
+  });
+
+  const listAgentDiffRows = SqlSchema.findAll({
+    Request: Schema.Void,
+    Result: ProjectionAgentDiffDbRowSchema,
+    execute: () =>
+      sql`
+        SELECT
+          thread_id AS "threadId",
+          turn_id AS "turnId",
+          diff,
+          files_json AS "files",
+          source,
+          coverage,
+          completed_at AS "completedAt"
+        FROM projection_agent_diffs
+        ORDER BY thread_id ASC, completed_at ASC, turn_id ASC
       `,
   });
 
@@ -621,6 +647,7 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
             activityRows,
             sessionRows,
             checkpointRows,
+            agentDiffRows,
             latestTurnRows,
             workflowRows,
             phaseRunRows,
@@ -684,6 +711,14 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
                 ),
               ),
             ),
+            listAgentDiffRows(undefined).pipe(
+              Effect.mapError(
+                toPersistenceSqlOrDecodeError(
+                  "ProjectionSnapshotQuery.getSnapshot:listAgentDiffs:query",
+                  "ProjectionSnapshotQuery.getSnapshot:listAgentDiffs:decodeRows",
+                ),
+              ),
+            ),
             listLatestTurnRows(undefined).pipe(
               Effect.mapError(
                 toPersistenceSqlOrDecodeError(
@@ -738,6 +773,7 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
           const proposedPlansByThread = new Map<string, Array<OrchestrationProposedPlan>>();
           const activitiesByThread = new Map<string, Array<OrchestrationThreadActivity>>();
           const checkpointsByThread = new Map<string, Array<OrchestrationCheckpointSummary>>();
+          const agentDiffsByThread = new Map<string, Array<OrchestrationAgentDiffSummary>>();
           const sessionsByThread = new Map<string, OrchestrationSession>();
           const latestTurnByThread = new Map<string, OrchestrationLatestTurn>();
 
@@ -817,6 +853,19 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
               completedAt: row.completedAt,
             });
             checkpointsByThread.set(row.threadId, threadCheckpoints);
+          }
+
+          for (const row of agentDiffRows) {
+            updatedAt = maxIso(updatedAt, row.completedAt);
+            const threadAgentDiffs = agentDiffsByThread.get(row.threadId) ?? [];
+            threadAgentDiffs.push({
+              turnId: row.turnId,
+              files: row.files,
+              source: row.source,
+              coverage: row.coverage,
+              completedAt: row.completedAt,
+            });
+            agentDiffsByThread.set(row.threadId, threadAgentDiffs);
           }
 
           for (const row of latestTurnRows) {
@@ -916,7 +965,7 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
             interactionMode: row.interactionMode,
             branch: row.branch,
             worktreePath: row.worktreePath,
-            spawnMode: row.spawnMode,
+            spawnMode: row.spawnMode ?? undefined,
             spawnBranch: row.spawnBranch,
             spawnWorktreePath: row.spawnWorktreePath,
             latestTurn: latestTurnByThread.get(row.threadId) ?? null,
@@ -936,6 +985,7 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
             proposedPlans: proposedPlansByThread.get(row.threadId) ?? [],
             activities: activitiesByThread.get(row.threadId) ?? [],
             checkpoints: checkpointsByThread.get(row.threadId) ?? [],
+            agentDiffs: agentDiffsByThread.get(row.threadId) ?? [],
             session: sessionsByThread.get(row.threadId) ?? null,
           }));
 

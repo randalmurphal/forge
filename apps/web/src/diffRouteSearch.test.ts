@@ -12,6 +12,7 @@ describe("parseDiffRouteSearch", () => {
 
     expect(parsed).toEqual({
       diff: "1",
+      diffMode: "agent",
       diffTurnId: "turn-1",
       diffFilePath: "src/app.ts",
     });
@@ -25,6 +26,7 @@ describe("parseDiffRouteSearch", () => {
       }),
     ).toEqual({
       diff: "1",
+      diffMode: "agent",
       diffTurnId: "turn-1",
     });
 
@@ -35,6 +37,7 @@ describe("parseDiffRouteSearch", () => {
       }),
     ).toEqual({
       diff: "1",
+      diffMode: "agent",
       diffTurnId: "turn-1",
     });
   });
@@ -57,6 +60,7 @@ describe("parseDiffRouteSearch", () => {
 
     expect(parsed).toEqual({
       diff: "1",
+      diffMode: "agent",
     });
   });
 
@@ -69,6 +73,7 @@ describe("parseDiffRouteSearch", () => {
 
     expect(parsed).toEqual({
       diff: "1",
+      diffMode: "agent",
     });
   });
 });
