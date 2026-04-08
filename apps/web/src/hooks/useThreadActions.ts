@@ -73,10 +73,14 @@ export function useThreadActions() {
       if (!thread) return;
       const threadProject = projects.find((project) => project.id === thread.projectId);
       const deletedIds = opts.deletedThreadIds;
+      const childIds = new Set(thread.childThreadIds ?? []);
       const survivingThreads =
         deletedIds && deletedIds.size > 0
-          ? threads.filter((entry) => entry.id === threadId || !deletedIds.has(entry.id))
-          : threads;
+          ? threads.filter(
+              (entry) =>
+                entry.id === threadId || (!deletedIds.has(entry.id) && !childIds.has(entry.id)),
+            )
+          : threads.filter((entry) => entry.id === threadId || !childIds.has(entry.id));
       const orphanedWorktreePath = getOrphanedWorktreePathForThread(survivingThreads, threadId);
       const displayWorktreePath = orphanedWorktreePath
         ? formatWorktreePathForDisplay(orphanedWorktreePath)
