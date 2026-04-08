@@ -1,10 +1,8 @@
 import type {
-  DeliberationParticipant,
+  DiscussionParticipant,
   ModelSelection,
   ProviderKind,
   ThreadId,
-  WorkflowDefinition,
-  WorkflowId,
 } from "@forgetools/contracts";
 import { memo, useMemo } from "react";
 import { type ProviderPickerKind, PROVIDER_OPTIONS } from "../../session-logic";
@@ -24,9 +22,9 @@ import {
 } from "../ui/menu";
 import { ClaudeAI, OpenAI, type Icon } from "../Icons";
 import { cn } from "~/lib/utils";
-import { useWorkflow } from "../../stores/workflowStore";
 import { useComposerDraftStore } from "../../composerDraftStore";
 import { getProviderSnapshot } from "../../providerModels";
+import { useDiscussion } from "../../stores/discussionStore";
 import type { ServerProvider } from "@forgetools/contracts";
 
 const AVAILABLE_PROVIDER_OPTIONS = PROVIDER_OPTIONS.filter((o) => o.available) as Array<{
@@ -53,29 +51,23 @@ function formatRoleLabel(role: string): string {
     .join(" ");
 }
 
-function collectDiscussionParticipants(workflow: WorkflowDefinition): DeliberationParticipant[] {
-  return workflow.phases.flatMap((phase) =>
-    phase.type === "multi-agent" && phase.deliberation ? phase.deliberation.participants : [],
-  );
-}
-
 export const DiscussionRolesPicker = memo(function DiscussionRolesPicker(props: {
   threadId: ThreadId;
-  workflowId: WorkflowId;
+  discussionId: string;
   providers?: ReadonlyArray<ServerProvider>;
   modelOptionsByProvider: Record<ProviderKind, ReadonlyArray<{ slug: string; name: string }>>;
   compact?: boolean;
   disabled?: boolean;
 }) {
-  const workflowQuery = useWorkflow(props.workflowId);
-  const workflow = workflowQuery.data;
+  const discussionQuery = useDiscussion(props.discussionId);
+  const discussion = discussionQuery.data;
   const draftThread = useComposerDraftStore((store) => store.getDraftThread(props.threadId));
   const setDraftThreadContext = useComposerDraftStore((store) => store.setDraftThreadContext);
   const roleOverrides = draftThread?.discussionRoleModels ?? null;
 
   const participants = useMemo(
-    () => (workflow ? collectDiscussionParticipants(workflow) : []),
-    [workflow],
+    (): ReadonlyArray<DiscussionParticipant> => (discussion ? discussion.participants : []),
+    [discussion],
   );
 
   const handleRoleModelChange = (role: string, provider: ProviderKind, model: string) => {
@@ -109,8 +101,8 @@ export const DiscussionRolesPicker = memo(function DiscussionRolesPicker(props: 
           <RoleModelSubMenu
             key={participant.role}
             role={participant.role}
-            defaultModel={participant.agent.model ?? null}
-            activeModel={roleOverrides?.[participant.role] ?? participant.agent.model ?? null}
+            defaultModel={participant.model ?? null}
+            activeModel={roleOverrides?.[participant.role] ?? participant.model ?? null}
             providers={props.providers}
             modelOptionsByProvider={props.modelOptionsByProvider}
             onModelChange={(provider, model) =>

@@ -26,6 +26,7 @@ describe("buildLocalDraftThread", () => {
         runtimeMode: "full-access",
         interactionMode: "default",
         workflowId,
+        discussionId: null,
         discussionRoleModels: null,
         branch: null,
         worktreePath: null,

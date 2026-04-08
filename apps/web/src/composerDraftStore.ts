@@ -146,6 +146,7 @@ const PersistedDraftThreadState = Schema.Struct({
   runtimeMode: RuntimeMode,
   interactionMode: ProviderInteractionMode,
   workflowId: Schema.NullOr(WorkflowId),
+  discussionId: Schema.optionalKey(Schema.NullOr(Schema.String)),
   discussionRoleModels: Schema.optionalKey(
     Schema.NullOr(Schema.Record(Schema.String, ModelSelection)),
   ),
@@ -189,7 +190,8 @@ export interface DraftThreadState {
   runtimeMode: RuntimeMode;
   interactionMode: ProviderInteractionMode;
   workflowId: WorkflowId | null;
-  /** Per-role model overrides for discussion workflows. Keyed by role name. */
+  discussionId: string | null;
+  /** Per-role model overrides for discussion participants. Keyed by role name. */
   discussionRoleModels: Record<string, ModelSelection> | null;
   branch: string | null;
   worktreePath: string | null;
@@ -219,6 +221,7 @@ interface ComposerDraftStoreState {
       runtimeMode?: RuntimeMode;
       interactionMode?: ProviderInteractionMode;
       workflowId?: WorkflowId | null;
+      discussionId?: string | null;
       discussionRoleModels?: Record<string, ModelSelection> | null;
     },
   ) => void;
@@ -233,6 +236,7 @@ interface ComposerDraftStoreState {
       runtimeMode?: RuntimeMode;
       interactionMode?: ProviderInteractionMode;
       workflowId?: WorkflowId | null;
+      discussionId?: string | null;
       discussionRoleModels?: Record<string, ModelSelection> | null;
     },
   ) => void;
@@ -1348,6 +1352,10 @@ export const useComposerDraftStore = create<ComposerDraftStoreState>()(
               options?.workflowId === undefined
                 ? (existingThread?.workflowId ?? null)
                 : (options.workflowId ?? null),
+            discussionId:
+              options?.discussionId === undefined
+                ? (existingThread?.discussionId ?? null)
+                : (options.discussionId ?? null),
             discussionRoleModels:
               options?.discussionRoleModels === undefined
                 ? (existingThread?.discussionRoleModels ?? null)
@@ -1369,6 +1377,7 @@ export const useComposerDraftStore = create<ComposerDraftStoreState>()(
             existingThread.runtimeMode === nextDraftThread.runtimeMode &&
             existingThread.interactionMode === nextDraftThread.interactionMode &&
             existingThread.workflowId === nextDraftThread.workflowId &&
+            existingThread.discussionId === nextDraftThread.discussionId &&
             existingThread.branch === nextDraftThread.branch &&
             existingThread.worktreePath === nextDraftThread.worktreePath &&
             existingThread.envMode === nextDraftThread.envMode;
@@ -1433,6 +1442,10 @@ export const useComposerDraftStore = create<ComposerDraftStoreState>()(
             interactionMode: options.interactionMode ?? existing.interactionMode,
             workflowId:
               options.workflowId === undefined ? existing.workflowId : (options.workflowId ?? null),
+            discussionId:
+              options.discussionId === undefined
+                ? existing.discussionId
+                : (options.discussionId ?? null),
             discussionRoleModels: nextDiscussionRoleModels,
             branch: options.branch === undefined ? existing.branch : (options.branch ?? null),
             worktreePath: nextWorktreePath,
@@ -1445,6 +1458,7 @@ export const useComposerDraftStore = create<ComposerDraftStoreState>()(
             nextDraftThread.runtimeMode === existing.runtimeMode &&
             nextDraftThread.interactionMode === existing.interactionMode &&
             nextDraftThread.workflowId === existing.workflowId &&
+            nextDraftThread.discussionId === existing.discussionId &&
             nextDraftThread.discussionRoleModels === existing.discussionRoleModels &&
             nextDraftThread.branch === existing.branch &&
             nextDraftThread.worktreePath === existing.worktreePath &&
@@ -2202,7 +2216,11 @@ export const useComposerDraftStore = create<ComposerDraftStoreState>()(
         const draftThreadsByThreadId = Object.fromEntries(
           Object.entries(normalizedPersisted.draftThreadsByThreadId).map(([threadId, thread]) => [
             threadId,
-            { ...thread, discussionRoleModels: thread.discussionRoleModels ?? null },
+            {
+              ...thread,
+              discussionId: thread.discussionId ?? null,
+              discussionRoleModels: thread.discussionRoleModels ?? null,
+            },
           ]),
         );
         return {

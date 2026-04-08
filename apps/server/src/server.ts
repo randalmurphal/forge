@@ -59,6 +59,7 @@ import { WorkspacePathsLive } from "./workspace/Layers/WorkspacePaths";
 import { ObservabilityLive } from "./observability/Layers/Observability";
 import { ChannelServiceLive } from "./channel/Layers/ChannelService";
 import { DeliberationEngineLive } from "./channel/Layers/DeliberationEngine";
+import { DiscussionRegistryLive } from "./discussion/Layers/DiscussionRegistry";
 import { PromptResolverLive } from "./workflow/Layers/PromptResolver";
 import { QualityCheckRunnerLive } from "./workflow/Layers/QualityCheckRunner";
 import { WorkflowEngineLive } from "./workflow/Layers/WorkflowEngine";
@@ -295,11 +296,12 @@ const ChannelReactorRuntimeLive = ChannelReactorLive.pipe(
   Layer.provide(DeliberationEngineRuntimeLive),
 );
 
+const DiscussionRegistryRuntimeLive = DiscussionRegistryLive;
+
 const DiscussionReactorRuntimeLive = DiscussionReactorLive.pipe(
   Layer.provide(OrchestrationRuntimeLive),
   Layer.provide(ChannelServiceRuntimeLive),
-  Layer.provide(WorkflowRegistryRuntimeLive),
-  Layer.provide(PromptResolverLive),
+  Layer.provide(DiscussionRegistryRuntimeLive),
 );
 
 const OrchestrationReactorRuntimeLive = OrchestrationReactorLive.pipe(
@@ -346,6 +348,7 @@ const RuntimeServicesLive = Layer.mergeAll(
   ProjectFaviconResolverLive,
   WorkflowLayerLive,
   ChannelLayerLive,
+  DiscussionRegistryRuntimeLive,
   ReactorLayerLive,
   ServerRuntimeStartupRuntimeLive,
   OpenLive,

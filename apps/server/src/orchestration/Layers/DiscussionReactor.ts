@@ -1,14 +1,13 @@
 import {
   ChatAttachment,
   CommandId,
-  type DeliberationConfig,
+  type DiscussionDefinition,
   type ForgeEvent,
   MessageId,
   type ModelSelection,
   type ProviderInteractionMode,
   type RuntimeMode,
   ThreadId,
-  type WorkflowId,
 } from "@forgetools/contracts";
 import { makeDrainableWorker } from "@forgetools/shared/DrainableWorker";
 import { Cause, Effect, Layer, Option, Stream } from "effect";
@@ -17,8 +16,7 @@ import { registerPendingMcpServer } from "../../discussion/pendingMcpServers.ts"
 import { registerPendingSessionTools } from "../../discussion/pendingSessionTools.ts";
 import { registerPendingSystemPrompt } from "../../discussion/pendingSystemPrompt.ts";
 import { makeSharedChatMcpServer } from "../../discussion/sharedChatMcpServer.ts";
-import { PromptResolver } from "../../workflow/Services/PromptResolver.ts";
-import { WorkflowRegistry } from "../../workflow/Services/WorkflowRegistry.ts";
+import { DiscussionRegistry } from "../../discussion/Services/DiscussionRegistry.ts";
 import { OrchestrationEngineService } from "../Services/OrchestrationEngine.ts";
 import { DiscussionReactor, type DiscussionReactorShape } from "../Services/DiscussionReactor.ts";
 
@@ -53,11 +51,11 @@ function formatRoleLabel(role: string): string {
 
 function buildSystemPrompt(input: {
   readonly role: string;
-  readonly promptSystemText: string;
+  readonly rawSystemText: string;
 }): string {
   return [
-    `You are the ${input.role} participant in a shared parent chat.`,
-    input.promptSystemText.trim(),
+    `You are the ${formatRoleLabel(input.role)} participant in a shared parent chat.`,
+    input.rawSystemText.trim(),
     [
       "Messages sent to this thread are copies of messages from the shared parent chat.",
       "Other participants may respond independently while you continue your work.",
@@ -80,8 +78,7 @@ function buildRelayedChildPrompt(input: {
 
 export const makeDiscussionReactor = Effect.gen(function* () {
   const orchestrationEngine = yield* OrchestrationEngineService;
-  const workflowRegistry = yield* WorkflowRegistry;
-  const promptResolver = yield* PromptResolver;
+  const discussionRegistry = yield* DiscussionRegistry;
   const services = yield* Effect.services();
   const runPromise = Effect.runPromiseWith(services);
 
@@ -92,23 +89,14 @@ export const makeDiscussionReactor = Effect.gen(function* () {
     return readModel.threads.find((entry) => entry.id === threadId);
   });
 
-  const resolveDeliberationConfig = Effect.fn("DiscussionReactor.resolveDeliberationConfig")(
-    function* (workflowId: WorkflowId) {
-      const workflowOption = yield* workflowRegistry.queryById({ workflowId });
-      if (Option.isNone(workflowOption)) {
-        return Option.none<DeliberationConfig>();
-      }
-
-      const workflow = workflowOption.value;
-      for (const phase of workflow.phases) {
-        if (phase.type === "multi-agent" && phase.deliberation !== undefined) {
-          return Option.some(phase.deliberation);
-        }
-      }
-
-      return Option.none<DeliberationConfig>();
-    },
-  );
+  const resolveDiscussion = Effect.fn("DiscussionReactor.resolveDiscussion")(function* (
+    discussionId: string,
+    workspaceRoot: string | undefined,
+  ) {
+    return yield* discussionRegistry.queryByName(
+      workspaceRoot ? { name: discussionId, workspaceRoot } : { name: discussionId },
+    );
+  });
 
   const appendSystemMessage = Effect.fn("DiscussionReactor.appendSystemMessage")(function* (
     threadId: ThreadId,
@@ -326,6 +314,14 @@ export const makeDiscussionReactor = Effect.gen(function* () {
     });
   };
 
+  const resolveWorkspaceRoot = Effect.fn("DiscussionReactor.resolveWorkspaceRoot")(function* (
+    projectId: string,
+  ) {
+    const readModel = yield* orchestrationEngine.getReadModel();
+    const project = readModel.projects.find((p) => p.id === projectId);
+    return project?.workspaceRoot;
+  });
+
   const createChildrenForParentThread = Effect.fn(
     "DiscussionReactor.createChildrenForParentThread",
   )(function* (input: {
@@ -334,22 +330,28 @@ export const makeDiscussionReactor = Effect.gen(function* () {
     readonly attachments?: ReadonlyArray<ChatAttachment>;
   }) {
     const parentThread = yield* resolveThread(input.parentThreadId);
-    if (!parentThread || parentThread.workflowId === null) {
+    if (!parentThread || parentThread.discussionId === null) {
       return;
     }
 
-    const deliberationOption = yield* resolveDeliberationConfig(parentThread.workflowId);
-    if (Option.isNone(deliberationOption)) {
+    const workspaceRoot = yield* resolveWorkspaceRoot(parentThread.projectId);
+
+    const discussionOption = yield* resolveDiscussion(parentThread.discussionId, workspaceRoot);
+    if (Option.isNone(discussionOption)) {
       yield* appendSystemMessage(
         input.parentThreadId,
-        "This discussion does not define any shared-chat participants.",
+        `Discussion '${parentThread.discussionId}' was not found. Create it as a YAML file in ~/.forge/discussions/ or .forge/discussions/ in your project.`,
       );
       return;
     }
 
+    const discussion: DiscussionDefinition = discussionOption.value;
+    const roleOverrides = parentThread.discussionRoleModels ?? null;
     const participants: SharedChatParticipant[] = [];
-    for (const participant of deliberationOption.value.participants) {
-      if (participant.agent.model === undefined) {
+
+    for (const participant of discussion.participants) {
+      const overriddenModel = roleOverrides?.[participant.role] ?? participant.model;
+      if (overriddenModel === undefined) {
         yield* appendSystemMessage(
           input.parentThreadId,
           `Discussion participant '${participant.role}' is missing a configured model.`,
@@ -357,33 +359,14 @@ export const makeDiscussionReactor = Effect.gen(function* () {
         return;
       }
 
-      const resolvedPrompt = yield* promptResolver
-        .resolve({
-          name: participant.agent.prompt,
-          variables: {
-            DESCRIPTION: input.messageText,
-            PREVIOUS_OUTPUT: "",
-            ITERATION_CONTEXT: "",
-          },
-        })
-        .pipe(
-          Effect.catch(() =>
-            Effect.succeed({
-              name: participant.agent.prompt,
-              description: "",
-              system: `Act as the ${participant.role} participant in the shared chat and use post_to_chat when you want to contribute there.`,
-            }),
-          ),
-        );
-
       participants.push({
         threadId: ThreadId.makeUnsafe(crypto.randomUUID()),
         role: participant.role,
-        modelLabel: participant.agent.model.model,
-        modelSelection: participant.agent.model,
+        modelLabel: overriddenModel.model,
+        modelSelection: overriddenModel,
         systemPrompt: buildSystemPrompt({
           role: participant.role,
-          promptSystemText: resolvedPrompt.system,
+          rawSystemText: participant.system,
         }),
       });
     }

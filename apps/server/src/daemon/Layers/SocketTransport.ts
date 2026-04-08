@@ -36,6 +36,7 @@ import {
 import { Effect, Layer, Option, Schema, Stream } from "effect";
 
 import { ChannelService } from "../../channel/Services/ChannelService.ts";
+import { DiscussionRegistry } from "../../discussion/Services/DiscussionRegistry.ts";
 import {
   OrchestrationEngineService,
   type OrchestrationEngineShape,
@@ -628,6 +629,7 @@ const makeSocketTransport = Effect.gen(function* () {
   const orchestrationEngine = yield* OrchestrationEngineService;
   const projectionSnapshotQuery = yield* ProjectionSnapshotQuery;
   const channelService = yield* ChannelService;
+  const discussionRegistry = yield* DiscussionRegistry;
   const workflowRegistry = yield* WorkflowRegistry;
   const workspacePaths = yield* WorkspacePaths;
 
@@ -1221,6 +1223,62 @@ const makeSocketTransport = Effect.gen(function* () {
       };
     });
 
+  const handleDiscussionList = (params: unknown) =>
+    Effect.gen(function* () {
+      const input =
+        params != null && typeof params === "object" && "workspaceRoot" in params
+          ? { workspaceRoot: (params as Record<string, unknown>).workspaceRoot as string }
+          : {};
+      const discussions = yield* discussionRegistry.queryAll(input).pipe(
+        Effect.mapError(
+          (cause) =>
+            new OrchestrationGetSnapshotError({
+              message: "Failed to load discussions.",
+              cause: cause instanceof Error ? cause : new Error(String(cause)),
+            }),
+        ),
+      );
+      return {
+        discussions: discussions.map((d) => ({
+          name: d.name,
+          description: d.description,
+          participantRoles: d.participants.map((p) => p.role),
+          scope: d.scope,
+        })),
+      };
+    });
+
+  const handleDiscussionGet = (params: unknown) =>
+    Effect.gen(function* () {
+      const input = params as { name: string; workspaceRoot?: string } | null;
+      if (!input?.name) {
+        return yield* new OrchestrationGetSnapshotError({
+          message: "discussion.get requires a name parameter.",
+        });
+      }
+      const discussionOption = yield* discussionRegistry
+        .queryByName(
+          input.workspaceRoot
+            ? { name: input.name, workspaceRoot: input.workspaceRoot }
+            : { name: input.name },
+        )
+        .pipe(
+          Effect.mapError(
+            (cause) =>
+              new OrchestrationGetSnapshotError({
+                message: "Failed to load discussion.",
+                cause: cause instanceof Error ? cause : new Error(String(cause)),
+              }),
+          ),
+        );
+      if (Option.isNone(discussionOption)) {
+        return yield* new OrchestrationGetSnapshotError({
+          message: `Discussion '${input.name}' not found.`,
+        });
+      }
+      return { discussion: discussionOption.value };
+    });
+
   const handleGateApprove = (params: unknown) =>
     Effect.gen(function* () {
       const input = decodeParams(GateApproveParams, params, "gate.approve");
@@ -1740,6 +1798,8 @@ const makeSocketTransport = Effect.gen(function* () {
     ["phaseOutput.update", (params) => handlePhaseOutputUpdate(params)],
     ["workflow.list", () => handleWorkflowList()],
     ["workflow.get", (params) => handleWorkflowGet(params)],
+    ["discussion.list", (params) => handleDiscussionList(params)],
+    ["discussion.get", (params) => handleDiscussionGet(params)],
   ]);
 
   const bind: SocketTransportShape["bind"] = (input) =>

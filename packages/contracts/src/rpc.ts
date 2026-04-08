@@ -89,6 +89,7 @@ import {
   TerminalSessionSnapshot,
   TerminalWriteInput,
 } from "./terminal";
+import { DiscussionDefinition, DiscussionSummary } from "./discussion";
 import { WorkflowDefinition } from "./workflow";
 import { GateResult, PhaseRunStatus, PhaseType, QualityCheckResult } from "./workflow";
 import {
@@ -141,6 +142,10 @@ export const FORGE_WS_METHODS = {
   workflowGet: "workflow.get",
   workflowCreate: "workflow.create",
   workflowUpdate: "workflow.update",
+
+  // Discussion operations
+  discussionList: "discussion.list",
+  discussionGet: "discussion.get",
 
   // Push subscriptions
   subscribeWorkflowEvents: "subscribeWorkflowEvents",
@@ -557,6 +562,23 @@ const ForgePhaseOutputUpdateInput = Schema.Struct({
   content: Schema.String,
 });
 
+const ForgeDiscussionListInput = Schema.Struct({
+  workspaceRoot: Schema.optional(TrimmedNonEmptyString),
+});
+
+const ForgeDiscussionListResult = Schema.Struct({
+  discussions: Schema.Array(DiscussionSummary),
+});
+
+const ForgeDiscussionGetInput = Schema.Struct({
+  name: TrimmedNonEmptyString,
+  workspaceRoot: Schema.optional(TrimmedNonEmptyString),
+});
+
+const ForgeDiscussionGetResult = Schema.Struct({
+  discussion: DiscussionDefinition,
+});
+
 const ForgeWorkflowListInput = Schema.Struct({});
 
 const ForgeWorkflowListResult = Schema.Struct({
@@ -709,6 +731,18 @@ export const WsForgePhaseOutputUpdateRpc = Rpc.make(WS_METHODS.phaseOutputUpdate
   payload: ForgePhaseOutputUpdateInput,
   success: DispatchResult,
   error: OrchestrationDispatchCommandError,
+});
+
+export const WsForgeDiscussionListRpc = Rpc.make(WS_METHODS.discussionList, {
+  payload: ForgeDiscussionListInput,
+  success: ForgeDiscussionListResult,
+  error: OrchestrationGetSnapshotError,
+});
+
+export const WsForgeDiscussionGetRpc = Rpc.make(WS_METHODS.discussionGet, {
+  payload: ForgeDiscussionGetInput,
+  success: ForgeDiscussionGetResult,
+  error: OrchestrationGetSnapshotError,
 });
 
 export const WsForgeWorkflowListRpc = Rpc.make(WS_METHODS.workflowList, {
@@ -865,4 +899,6 @@ export const WsRpcGroup = RpcGroup.make(
   WsForgeWorkflowGetRpc,
   WsForgeWorkflowCreateRpc,
   WsForgeWorkflowUpdateRpc,
+  WsForgeDiscussionListRpc,
+  WsForgeDiscussionGetRpc,
 );

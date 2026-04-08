@@ -93,6 +93,10 @@ import { WorkspaceEntriesLive } from "./workspace/Layers/WorkspaceEntries.ts";
 import { WorkspaceFileSystemLive } from "./workspace/Layers/WorkspaceFileSystem.ts";
 import { WorkspacePathsLive } from "./workspace/Layers/WorkspacePaths.ts";
 import {
+  DiscussionRegistry,
+  type DiscussionRegistryShape,
+} from "./discussion/Services/DiscussionRegistry.ts";
+import {
   WorkflowRegistry,
   type WorkflowRegistryShape,
 } from "./workflow/Services/WorkflowRegistry.ts";
@@ -181,6 +185,7 @@ const buildAppUnderTest = (options?: {
     orchestrationEngine?: Partial<OrchestrationEngineShape>;
     projectionSnapshotQuery?: Partial<ProjectionSnapshotQueryShape>;
     workflowRegistry?: Partial<WorkflowRegistryShape>;
+    discussionRegistry?: Partial<DiscussionRegistryShape>;
     channelService?: Partial<ChannelServiceShape>;
     projectionWorkflowRepository?: Partial<ProjectionWorkflowRepositoryShape>;
     projectionPhaseRunRepository?: Partial<ProjectionPhaseRunRepositoryShape>;
@@ -275,6 +280,11 @@ const buildAppUnderTest = (options?: {
         queryById: () => Effect.succeed(Option.none()),
         queryByName: () => Effect.succeed(Option.none()),
         ...options?.layers?.workflowRegistry,
+      }),
+      Layer.mock(DiscussionRegistry)({
+        queryAll: () => Effect.succeed([]),
+        queryByName: () => Effect.succeed(Option.none()),
+        ...options?.layers?.discussionRegistry,
       }),
       Layer.mock(ChannelService)({
         createChannel: () => Effect.die("unused"),

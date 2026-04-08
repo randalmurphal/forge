@@ -245,6 +245,9 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
             "discussionId" in command && command.discussionId !== undefined
               ? command.discussionId
               : null,
+          ...("discussionRoleModels" in command && command.discussionRoleModels !== undefined
+            ? { discussionRoleModels: command.discussionRoleModels }
+            : {}),
           parentThreadId:
             "parentThreadId" in command && command.parentThreadId !== undefined
               ? command.parentThreadId

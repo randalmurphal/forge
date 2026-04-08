@@ -62,6 +62,7 @@ import { ServerRuntimeStartup } from "./serverRuntimeStartup";
 import { ServerSettingsService } from "./serverSettings";
 import { deriveForgeSessionType } from "./sessionType";
 import { TerminalManager } from "./terminal/Services/Manager";
+import { DiscussionRegistry } from "./discussion/Services/DiscussionRegistry.ts";
 import { WorkflowRegistry } from "./workflow/Services/WorkflowRegistry.ts";
 import { WorkspaceEntries } from "./workspace/Services/WorkspaceEntries";
 import { WorkspaceFileSystem } from "./workspace/Services/WorkspaceFileSystem";
@@ -590,6 +591,7 @@ const WsRpcLayer = WsRpcGroup.toLayer(
     const startup = yield* ServerRuntimeStartup;
     const workspaceEntries = yield* WorkspaceEntries;
     const workspaceFileSystem = yield* WorkspaceFileSystem;
+    const discussionRegistry = yield* DiscussionRegistry;
     const workflowRegistry = yield* WorkflowRegistry;
     const workflowRepository = yield* ProjectionWorkflowRepository;
     const phaseRuns = yield* ProjectionPhaseRunRepository;
@@ -1133,6 +1135,52 @@ const WsRpcLayer = WsRpcGroup.toLayer(
             ),
           ),
           { "rpc.aggregate": "workflow" },
+        ),
+      [WS_METHODS.discussionList]: ({ workspaceRoot }) =>
+        observeRpcEffect(
+          WS_METHODS.discussionList,
+          discussionRegistry.queryAll(workspaceRoot ? { workspaceRoot } : {}).pipe(
+            Effect.map((discussions) => ({
+              discussions: discussions.map((d) => ({
+                name: d.name,
+                description: d.description,
+                participantRoles: d.participants.map((p) => p.role),
+                scope: d.scope,
+              })),
+            })),
+            Effect.mapError(
+              (cause) =>
+                new OrchestrationGetSnapshotError({
+                  message: "Failed to load discussions",
+                  cause,
+                }),
+            ),
+          ),
+          { "rpc.aggregate": "discussion" },
+        ),
+      [WS_METHODS.discussionGet]: ({ name, workspaceRoot }) =>
+        observeRpcEffect(
+          WS_METHODS.discussionGet,
+          discussionRegistry.queryByName(workspaceRoot ? { name, workspaceRoot } : { name }).pipe(
+            Effect.flatMap((discussionOption) =>
+              Option.isNone(discussionOption)
+                ? Effect.fail(
+                    new OrchestrationGetSnapshotError({
+                      message: `Discussion '${name}' not found.`,
+                    }),
+                  )
+                : Effect.succeed({ discussion: discussionOption.value }),
+            ),
+            Effect.mapError((cause) =>
+              Schema.is(OrchestrationGetSnapshotError)(cause)
+                ? cause
+                : new OrchestrationGetSnapshotError({
+                    message: "Failed to load discussion",
+                    cause,
+                  }),
+            ),
+          ),
+          { "rpc.aggregate": "discussion" },
         ),
       [WS_METHODS.subscribeOrchestrationDomainEvents]: (input) =>
         observeRpcStreamEffect(

@@ -6,6 +6,7 @@ export * from "./providerRuntime";
 export * from "./model";
 export * from "./keybindings";
 export * from "./workflow";
+export * from "./discussion";
 export * from "./channel";
 export {
   ApprovalRequestPayload,

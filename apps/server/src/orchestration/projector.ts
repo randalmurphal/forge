@@ -477,6 +477,9 @@ export function projectEvent(
             workflowId: payload.workflowId ?? null,
             currentPhaseId: null,
             discussionId: payload.discussionId ?? null,
+            ...("discussionRoleModels" in payload && payload.discussionRoleModels
+              ? { discussionRoleModels: payload.discussionRoleModels }
+              : {}),
             role: "role" in payload ? (payload.role ?? null) : null,
             childThreadIds: [],
             bootstrapStatus: null,

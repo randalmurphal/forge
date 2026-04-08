@@ -91,7 +91,7 @@ import { resolveShortcutCommand, shortcutLabelForCommand } from "../keybindings"
 import PlanSidebar from "./PlanSidebar";
 import ThreadTerminalDrawer from "./ThreadTerminalDrawer";
 import { UnifiedThreadPicker } from "./chat/UnifiedThreadPicker";
-import { useWorkflowStore } from "../stores/workflowStore";
+
 import {
   BotIcon,
   ChevronDownIcon,
@@ -854,26 +854,13 @@ export default function ChatView({ threadId }: ChatViewProps) {
   );
   const activeThread = serverThread ?? localDraftThread;
   const childThreads = useThreadsByIds(activeThread?.childThreadIds);
-  const activeWorkflowHasDeliberation = useWorkflowStore((state) => {
-    const wid = activeThread?.workflowId;
-    if (!wid) return false;
-    return state.availableWorkflows.find((w) => w.workflowId === wid)?.hasDeliberation ?? false;
-  });
-  const selectedDraftWorkflowIsDiscussion = useWorkflowStore((state) => {
-    const wid = draftThread?.workflowId;
-    if (!wid) return false;
-    return state.availableWorkflows.find((w) => w.workflowId === wid)?.hasDeliberation ?? false;
-  });
+  const selectedDraftIsDiscussion = draftThread?.discussionId != null;
   const isDiscussionContainerThread =
     activeThread !== undefined &&
     activeThread.parentThreadId == null &&
-    (activeThread.discussionId != null || activeWorkflowHasDeliberation);
+    activeThread.discussionId != null;
   const discussionDisplayName = useMemo(() => {
     if (!isDiscussionContainerThread || !activeThread) return null;
-    const workflowName = useWorkflowStore
-      .getState()
-      .availableWorkflows.find((w) => w.workflowId === activeThread.workflowId)?.name;
-    if (workflowName) return titleCase(workflowName);
     if (activeThread.discussionId) return titleCase(activeThread.discussionId);
     return null;
   }, [isDiscussionContainerThread, activeThread]);
@@ -3107,20 +3094,14 @@ export default function ChatView({ threadId }: ChatViewProps) {
         ...(selectedModelSelection.options ? { options: selectedModelSelection.options } : {}),
       };
       const localDraftWorkflowId = isLocalDraftThread ? (activeThread.workflowId ?? null) : null;
-      const draftWorkflowSummary = localDraftWorkflowId
-        ? useWorkflowStore
-            .getState()
-            .availableWorkflows.find((w) => w.workflowId === localDraftWorkflowId)
-        : undefined;
-      const isDiscussionDraftThread =
-        isLocalDraftThread && (draftWorkflowSummary?.hasDeliberation ?? false);
+      const localDraftDiscussionId = isLocalDraftThread
+        ? (draftThread?.discussionId ?? null)
+        : null;
+      const isDiscussionDraftThread = isLocalDraftThread && localDraftDiscussionId !== null;
 
       if (isLocalDraftThread) {
-        const threadWorkflowId = localDraftWorkflowId;
-        const threadDiscussionId =
-          threadWorkflowId && draftWorkflowSummary?.hasDeliberation
-            ? (draftWorkflowSummary.name ?? threadWorkflowId)
-            : undefined;
+        const threadWorkflowId = localDraftDiscussionId ? null : localDraftWorkflowId;
+        const threadDiscussionId = localDraftDiscussionId ?? undefined;
 
         await api.orchestration.dispatchCommand({
           type: "thread.create",
@@ -3130,6 +3111,9 @@ export default function ChatView({ threadId }: ChatViewProps) {
           title,
           ...(threadWorkflowId ? { workflowId: threadWorkflowId } : {}),
           ...(threadDiscussionId ? { discussionId: threadDiscussionId } : {}),
+          ...(threadDiscussionId && draftThread?.discussionRoleModels
+            ? { discussionRoleModels: draftThread.discussionRoleModels }
+            : {}),
           modelSelection: threadCreateModelSelection,
           runtimeMode,
           interactionMode,
@@ -4401,7 +4385,35 @@ export default function ChatView({ threadId }: ChatViewProps) {
                           }
                         />
 
-                        {isComposerFooterCompact && !isDiscussionContainerThread ? (
+                        {selectedDraftIsDiscussion && draftThread?.discussionId ? (
+                          <>
+                            <Separator
+                              orientation="vertical"
+                              className="mx-0.5 hidden h-4 sm:block"
+                            />
+                            <DiscussionRolesPicker
+                              threadId={threadId}
+                              discussionId={draftThread.discussionId}
+                              providers={providerStatuses}
+                              modelOptionsByProvider={modelOptionsByProvider}
+                              compact={isComposerFooterCompact}
+                              disabled={isConnecting || isSendBusy}
+                            />
+                          </>
+                        ) : isDiscussionContainerThread ? (
+                          <>
+                            <Separator
+                              orientation="vertical"
+                              className="mx-0.5 hidden h-4 sm:block"
+                            />
+                            <SummarizeButton
+                              threadId={threadId}
+                              providers={providerStatuses}
+                              modelOptionsByProvider={modelOptionsByProvider}
+                              disabled={activeDiscussionChildren.length > 0}
+                            />
+                          </>
+                        ) : isComposerFooterCompact ? (
                           <CompactComposerControlsMenu
                             activePlan={Boolean(
                               activePlan || sidebarProposedPlan || planSidebarOpen,
@@ -4414,7 +4426,7 @@ export default function ChatView({ threadId }: ChatViewProps) {
                             onTogglePlanSidebar={togglePlanSidebar}
                             onToggleRuntimeMode={toggleRuntimeMode}
                           />
-                        ) : !isDiscussionContainerThread ? (
+                        ) : (
                           <>
                             {providerTraitsPicker ? (
                               <>
@@ -4505,45 +4517,7 @@ export default function ChatView({ threadId }: ChatViewProps) {
                               </>
                             ) : null}
                           </>
-                        ) : selectedDraftWorkflowIsDiscussion && draftThread?.workflowId ? (
-                          <>
-                            <Separator
-                              orientation="vertical"
-                              className="mx-0.5 hidden h-4 sm:block"
-                            />
-                            <DiscussionRolesPicker
-                              threadId={threadId}
-                              workflowId={draftThread.workflowId}
-                              providers={providerStatuses}
-                              modelOptionsByProvider={modelOptionsByProvider}
-                              compact={isComposerFooterCompact}
-                              disabled={isConnecting || isSendBusy}
-                            />
-                            <Separator
-                              orientation="vertical"
-                              className="mx-0.5 hidden h-4 sm:block"
-                            />
-                            <SummarizeButton
-                              threadId={threadId}
-                              providers={providerStatuses}
-                              modelOptionsByProvider={modelOptionsByProvider}
-                              disabled={isConnecting || isSendBusy}
-                            />
-                          </>
-                        ) : isDiscussionContainerThread ? (
-                          <>
-                            <Separator
-                              orientation="vertical"
-                              className="mx-0.5 hidden h-4 sm:block"
-                            />
-                            <SummarizeButton
-                              threadId={threadId}
-                              providers={providerStatuses}
-                              modelOptionsByProvider={modelOptionsByProvider}
-                              disabled={activeDiscussionChildren.length > 0}
-                            />
-                          </>
-                        ) : null}
+                        )}
                       </div>
 
                       {/* Right side: send / stop button */}

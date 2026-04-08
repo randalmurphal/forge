@@ -69,6 +69,8 @@ it("exports the staged Forge websocket method registry", () => {
     workflowGet: "workflow.get",
     workflowCreate: "workflow.create",
     workflowUpdate: "workflow.update",
+    discussionList: "discussion.list",
+    discussionGet: "discussion.get",
     subscribeWorkflowEvents: "subscribeWorkflowEvents",
     subscribeChannelMessages: "subscribeChannelMessages",
     subscribeWorkflowPhase: "workflow.phase",

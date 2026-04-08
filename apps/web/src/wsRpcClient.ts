@@ -136,6 +136,10 @@ export interface WsRpcClient {
       listener: (event: RpcStreamEvent<typeof WS_METHODS.subscribeWorkflowEvents>) => void,
     ) => () => void;
   };
+  readonly discussion: {
+    readonly list: RpcUnaryMethod<typeof WS_METHODS.discussionList>;
+    readonly get: RpcUnaryMethod<typeof WS_METHODS.discussionGet>;
+  };
 }
 
 let sharedWsRpcClient: WsRpcClient | null = null;
@@ -292,6 +296,10 @@ export function createWsRpcClient(transport = new WsTransport()): WsRpcClient {
           (client) => client[WS_METHODS.subscribeWorkflowEvents](input),
           listener,
         ),
+    },
+    discussion: {
+      list: (input) => transport.request((client) => client[WS_METHODS.discussionList](input)),
+      get: (input) => transport.request((client) => client[WS_METHODS.discussionGet](input)),
     },
   };
 }

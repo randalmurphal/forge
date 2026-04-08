@@ -287,6 +287,7 @@ export const OrchestrationThread = Schema.Struct({
   workflowId: Schema.NullOr(WorkflowId).pipe(Schema.withDecodingDefault(() => null)),
   currentPhaseId: Schema.NullOr(WorkflowPhaseId).pipe(Schema.withDecodingDefault(() => null)),
   discussionId: Schema.NullOr(TrimmedNonEmptyString).pipe(Schema.withDecodingDefault(() => null)),
+  discussionRoleModels: Schema.optional(Schema.Record(Schema.String, ModelSelection)),
   role: Schema.NullOr(TrimmedNonEmptyString).pipe(Schema.withDecodingDefault(() => null)),
   childThreadIds: Schema.Array(ThreadId).pipe(Schema.withDecodingDefault(() => [])),
   bootstrapStatus: Schema.NullOr(TrimmedNonEmptyString).pipe(
@@ -558,6 +559,7 @@ const ThreadCreateCommand = Schema.Struct({
   worktreePath: Schema.NullOr(TrimmedNonEmptyString),
   workflowId: Schema.optional(WorkflowId),
   discussionId: Schema.optional(TrimmedNonEmptyString),
+  discussionRoleModels: Schema.optional(Schema.Record(Schema.String, ModelSelection)),
   parentThreadId: Schema.optional(ThreadId),
   role: Schema.optional(TrimmedNonEmptyString),
   createdAt: IsoDateTime,
@@ -1323,6 +1325,7 @@ export const ThreadCreatedPayload = Schema.Struct({
   worktreePath: Schema.NullOr(TrimmedNonEmptyString),
   workflowId: Schema.NullOr(WorkflowId).pipe(Schema.withDecodingDefault(() => null)),
   discussionId: Schema.NullOr(TrimmedNonEmptyString).pipe(Schema.withDecodingDefault(() => null)),
+  discussionRoleModels: Schema.optional(Schema.Record(Schema.String, ModelSelection)),
   parentThreadId: Schema.NullOr(ThreadId).pipe(Schema.withDecodingDefault(() => null)),
   role: Schema.NullOr(TrimmedNonEmptyString).pipe(Schema.withDecodingDefault(() => null)),
   createdAt: IsoDateTime,

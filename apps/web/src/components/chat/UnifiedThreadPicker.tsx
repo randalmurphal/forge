@@ -1,4 +1,4 @@
-import type { ProviderKind, ServerProvider, WorkflowSummary } from "@forgetools/contracts";
+import type { DiscussionSummary, ProviderKind, ServerProvider } from "@forgetools/contracts";
 import { resolveSelectableModel } from "@forgetools/shared/model";
 import { memo, useEffect, useMemo, useState } from "react";
 import { type ProviderPickerKind, PROVIDER_OPTIONS } from "../../session-logic";
@@ -22,7 +22,11 @@ import { cn } from "~/lib/utils";
 import { getProviderSnapshot } from "../../providerModels";
 import { useComposerDraftStore } from "../../composerDraftStore";
 import { useWorkflowStore, useWorkflows } from "../../stores/workflowStore";
-import { splitWorkflowsByCategory } from "../WorkflowPicker.logic";
+import { useDiscussionStore, useDiscussions } from "../../stores/discussionStore";
+import {
+  filterWorkflowSummariesForProject,
+  sortWorkflowSummariesForPicker,
+} from "../WorkflowPicker.logic";
 import type { ThreadId } from "@forgetools/contracts";
 
 const AVAILABLE_PROVIDER_OPTIONS = PROVIDER_OPTIONS.filter((option) => option.available) as Array<{
@@ -73,8 +77,12 @@ export const UnifiedThreadPicker = memo(function UnifiedThreadPicker(props: {
     if (!resolvedModel) return;
     props.onProviderModelChange(provider, resolvedModel);
     // Selecting a model clears any active workflow/discussion
-    if (resolvedWorkflowId !== null) {
-      setDraftThreadContext(props.threadId, { workflowId: null });
+    if (resolvedWorkflowId !== null || resolvedDiscussionId !== null) {
+      setDraftThreadContext(props.threadId, {
+        workflowId: null,
+        discussionId: null,
+        discussionRoleModels: null,
+      });
       setSelectedWorkflowId(null);
     }
     setIsMenuOpen(false);
@@ -89,16 +97,20 @@ export const UnifiedThreadPicker = memo(function UnifiedThreadPicker(props: {
   const workflowQuery = useWorkflows();
   const availableWorkflows = workflowQuery.data ?? storedWorkflows;
 
-  const { discussions, workflows } = useMemo(
+  // Workflows: filter by project, sort for display (no more hasDeliberation split)
+  const workflows = useMemo(
     () =>
-      splitWorkflowsByCategory({
-        projectId: draftThread?.projectId ?? null,
-        workflows: availableWorkflows,
-      }),
+      sortWorkflowSummariesForPicker(
+        filterWorkflowSummariesForProject(availableWorkflows, draftThread?.projectId ?? null),
+      ),
     [availableWorkflows, draftThread?.projectId],
   );
 
-  const allSelectable = useMemo(() => [...discussions, ...workflows], [discussions, workflows]);
+  // Discussions: loaded from discussion.list API via dedicated store
+  const storedDiscussions = useDiscussionStore((store) => store.availableDiscussions);
+  const discussionQuery = useDiscussions();
+  const discussions: ReadonlyArray<DiscussionSummary> =
+    (discussionQuery.data as ReadonlyArray<DiscussionSummary> | undefined) ?? storedDiscussions;
 
   // Sync workflow store selection with draft
   useEffect(() => {
@@ -112,7 +124,7 @@ export const UnifiedThreadPicker = memo(function UnifiedThreadPicker(props: {
   useEffect(() => {
     if (!draftThread?.workflowId) return;
     if (!workflowQuery.isSuccess) return;
-    if (allSelectable.some((w) => w.workflowId === draftThread.workflowId)) return;
+    if (workflows.some((w) => w.workflowId === draftThread.workflowId)) return;
     setDraftThreadContext(props.threadId, { workflowId: null });
     setSelectedWorkflowId(null);
   }, [
@@ -120,25 +132,61 @@ export const UnifiedThreadPicker = memo(function UnifiedThreadPicker(props: {
     props.threadId,
     setDraftThreadContext,
     setSelectedWorkflowId,
-    allSelectable,
+    workflows,
     workflowQuery.isSuccess,
   ]);
 
+  // Clear discussion if no longer available
+  useEffect(() => {
+    if (!draftThread?.discussionId) return;
+    if (!discussionQuery.isSuccess) return;
+    if (discussions.some((d) => d.name === draftThread.discussionId)) return;
+    setDraftThreadContext(props.threadId, { discussionId: null, discussionRoleModels: null });
+  }, [
+    draftThread?.discussionId,
+    props.threadId,
+    setDraftThreadContext,
+    discussions,
+    discussionQuery.isSuccess,
+  ]);
+
   const resolvedWorkflowId = draftThread?.workflowId ?? null;
+  const resolvedDiscussionId = draftThread?.discussionId ?? null;
   const selectedWorkflow = resolvedWorkflowId
-    ? allSelectable.find((w) => w.workflowId === resolvedWorkflowId)
+    ? workflows.find((w) => w.workflowId === resolvedWorkflowId)
+    : null;
+  const selectedDiscussion = resolvedDiscussionId
+    ? discussions.find((d) => d.name === resolvedDiscussionId)
     : null;
 
   const selectWorkflow = (value: string) => {
-    const nextWorkflowId = allSelectable.find((w) => w.workflowId === value)?.workflowId ?? null;
-    setDraftThreadContext(props.threadId, { workflowId: nextWorkflowId });
+    const nextWorkflowId = workflows.find((w) => w.workflowId === value)?.workflowId ?? null;
+    setDraftThreadContext(props.threadId, {
+      workflowId: nextWorkflowId,
+      discussionId: null,
+      discussionRoleModels: null,
+    });
     setSelectedWorkflowId(nextWorkflowId);
     setIsMenuOpen(false);
   };
 
+  const selectDiscussion = (name: string) => {
+    const discussion = discussions.find((d) => d.name === name);
+    if (!discussion) return;
+    setDraftThreadContext(props.threadId, {
+      discussionId: discussion.name,
+      workflowId: null,
+      discussionRoleModels: null,
+    });
+    setSelectedWorkflowId(null);
+    setIsMenuOpen(false);
+  };
+
   // --- Trigger label ---
-  const resolvedDiscussionLabel = props.discussionLabelOverride ?? selectedWorkflow?.name ?? null;
+  const resolvedDiscussionLabel =
+    props.discussionLabelOverride ?? selectedDiscussion?.name ?? selectedWorkflow?.name ?? null;
   const isWorkflowActive = resolvedDiscussionLabel !== null;
+  const isDiscussionActive = selectedDiscussion !== null || props.discussionLabelOverride != null;
   const triggerLabel = isWorkflowActive ? resolvedDiscussionLabel : selectedModelLabel;
 
   const showWorkflowSection = draftThread !== null;
@@ -175,7 +223,7 @@ export const UnifiedThreadPicker = memo(function UnifiedThreadPicker(props: {
           )}
         >
           {isWorkflowActive ? (
-            selectedWorkflow?.hasDeliberation ? (
+            isDiscussionActive ? (
               <MessagesSquareIcon
                 aria-hidden="true"
                 className="size-4 shrink-0 text-muted-foreground/70"
@@ -281,6 +329,25 @@ export const UnifiedThreadPicker = memo(function UnifiedThreadPicker(props: {
           </>
         )}
 
+        {/* Discussions sub-menu */}
+        {showWorkflowSection && discussions.length > 0 ? (
+          <>
+            <MenuSeparator />
+            <WorkflowSubMenu
+              label="Discussions"
+              icon={
+                <MessagesSquareIcon
+                  aria-hidden="true"
+                  className="size-4 shrink-0 text-muted-foreground/70"
+                />
+              }
+              items={discussions.map((d) => ({ id: d.name, name: d.name }))}
+              selectedId={resolvedDiscussionId}
+              onSelect={selectDiscussion}
+            />
+          </>
+        ) : null}
+
         {/* Workflows sub-menu */}
         {showWorkflowSection && workflows.length > 0 ? (
           <>
@@ -293,27 +360,8 @@ export const UnifiedThreadPicker = memo(function UnifiedThreadPicker(props: {
                   className="size-4 shrink-0 text-muted-foreground/70"
                 />
               }
-              items={workflows}
-              selectedWorkflowId={resolvedWorkflowId}
-              onSelect={selectWorkflow}
-            />
-          </>
-        ) : null}
-
-        {/* Discussions sub-menu */}
-        {showWorkflowSection && discussions.length > 0 ? (
-          <>
-            {workflows.length === 0 ? <MenuSeparator /> : null}
-            <WorkflowSubMenu
-              label="Discussions"
-              icon={
-                <MessagesSquareIcon
-                  aria-hidden="true"
-                  className="size-4 shrink-0 text-muted-foreground/70"
-                />
-              }
-              items={discussions}
-              selectedWorkflowId={resolvedWorkflowId}
+              items={workflows.map((w) => ({ id: w.workflowId, name: w.name }))}
+              selectedId={resolvedWorkflowId}
               onSelect={selectWorkflow}
             />
           </>
@@ -326,12 +374,12 @@ export const UnifiedThreadPicker = memo(function UnifiedThreadPicker(props: {
 function WorkflowSubMenu(props: {
   label: string;
   icon: React.ReactNode;
-  items: WorkflowSummary[];
-  selectedWorkflowId: string | null;
+  items: ReadonlyArray<{ id: string; name: string }>;
+  selectedId: string | null;
   onSelect: (value: string) => void;
 }) {
-  const activeValue = props.items.some((w) => w.workflowId === props.selectedWorkflowId)
-    ? props.selectedWorkflowId!
+  const activeValue = props.items.some((item) => item.id === props.selectedId)
+    ? props.selectedId!
     : "";
 
   return (
@@ -344,7 +392,7 @@ function WorkflowSubMenu(props: {
         <MenuGroup>
           <MenuRadioGroup value={activeValue} onValueChange={props.onSelect}>
             {props.items.map((item) => (
-              <MenuRadioItem key={item.workflowId} value={item.workflowId}>
+              <MenuRadioItem key={item.id} value={item.id}>
                 {item.name}
               </MenuRadioItem>
             ))}

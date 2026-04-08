@@ -17,6 +17,10 @@ import {
   type ProjectionSnapshotQueryShape,
 } from "../../orchestration/Services/ProjectionSnapshotQuery.ts";
 import {
+  DiscussionRegistry,
+  type DiscussionRegistryShape,
+} from "../../discussion/Services/DiscussionRegistry.ts";
+import {
   WorkflowRegistry,
   type WorkflowRegistryShape,
 } from "../../workflow/Services/WorkflowRegistry.ts";
@@ -252,6 +256,7 @@ const makeTestLayer = (options?: {
   orchestrationEngine?: Partial<OrchestrationEngineShape>;
   projectionSnapshotQuery?: Partial<ProjectionSnapshotQueryShape>;
   channelService?: Partial<ChannelServiceShape>;
+  discussionRegistry?: Partial<DiscussionRegistryShape>;
   workflowRegistry?: Partial<WorkflowRegistryShape>;
   workspacePaths?: Partial<WorkspacePathsShape>;
 }) => {
@@ -288,6 +293,13 @@ const makeTestLayer = (options?: {
         getCursor: () => Effect.succeed(-1 as never),
         advanceCursor: () => Effect.void,
         ...options?.channelService,
+      }),
+    ),
+    Layer.provide(
+      Layer.mock(DiscussionRegistry)({
+        queryAll: () => Effect.succeed([]),
+        queryByName: () => Effect.succeed(Option.none()),
+        ...options?.discussionRegistry,
       }),
     ),
     Layer.provide(

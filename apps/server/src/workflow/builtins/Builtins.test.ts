@@ -7,13 +7,7 @@ import { parse as parseYaml } from "yaml";
 
 const decodeWorkflowDefinition = Schema.decodeUnknownEffect(WorkflowDefinition);
 const builtinsDir = fileURLToPath(new URL(".", import.meta.url));
-const expectedBuiltins = [
-  "build-loop.yaml",
-  "debate.yaml",
-  "explore.yaml",
-  "implement.yaml",
-  "interrogate.yaml",
-] as const;
+const expectedBuiltins = ["build-loop.yaml", "implement.yaml"] as const;
 
 it.effect("all built-in workflow YAML files parse and validate against WorkflowDefinition", () =>
   Effect.gen(function* () {
@@ -36,7 +30,7 @@ it.effect("all built-in workflow YAML files parse and validate against WorkflowD
 
     assert.deepStrictEqual(
       workflows.map((workflow) => workflow.name),
-      ["build-loop", "debate", "explore", "implement", "interrogate"],
+      ["build-loop", "implement"],
     );
     assert.ok(workflows.every((workflow) => workflow.builtIn));
     assert.ok(
