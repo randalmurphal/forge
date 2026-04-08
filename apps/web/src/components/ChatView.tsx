@@ -3052,7 +3052,7 @@ export default function ChatView({ threadId }: ChatViewProps) {
 
     let createdServerThreadForLocalDraft = false;
     let turnStartSucceeded = false;
-    let nextThreadBranch = activeThread.branch;
+    let nextThreadBranch = envMode === "worktree" ? activeThread.branch : null;
     let nextThreadWorktreePath = activeThread.worktreePath;
     await (async () => {
       // On first message: lock in branch + create worktree if needed.
