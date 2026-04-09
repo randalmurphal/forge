@@ -55,6 +55,28 @@ describe("appearance", () => {
     expect(variables["--background"]).toBe("#101418");
     expect(variables["--foreground"]).toBe("#f5f7fb");
     expect(variables["--feature-provider-claude"]).toBe("#ff9966");
+  });
+
+  it("applies CSS variables to a DOM element", () => {
+    if (typeof document === "undefined") return;
+
+    const settings = {
+      appearance: deepMerge(DEFAULT_SERVER_SETTINGS.appearance, {
+        typography: {
+          uiFontFamily: '"IBM Plex Sans", sans-serif',
+          monoFontFamily: '"JetBrains Mono", monospace',
+        },
+        dark: {
+          ui: {
+            background: "#101418",
+            foreground: "#f5f7fb",
+          },
+          feature: {
+            providerClaude: "#ff9966",
+          },
+        },
+      }),
+    };
 
     const root = document.createElement("div");
     applyAppearanceCssVariables(root, settings, "dark");

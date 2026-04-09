@@ -34,8 +34,8 @@ describe("QualityCheckResults", () => {
       />,
     );
 
-    expect(markup).toMatch(/<details class="[^"]*"><summary[^>]*>.*typecheck/s);
-    expect(markup).toMatch(/<details class="[^"]*" open=""><summary[^>]*>.*test/s);
+    expect(markup).toMatch(/<details class="[^"]*"[^>]*><summary[^>]*>.*typecheck/s);
+    expect(markup).toMatch(/<details class="[^"]*"[^>]*open=""[^>]*><summary[^>]*>.*test/s);
   });
 
   it("renders nothing when there are no results", () => {

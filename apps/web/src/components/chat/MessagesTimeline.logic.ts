@@ -10,6 +10,7 @@ import { type ChatMessage, type ProposedPlan, type TurnDiffSummary } from "../..
 import { estimateTimelineMessageHeight } from "../timelineHeight";
 
 export const MAX_VISIBLE_WORK_LOG_ENTRIES = 6;
+export const SUBAGENT_ENTRIES_MAX_HEIGHT_PX = 384;
 
 export interface TimelineDurationMessage {
   id: string;
@@ -292,11 +293,11 @@ function estimateSubagentSectionHeight(
     // Collapsed row height for each group
     totalHeight += 44;
     if (isExpanded) {
-      // Entry rows + padding
-      totalHeight += group.entries.length * 32 + 16;
+      // Calculate uncapped content height
+      let expandedContentHeight = group.entries.length * 32;
       for (const entry of group.entries) {
         if (entry.inlineDiff) {
-          totalHeight +=
+          expandedContentHeight +=
             input.expandedInlineDiff?.scope === "tool" && input.expandedInlineDiff.id === entry.id
               ? entry.inlineDiff.availability === "exact_patch"
                 ? 420
@@ -304,6 +305,8 @@ function estimateSubagentSectionHeight(
               : 52;
         }
       }
+      // Cap at scroll container max-height, then add outer padding
+      totalHeight += Math.min(expandedContentHeight, SUBAGENT_ENTRIES_MAX_HEIGHT_PX) + 16;
     }
   }
   return totalHeight;

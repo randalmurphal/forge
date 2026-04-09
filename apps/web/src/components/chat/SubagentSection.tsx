@@ -1,4 +1,4 @@
-import { memo, useCallback, type ReactNode } from "react";
+import { memo, useCallback, useLayoutEffect, useRef, type ReactNode } from "react";
 import {
   AlertCircleIcon,
   BoxIcon,
@@ -8,6 +8,7 @@ import {
 } from "lucide-react";
 import { cn } from "../../lib/utils";
 import { formatDuration, type SubagentGroup, type WorkLogEntry } from "../../session-logic";
+import { SUBAGENT_ENTRIES_MAX_HEIGHT_PX } from "./MessagesTimeline.logic";
 
 interface SubagentSectionProps {
   groups: ReadonlyArray<SubagentGroup>;
@@ -94,19 +95,53 @@ const SubagentGroupRow = memo(function SubagentGroupRow(props: {
         </div>
       </button>
       {isExpanded && group.entries.length > 0 && (
-        <div className="ml-5 border-l border-border/30 pb-2 pl-3">
-          <div className="space-y-0.5 pt-1">
-            {group.entries.map((entry) => (
-              <div key={entry.id}>{renderWorkEntry(entry)}</div>
-            ))}
-          </div>
-        </div>
+        <SubagentEntriesScrollArea entries={group.entries} renderWorkEntry={renderWorkEntry} />
       )}
       {isExpanded && group.entries.length === 0 && (
         <div className="px-4 pb-2">
           <p className="text-[10px] italic text-muted-foreground/40">No recorded actions</p>
         </div>
       )}
+    </div>
+  );
+});
+
+const SubagentEntriesScrollArea = memo(function SubagentEntriesScrollArea(props: {
+  entries: ReadonlyArray<WorkLogEntry>;
+  renderWorkEntry: (entry: WorkLogEntry) => ReactNode;
+}) {
+  const { entries, renderWorkEntry } = props;
+  const scrollRef = useRef<HTMLDivElement>(null);
+  const isAtBottomRef = useRef(true);
+
+  useLayoutEffect(() => {
+    const el = scrollRef.current;
+    if (isAtBottomRef.current && el) {
+      el.scrollTop = el.scrollHeight;
+    }
+  }, [entries.length]);
+
+  const handleScroll = useCallback(() => {
+    const el = scrollRef.current;
+    if (!el) return;
+    const distanceFromBottom = el.scrollHeight - el.clientHeight - el.scrollTop;
+    isAtBottomRef.current = distanceFromBottom <= 32;
+  }, []);
+
+  return (
+    <div className="ml-5 border-l border-border/30 pb-2 pl-3">
+      <div
+        ref={scrollRef}
+        onScroll={handleScroll}
+        className="overflow-y-auto pt-1"
+        style={{ maxHeight: SUBAGENT_ENTRIES_MAX_HEIGHT_PX }}
+      >
+        <div className="space-y-0.5">
+          {entries.map((entry) => (
+            <div key={entry.id}>{renderWorkEntry(entry)}</div>
+          ))}
+        </div>
+      </div>
     </div>
   );
 });
