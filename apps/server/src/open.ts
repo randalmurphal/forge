@@ -82,6 +82,11 @@ function fileManagerCommandForPlatform(platform: NodeJS.Platform): string {
     case "win32":
       return "explorer";
     default:
+      // In WSL, explorer.exe is available and opens Windows File Explorer.
+      // xdg-open typically fails in headless WSL environments.
+      if (process.env.WSL_DISTRO_NAME) {
+        return "explorer.exe";
+      }
       return "xdg-open";
   }
 }

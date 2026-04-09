@@ -109,7 +109,13 @@ export function createWsNativeApi(): NativeApi {
       writeFile: rpcClient.projects.writeFile,
     },
     shell: {
-      openInEditor: (cwd, editor) => rpcClient.shell.openInEditor({ cwd, editor }),
+      openInEditor: async (cwd, editor) => {
+        if (window.desktopBridge) {
+          const handled = await window.desktopBridge.openInEditor(cwd, editor);
+          if (handled) return;
+        }
+        return rpcClient.shell.openInEditor({ cwd, editor });
+      },
       openExternal: async (url) => {
         if (window.desktopBridge) {
           const opened = await window.desktopBridge.openExternal(url);

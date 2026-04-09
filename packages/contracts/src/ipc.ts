@@ -155,6 +155,9 @@ export interface DesktopBridge {
   // WSL integration
   getWslDistros: () => Promise<WslDistroInfo[]>;
   checkWslForge: (distro: string) => Promise<string | undefined>;
+  // WSL editor support
+  openInEditor: (target: string, editor: EditorId) => Promise<boolean>;
+  getAvailableEditors: () => Promise<EditorId[] | null>;
 }
 
 export interface NativeApi {

@@ -1,3 +1,4 @@
+import { spawn as nodeSpawn } from "node:child_process";
 import * as Crypto from "node:crypto";
 import * as FS from "node:fs";
 import * as OS from "node:os";
@@ -56,7 +57,19 @@ import {
 } from "./connectionConfig";
 import type { ConnectionConfig } from "./connectionConfig";
 import { syncShellEnvironment } from "./syncShellEnvironment";
-import { isWslAvailable, listDistros, findForgeBinary, resolveWslHome } from "./wsl";
+import {
+  isWslAvailable,
+  listDistros,
+  findForgeBinary,
+  resolveWslHome,
+  toWslUncPath,
+  windowsToWslPath,
+} from "./wsl";
+import {
+  resolveWslEditorLaunch,
+  isWindowsCommandAvailable,
+  getWindowsAvailableEditors,
+} from "./editorLaunch";
 import { getAutoUpdateDisabledReason, shouldBroadcastDownloadProgress } from "./updateState";
 import {
   createInitialDesktopUpdateState,
@@ -108,6 +121,8 @@ const CONNECTION_CONFIG_CHANNEL = "desktop:connection-config";
 const CONNECTION_TEST_CHANNEL = "desktop:connection-test";
 const CONNECTION_SAVE_CHANNEL = "desktop:connection-save";
 const CONNECTION_CLEAR_CHANNEL = "desktop:connection-clear";
+const OPEN_IN_EDITOR_CHANNEL = "desktop:open-in-editor";
+const AVAILABLE_EDITORS_CHANNEL = "desktop:available-editors";
 const BASE_DIR = resolveDesktopBaseDir(process.env);
 const DAEMON_PATHS = resolveDesktopDaemonPaths(BASE_DIR);
 const DESKTOP_SCHEME = "forge";
@@ -152,6 +167,7 @@ let restoreStdIoCapture: (() => void) | null = null;
 let daemonTray: Tray | null = null;
 let daemonStatus: DaemonStatus = DAEMON_STATUS_STARTING;
 let connectionMode: "local" | "wsl" | "external" = "local";
+let wslDefaultBrowsePath: string | undefined;
 let reconnectInProgress = false;
 let pendingProtocolUrl = extractProtocolUrlFromArgv(process.argv, DESKTOP_SCHEME);
 
@@ -1136,6 +1152,7 @@ async function connectViaWsl(config: ConnectionConfig): Promise<void> {
 
   // No existing server — spawn a new one
   const wslHome = await resolveWslHome(distro);
+  wslDefaultBrowsePath = toWslUncPath(distro, wslHome);
   const authToken = generateAuthToken();
 
   const launchPlan = buildWslDaemonLaunchPlan({
@@ -1218,15 +1235,34 @@ function registerIpcHandlers(): void {
   ipcMain.removeHandler(PICK_FOLDER_CHANNEL);
   ipcMain.handle(PICK_FOLDER_CHANNEL, async () => {
     const owner = BrowserWindow.getFocusedWindow() ?? mainWindow;
+
+    const dialogOptions: Electron.OpenDialogOptions = {
+      properties: ["openDirectory", "createDirectory"],
+    };
+
+    // In WSL mode, start the file browser in the WSL home directory
+    if (connectionMode === "wsl" && wslDefaultBrowsePath) {
+      dialogOptions.defaultPath = wslDefaultBrowsePath;
+    }
+
     const result = owner
-      ? await dialog.showOpenDialog(owner, {
-          properties: ["openDirectory", "createDirectory"],
-        })
-      : await dialog.showOpenDialog({
-          properties: ["openDirectory", "createDirectory"],
-        });
+      ? await dialog.showOpenDialog(owner, dialogOptions)
+      : await dialog.showOpenDialog(dialogOptions);
+
     if (result.canceled) return null;
-    return result.filePaths[0] ?? null;
+    const rawPath = result.filePaths[0] ?? null;
+    if (rawPath === null) return null;
+
+    // Translate Windows path to Linux path for the WSL server
+    if (connectionMode === "wsl") {
+      const config = readConnectionConfig(app.getPath("userData"));
+      const distro = config?.wslDistro;
+      if (distro) {
+        return windowsToWslPath(rawPath, distro);
+      }
+    }
+
+    return rawPath;
   });
 
   ipcMain.removeHandler(CONFIRM_CHANNEL);
@@ -1383,6 +1419,43 @@ function registerIpcHandlers(): void {
   ipcMain.handle(WSL_CHECK_FORGE_CHANNEL, async (_event, distro: unknown) => {
     if (typeof distro !== "string" || distro.length === 0) return undefined;
     return findForgeBinary(distro);
+  });
+
+  // WSL editor support
+  ipcMain.removeHandler(OPEN_IN_EDITOR_CHANNEL);
+  ipcMain.handle(
+    OPEN_IN_EDITOR_CHANNEL,
+    async (_event, target: unknown, editor: unknown): Promise<boolean> => {
+      if (connectionMode !== "wsl") return false;
+      if (typeof target !== "string" || target.length === 0) return false;
+      if (typeof editor !== "string") return false;
+
+      const config = readConnectionConfig(app.getPath("userData"));
+      const distro = config?.wslDistro;
+      if (!distro) return false;
+
+      const launch = resolveWslEditorLaunch(distro, target, editor);
+      if (!launch) return false;
+      if (!isWindowsCommandAvailable(launch.command)) return false;
+
+      try {
+        const child = nodeSpawn(launch.command, [...launch.args], {
+          detached: true,
+          stdio: "ignore",
+          shell: true,
+        });
+        child.unref();
+        return true;
+      } catch {
+        return false;
+      }
+    },
+  );
+
+  ipcMain.removeHandler(AVAILABLE_EDITORS_CHANNEL);
+  ipcMain.handle(AVAILABLE_EDITORS_CHANNEL, async (): Promise<string[] | null> => {
+    if (connectionMode !== "wsl") return null;
+    return getWindowsAvailableEditors();
   });
 
   // Connection management

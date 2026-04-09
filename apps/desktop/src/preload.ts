@@ -19,6 +19,8 @@ const CONNECTION_CONFIG_CHANNEL = "desktop:connection-config";
 const CONNECTION_TEST_CHANNEL = "desktop:connection-test";
 const CONNECTION_SAVE_CHANNEL = "desktop:connection-save";
 const CONNECTION_CLEAR_CHANNEL = "desktop:connection-clear";
+const OPEN_IN_EDITOR_CHANNEL = "desktop:open-in-editor";
+const AVAILABLE_EDITORS_CHANNEL = "desktop:available-editors";
 
 contextBridge.exposeInMainWorld("desktopBridge", {
   getWsUrl: () => ipcRenderer.sendSync(GET_WS_URL_CHANNEL) as string | null,
@@ -61,4 +63,7 @@ contextBridge.exposeInMainWorld("desktopBridge", {
   // WSL
   getWslDistros: () => ipcRenderer.invoke(WSL_DISTROS_CHANNEL),
   checkWslForge: (distro) => ipcRenderer.invoke(WSL_CHECK_FORGE_CHANNEL, distro),
+  // WSL editor support
+  openInEditor: (target, editor) => ipcRenderer.invoke(OPEN_IN_EDITOR_CHANNEL, target, editor),
+  getAvailableEditors: () => ipcRenderer.invoke(AVAILABLE_EDITORS_CHANNEL),
 } satisfies DesktopBridge);

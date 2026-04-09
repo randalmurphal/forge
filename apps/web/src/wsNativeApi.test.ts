@@ -141,6 +141,8 @@ function makeDesktopBridge(overrides: Partial<DesktopBridge> = {}): DesktopBridg
     testConnection: async () => ({ success: false, error: "not implemented in test" }),
     saveConnection: async () => undefined,
     clearConnection: async () => undefined,
+    openInEditor: async () => false,
+    getAvailableEditors: async () => null,
     ...overrides,
   };
 }

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { parseDistroOutput, toWslUncPath } from "./wsl";
+import { parseDistroOutput, toWslUncPath, windowsToWslPath } from "./wsl";
 
 // ---------------------------------------------------------------------------
 // toWslUncPath — pure function, no mocks needed
@@ -27,6 +27,110 @@ describe("toWslUncPath", () => {
     expect(toWslUncPath("Ubuntu-22.04", "/home/user")).toBe(
       "\\\\wsl.localhost\\Ubuntu-22.04\\home\\user",
     );
+  });
+});
+
+// ---------------------------------------------------------------------------
+// windowsToWslPath — reverse of toWslUncPath, plus drive-letter translation
+// ---------------------------------------------------------------------------
+
+describe("windowsToWslPath", () => {
+  // --- Category A: WSL UNC paths ---
+
+  it("converts a wsl.localhost UNC path to a Linux path", () => {
+    expect(windowsToWslPath("\\\\wsl.localhost\\Ubuntu\\home\\user\\project", "Ubuntu")).toBe(
+      "/home/user/project",
+    );
+  });
+
+  it("converts a wsl$ UNC path to a Linux path", () => {
+    expect(windowsToWslPath("\\\\wsl$\\Ubuntu\\home\\user\\project", "Ubuntu")).toBe(
+      "/home/user/project",
+    );
+  });
+
+  it("handles case-insensitive wsl.localhost prefix", () => {
+    expect(windowsToWslPath("\\\\WSL.LOCALHOST\\Ubuntu\\home\\user", "Ubuntu")).toBe("/home/user");
+  });
+
+  it("handles distro root selection (no trailing path)", () => {
+    expect(windowsToWslPath("\\\\wsl.localhost\\Ubuntu", "Ubuntu")).toBe("/");
+  });
+
+  it("handles distro root selection (trailing backslash)", () => {
+    expect(windowsToWslPath("\\\\wsl.localhost\\Ubuntu\\", "Ubuntu")).toBe("/");
+  });
+
+  it("handles distro names with hyphens and dots", () => {
+    expect(windowsToWslPath("\\\\wsl.localhost\\Ubuntu-22.04\\home\\user", "Ubuntu-22.04")).toBe(
+      "/home/user",
+    );
+  });
+
+  it("returns unchanged on distro mismatch", () => {
+    const path = "\\\\wsl.localhost\\Debian\\home\\user";
+    expect(windowsToWslPath(path, "Ubuntu")).toBe(path);
+  });
+
+  it("handles case-insensitive distro matching", () => {
+    expect(windowsToWslPath("\\\\wsl.localhost\\ubuntu\\home\\user", "Ubuntu")).toBe("/home/user");
+  });
+
+  it("handles forward-slash UNC variant", () => {
+    expect(windowsToWslPath("//wsl.localhost/Ubuntu/home/user/project", "Ubuntu")).toBe(
+      "/home/user/project",
+    );
+  });
+
+  // --- Category B: Windows drive paths ---
+
+  it("converts an uppercase drive letter path", () => {
+    expect(windowsToWslPath("C:\\Users\\rmurphy\\project", "Ubuntu")).toBe(
+      "/mnt/c/Users/rmurphy/project",
+    );
+  });
+
+  it("converts a lowercase drive letter path", () => {
+    expect(windowsToWslPath("c:\\already\\lower", "Ubuntu")).toBe("/mnt/c/already/lower");
+  });
+
+  it("converts a different drive letter", () => {
+    expect(windowsToWslPath("D:\\code", "Ubuntu")).toBe("/mnt/d/code");
+  });
+
+  it("converts a drive root path", () => {
+    expect(windowsToWslPath("C:\\", "Ubuntu")).toBe("/mnt/c/");
+  });
+
+  it("handles forward-slash drive paths", () => {
+    expect(windowsToWslPath("C:/Users/rmurphy/project", "Ubuntu")).toBe(
+      "/mnt/c/Users/rmurphy/project",
+    );
+  });
+
+  // --- Category C: Passthrough ---
+
+  it("passes through an already-Linux path", () => {
+    expect(windowsToWslPath("/home/user/project", "Ubuntu")).toBe("/home/user/project");
+  });
+
+  it("passes through a non-WSL UNC path", () => {
+    const path = "\\\\server\\share\\folder";
+    expect(windowsToWslPath(path, "Ubuntu")).toBe(path);
+  });
+
+  it("passes through an empty string", () => {
+    expect(windowsToWslPath("", "Ubuntu")).toBe("");
+  });
+
+  // --- Roundtrip ---
+
+  it("roundtrips with toWslUncPath for standard paths", () => {
+    const paths = ["/home/user/project", "/", "/home/user/.local/share/forge/data"];
+    for (const linuxPath of paths) {
+      const windowsPath = toWslUncPath("Ubuntu", linuxPath);
+      expect(windowsToWslPath(windowsPath, "Ubuntu")).toBe(linuxPath);
+    }
   });
 });
 

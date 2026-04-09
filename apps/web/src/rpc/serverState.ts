@@ -110,6 +110,36 @@ export function setServerConfigSnapshot(config: ServerConfig): void {
   resolveServerConfig(config);
   emitProvidersUpdated({ providers: config.providers });
   emitServerConfigUpdated(toServerConfigUpdatedPayload(config), "snapshot");
+
+  // In WSL mode, the server can't find Windows editors on PATH.
+  // Asynchronously merge in editors discovered by the Electron desktop bridge.
+  void mergeDesktopBridgeEditors(config);
+}
+
+async function mergeDesktopBridgeEditors(config: ServerConfig): Promise<void> {
+  if (typeof window === "undefined" || !window.desktopBridge) return;
+
+  let bridgeEditors: EditorId[] | null;
+  try {
+    bridgeEditors = await window.desktopBridge.getAvailableEditors();
+  } catch {
+    return;
+  }
+  if (!bridgeEditors || bridgeEditors.length === 0) return;
+
+  // Only merge if bridge provides editors not already in the server's list
+  const serverSet = new Set(config.availableEditors);
+  const hasNew = bridgeEditors.some((id) => !serverSet.has(id));
+  if (!hasNew) return;
+
+  const merged = new Set([...config.availableEditors, ...bridgeEditors]);
+  const mergedConfig: ServerConfig = {
+    ...config,
+    availableEditors: [...merged] as ServerConfig["availableEditors"],
+  };
+
+  resolveServerConfig(mergedConfig);
+  emitServerConfigUpdated(toServerConfigUpdatedPayload(mergedConfig), "snapshot");
 }
 
 export function applyServerConfigEvent(event: ServerConfigStreamEvent): void {

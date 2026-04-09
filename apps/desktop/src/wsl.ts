@@ -181,3 +181,57 @@ export function toWslUncPath(distro: string, linuxPath: string): string {
   const windowsSegments = linuxPath.replace(/\//g, "\\");
   return `\\\\wsl.localhost\\${distro}${windowsSegments}`;
 }
+
+/**
+ * Matches WSL UNC paths: \\wsl.localhost\<distro>\... or \\wsl$\<distro>\...
+ * Also tolerates forward-slash variants (//wsl.localhost/...) that some Windows APIs produce.
+ * Capture group 1: distro name, group 2: remaining path (with leading separator) or undefined.
+ */
+const WSL_UNC_RE = /^(?:\\\\|\/\/)wsl(?:\.localhost|\$)[\\/]([^\\/]+)([\\/].*)?$/i;
+
+/** Matches Windows drive-letter paths: C:\... or C:/... */
+const DRIVE_PATH_RE = /^([A-Za-z]):[\\/](.*)?$/;
+
+/**
+ * Convert a Windows path to a WSL Linux path.
+ *
+ * Handles two cases:
+ * - WSL UNC paths (\\wsl.localhost\Ubuntu\home\user → /home/user)
+ * - Windows drive paths (C:\Users\foo → /mnt/c/Users/foo)
+ *
+ * Paths that don't match either pattern (already-Linux, non-WSL UNC, empty)
+ * are returned unchanged — the server will produce a "directory not found"
+ * error for invalid paths, which is the correct user-facing behavior.
+ *
+ * NOTE: Drive-letter translation assumes the default WSL automount root `/mnt`.
+ * If a user has changed `[automount] root` in `/etc/wsl.conf`, drive paths will
+ * translate incorrectly. This is rare enough to defer handling.
+ */
+export function windowsToWslPath(windowsPath: string, distro: string): string {
+  // Category A: WSL UNC path
+  const uncMatch = WSL_UNC_RE.exec(windowsPath);
+  if (uncMatch) {
+    const pathDistro = uncMatch[1]!;
+    // If the UNC path points to a different distro, return unchanged
+    if (pathDistro.toLowerCase() !== distro.toLowerCase()) {
+      return windowsPath;
+    }
+    const rest = uncMatch[2];
+    if (!rest || rest === "\\" || rest === "/") {
+      return "/";
+    }
+    return rest.replace(/\\/g, "/");
+  }
+
+  // Category B: Windows drive path
+  const driveMatch = DRIVE_PATH_RE.exec(windowsPath);
+  if (driveMatch) {
+    const letter = driveMatch[1]!.toLowerCase();
+    const rest = driveMatch[2] ?? "";
+    const linuxRest = rest.replace(/\\/g, "/");
+    return `/mnt/${letter}/${linuxRest}`;
+  }
+
+  // Category C: Already Linux, non-WSL UNC, or empty — passthrough
+  return windowsPath;
+}

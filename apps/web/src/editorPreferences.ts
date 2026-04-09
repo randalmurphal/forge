@@ -36,7 +36,22 @@ export function resolveAndPersistPreferredEditor(
 }
 
 export async function openInPreferredEditor(api: NativeApi, targetPath: string): Promise<EditorId> {
-  const { availableEditors } = await api.server.getConfig();
+  let { availableEditors } = await api.server.getConfig();
+
+  // In WSL mode, the server can't find Windows editors on PATH.
+  // Merge in editors discovered by the Electron desktop bridge.
+  if (window.desktopBridge) {
+    try {
+      const bridgeEditors = await window.desktopBridge.getAvailableEditors();
+      if (bridgeEditors) {
+        const merged = new Set([...availableEditors, ...bridgeEditors]);
+        availableEditors = [...merged] as typeof availableEditors;
+      }
+    } catch {
+      // Bridge unavailable, use server editors only
+    }
+  }
+
   const editor = resolveAndPersistPreferredEditor(availableEditors);
   if (!editor) throw new Error("No available editors found.");
   await api.shell.openInEditor(targetPath, editor);
