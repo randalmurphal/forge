@@ -31,6 +31,7 @@ describe("buildLocalDraftThread", () => {
         discussionRoleModels: null,
         branch: null,
         worktreePath: null,
+        worktreeBranchName: null,
         envMode: "local",
       },
       {
@@ -112,6 +113,14 @@ describe("buildExpiredTerminalContextToastCopy", () => {
 describe("buildTemporaryWorktreeBranchName", () => {
   it("uses the Forge worktree branch namespace with an 8-hex suffix", () => {
     expect(buildTemporaryWorktreeBranchName()).toMatch(/^forge\/[0-9a-f]{8}$/);
+  });
+
+  it("uses a custom prefix when provided", () => {
+    expect(buildTemporaryWorktreeBranchName("myteam")).toMatch(/^myteam\/[0-9a-f]{8}$/);
+  });
+
+  it("does not use the default forge prefix when a custom prefix is provided", () => {
+    expect(buildTemporaryWorktreeBranchName("myteam")).not.toMatch(/^forge\//);
   });
 });
 

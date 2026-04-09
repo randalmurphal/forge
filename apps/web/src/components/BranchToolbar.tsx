@@ -6,11 +6,7 @@ import { newCommandId } from "../lib/utils";
 import { readNativeApi } from "../nativeApi";
 import { useComposerDraftStore } from "../composerDraftStore";
 import { useStore } from "../store";
-import {
-  EnvMode,
-  resolveDraftEnvModeAfterBranchChange,
-  resolveEffectiveEnvMode,
-} from "./BranchToolbar.logic";
+import { EnvMode, resolveDraftEnvModeAfterBranchChange } from "./BranchToolbar.logic";
 import { BranchToolbarBranchSelector } from "./BranchToolbarBranchSelector";
 import { Select, SelectItem, SelectPopup, SelectTrigger, SelectValue } from "./ui/select";
 
@@ -21,16 +17,20 @@ const envModeItems = [
 
 interface BranchToolbarProps {
   threadId: ThreadId;
+  effectiveEnvMode: EnvMode;
   onEnvModeChange: (mode: EnvMode) => void;
-  envLocked: boolean;
+  worktreeBranchName: string | null;
+  onWorktreeBranchNameChange: (name: string | null) => void;
   onCheckoutPullRequestRequest?: (reference: string) => void;
   onComposerFocusRequest?: () => void;
 }
 
 export default function BranchToolbar({
   threadId,
+  effectiveEnvMode,
   onEnvModeChange,
-  envLocked,
+  worktreeBranchName,
+  onWorktreeBranchNameChange,
   onCheckoutPullRequestRequest,
   onComposerFocusRequest,
 }: BranchToolbarProps) {
@@ -48,11 +48,6 @@ export default function BranchToolbar({
   const activeWorktreePath = serverThread?.worktreePath ?? draftThread?.worktreePath ?? null;
   const branchCwd = activeWorktreePath ?? activeProject?.cwd ?? null;
   const hasServerThread = serverThread !== undefined;
-  const effectiveEnvMode = resolveEffectiveEnvMode({
-    activeWorktreePath,
-    hasServerThread,
-    draftThreadEnvMode: draftThread?.envMode,
-  });
 
   const setThreadBranch = useCallback(
     (branch: string | null, worktreePath: string | null) => {
@@ -110,19 +105,10 @@ export default function BranchToolbar({
 
   return (
     <div className="mx-auto flex w-full max-w-3xl items-center justify-between px-5 pb-3 pt-1">
-      {envLocked || activeWorktreePath ? (
+      {activeWorktreePath ? (
         <span className="inline-flex items-center gap-1 border border-transparent px-[calc(--spacing(3)-1px)] text-sm font-medium text-muted-foreground/70 sm:text-xs">
-          {activeWorktreePath ? (
-            <>
-              <GitForkIcon className="size-3" />
-              Worktree
-            </>
-          ) : (
-            <>
-              <FolderIcon className="size-3" />
-              Local
-            </>
-          )}
+          <GitForkIcon className="size-3" />
+          Worktree
         </span>
       ) : (
         <Select
@@ -155,13 +141,26 @@ export default function BranchToolbar({
         </Select>
       )}
 
+      {effectiveEnvMode === "worktree" && !activeWorktreePath && (
+        <input
+          type="text"
+          className="h-6 min-w-0 flex-1 rounded border border-input bg-transparent px-2 text-xs text-foreground placeholder:text-muted-foreground/50 focus:outline-none focus:ring-1 focus:ring-ring"
+          placeholder="Branch name (auto)"
+          value={worktreeBranchName ?? ""}
+          onChange={(event) => {
+            onWorktreeBranchNameChange(event.target.value || null);
+          }}
+          spellCheck={false}
+          aria-label="Worktree branch name"
+        />
+      )}
+
       <BranchToolbarBranchSelector
         activeProjectCwd={activeProject.cwd}
         activeThreadBranch={activeThreadBranch}
         activeWorktreePath={activeWorktreePath}
         branchCwd={branchCwd}
         effectiveEnvMode={effectiveEnvMode}
-        envLocked={envLocked}
         onSetThreadBranch={setThreadBranch}
         {...(onCheckoutPullRequestRequest ? { onCheckoutPullRequestRequest } : {})}
         {...(onComposerFocusRequest ? { onComposerFocusRequest } : {})}

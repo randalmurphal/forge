@@ -472,6 +472,9 @@ export function useSettingsRestore(onRestored?: () => void) {
       ...(settings.defaultThreadEnvMode !== DEFAULT_UNIFIED_SETTINGS.defaultThreadEnvMode
         ? ["New thread mode"]
         : []),
+      ...(settings.worktreeBranchPrefix !== DEFAULT_UNIFIED_SETTINGS.worktreeBranchPrefix
+        ? ["Worktree branch prefix"]
+        : []),
       ...(settings.confirmThreadArchive !== DEFAULT_UNIFIED_SETTINGS.confirmThreadArchive
         ? ["Archive confirmation"]
         : []),
@@ -488,6 +491,7 @@ export function useSettingsRestore(onRestored?: () => void) {
       settings.confirmThreadDelete,
       settings.defaultThreadEnvMode,
       settings.diffWordWrap,
+      settings.worktreeBranchPrefix,
       settings.enableAssistantStreaming,
       settings.timestampFormat,
       theme,
@@ -943,6 +947,38 @@ export function GeneralSettingsPanel() {
                 </SelectItem>
               </SelectPopup>
             </Select>
+          }
+        />
+
+        <SettingsRow
+          title="Worktree branch prefix"
+          description="Default prefix for auto-generated worktree branch names."
+          resetAction={
+            settings.worktreeBranchPrefix !== DEFAULT_UNIFIED_SETTINGS.worktreeBranchPrefix ? (
+              <SettingResetButton
+                label="worktree branch prefix"
+                onClick={() =>
+                  updateSettings({
+                    worktreeBranchPrefix: DEFAULT_UNIFIED_SETTINGS.worktreeBranchPrefix,
+                  })
+                }
+              />
+            ) : null
+          }
+          control={
+            <Input
+              className="w-full sm:w-44"
+              value={settings.worktreeBranchPrefix}
+              placeholder="forge"
+              onChange={(event) => {
+                const value = event.target.value.trim();
+                if (value.length > 0) {
+                  updateSettings({ worktreeBranchPrefix: value });
+                }
+              }}
+              spellCheck={false}
+              aria-label="Worktree branch prefix"
+            />
           }
         />
 

@@ -152,6 +152,7 @@ const PersistedDraftThreadState = Schema.Struct({
   ),
   branch: Schema.NullOr(Schema.String),
   worktreePath: Schema.NullOr(Schema.String),
+  worktreeBranchName: Schema.optionalKey(Schema.NullOr(Schema.String)),
   envMode: DraftThreadEnvModeSchema,
 });
 type PersistedDraftThreadState = typeof PersistedDraftThreadState.Type;
@@ -196,6 +197,7 @@ export interface DraftThreadState {
   discussionRoleModels: Record<string, ModelSelection> | null;
   branch: string | null;
   worktreePath: string | null;
+  worktreeBranchName: string | null;
   envMode: DraftThreadEnvMode;
 }
 
@@ -218,6 +220,7 @@ interface ComposerDraftStoreState {
     options?: {
       branch?: string | null;
       worktreePath?: string | null;
+      worktreeBranchName?: string | null;
       createdAt?: string;
       envMode?: DraftThreadEnvMode;
       runtimeMode?: RuntimeMode;
@@ -232,6 +235,7 @@ interface ComposerDraftStoreState {
     options: {
       branch?: string | null;
       worktreePath?: string | null;
+      worktreeBranchName?: string | null;
       projectId?: ProjectId;
       createdAt?: string;
       envMode?: DraftThreadEnvMode;
@@ -866,6 +870,7 @@ function normalizePersistedDraftThreads(
       const branch = candidateDraftThread.branch;
       const worktreePath = candidateDraftThread.worktreePath;
       const normalizedWorktreePath = typeof worktreePath === "string" ? worktreePath : null;
+      const worktreeBranchName = candidateDraftThread.worktreeBranchName;
       if (typeof projectId !== "string" || projectId.length === 0) {
         continue;
       }
@@ -897,6 +902,7 @@ function normalizePersistedDraftThreads(
             | undefined) ?? null,
         branch: typeof branch === "string" ? branch : null,
         worktreePath: normalizedWorktreePath,
+        worktreeBranchName: typeof worktreeBranchName === "string" ? worktreeBranchName : null,
         envMode: normalizeDraftThreadEnvMode(candidateDraftThread.envMode, normalizedWorktreePath),
       };
     }
@@ -927,6 +933,7 @@ function normalizePersistedDraftThreads(
             discussionRoleModels: null,
             branch: null,
             worktreePath: null,
+            worktreeBranchName: null,
             envMode: "local",
           };
         } else if (draftThreadsByThreadId[threadId as ThreadId]?.projectId !== projectId) {
@@ -1453,6 +1460,10 @@ export const useComposerDraftStore = create<ComposerDraftStoreState>()(
                 ? (existingThread?.branch ?? null)
                 : (options.branch ?? null),
             worktreePath: nextWorktreePath,
+            worktreeBranchName:
+              options?.worktreeBranchName === undefined
+                ? (existingThread?.worktreeBranchName ?? null)
+                : (options.worktreeBranchName ?? null),
             envMode:
               options?.envMode ??
               (nextWorktreePath ? "worktree" : (existingThread?.envMode ?? "local")),
@@ -1466,6 +1477,7 @@ export const useComposerDraftStore = create<ComposerDraftStoreState>()(
             existingThread.interactionMode === nextDraftThread.interactionMode &&
             existingThread.workflowId === nextDraftThread.workflowId &&
             existingThread.discussionId === nextDraftThread.discussionId &&
+            existingThread.worktreeBranchName === nextDraftThread.worktreeBranchName &&
             existingThread.branch === nextDraftThread.branch &&
             existingThread.worktreePath === nextDraftThread.worktreePath &&
             existingThread.envMode === nextDraftThread.envMode;
@@ -1537,6 +1549,10 @@ export const useComposerDraftStore = create<ComposerDraftStoreState>()(
             discussionRoleModels: nextDiscussionRoleModels,
             branch: options.branch === undefined ? existing.branch : (options.branch ?? null),
             worktreePath: nextWorktreePath,
+            worktreeBranchName:
+              options.worktreeBranchName === undefined
+                ? existing.worktreeBranchName
+                : (options.worktreeBranchName ?? null),
             envMode:
               options.envMode ?? (nextWorktreePath ? "worktree" : (existing.envMode ?? "local")),
           };
@@ -1548,6 +1564,7 @@ export const useComposerDraftStore = create<ComposerDraftStoreState>()(
             nextDraftThread.workflowId === existing.workflowId &&
             nextDraftThread.discussionId === existing.discussionId &&
             nextDraftThread.discussionRoleModels === existing.discussionRoleModels &&
+            nextDraftThread.worktreeBranchName === existing.worktreeBranchName &&
             nextDraftThread.branch === existing.branch &&
             nextDraftThread.worktreePath === existing.worktreePath &&
             nextDraftThread.envMode === existing.envMode;
@@ -2341,6 +2358,7 @@ export const useComposerDraftStore = create<ComposerDraftStoreState>()(
               ...thread,
               discussionId: thread.discussionId ?? null,
               discussionRoleModels: thread.discussionRoleModels ?? null,
+              worktreeBranchName: thread.worktreeBranchName ?? null,
             },
           ]),
         );

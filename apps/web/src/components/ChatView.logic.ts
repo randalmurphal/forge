@@ -169,10 +169,12 @@ export function readFileAsDataUrl(file: File): Promise<string> {
   });
 }
 
-export function buildTemporaryWorktreeBranchName(): string {
+export function buildTemporaryWorktreeBranchName(
+  prefix: string = FORGE_WORKTREE_BRANCH_PREFIX,
+): string {
   // Keep the 8-hex suffix shape for backend temporary-branch detection.
   const token = randomUUID().slice(0, 8).toLowerCase();
-  return `${FORGE_WORKTREE_BRANCH_PREFIX}/${token}`;
+  return `${prefix}/${token}`;
 }
 
 export function cloneComposerImageForRetry(

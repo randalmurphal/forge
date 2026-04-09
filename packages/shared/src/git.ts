@@ -2,14 +2,19 @@ import type { GitBranch } from "@forgetools/contracts";
 
 export const FORGE_WORKTREE_BRANCH_PREFIX = "forge";
 
-export function buildForgePrefixedBranchName(fragment: string): string {
-  return `${FORGE_WORKTREE_BRANCH_PREFIX}/${sanitizeBranchFragment(fragment)}`;
+export function buildForgePrefixedBranchName(
+  fragment: string,
+  prefix: string = FORGE_WORKTREE_BRANCH_PREFIX,
+): string {
+  return `${prefix}/${sanitizeBranchFragment(fragment)}`;
 }
 
-export function isForgeTemporaryWorktreeBranch(branch: string): boolean {
-  return new RegExp(`^${FORGE_WORKTREE_BRANCH_PREFIX}\\/[0-9a-f]{8}$`).test(
-    branch.trim().toLowerCase(),
-  );
+export function isForgeTemporaryWorktreeBranch(
+  branch: string,
+  prefix: string = FORGE_WORKTREE_BRANCH_PREFIX,
+): boolean {
+  const escapedPrefix = prefix.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  return new RegExp(`^${escapedPrefix}\\/[0-9a-f]{8}$`).test(branch.trim().toLowerCase());
 }
 
 /**

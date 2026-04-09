@@ -39,6 +39,26 @@ describe("resolveDraftEnvModeAfterBranchChange", () => {
       }),
     ).toBe("worktree");
   });
+
+  it("stays in worktree mode when mid-conversation switch selects a branch with an existing worktree", () => {
+    expect(
+      resolveDraftEnvModeAfterBranchChange({
+        nextWorktreePath: "/repo/.forge/worktrees/feature-b",
+        currentWorktreePath: null,
+        effectiveEnvMode: "worktree",
+      }),
+    ).toBe("worktree");
+  });
+
+  it("falls back to local mode when not in worktree mode and no worktree paths are set", () => {
+    expect(
+      resolveDraftEnvModeAfterBranchChange({
+        nextWorktreePath: null,
+        currentWorktreePath: null,
+        effectiveEnvMode: "local",
+      }),
+    ).toBe("local");
+  });
 });
 
 describe("resolveBranchToolbarValue", () => {

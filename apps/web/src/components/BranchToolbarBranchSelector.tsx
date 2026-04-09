@@ -48,7 +48,6 @@ interface BranchToolbarBranchSelectorProps {
   activeWorktreePath: string | null;
   branchCwd: string | null;
   effectiveEnvMode: EnvMode;
-  envLocked: boolean;
   onSetThreadBranch: (branch: string | null, worktreePath: string | null) => void;
   onCheckoutPullRequestRequest?: (reference: string) => void;
   onComposerFocusRequest?: () => void;
@@ -79,7 +78,6 @@ export function BranchToolbarBranchSelector({
   activeWorktreePath,
   branchCwd,
   effectiveEnvMode,
-  envLocked,
   onSetThreadBranch,
   onCheckoutPullRequestRequest,
   onComposerFocusRequest,
@@ -132,8 +130,7 @@ export function BranchToolbarBranchSelector({
   );
   const normalizedDeferredBranchQuery = deferredTrimmedBranchQuery.toLowerCase();
   const prReference = parsePullRequestReference(trimmedBranchQuery);
-  const isSelectingWorktreeBase =
-    effectiveEnvMode === "worktree" && !envLocked && !activeWorktreePath;
+  const isSelectingWorktreeBase = effectiveEnvMode === "worktree" && !activeWorktreePath;
   const checkoutPullRequestItemValue =
     prReference && onCheckoutPullRequestRequest ? `__checkout_pull_request__:${prReference}` : null;
   const canCreateBranch = !isSelectingWorktreeBase && trimmedBranchQuery.length > 0;

@@ -20,6 +20,7 @@ import {
   RuntimeMode,
   TerminalOpenInput,
 } from "@forgetools/contracts";
+import { sanitizeBranchFragment } from "@forgetools/shared/git";
 import { applyClaudePromptEffortPrefix, normalizeModelSlug } from "@forgetools/shared/model";
 import { truncate } from "@forgetools/shared/String";
 import { resolveThreadSpawnWorkspace } from "@forgetools/shared/threadWorkspace";
@@ -708,6 +709,13 @@ export default function ChatView({ threadId }: ChatViewProps) {
   const [planSidebarOpen, setPlanSidebarOpen] = useState(false);
   const [isComposerFooterCompact, setIsComposerFooterCompact] = useState(false);
   const [isComposerPrimaryActionsCompact, setIsComposerPrimaryActionsCompact] = useState(false);
+  // Tracks a pending env mode switch for server threads (mid-conversation worktree).
+  // Once the worktree is created and activeThread.worktreePath is set, this becomes irrelevant
+  // because the envMode computation uses worktreePath as the primary signal.
+  const [pendingEnvMode, setPendingEnvMode] = useState<DraftThreadEnvMode | null>(null);
+  // Tracks the user-specified worktree branch name for server threads switching mid-conversation.
+  // For draft threads, this is stored in the composerDraftStore instead.
+  const [pendingWorktreeBranchName, setPendingWorktreeBranchName] = useState<string | null>(null);
   // Tracks whether the user explicitly dismissed the sidebar for the active turn.
   const planSidebarDismissedForTurnRef = useRef<string | null>(null);
   // When set, the thread-change reset effect will open the sidebar instead of closing it.
@@ -1725,11 +1733,6 @@ export default function ChatView({ threadId }: ChatViewProps) {
     });
   }, [designPanelOpen, navigate, threadId]);
 
-  const envLocked = Boolean(
-    activeThread &&
-    (activeThread.messages.length > 0 ||
-      (activeThread.session !== null && activeThread.session.status !== "closed")),
-  );
   const activeTerminalGroup =
     terminalState.terminalGroups.find(
       (group) => group.id === terminalState.activeTerminalGroupId,
@@ -2564,6 +2567,8 @@ export default function ChatView({ threadId }: ChatViewProps) {
     dragDepthRef.current = 0;
     setIsDragOverComposer(false);
     setExpandedImage(null);
+    setPendingEnvMode(null);
+    setPendingWorktreeBranchName(null);
   }, [resetLocalDispatch, threadId]);
 
   useEffect(() => {
@@ -2685,7 +2690,7 @@ export default function ChatView({ threadId }: ChatViewProps) {
     ? "worktree"
     : isLocalDraftThread
       ? (draftThread?.envMode ?? "local")
-      : "local";
+      : (pendingEnvMode ?? "local");
 
   useEffect(() => {
     if (!isWorking) return;
@@ -3019,14 +3024,11 @@ export default function ChatView({ threadId }: ChatViewProps) {
     const threadIdForSend = activeThread.id;
     const isFirstMessage = !isServerThread || activeThread.messages.length === 0;
     const baseBranchForWorktree =
-      isFirstMessage && envMode === "worktree" && !activeThread.worktreePath
-        ? activeThread.branch
-        : null;
+      envMode === "worktree" && !activeThread.worktreePath ? activeThread.branch : null;
 
     // In worktree mode, require an explicit base branch so we don't silently
     // fall back to local execution when branch selection is missing.
-    const shouldCreateWorktree =
-      isFirstMessage && envMode === "worktree" && !activeThread.worktreePath;
+    const shouldCreateWorktree = envMode === "worktree" && !activeThread.worktreePath;
     if (shouldCreateWorktree && !activeThread.branch) {
       setStoreThreadError(
         threadIdForSend,
@@ -3108,10 +3110,13 @@ export default function ChatView({ threadId }: ChatViewProps) {
     let nextThreadBranch = envMode === "worktree" ? activeThread.branch : null;
     let nextThreadWorktreePath = activeThread.worktreePath;
     await (async () => {
-      // On first message: lock in branch + create worktree if needed.
+      // Lock in branch + create worktree if needed (first message or mid-conversation switch).
       if (baseBranchForWorktree) {
         beginLocalDispatch({ preparingWorktree: true });
-        const newBranch = buildTemporaryWorktreeBranchName();
+        const rawUserBranchName = worktreeBranchName?.trim() || null;
+        const userBranchName = rawUserBranchName ? sanitizeBranchFragment(rawUserBranchName) : null;
+        const newBranch =
+          userBranchName ?? buildTemporaryWorktreeBranchName(settings.worktreeBranchPrefix);
         const result = await createWorktreeMutation.mutateAsync({
           cwd: activeProject.cwd,
           branch: baseBranchForWorktree,
@@ -3302,6 +3307,12 @@ export default function ChatView({ threadId }: ChatViewProps) {
         addComposerTerminalContextsToDraft(composerTerminalContextsSnapshot);
         setComposerTrigger(detectComposerTrigger(promptForSend, promptForSend.length));
       }
+      // Reset pending worktree state on failure so the user isn't stuck
+      // in a broken pending-worktree mode for server threads.
+      // Safe to always reset: if the worktree was successfully created,
+      // activeThread.worktreePath will be set and envMode derives from that.
+      setPendingEnvMode(null);
+      setPendingWorktreeBranchName(null);
       setThreadError(
         threadIdForSend,
         err instanceof Error ? err.message : "Failed to send message.",
@@ -3807,10 +3818,27 @@ export default function ChatView({ threadId }: ChatViewProps) {
     (mode: DraftThreadEnvMode) => {
       if (isLocalDraftThread) {
         setDraftThreadContext(threadId, { envMode: mode });
+      } else {
+        setPendingEnvMode(mode);
       }
       scheduleComposerFocus();
     },
     [isLocalDraftThread, scheduleComposerFocus, setDraftThreadContext, threadId],
+  );
+
+  const worktreeBranchName = isLocalDraftThread
+    ? (draftThread?.worktreeBranchName ?? null)
+    : pendingWorktreeBranchName;
+
+  const onWorktreeBranchNameChange = useCallback(
+    (name: string | null) => {
+      if (isLocalDraftThread) {
+        setDraftThreadContext(threadId, { worktreeBranchName: name });
+      } else {
+        setPendingWorktreeBranchName(name);
+      }
+    },
+    [isLocalDraftThread, setDraftThreadContext, threadId],
   );
 
   const applyPromptReplacement = useCallback(
@@ -4658,8 +4686,10 @@ export default function ChatView({ threadId }: ChatViewProps) {
           {isGitRepo && (
             <BranchToolbar
               threadId={activeThread.id}
+              effectiveEnvMode={envMode}
               onEnvModeChange={onEnvModeChange}
-              envLocked={envLocked}
+              worktreeBranchName={worktreeBranchName}
+              onWorktreeBranchNameChange={onWorktreeBranchNameChange}
               onComposerFocusRequest={scheduleComposerFocus}
               {...(canCheckoutPullRequestIntoThread
                 ? { onCheckoutPullRequestRequest: openPullRequestDialog }

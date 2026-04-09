@@ -126,21 +126,24 @@ function stalePendingRequestDetail(
   return `Stale pending ${requestKind} request: ${requestId}. Provider callback state does not survive app restarts or recovered sessions. Restart the turn to continue.`;
 }
 
-function isTemporaryWorktreeBranch(branch: string): boolean {
-  return isForgeTemporaryWorktreeBranch(branch);
+function isTemporaryWorktreeBranch(branch: string, prefix?: string): boolean {
+  return isForgeTemporaryWorktreeBranch(branch, prefix);
 }
 
-function buildGeneratedWorktreeBranchName(raw: string): string {
+function buildGeneratedWorktreeBranchName(
+  raw: string,
+  prefix: string = FORGE_WORKTREE_BRANCH_PREFIX,
+): string {
   const normalized = raw
     .trim()
     .toLowerCase()
     .replace(/^refs\/heads\//, "")
     .replace(/['"`]/g, "");
 
-  const withoutPrefix = normalized.startsWith(`${FORGE_WORKTREE_BRANCH_PREFIX}/`)
-    ? normalized.slice(`${FORGE_WORKTREE_BRANCH_PREFIX}/`.length)
+  const withoutPrefix = normalized.startsWith(`${prefix}/`)
+    ? normalized.slice(`${prefix}/`.length)
     : normalized;
-  return buildForgePrefixedBranchName(withoutPrefix);
+  return buildForgePrefixedBranchName(withoutPrefix, prefix);
 }
 
 const make = Effect.gen(function* () {
@@ -423,7 +426,11 @@ const make = Effect.gen(function* () {
     if (!input.branch || !input.worktreePath) {
       return;
     }
-    if (!isTemporaryWorktreeBranch(input.branch)) {
+
+    const { textGenerationModelSelection: modelSelection, worktreeBranchPrefix } =
+      yield* serverSettingsService.getSettings;
+
+    if (!isTemporaryWorktreeBranch(input.branch, worktreeBranchPrefix)) {
       return;
     }
 
@@ -431,9 +438,6 @@ const make = Effect.gen(function* () {
     const cwd = input.worktreePath;
     const attachments = input.attachments ?? [];
     yield* Effect.gen(function* () {
-      const { textGenerationModelSelection: modelSelection } =
-        yield* serverSettingsService.getSettings;
-
       const generated = yield* textGeneration.generateBranchName({
         cwd,
         message: input.messageText,
@@ -442,7 +446,7 @@ const make = Effect.gen(function* () {
       });
       if (!generated) return;
 
-      const targetBranch = buildGeneratedWorktreeBranchName(generated.branch);
+      const targetBranch = buildGeneratedWorktreeBranchName(generated.branch, worktreeBranchPrefix);
       if (targetBranch === oldBranch) return;
 
       const renamed = yield* git.renameBranch({ cwd, oldBranch, newBranch: targetBranch });
