@@ -489,7 +489,7 @@ describe("resolveThreadStatusPill", () => {
     ).toMatchObject({
       label: "Working",
       pulse: true,
-      dotClass: "bg-emerald-500 dark:bg-emerald-300/90",
+      dotClass: "bg-[var(--success)]",
     });
   });
 
@@ -504,7 +504,7 @@ describe("resolveThreadStatusPill", () => {
     ).toMatchObject({
       label: "Deliberating",
       pulse: false,
-      dotClass: "border border-sky-500 bg-transparent dark:border-sky-300/90",
+      dotClass: "border border-[var(--feature-phase-running)] bg-transparent",
     });
   });
 
