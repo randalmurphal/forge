@@ -47,8 +47,13 @@ export async function writeClipboardValue(value: ClipboardValue): Promise<void> 
       items["text/html"] = new Blob([payload.html], { type: "text/html" });
     }
 
-    await clipboard.write([new ClipboardItem(items)]);
-    return;
+    try {
+      await clipboard.write([new ClipboardItem(items)]);
+      return;
+    } catch {
+      // Some runtimes reject non-standard MIME types such as `text/markdown`.
+      // Fall through to plain text clipboard writes when rich writes are unsupported.
+    }
   }
 
   if (typeof clipboard.writeText === "function") {

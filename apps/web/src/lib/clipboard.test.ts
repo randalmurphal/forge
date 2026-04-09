@@ -53,4 +53,23 @@ describe("clipboard", () => {
 
     expect(writeText).toHaveBeenCalledWith("## Heading");
   });
+
+  it("falls back to writeText when rich clipboard writes reject unsupported MIME types", async () => {
+    const write = vi
+      .fn()
+      .mockRejectedValue(new DOMException("Type 'text/markdown' not supported for write"));
+    const writeText = vi.fn().mockResolvedValue(undefined);
+    vi.stubGlobal("navigator", {
+      clipboard: {
+        write,
+        writeText,
+      },
+    });
+    vi.stubGlobal("ClipboardItem", FakeClipboardItem as unknown as typeof ClipboardItem);
+
+    await writeClipboardValue(buildMarkdownClipboardPayload("- item one"));
+
+    expect(write).toHaveBeenCalledTimes(1);
+    expect(writeText).toHaveBeenCalledWith("- item one");
+  });
 });
