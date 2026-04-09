@@ -32,6 +32,7 @@ import { create } from "zustand";
 import {
   findLatestProposedPlan,
   hasActionableProposedPlan,
+  isLatestTurnSettled,
   derivePendingApprovals,
   derivePendingUserInputs,
 } from "./session-logic";
@@ -284,9 +285,11 @@ function getLatestUserMessageAt(
  * Computes the timestamp that should drive sidebar sort order.
  * Only advances for user-relevant events:
  * - User sent a message (latest user message timestamp)
- * - Agent turn settled (completed/failed/cancelled/interrupted — via latestTurn.completedAt)
+ * - Agent turn actually settled — uses isLatestTurnSettled to confirm the session
+ *   is no longer running, since latestTurn.completedAt gets set mid-turn by
+ *   intermediate assistant message completions (between tool calls) in both
+ *   Codex and Claude providers
  * - Agent needs user attention (pending approvals, pending user input, plan ready)
- *   — these bump sort order because the thread's `updatedAt` advances when activities are appended
  *
  * Falls back to updatedAt → createdAt for threads with no qualifying events.
  */
@@ -298,7 +301,7 @@ function getLastSortableActivityAt(thread: Thread): string | null {
     candidates.push(latestUserMsg);
   }
 
-  if (thread.latestTurn?.completedAt) {
+  if (thread.latestTurn?.completedAt && isLatestTurnSettled(thread.latestTurn, thread.session)) {
     candidates.push(thread.latestTurn.completedAt);
   }
 
