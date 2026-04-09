@@ -82,7 +82,6 @@ describe("MessagesTimeline", () => {
         completionDividerBeforeEntryId={null}
         completionSummary={null}
         turnDiffSummaryByAssistantMessageId={new Map()}
-        inferredCheckpointTurnCountByTurnId={{}}
         nowIso="2026-03-17T19:12:30.000Z"
         expandedWorkGroups={{}}
         onToggleWorkGroup={() => {}}
@@ -103,7 +102,7 @@ describe("MessagesTimeline", () => {
     expect(markup).toContain("yoo what&#x27;s ");
   });
 
-  it("renders context compaction entries in the normal work log", async () => {
+  it("renders grouped operation entries inline in chat history", async () => {
     const { MessagesTimeline } = await import("./MessagesTimeline");
     const markup = renderToStaticMarkup(
       <MessagesTimeline
@@ -129,7 +128,6 @@ describe("MessagesTimeline", () => {
         completionDividerBeforeEntryId={null}
         completionSummary={null}
         turnDiffSummaryByAssistantMessageId={new Map()}
-        inferredCheckpointTurnCountByTurnId={{}}
         nowIso="2026-03-17T19:12:30.000Z"
         expandedWorkGroups={{}}
         onToggleWorkGroup={() => {}}
@@ -146,7 +144,55 @@ describe("MessagesTimeline", () => {
     );
 
     expect(markup).toContain("Context compacted");
-    expect(markup).toContain("Work log");
+    expect(markup).not.toContain("Tool changes");
+  });
+
+  it("renders commands as standalone timeline rows instead of grouped operations", async () => {
+    const { MessagesTimeline } = await import("./MessagesTimeline");
+    const markup = renderToStaticMarkup(
+      <MessagesTimeline
+        threadId={null}
+        hasMessages
+        isWorking={false}
+        activeTurnInProgress={false}
+        activeTurnStartedAt={null}
+        scrollContainer={null}
+        timelineEntries={[
+          {
+            id: "command-entry",
+            kind: "work",
+            createdAt: "2026-03-17T19:12:28.000Z",
+            entry: {
+              id: "command-1",
+              createdAt: "2026-03-17T19:12:28.000Z",
+              label: "Command",
+              tone: "tool",
+              itemType: "command_execution",
+              command: "bun fmt",
+            },
+          },
+        ]}
+        completionDividerBeforeEntryId={null}
+        completionSummary={null}
+        turnDiffSummaryByAssistantMessageId={new Map()}
+        nowIso="2026-03-17T19:12:30.000Z"
+        expandedWorkGroups={{}}
+        onToggleWorkGroup={() => {}}
+        onOpenTurnDiff={() => {}}
+        revertTurnCountByUserMessageId={new Map()}
+        onRevertUserMessage={() => {}}
+        isRevertingCheckpoint={false}
+        onImageExpand={() => {}}
+        markdownCwd={undefined}
+        resolvedTheme="light"
+        timestampFormat="locale"
+        workspaceRoot={undefined}
+      />,
+    );
+
+    expect(markup).toContain("Command");
+    expect(markup).toContain("bun fmt");
+    expect(markup).not.toContain("Operations");
   });
 
   it("renders collapsed tool and turn diff blocks inline in chat history", async () => {
@@ -215,7 +261,6 @@ describe("MessagesTimeline", () => {
             ],
           ])
         }
-        inferredCheckpointTurnCountByTurnId={{}}
         nowIso="2026-03-17T19:12:31.000Z"
         expandedWorkGroups={{}}
         onToggleWorkGroup={() => {}}

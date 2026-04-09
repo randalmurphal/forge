@@ -22,11 +22,12 @@ import {
   formatElapsed,
   type ExpandedInlineDiffState,
   type ToolInlineDiffSummary,
+  type WorkLogEntry,
 } from "../../session-logic";
 import { AUTO_SCROLL_BOTTOM_THRESHOLD_PX } from "../../chat-scroll";
 import { type TurnDiffSummary } from "../../types";
 import { summarizeTurnDiffStats } from "../../lib/turnDiffTree";
-import { agentDiffQueryOptions, checkpointDiffQueryOptions } from "../../lib/providerReactQuery";
+import { agentDiffQueryOptions } from "../../lib/providerReactQuery";
 import {
   buildPatchCacheKey,
   classifyDiffComplexity,
@@ -97,7 +98,6 @@ interface MessagesTimelineProps {
   completionDividerBeforeEntryId: string | null;
   completionSummary: string | null;
   turnDiffSummaryByAssistantMessageId: Map<MessageId, TurnDiffSummary>;
-  inferredCheckpointTurnCountByTurnId: Record<TurnId, number>;
   nowIso: string;
   expandedWorkGroups: Record<string, boolean>;
   onToggleWorkGroup: (groupId: string) => void;
@@ -135,7 +135,6 @@ export const MessagesTimeline = memo(function MessagesTimeline({
   completionDividerBeforeEntryId,
   completionSummary,
   turnDiffSummaryByAssistantMessageId,
-  inferredCheckpointTurnCountByTurnId,
   nowIso,
   expandedWorkGroups,
   onToggleWorkGroup,
@@ -351,53 +350,25 @@ export const MessagesTimeline = memo(function MessagesTimeline({
       data-message-id={row.kind === "message" ? row.message.id : undefined}
       data-message-role={row.kind === "message" ? row.message.role : undefined}
     >
-      {row.kind === "work" &&
-        (() => {
-          const groupId = row.id;
-          const groupedEntries = row.groupedEntries;
-          const isExpanded = expandedWorkGroups[groupId] ?? false;
-          const hasOverflow = groupedEntries.length > MAX_VISIBLE_WORK_LOG_ENTRIES;
-          const visibleEntries =
-            hasOverflow && !isExpanded
-              ? groupedEntries.slice(-MAX_VISIBLE_WORK_LOG_ENTRIES)
-              : groupedEntries;
-          const hiddenCount = groupedEntries.length - visibleEntries.length;
-          const onlyToolEntries = groupedEntries.every((entry) => entry.tone === "tool");
-          const showHeader = hasOverflow || !onlyToolEntries;
-          const groupLabel = onlyToolEntries ? "Tool calls" : "Work log";
+      {row.kind === "work-group" && (
+        <GroupedWorkEntriesRow
+          row={row}
+          expandedWorkGroups={expandedWorkGroups}
+          onToggleWorkGroup={onToggleWorkGroup}
+          expandedInlineDiff={expandedInlineDiff}
+          onToggleInlineDiff={onToggleInlineDiff}
+          resolvedTheme={resolvedTheme}
+        />
+      )}
 
-          return (
-            <div className="rounded-xl border border-border/45 bg-card/25 px-2 py-1.5">
-              {showHeader && (
-                <div className="mb-1.5 flex items-center justify-between gap-2 px-0.5">
-                  <p className="text-[9px] uppercase tracking-[0.16em] text-muted-foreground/55">
-                    {groupLabel} ({groupedEntries.length})
-                  </p>
-                  {hasOverflow && (
-                    <button
-                      type="button"
-                      className="text-[9px] uppercase tracking-[0.12em] text-muted-foreground/55 transition-colors duration-150 hover:text-foreground/75"
-                      onClick={() => onToggleWorkGroup(groupId)}
-                    >
-                      {isExpanded ? "Show less" : `Show ${hiddenCount} more`}
-                    </button>
-                  )}
-                </div>
-              )}
-              <div className="space-y-0.5">
-                {visibleEntries.map((workEntry) => (
-                  <SimpleWorkEntryRow
-                    key={`work-row:${workEntry.id}`}
-                    workEntry={workEntry}
-                    expandedInlineDiff={expandedInlineDiff}
-                    onToggleInlineDiff={onToggleInlineDiff}
-                    resolvedTheme={resolvedTheme}
-                  />
-                ))}
-              </div>
-            </div>
-          );
-        })()}
+      {row.kind === "work-entry" && (
+        <StandaloneWorkEntryRow
+          workEntry={row.entry}
+          expandedInlineDiff={expandedInlineDiff}
+          onToggleInlineDiff={onToggleInlineDiff}
+          resolvedTheme={resolvedTheme}
+        />
+      )}
 
       {row.kind === "message" &&
         row.message.role === "user" &&
@@ -538,9 +509,6 @@ export const MessagesTimeline = memo(function MessagesTimeline({
                     <InlineTurnDiffBlock
                       threadId={threadId}
                       turnSummary={turnSummary}
-                      inferredCheckpointTurnCount={
-                        inferredCheckpointTurnCountByTurnId[turnSummary.turnId]
-                      }
                       expandedInlineDiff={expandedInlineDiff}
                       onToggleInlineDiff={onToggleInlineDiff}
                       onOpenTurnDiff={onOpenTurnDiff}
@@ -658,7 +626,7 @@ export const MessagesTimeline = memo(function MessagesTimeline({
 
 type TimelineEntry = ReturnType<typeof deriveTimelineEntries>[number];
 type TimelineMessage = Extract<TimelineEntry, { kind: "message" }>["message"];
-type TimelineWorkEntry = Extract<MessagesTimelineRow, { kind: "work" }>["groupedEntries"][number];
+type TimelineWorkEntry = WorkLogEntry;
 type TimelineRow = MessagesTimelineRow;
 
 function formatWorkingTimer(startIso: string, endIso: string): string | null {
@@ -1002,6 +970,84 @@ function toolWorkEntryHeading(workEntry: TimelineWorkEntry): string {
   return capitalizePhrase(normalizeCompactToolLabel(workEntry.label));
 }
 
+const GroupedWorkEntriesRow = memo(function GroupedWorkEntriesRow(props: {
+  row: Extract<MessagesTimelineRow, { kind: "work-group" }>;
+  expandedWorkGroups: Record<string, boolean>;
+  onToggleWorkGroup: (groupId: string) => void;
+  expandedInlineDiff: ExpandedInlineDiffState;
+  onToggleInlineDiff: (scope: "tool" | "turn", id: string) => void;
+  resolvedTheme: "light" | "dark";
+}) {
+  const {
+    row,
+    expandedWorkGroups,
+    onToggleWorkGroup,
+    expandedInlineDiff,
+    onToggleInlineDiff,
+    resolvedTheme,
+  } = props;
+  const groupId = row.id;
+  const groupedEntries = row.groupedEntries;
+  const isExpanded = expandedWorkGroups[groupId] ?? false;
+  const hasOverflow = groupedEntries.length > MAX_VISIBLE_WORK_LOG_ENTRIES;
+  const visibleEntries =
+    hasOverflow && !isExpanded
+      ? groupedEntries.slice(-MAX_VISIBLE_WORK_LOG_ENTRIES)
+      : groupedEntries;
+  const hiddenCount = groupedEntries.length - visibleEntries.length;
+  const showHeader = hasOverflow || groupedEntries.length > 1;
+
+  return (
+    <div className="rounded-xl border border-border/45 bg-card/25 px-2 py-1.5">
+      {showHeader && (
+        <div className="mb-1.5 flex items-center justify-between gap-2 px-0.5">
+          <p className="text-[9px] uppercase tracking-[0.16em] text-muted-foreground/55">
+            Operations ({groupedEntries.length})
+          </p>
+          {hasOverflow && (
+            <button
+              type="button"
+              className="text-[9px] uppercase tracking-[0.12em] text-muted-foreground/55 transition-colors duration-150 hover:text-foreground/75"
+              onClick={() => onToggleWorkGroup(groupId)}
+            >
+              {isExpanded ? "Show less" : `Show ${hiddenCount} more`}
+            </button>
+          )}
+        </div>
+      )}
+      <div className="space-y-0.5">
+        {visibleEntries.map((workEntry) => (
+          <SimpleWorkEntryRow
+            key={`work-row:${workEntry.id}`}
+            workEntry={workEntry}
+            expandedInlineDiff={expandedInlineDiff}
+            onToggleInlineDiff={onToggleInlineDiff}
+            resolvedTheme={resolvedTheme}
+          />
+        ))}
+      </div>
+    </div>
+  );
+});
+
+const StandaloneWorkEntryRow = memo(function StandaloneWorkEntryRow(props: {
+  workEntry: TimelineWorkEntry;
+  expandedInlineDiff: ExpandedInlineDiffState;
+  onToggleInlineDiff: (scope: "tool" | "turn", id: string) => void;
+  resolvedTheme: "light" | "dark";
+}) {
+  return (
+    <div className="rounded-xl border border-border/45 bg-card/25 px-2 py-1.5">
+      <SimpleWorkEntryRow
+        workEntry={props.workEntry}
+        expandedInlineDiff={props.expandedInlineDiff}
+        onToggleInlineDiff={props.onToggleInlineDiff}
+        resolvedTheme={props.resolvedTheme}
+      />
+    </div>
+  );
+});
+
 const SimpleWorkEntryRow = memo(function SimpleWorkEntryRow(props: {
   workEntry: TimelineWorkEntry;
   expandedInlineDiff: ExpandedInlineDiffState;
@@ -1134,7 +1180,6 @@ const InlineToolDiffBlock = memo(function InlineToolDiffBlock(props: {
 const InlineTurnDiffBlock = memo(function InlineTurnDiffBlock(props: {
   threadId: ThreadId | null;
   turnSummary: TurnDiffSummary;
-  inferredCheckpointTurnCount: number | undefined;
   expandedInlineDiff: ExpandedInlineDiffState;
   onToggleInlineDiff: (scope: "tool" | "turn", id: string) => void;
   onOpenTurnDiff: (turnId: TurnId, filePath?: string) => void;
@@ -1144,7 +1189,6 @@ const InlineTurnDiffBlock = memo(function InlineTurnDiffBlock(props: {
   const {
     threadId,
     turnSummary,
-    inferredCheckpointTurnCount,
     expandedInlineDiff,
     onToggleInlineDiff,
     onOpenTurnDiff,
@@ -1194,7 +1238,6 @@ const InlineTurnDiffBlock = memo(function InlineTurnDiffBlock(props: {
         <ExpandedTurnDiffContent
           threadId={threadId}
           turnSummary={turnSummary}
-          inferredCheckpointTurnCount={inferredCheckpointTurnCount}
           resolvedTheme={resolvedTheme}
           diffWordWrap={diffWordWrap}
         />
@@ -1206,55 +1249,23 @@ const InlineTurnDiffBlock = memo(function InlineTurnDiffBlock(props: {
 const ExpandedTurnDiffContent = memo(function ExpandedTurnDiffContent(props: {
   threadId: ThreadId | null;
   turnSummary: TurnDiffSummary;
-  inferredCheckpointTurnCount: number | undefined;
   resolvedTheme: "light" | "dark";
   diffWordWrap: boolean;
 }) {
-  const { threadId, turnSummary, inferredCheckpointTurnCount, resolvedTheme, diffWordWrap } = props;
-  const turnCount = turnSummary.checkpointTurnCount ?? inferredCheckpointTurnCount;
-  const checkpointRange =
-    typeof turnCount === "number"
-      ? {
-          fromTurnCount: Math.max(0, turnCount - 1),
-          toTurnCount: turnCount,
-        }
-      : null;
+  const { threadId, turnSummary, resolvedTheme, diffWordWrap } = props;
   const agentDiffQuery = useQuery(
     agentDiffQueryOptions({
       threadId,
-      turnId: turnSummary.provenance === "agent" ? turnSummary.turnId : null,
+      turnId: turnSummary.turnId,
       cacheScope: `timeline:turn:${turnSummary.turnId}`,
-      enabled: turnSummary.provenance === "agent",
+      enabled: true,
     }),
   );
-  const showWorkspaceFallback =
-    turnSummary.provenance === "workspace" || agentDiffQuery.data?.coverage === "unavailable";
-  const checkpointDiffQuery = useQuery(
-    checkpointDiffQueryOptions({
-      threadId,
-      fromTurnCount: showWorkspaceFallback ? (checkpointRange?.fromTurnCount ?? null) : null,
-      toTurnCount: showWorkspaceFallback ? (checkpointRange?.toTurnCount ?? null) : null,
-      cacheScope: `timeline:checkpoint:${turnSummary.turnId}`,
-      enabled: showWorkspaceFallback && checkpointRange !== null,
-    }),
-  );
-  const patch =
-    turnSummary.provenance === "agent" && !showWorkspaceFallback
-      ? agentDiffQuery.data?.diff
-      : checkpointDiffQuery.data?.diff;
-  const isLoading =
-    turnSummary.provenance === "agent" && !showWorkspaceFallback
-      ? agentDiffQuery.isLoading
-      : checkpointDiffQuery.isLoading;
+  const patch = agentDiffQuery.data?.diff;
+  const isLoading = agentDiffQuery.isLoading;
 
   return (
     <div className="mt-2">
-      {showWorkspaceFallback ? (
-        <p className="mb-2 text-[11px] text-muted-foreground/70">
-          Agent attribution is unavailable for this turn. Showing workspace changes during the turn
-          instead.
-        </p>
-      ) : null}
       {isLoading ? (
         <p className="text-[11px] text-muted-foreground/70">
           {getDiffLoadingLabel(
@@ -1271,7 +1282,9 @@ const ExpandedTurnDiffContent = memo(function ExpandedTurnDiffContent(props: {
           files={turnSummary.files}
         />
       ) : (
-        <p className="text-[11px] text-muted-foreground/70">No patch available for this turn.</p>
+        <p className="text-[11px] text-muted-foreground/70">
+          No agent patch available for this turn.
+        </p>
       )}
     </div>
   );

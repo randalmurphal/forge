@@ -1,145 +1,115 @@
 import { describe, expect, it } from "vitest";
-import { computeMessageDurationStart, normalizeCompactToolLabel } from "./MessagesTimeline.logic";
 
-describe("computeMessageDurationStart", () => {
-  it("returns message createdAt when there is no preceding user message", () => {
-    const result = computeMessageDurationStart([
-      {
-        id: "a1",
-        role: "assistant",
-        createdAt: "2026-01-01T00:00:05Z",
-        completedAt: "2026-01-01T00:00:10Z",
-      },
-    ]);
-    expect(result).toEqual(new Map([["a1", "2026-01-01T00:00:05Z"]]));
+import { deriveMessagesTimelineRows } from "./MessagesTimeline.logic";
+import { type TimelineEntry } from "../../session-logic";
+
+describe("deriveMessagesTimelineRows", () => {
+  it("keeps read and search activities grouped as operations", () => {
+    const rows = deriveMessagesTimelineRows({
+      timelineEntries: [
+        makeWorkEntry({
+          id: "read-1",
+          itemType: "file_read",
+          label: "Read",
+          filePath: "/tmp/example.ts",
+        }),
+        makeWorkEntry({
+          id: "search-1",
+          itemType: "search",
+          label: "Grep",
+          searchPattern: "storeArtifact",
+        }),
+      ],
+      completionDividerBeforeEntryId: null,
+      isWorking: false,
+      activeTurnStartedAt: null,
+    });
+
+    expect(rows).toHaveLength(1);
+    expect(rows[0]?.kind).toBe("work-group");
+    if (rows[0]?.kind === "work-group") {
+      expect(rows[0].groupedEntries.map((entry) => entry.id)).toEqual(["read-1", "search-1"]);
+    }
   });
 
-  it("uses the user message createdAt for the first assistant response", () => {
-    const result = computeMessageDurationStart([
-      { id: "u1", role: "user", createdAt: "2026-01-01T00:00:00Z" },
-      {
-        id: "a1",
-        role: "assistant",
-        createdAt: "2026-01-01T00:00:30Z",
-        completedAt: "2026-01-01T00:00:30Z",
-      },
-    ]);
+  it("renders commands and file changes as standalone rows", () => {
+    const rows = deriveMessagesTimelineRows({
+      timelineEntries: [
+        makeWorkEntry({
+          id: "command-1",
+          itemType: "command_execution",
+          label: "Command",
+          command: "bun fmt",
+        }),
+        makeWorkEntry({
+          id: "edit-1",
+          itemType: "file_change",
+          label: "Edit",
+          changedFiles: ["src/example.ts"],
+        }),
+      ],
+      completionDividerBeforeEntryId: null,
+      isWorking: false,
+      activeTurnStartedAt: null,
+    });
 
-    expect(result).toEqual(
-      new Map([
-        ["u1", "2026-01-01T00:00:00Z"],
-        ["a1", "2026-01-01T00:00:00Z"],
-      ]),
-    );
+    expect(rows.map((row) => row.kind)).toEqual(["work-entry", "work-entry"]);
   });
 
-  it("uses the previous assistant completedAt for subsequent assistant responses", () => {
-    const result = computeMessageDurationStart([
-      { id: "u1", role: "user", createdAt: "2026-01-01T00:00:00Z" },
-      {
-        id: "a1",
-        role: "assistant",
-        createdAt: "2026-01-01T00:00:30Z",
-        completedAt: "2026-01-01T00:00:30Z",
-      },
-      {
-        id: "a2",
-        role: "assistant",
-        createdAt: "2026-01-01T00:00:55Z",
-        completedAt: "2026-01-01T00:00:55Z",
-      },
-    ]);
+  it("does not group operations across standalone command or edit rows", () => {
+    const rows = deriveMessagesTimelineRows({
+      timelineEntries: [
+        makeWorkEntry({
+          id: "read-1",
+          itemType: "file_read",
+          label: "Read",
+          filePath: "/tmp/example.ts",
+        }),
+        makeWorkEntry({
+          id: "command-1",
+          itemType: "command_execution",
+          label: "Command",
+          command: "bun fmt",
+        }),
+        makeWorkEntry({
+          id: "search-1",
+          itemType: "search",
+          label: "Grep",
+          searchPattern: "storeArtifact",
+        }),
+      ],
+      completionDividerBeforeEntryId: null,
+      isWorking: false,
+      activeTurnStartedAt: null,
+    });
 
-    expect(result).toEqual(
-      new Map([
-        ["u1", "2026-01-01T00:00:00Z"],
-        ["a1", "2026-01-01T00:00:00Z"],
-        ["a2", "2026-01-01T00:00:30Z"],
-      ]),
-    );
-  });
-
-  it("does not advance the boundary for a streaming message without completedAt", () => {
-    const result = computeMessageDurationStart([
-      { id: "u1", role: "user", createdAt: "2026-01-01T00:00:00Z" },
-      { id: "a1", role: "assistant", createdAt: "2026-01-01T00:00:30Z" },
-      {
-        id: "a2",
-        role: "assistant",
-        createdAt: "2026-01-01T00:00:55Z",
-        completedAt: "2026-01-01T00:00:55Z",
-      },
-    ]);
-
-    expect(result).toEqual(
-      new Map([
-        ["u1", "2026-01-01T00:00:00Z"],
-        ["a1", "2026-01-01T00:00:00Z"],
-        ["a2", "2026-01-01T00:00:00Z"],
-      ]),
-    );
-  });
-
-  it("resets the boundary on a new user message", () => {
-    const result = computeMessageDurationStart([
-      { id: "u1", role: "user", createdAt: "2026-01-01T00:00:00Z" },
-      {
-        id: "a1",
-        role: "assistant",
-        createdAt: "2026-01-01T00:00:30Z",
-        completedAt: "2026-01-01T00:00:30Z",
-      },
-      { id: "u2", role: "user", createdAt: "2026-01-01T00:01:00Z" },
-      {
-        id: "a2",
-        role: "assistant",
-        createdAt: "2026-01-01T00:01:20Z",
-        completedAt: "2026-01-01T00:01:20Z",
-      },
-    ]);
-
-    expect(result).toEqual(
-      new Map([
-        ["u1", "2026-01-01T00:00:00Z"],
-        ["a1", "2026-01-01T00:00:00Z"],
-        ["u2", "2026-01-01T00:01:00Z"],
-        ["a2", "2026-01-01T00:01:00Z"],
-      ]),
-    );
-  });
-
-  it("handles system messages without affecting the boundary", () => {
-    const result = computeMessageDurationStart([
-      { id: "u1", role: "user", createdAt: "2026-01-01T00:00:00Z" },
-      { id: "s1", role: "system", createdAt: "2026-01-01T00:00:01Z" },
-      {
-        id: "a1",
-        role: "assistant",
-        createdAt: "2026-01-01T00:00:30Z",
-        completedAt: "2026-01-01T00:00:30Z",
-      },
-    ]);
-
-    expect(result).toEqual(
-      new Map([
-        ["u1", "2026-01-01T00:00:00Z"],
-        ["s1", "2026-01-01T00:00:00Z"],
-        ["a1", "2026-01-01T00:00:00Z"],
-      ]),
-    );
-  });
-
-  it("returns empty map for empty input", () => {
-    expect(computeMessageDurationStart([])).toEqual(new Map());
+    expect(rows.map((row) => row.kind)).toEqual(["work-group", "work-entry", "work-group"]);
   });
 });
 
-describe("normalizeCompactToolLabel", () => {
-  it("removes trailing completion wording from command labels", () => {
-    expect(normalizeCompactToolLabel("Ran command complete")).toBe("Ran command");
-  });
-
-  it("removes trailing completion wording from other labels", () => {
-    expect(normalizeCompactToolLabel("Read file completed")).toBe("Read file");
-  });
-});
+function makeWorkEntry(entry: {
+  id: string;
+  label: string;
+  itemType?: string;
+  command?: string;
+  changedFiles?: string[];
+  filePath?: string;
+  searchPattern?: string;
+}): TimelineEntry {
+  return {
+    id: entry.id,
+    kind: "work",
+    createdAt: `2026-04-09T01:00:0${entry.id.length}.000Z`,
+    entry: {
+      id: entry.id,
+      createdAt: `2026-04-09T01:00:0${entry.id.length}.000Z`,
+      label: entry.label,
+      tone: "tool",
+      ...(entry.itemType ? { itemType: entry.itemType as never } : {}),
+      ...(entry.command ? { command: entry.command } : {}),
+      ...(entry.changedFiles ? { changedFiles: entry.changedFiles } : {}),
+      ...(entry.filePath ? { filePath: entry.filePath } : {}),
+      ...(entry.searchPattern ? { searchPattern: entry.searchPattern } : {}),
+    },
+  };
+}

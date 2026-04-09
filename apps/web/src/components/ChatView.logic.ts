@@ -1,5 +1,17 @@
-import { ProjectId, type ModelSelection, type ThreadId, type TurnId } from "@forgetools/contracts";
-import { type ChatMessage, type SessionPhase, type Thread, type ThreadSession } from "../types";
+import {
+  MessageId,
+  ProjectId,
+  type ModelSelection,
+  type ThreadId,
+  type TurnId,
+} from "@forgetools/contracts";
+import {
+  type ChatMessage,
+  type SessionPhase,
+  type Thread,
+  type ThreadSession,
+  type TurnDiffSummary,
+} from "../types";
 import { randomUUID } from "~/lib/utils";
 import { type ComposerImageAttachment, type DraftThreadState } from "../composerDraftStore";
 import { Schema } from "effect";
@@ -15,6 +27,31 @@ export const LAST_INVOKED_SCRIPT_BY_PROJECT_KEY = "forge:last-invoked-script-by-
 export const MAX_HIDDEN_MOUNTED_TERMINAL_THREADS = 10;
 
 export const LastInvokedScriptByProjectSchema = Schema.Record(ProjectId, Schema.String);
+export function deriveInlineTurnDiffSummaryByAssistantMessageId(input: {
+  agentDiffSummaries: ReadonlyArray<TurnDiffSummary> | undefined;
+  latestTurnId: TurnId | null | undefined;
+  latestTurnSettled: boolean;
+}): Map<MessageId, TurnDiffSummary> {
+  const byMessageId = new Map<MessageId, TurnDiffSummary>();
+
+  for (const summary of input.agentDiffSummaries ?? []) {
+    if (!summary.assistantMessageId) {
+      continue;
+    }
+    if (summary.files.length === 0 || summary.provenance === "workspace") {
+      continue;
+    }
+    if (summary.coverage === "unavailable") {
+      continue;
+    }
+    if (input.latestTurnId && summary.turnId === input.latestTurnId && !input.latestTurnSettled) {
+      continue;
+    }
+    byMessageId.set(summary.assistantMessageId, summary);
+  }
+
+  return byMessageId;
+}
 
 export function buildLocalDraftThread(
   threadId: ThreadId,

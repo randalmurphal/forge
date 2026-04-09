@@ -18,10 +18,16 @@ export interface TimelineDurationMessage {
 
 export type MessagesTimelineRow =
   | {
-      kind: "work";
+      kind: "work-group";
       id: string;
       createdAt: string;
       groupedEntries: WorkLogEntry[];
+    }
+  | {
+      kind: "work-entry";
+      id: string;
+      createdAt: string;
+      entry: WorkLogEntry;
     }
   | {
       kind: "message";
@@ -86,16 +92,32 @@ export function deriveMessagesTimelineRows(input: {
     }
 
     if (timelineEntry.kind === "work") {
+      if (shouldRenderStandaloneWorkEntry(timelineEntry.entry)) {
+        nextRows.push({
+          kind: "work-entry",
+          id: timelineEntry.id,
+          createdAt: timelineEntry.createdAt,
+          entry: timelineEntry.entry,
+        });
+        continue;
+      }
+
       const groupedEntries = [timelineEntry.entry];
       let cursor = index + 1;
       while (cursor < input.timelineEntries.length) {
         const nextEntry = input.timelineEntries[cursor];
-        if (!nextEntry || nextEntry.kind !== "work") break;
+        if (
+          !nextEntry ||
+          nextEntry.kind !== "work" ||
+          shouldRenderStandaloneWorkEntry(nextEntry.entry)
+        ) {
+          break;
+        }
         groupedEntries.push(nextEntry.entry);
         cursor += 1;
       }
       nextRows.push({
-        kind: "work",
+        kind: "work-group",
         id: timelineEntry.id,
         createdAt: timelineEntry.createdAt,
         groupedEntries,
@@ -149,8 +171,10 @@ export function estimateMessagesTimelineRowHeight(
   },
 ): number {
   switch (row.kind) {
-    case "work":
-      return estimateWorkRowHeight(row, input);
+    case "work-group":
+      return estimateWorkGroupRowHeight(row, input);
+    case "work-entry":
+      return estimateStandaloneWorkRowHeight(row, input);
     case "proposed-plan":
       return estimateTimelineProposedPlanHeight(row.proposedPlan);
     case "working":
@@ -172,8 +196,8 @@ export function estimateMessagesTimelineRowHeight(
   }
 }
 
-function estimateWorkRowHeight(
-  row: Extract<MessagesTimelineRow, { kind: "work" }>,
+function estimateWorkGroupRowHeight(
+  row: Extract<MessagesTimelineRow, { kind: "work-group" }>,
   input: {
     expandedWorkGroups?: Readonly<Record<string, boolean>>;
     expandedInlineDiff?: ExpandedInlineDiffState;
@@ -200,6 +224,24 @@ function estimateWorkRowHeight(
   return estimate;
 }
 
+function estimateStandaloneWorkRowHeight(
+  row: Extract<MessagesTimelineRow, { kind: "work-entry" }>,
+  input: {
+    expandedInlineDiff?: ExpandedInlineDiffState;
+  },
+): number {
+  let estimate = 58;
+  if (row.entry.inlineDiff) {
+    estimate +=
+      input.expandedInlineDiff?.scope === "tool" && input.expandedInlineDiff.id === row.entry.id
+        ? row.entry.inlineDiff.availability === "exact_patch"
+          ? 420
+          : 130
+        : estimateCollapsedDiffCardHeight();
+  }
+  return estimate;
+}
+
 function estimateTimelineProposedPlanHeight(proposedPlan: ProposedPlan): number {
   const estimatedLines = Math.max(1, Math.ceil(proposedPlan.planMarkdown.length / 72));
   return 120 + Math.min(estimatedLines * 22, 880);
@@ -207,4 +249,13 @@ function estimateTimelineProposedPlanHeight(proposedPlan: ProposedPlan): number 
 
 function estimateCollapsedDiffCardHeight(): number {
   return 52;
+}
+
+function shouldRenderStandaloneWorkEntry(entry: WorkLogEntry): boolean {
+  return (
+    entry.itemType === "command_execution" ||
+    entry.itemType === "file_change" ||
+    entry.inlineDiff !== undefined ||
+    Boolean(entry.command)
+  );
 }
