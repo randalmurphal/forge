@@ -26,6 +26,7 @@ import {
 import { toastManager } from "../ui/toast";
 import { readNativeApi } from "~/nativeApi";
 import { useCopyToClipboard } from "~/hooks/useCopyToClipboard";
+import { buildMarkdownClipboardPayload } from "~/lib/clipboard";
 
 export const ProposedPlanCard = memo(function ProposedPlanCard({
   planMarkdown,
@@ -65,7 +66,7 @@ export const ProposedPlanCard = memo(function ProposedPlanCard({
   };
 
   const handleCopyPlan = () => {
-    copyToClipboard(saveContents);
+    copyToClipboard(buildMarkdownClipboardPayload(saveContents));
   };
 
   const openSaveDialog = () => {
@@ -141,9 +142,7 @@ export const ProposedPlanCard = memo(function ProposedPlanCard({
             <EllipsisIcon aria-hidden="true" className="size-4" />
           </MenuTrigger>
           <MenuPopup align="end">
-            <MenuItem onClick={handleCopyPlan}>
-              {isCopied ? "Copied!" : "Copy to clipboard"}
-            </MenuItem>
+            <MenuItem onClick={handleCopyPlan}>{isCopied ? "Copied!" : "Copy markdown"}</MenuItem>
             <MenuItem onClick={handleDownload}>Download as markdown</MenuItem>
             <MenuItem onClick={openSaveDialog} disabled={!workspaceRoot || isSavingToWorkspace}>
               Save to workspace

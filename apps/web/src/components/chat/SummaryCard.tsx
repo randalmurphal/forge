@@ -25,7 +25,7 @@ export const SummaryCard = memo(function SummaryCard({
           </Badge>
           <p className="truncate text-[11px] text-muted-foreground">{model}</p>
         </div>
-        {!isStreaming && text.length > 0 ? <MessageCopyButton text={text} /> : null}
+        {!isStreaming && text.length > 0 ? <MessageCopyButton markdown={text} /> : null}
       </div>
       <div className="mt-4">
         <ChatMarkdown text={text} cwd={cwd} isStreaming={isStreaming} />

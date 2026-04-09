@@ -280,5 +280,6 @@ describe("MessagesTimeline", () => {
     expect(markup).toContain("Summary only");
     expect(markup).toContain("Turn changes");
     expect(markup).toContain("Expand");
+    expect(markup).toContain("Copy markdown");
   });
 });

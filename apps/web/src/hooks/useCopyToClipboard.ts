@@ -1,4 +1,5 @@
 import * as React from "react";
+import { writeClipboardValue, type ClipboardValue } from "~/lib/clipboard";
 
 export function useCopyToClipboard<TContext = void>({
   timeout = 2000,
@@ -8,7 +9,7 @@ export function useCopyToClipboard<TContext = void>({
   timeout?: number;
   onCopy?: (ctx: TContext) => void;
   onError?: (error: Error, ctx: TContext) => void;
-} = {}): { copyToClipboard: (value: string, ctx: TContext) => void; isCopied: boolean } {
+} = {}): { copyToClipboard: (value: ClipboardValue, ctx: TContext) => void; isCopied: boolean } {
   const [isCopied, setIsCopied] = React.useState(false);
   const timeoutIdRef = React.useRef<NodeJS.Timeout | null>(null);
   const onCopyRef = React.useRef(onCopy);
@@ -19,15 +20,8 @@ export function useCopyToClipboard<TContext = void>({
   onErrorRef.current = onError;
   timeoutRef.current = timeout;
 
-  const copyToClipboard = React.useCallback((value: string, ctx: TContext): void => {
-    if (typeof window === "undefined" || !navigator.clipboard?.writeText) {
-      onErrorRef.current?.(new Error("Clipboard API unavailable."), ctx);
-      return;
-    }
-
-    if (!value) return;
-
-    navigator.clipboard.writeText(value).then(
+  const copyToClipboard = React.useCallback((value: ClipboardValue, ctx: TContext): void => {
+    void writeClipboardValue(value).then(
       () => {
         if (timeoutIdRef.current) {
           clearTimeout(timeoutIdRef.current);
@@ -45,7 +39,7 @@ export function useCopyToClipboard<TContext = void>({
       },
       (error) => {
         if (onErrorRef.current) {
-          onErrorRef.current(error, ctx);
+          onErrorRef.current(error instanceof Error ? error : new Error(String(error)), ctx);
         } else {
           console.error(error);
         }
