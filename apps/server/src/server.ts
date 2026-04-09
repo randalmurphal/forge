@@ -55,6 +55,7 @@ import { GitManagerLive } from "./git/Layers/GitManager";
 import { KeybindingsLive } from "./keybindings";
 import { ServerRuntimeStartup, ServerRuntimeStartupLive } from "./serverRuntimeStartup";
 import { OrchestrationReactorLive } from "./orchestration/Layers/OrchestrationReactor";
+import { StartupReconciliationLive } from "./orchestration/Layers/StartupReconciliation";
 import { RuntimeReceiptBusLive } from "./orchestration/Layers/RuntimeReceiptBus";
 import { ProviderRuntimeIngestionLive } from "./orchestration/Layers/ProviderRuntimeIngestion";
 import { ProviderCommandReactorLive } from "./orchestration/Layers/ProviderCommandReactor";
@@ -345,6 +346,11 @@ const OrchestrationReactorRuntimeLive = OrchestrationReactorLive.pipe(
   Layer.provide(ChannelReactorRuntimeLive),
 );
 
+const StartupReconciliationRuntimeLive = StartupReconciliationLive.pipe(
+  Layer.provide(OrchestrationRuntimeLive),
+  Layer.provide(ProjectionRepositoriesRuntimeLive),
+);
+
 const ServerRuntimeStartupRuntimeLive = ServerRuntimeStartupLive.pipe(
   Layer.provide(OrchestrationRuntimeLive),
   Layer.provide(KeybindingsLive),
@@ -353,6 +359,7 @@ const ServerRuntimeStartupRuntimeLive = ServerRuntimeStartupLive.pipe(
   Layer.provide(OpenLive),
   Layer.provide(ServerLifecycleEventsLive),
   Layer.provide(OrchestrationReactorRuntimeLive),
+  Layer.provide(StartupReconciliationRuntimeLive),
 );
 
 const WorkflowLayerLive = Layer.mergeAll(

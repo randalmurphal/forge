@@ -26,6 +26,7 @@ import { Open } from "./open";
 import { OrchestrationEngineService } from "./orchestration/Services/OrchestrationEngine";
 import { ProjectionSnapshotQuery } from "./orchestration/Services/ProjectionSnapshotQuery";
 import { OrchestrationReactor } from "./orchestration/Services/OrchestrationReactor";
+import { StartupReconciliation } from "./orchestration/Services/StartupReconciliation";
 import { ServerLifecycleEvents } from "./serverLifecycleEvents";
 import { ServerSettingsService } from "./serverSettings";
 import { AnalyticsService } from "./telemetry/Services/AnalyticsService";
@@ -274,6 +275,7 @@ const makeServerRuntimeStartup = Effect.gen(function* () {
   const serverConfig = yield* ServerConfig;
   const keybindings = yield* Keybindings;
   const orchestrationReactor = yield* OrchestrationReactor;
+  const startupReconciliation = yield* StartupReconciliation;
   const lifecycleEvents = yield* ServerLifecycleEvents;
   const serverSettings = yield* ServerSettingsService;
 
@@ -311,6 +313,39 @@ const makeServerRuntimeStartup = Effect.gen(function* () {
           }),
         ),
         Effect.forkScoped,
+      ),
+    );
+
+    yield* Effect.logDebug("startup phase: reconciling stale orchestration state");
+    yield* runStartupPhase(
+      "reconciliation",
+      startupReconciliation.reconcile().pipe(
+        Effect.tap((result) => {
+          const totalReconciled =
+            result.staleSessionsReconciled +
+            result.staleTurnsReconciled +
+            result.stalePhaseRunsReconciled +
+            result.staleChannelsClosed +
+            result.stalePendingApprovalsResolved +
+            result.staleInteractiveRequestsMarkedStale;
+          if (totalReconciled === 0 && result.errors.length === 0) {
+            return Effect.logDebug("startup reconciliation: no stale state to reconcile");
+          }
+          return Effect.logInfo("startup reconciliation complete", {
+            staleSessionsReconciled: result.staleSessionsReconciled,
+            staleTurnsReconciled: result.staleTurnsReconciled,
+            stalePhaseRunsReconciled: result.stalePhaseRunsReconciled,
+            staleChannelsClosed: result.staleChannelsClosed,
+            stalePendingApprovalsResolved: result.stalePendingApprovalsResolved,
+            staleInteractiveRequestsMarkedStale: result.staleInteractiveRequestsMarkedStale,
+            errorCount: result.errors.length,
+          });
+        }),
+        Effect.catchCause((cause) =>
+          Effect.logWarning("startup reconciliation failed (non-fatal)", {
+            cause,
+          }),
+        ),
       ),
     );
 
