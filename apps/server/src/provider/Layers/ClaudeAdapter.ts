@@ -151,6 +151,12 @@ interface ToolInFlight {
   readonly lastEmittedInputFingerprint?: string;
 }
 
+/** Tracks an active Agent/Task tool call for child thread attribution. */
+interface ActiveSubagentTool {
+  readonly toolUseId: string;
+  readonly label: string | undefined;
+}
+
 interface ClaudeSessionContext {
   session: ProviderSession;
   readonly promptQueue: Queue.Queue<PromptQueueItem>;
@@ -167,6 +173,8 @@ interface ClaudeSessionContext {
     items: Array<unknown>;
   }>;
   readonly inFlightTools: Map<number, ToolInFlight>;
+  /** Active Agent/Task tool calls, keyed by tool_use_id. Used to inject childThreadAttribution on child messages. */
+  readonly activeSubagentTools: Map<string, ActiveSubagentTool>;
   turnState: ClaudeTurnState | undefined;
   lastKnownContextWindow: number | undefined;
   lastKnownTokenUsage: ThreadTokenUsageSnapshot | undefined;
@@ -280,6 +288,42 @@ function isInterruptedResult(result: SDKResultMessage): boolean {
 
 function asRuntimeItemId(value: string): RuntimeItemId {
   return RuntimeItemId.makeUnsafe(value);
+}
+
+/**
+ * Safely read `parent_tool_use_id` from an SDK message. Not all message types
+ * carry this field, so we access it dynamically.
+ */
+function sdkParentToolUseId(message: SDKMessage): string | null {
+  const raw = (message as Record<string, unknown>).parent_tool_use_id;
+  return typeof raw === "string" ? raw : null;
+}
+
+/**
+ * Safely read `tool_use_id` from an SDK message (present on task_started /
+ * task_progress / task_notification system messages).
+ */
+function sdkToolUseId(message: SDKMessage): string | null {
+  const raw = (message as Record<string, unknown>).tool_use_id;
+  return typeof raw === "string" ? raw : null;
+}
+
+/**
+ * Build a `childThreadAttribution` payload fragment when the given parent tool
+ * use ID references a tracked active subagent tool call.
+ */
+function buildChildThreadAttribution(
+  context: ClaudeSessionContext,
+  parentToolUseId: string | null,
+): Record<string, unknown> | undefined {
+  if (!parentToolUseId) return undefined;
+  const parent = context.activeSubagentTools.get(parentToolUseId);
+  if (!parent) return undefined;
+  return {
+    childProviderThreadId: parentToolUseId,
+    taskId: parent.toolUseId,
+    label: parent.label,
+  };
 }
 
 function maxClaudeContextWindowFromModelUsage(modelUsage: unknown): number | undefined {
@@ -1566,6 +1610,9 @@ const makeClaudeAdapter = Effect.fn("makeClaudeAdapter")(function* (
           payload: result ?? { status },
         },
       });
+      if (tool.itemType === "collab_agent_tool_call") {
+        context.activeSubagentTools.delete(tool.itemId);
+      }
       context.inFlightTools.delete(index);
     }
     // Clear any remaining stale entries (e.g. from interrupted content blocks)
@@ -1642,6 +1689,7 @@ const makeClaudeAdapter = Effect.fn("makeClaudeAdapter")(function* (
     }
 
     const { event } = message;
+    const parentToolUseId = sdkParentToolUseId(message);
 
     if (event.type === "content_block_delta") {
       if (
@@ -1673,6 +1721,7 @@ const makeClaudeAdapter = Effect.fn("makeClaudeAdapter")(function* (
           assistantBlockEntry.block.emittedTextDelta = true;
         }
         const stamp = yield* makeEventStamp();
+        const textDeltaAttribution = buildChildThreadAttribution(context, parentToolUseId);
         yield* offerRuntimeEvent({
           type: "content.delta",
           eventId: stamp.eventId,
@@ -1686,6 +1735,7 @@ const makeClaudeAdapter = Effect.fn("makeClaudeAdapter")(function* (
           payload: {
             streamKind,
             delta: deltaText,
+            ...(textDeltaAttribution ? { childThreadAttribution: textDeltaAttribution } : {}),
           },
           providerRefs: nativeProviderRefs(context),
           raw: {
@@ -1733,6 +1783,7 @@ const makeClaudeAdapter = Effect.fn("makeClaudeAdapter")(function* (
         };
         context.inFlightTools.set(event.index, nextTool);
 
+        const inputDeltaAttribution = buildChildThreadAttribution(context, parentToolUseId);
         const stamp = yield* makeEventStamp();
         yield* offerRuntimeEvent({
           type: "item.updated",
@@ -1752,6 +1803,7 @@ const makeClaudeAdapter = Effect.fn("makeClaudeAdapter")(function* (
               toolName: nextTool.toolName,
               input: nextTool.input,
             },
+            ...(inputDeltaAttribution ? { childThreadAttribution: inputDeltaAttribution } : {}),
           },
           providerRefs: nativeProviderRefs(context, { providerItemId: nextTool.itemId }),
           raw: {
@@ -1803,6 +1855,18 @@ const makeClaudeAdapter = Effect.fn("makeClaudeAdapter")(function* (
       };
       context.inFlightTools.set(index, tool);
 
+      // Track Agent/Task tool calls so children can reference them via parent_tool_use_id
+      if (itemType === "collab_agent_tool_call") {
+        const agentLabel =
+          typeof toolInput.description === "string"
+            ? toolInput.description
+            : typeof toolInput.prompt === "string"
+              ? toolInput.prompt.slice(0, 120)
+              : undefined;
+        context.activeSubagentTools.set(itemId, { toolUseId: itemId, label: agentLabel });
+      }
+
+      const itemStartedAttribution = buildChildThreadAttribution(context, parentToolUseId);
       const stamp = yield* makeEventStamp();
       yield* offerRuntimeEvent({
         type: "item.started",
@@ -1822,6 +1886,7 @@ const makeClaudeAdapter = Effect.fn("makeClaudeAdapter")(function* (
             toolName: tool.toolName,
             input: toolInput,
           },
+          ...(itemStartedAttribution ? { childThreadAttribution: itemStartedAttribution } : {}),
         },
         providerRefs: nativeProviderRefs(context, { providerItemId: tool.itemId }),
         raw: {
@@ -1863,6 +1928,8 @@ const makeClaudeAdapter = Effect.fn("makeClaudeAdapter")(function* (
       context.turnState.items.push(message.message);
     }
 
+    const userParentToolUseId = sdkParentToolUseId(message);
+
     for (const toolResult of toolResultBlocksFromUserMessage(message)) {
       const toolEntry = Array.from(context.inFlightTools.entries()).find(
         ([, tool]) => tool.itemId === toolResult.toolUseId,
@@ -1878,6 +1945,8 @@ const makeClaudeAdapter = Effect.fn("makeClaudeAdapter")(function* (
         input: tool.input,
         result: toolResult.block,
       };
+
+      const userToolAttribution = buildChildThreadAttribution(context, userParentToolUseId);
 
       const updatedStamp = yield* makeEventStamp();
       yield* offerRuntimeEvent({
@@ -1895,6 +1964,7 @@ const makeClaudeAdapter = Effect.fn("makeClaudeAdapter")(function* (
           toolName: tool.toolName,
           ...(tool.detail ? { detail: tool.detail } : {}),
           data: toolData,
+          ...(userToolAttribution ? { childThreadAttribution: userToolAttribution } : {}),
         },
         providerRefs: nativeProviderRefs(context, { providerItemId: tool.itemId }),
         raw: {
@@ -1922,6 +1992,7 @@ const makeClaudeAdapter = Effect.fn("makeClaudeAdapter")(function* (
           payload: {
             streamKind,
             delta: toolResult.text,
+            ...(userToolAttribution ? { childThreadAttribution: userToolAttribution } : {}),
           },
           providerRefs: nativeProviderRefs(context, { providerItemId: tool.itemId }),
           raw: {
@@ -1948,6 +2019,7 @@ const makeClaudeAdapter = Effect.fn("makeClaudeAdapter")(function* (
           toolName: tool.toolName,
           ...(tool.detail ? { detail: tool.detail } : {}),
           data: toolData,
+          ...(userToolAttribution ? { childThreadAttribution: userToolAttribution } : {}),
         },
         providerRefs: nativeProviderRefs(context, { providerItemId: tool.itemId }),
         raw: {
@@ -1956,6 +2028,11 @@ const makeClaudeAdapter = Effect.fn("makeClaudeAdapter")(function* (
           payload: message,
         },
       });
+
+      // Remove completed collab agent tools from the active tracking map
+      if (tool.itemType === "collab_agent_tool_call") {
+        context.activeSubagentTools.delete(tool.itemId);
+      }
 
       context.inFlightTools.delete(index);
     }
@@ -2161,7 +2238,8 @@ const makeClaudeAdapter = Effect.fn("makeClaudeAdapter")(function* (
           },
         });
         return;
-      case "task_started":
+      case "task_started": {
+        const taskStartedAttribution = buildChildThreadAttribution(context, sdkToolUseId(message));
         yield* offerRuntimeEvent({
           ...base,
           type: "task.started",
@@ -2169,10 +2247,12 @@ const makeClaudeAdapter = Effect.fn("makeClaudeAdapter")(function* (
             taskId: RuntimeTaskId.makeUnsafe(message.task_id),
             description: message.description,
             ...(message.task_type ? { taskType: message.task_type } : {}),
+            ...(taskStartedAttribution ? { childThreadAttribution: taskStartedAttribution } : {}),
           },
         });
         return;
-      case "task_progress":
+      }
+      case "task_progress": {
         if (message.usage) {
           const normalizedUsage = normalizeClaudeTokenUsage(
             message.usage,
@@ -2192,6 +2272,7 @@ const makeClaudeAdapter = Effect.fn("makeClaudeAdapter")(function* (
             });
           }
         }
+        const taskProgressAttribution = buildChildThreadAttribution(context, sdkToolUseId(message));
         yield* offerRuntimeEvent({
           ...base,
           type: "task.progress",
@@ -2201,10 +2282,12 @@ const makeClaudeAdapter = Effect.fn("makeClaudeAdapter")(function* (
             ...(message.summary ? { summary: message.summary } : {}),
             ...(message.usage ? { usage: message.usage } : {}),
             ...(message.last_tool_name ? { lastToolName: message.last_tool_name } : {}),
+            ...(taskProgressAttribution ? { childThreadAttribution: taskProgressAttribution } : {}),
           },
         });
         return;
-      case "task_notification":
+      }
+      case "task_notification": {
         if (message.usage) {
           const normalizedUsage = normalizeClaudeTokenUsage(
             message.usage,
@@ -2224,6 +2307,10 @@ const makeClaudeAdapter = Effect.fn("makeClaudeAdapter")(function* (
             });
           }
         }
+        const taskCompletedAttribution = buildChildThreadAttribution(
+          context,
+          sdkToolUseId(message),
+        );
         yield* offerRuntimeEvent({
           ...base,
           type: "task.completed",
@@ -2232,9 +2319,13 @@ const makeClaudeAdapter = Effect.fn("makeClaudeAdapter")(function* (
             status: message.status,
             ...(message.summary ? { summary: message.summary } : {}),
             ...(message.usage ? { usage: message.usage } : {}),
+            ...(taskCompletedAttribution
+              ? { childThreadAttribution: taskCompletedAttribution }
+              : {}),
           },
         });
         return;
+      }
       case "files_persisted":
         yield* offerRuntimeEvent({
           ...base,
@@ -2550,6 +2641,7 @@ const makeClaudeAdapter = Effect.fn("makeClaudeAdapter")(function* (
       const pendingApprovals = new Map<ApprovalRequestId, PendingApproval>();
       const pendingUserInputs = new Map<ApprovalRequestId, PendingUserInput>();
       const inFlightTools = new Map<number, ToolInFlight>();
+      const activeSubagentTools = new Map<string, ActiveSubagentTool>();
 
       const contextRef = yield* Ref.make<ClaudeSessionContext | undefined>(undefined);
 
@@ -2926,6 +3018,7 @@ const makeClaudeAdapter = Effect.fn("makeClaudeAdapter")(function* (
         pendingUserInputs,
         turns: [],
         inFlightTools,
+        activeSubagentTools,
         turnState: undefined,
         lastKnownContextWindow: undefined,
         lastKnownTokenUsage: undefined,
