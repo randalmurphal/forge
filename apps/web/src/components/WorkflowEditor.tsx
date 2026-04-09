@@ -2,13 +2,15 @@ import type {
   ProjectId,
   WorkflowDefinition,
   WorkflowId,
+  WorkflowPhase,
   WorkflowSummary,
 } from "@forgetools/contracts";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
-import { PlusIcon } from "lucide-react";
-import { useEffect } from "react";
+
+import { useEffect, useState } from "react";
 import { useNavigate } from "@tanstack/react-router";
 import { useShallow } from "zustand/react/shallow";
+import { cn } from "~/lib/utils";
 import { resolveAppModelSelectionState } from "../modelSelection";
 import { useServerConfig } from "../rpc/serverState";
 import { useStore } from "../store";
@@ -21,7 +23,6 @@ import {
 import { getWsRpcClient } from "../wsRpcClient";
 import { useSettings } from "../hooks/useSettings";
 import { toastManager } from "./ui/toast";
-import { Button } from "./ui/button";
 import { PhaseCard } from "./PhaseCard";
 import { AgentModesPage } from "./AgentModesPage";
 import {
@@ -41,10 +42,41 @@ import {
   resolveWorkflowPromptOptions,
   resolveWorkflowQualityCheckOptions,
   resolvePreviousPhaseOptions,
+  resolveWorkflowScopeLabel,
   resolveWorkflowScopeProjectId,
   sortWorkflowDefinitionsForEditor,
   toWorkflowSummaryRecord,
 } from "./WorkflowEditor.logic";
+
+/**
+ * Phase type → color for the card top-bar stripe and active border accent.
+ * Matches PhaseTypeBadge tone colors: sky (single), amber (multi), emerald (automated), violet (human).
+ */
+const PHASE_CARD_COLORS: Record<
+  WorkflowPhase["type"],
+  { stripe: string; label: string; activeBorder: string }
+> = {
+  "single-agent": {
+    stripe: "bg-sky-500",
+    label: "Single agent",
+    activeBorder: "border-sky-500/30",
+  },
+  "multi-agent": {
+    stripe: "bg-amber-500",
+    label: "Deliberation",
+    activeBorder: "border-amber-500/30",
+  },
+  automated: {
+    stripe: "bg-emerald-500",
+    label: "Automated",
+    activeBorder: "border-emerald-500/30",
+  },
+  human: {
+    stripe: "bg-violet-500",
+    label: "Human",
+    activeBorder: "border-violet-500/30",
+  },
+};
 
 function validateWorkflowDraft(draft: WorkflowDefinition | null): string | null {
   if (!draft) {
@@ -95,12 +127,75 @@ function mergeWorkflowIntoSummaries(
   return summaries.map((candidate, index) => (index === existingIndex ? summary : candidate));
 }
 
+function PhaseStripCard(props: {
+  phase: WorkflowPhase;
+  phaseIndex: number;
+  active: boolean;
+  onClick: () => void;
+}) {
+  const colors = PHASE_CARD_COLORS[props.phase.type];
+  const modelInfo =
+    props.phase.type === "single-agent"
+      ? props.phase.agent?.prompt
+      : props.phase.type === "multi-agent"
+        ? `${props.phase.deliberation?.participants.length ?? 0} participants`
+        : null;
+
+  return (
+    <button
+      type="button"
+      onClick={props.onClick}
+      className={cn(
+        "relative min-w-0 flex-1 cursor-pointer overflow-hidden rounded-xl border bg-[#151518] p-3.5 pt-4 text-left transition-all",
+        props.active
+          ? cn(
+              "border-white/8 bg-[#1c1c20] shadow-[0_1px_3px_rgba(0,0,0,.3),0_4px_12px_rgba(0,0,0,.2)]",
+              colors.activeBorder,
+            )
+          : "border-border hover:bg-[#1c1c20]",
+      )}
+    >
+      {/* Color stripe at top */}
+      <div
+        className={cn(
+          "absolute inset-x-0 top-0 h-[2.5px] transition-opacity",
+          colors.stripe,
+          props.active ? "opacity-100" : "opacity-70",
+        )}
+      />
+      <div className="text-sm font-semibold text-foreground">
+        {props.phase.name || `Phase ${props.phaseIndex + 1}`}
+      </div>
+      <div className="mt-0.5 truncate text-[11px] text-muted-foreground/60">{colors.label}</div>
+      {modelInfo ? (
+        <span className="mt-2 inline-flex items-center gap-1 rounded-full bg-background px-2 py-0.5 text-[10px] font-medium text-muted-foreground">
+          {modelInfo}
+        </span>
+      ) : null}
+    </button>
+  );
+}
+
+function PhaseStripAddButton(props: { onClick: () => void; disabled: boolean }) {
+  return (
+    <button
+      type="button"
+      onClick={props.onClick}
+      disabled={props.disabled}
+      className="flex w-12 shrink-0 cursor-pointer items-center justify-center rounded-xl border-[1.5px] border-dashed border-border text-xl text-muted-foreground/60 transition-all hover:border-muted-foreground/60 hover:bg-[#151518] hover:text-muted-foreground disabled:pointer-events-none disabled:opacity-50"
+    >
+      +
+    </button>
+  );
+}
+
 export function WorkflowEditor(props: { workflowId: WorkflowId | null }) {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
   const serverConfig = useServerConfig();
   const settings = useSettings();
   const projects = useStore((store) => store.projects);
+  const [selectedPhaseIndex, setSelectedPhaseIndex] = useState(0);
   const {
     cachedWorkflowSummaries,
     cachedWorkflowsById,
@@ -154,6 +249,17 @@ export function WorkflowEditor(props: { workflowId: WorkflowId | null }) {
     sourceWorkflow !== null &&
     sourceWorkflow.builtIn &&
     draft?.id === sourceWorkflow.id;
+  const scopeLabel = draft
+    ? resolveWorkflowScopeLabel({
+        builtIn: sourceWorkflow?.builtIn ?? false,
+        projectId: resolvedProjectId,
+      })
+    : "Global";
+
+  // Reset selected phase when switching workflows
+  useEffect(() => {
+    setSelectedPhaseIndex(0);
+  }, [props.workflowId]);
 
   useEffect(() => {
     if (props.workflowId === null) {
@@ -307,6 +413,11 @@ export function WorkflowEditor(props: { workflowId: WorkflowId | null }) {
     }),
   );
 
+  // Clamp selected phase index to valid range
+  const phaseCount = draft?.phases.length ?? 0;
+  const clampedPhaseIndex = Math.max(0, Math.min(selectedPhaseIndex, phaseCount - 1));
+  const selectedPhase = draft?.phases[clampedPhaseIndex] ?? null;
+
   if (props.workflowId !== null && workflowDetailQuery.isPending && !sourceWorkflow) {
     return (
       <AgentModesPage activeTab="workflows">
@@ -333,6 +444,11 @@ export function WorkflowEditor(props: { workflowId: WorkflowId | null }) {
     <AgentModesPage activeTab="workflows">
       <div className="flex min-h-0 flex-1 flex-col">
         <WorkflowEditorTopBar
+          workflowName={draft?.name ?? ""}
+          scopeLabel={scopeLabel}
+          isExisting={
+            props.workflowId !== null && sourceWorkflow !== null && !sourceWorkflow.builtIn
+          }
           onCreateNew={() => void navigate({ to: "/agent-modes/workflows" })}
           onSave={() => void saveMutation.mutateAsync()}
           saveDisabled={saveMutation.isPending || validationMessage !== null || isReadOnlyBuiltIn}
@@ -352,7 +468,7 @@ export function WorkflowEditor(props: { workflowId: WorkflowId | null }) {
           />
 
           <main className="min-h-0 overflow-y-auto">
-            <div className="mx-auto flex w-full max-w-5xl flex-col gap-5 px-4 py-5 sm:px-6">
+            <div className="mx-auto flex w-full max-w-[760px] flex-col gap-6 px-5 py-7 sm:px-9">
               <WorkflowEditorBasicsSection
                 draft={draft}
                 disabled={!draft || isReadOnlyBuiltIn}
@@ -401,70 +517,108 @@ export function WorkflowEditor(props: { workflowId: WorkflowId | null }) {
                 }}
               />
 
-              <section className="rounded-2xl border border-border/80 bg-card/90 shadow-sm">
-                <div className="border-b border-border/70 px-4 py-3 sm:px-5">
-                  <div className="flex items-center justify-between gap-3">
-                    <div>
-                      <p className="text-xs font-semibold uppercase tracking-[0.08em] text-muted-foreground">
-                        Phases
-                      </p>
-                      <p className="text-xs text-muted-foreground">
-                        Keep the workflow list-based: one phase per card.
-                      </p>
-                    </div>
-                    <Button
-                      type="button"
-                      variant="outline"
-                      onClick={() => {
-                        updateDraft((current) => appendWorkflowDraftPhase(current));
-                      }}
-                      disabled={!draft || isReadOnlyBuiltIn}
-                    >
-                      <PlusIcon className="size-4" />
-                      Add phase
-                    </Button>
-                  </div>
+              {/* Phases section */}
+              <div>
+                <div className="mb-3.5 flex items-center justify-between">
+                  <span className="text-[11px] font-semibold uppercase tracking-[0.06em] text-muted-foreground/60">
+                    Phases
+                  </span>
                 </div>
 
-                <div className="space-y-4 px-4 py-4 sm:px-5">
+                {/* Phase strip: horizontal row of cards */}
+                <div className="flex gap-2">
                   {draft?.phases.map((phase, phaseIndex) => (
-                    <PhaseCard
+                    <PhaseStripCard
                       key={phase.id}
                       phase={phase}
                       phaseIndex={phaseIndex}
-                      totalPhases={draft.phases.length}
-                      promptOptions={promptOptions}
-                      qualityCheckOptions={qualityCheckOptions}
-                      settings={settings}
-                      providers={providers}
-                      fallbackModelSelection={fallbackModelSelection}
-                      disabled={isReadOnlyBuiltIn}
-                      previousPhaseOptions={resolvePreviousPhaseOptions(draft.phases, phase.id)}
-                      onChange={(nextPhase) =>
-                        updateDraft((current) => ({
-                          ...current,
-                          phases: current.phases.map((candidate) =>
-                            candidate.id === nextPhase.id ? nextPhase : candidate,
-                          ),
-                        }))
-                      }
-                      onDelete={() =>
-                        updateDraft((current) => removeWorkflowDraftPhase(current, phase.id))
-                      }
-                      onMoveUp={() =>
-                        updateDraft((current) =>
-                          reorderWorkflowDraftPhases(current, phaseIndex, phaseIndex - 1),
-                        )
-                      }
-                      onMoveDown={() =>
-                        updateDraft((current) =>
-                          reorderWorkflowDraftPhases(current, phaseIndex, phaseIndex + 1),
-                        )
-                      }
+                      active={clampedPhaseIndex === phaseIndex}
+                      onClick={() => setSelectedPhaseIndex(phaseIndex)}
                     />
                   ))}
+                  <PhaseStripAddButton
+                    onClick={() => {
+                      updateDraft((current) => appendWorkflowDraftPhase(current));
+                      setSelectedPhaseIndex(phaseCount);
+                    }}
+                    disabled={!draft || isReadOnlyBuiltIn}
+                  />
                 </div>
-              </section>
+
+                {/* Editor panel below with connector arrow */}
+                {selectedPhase && draft ? (
+                  <div className="relative mt-2">
+                    {/* Connector nub */}
+                    <div
+                      className="absolute -top-1.5 z-10 size-3 rotate-45 border border-b-0 border-r-0 border-border bg-[#151518] transition-[left] duration-200 ease-out"
+                      style={{
+                        left:
+                          phaseCount <= 1
+                            ? "60px"
+                            : `calc(${((clampedPhaseIndex + 0.5) / (phaseCount + 0.6)) * 100}% - 6px)`,
+                      }}
+                    />
+                    <div className="rounded-xl border border-border bg-[#151518] p-5 shadow-[0_2px_8px_rgba(0,0,0,.15)]">
+                      <PhaseCard
+                        phase={selectedPhase}
+                        phaseIndex={clampedPhaseIndex}
+                        totalPhases={draft.phases.length}
+                        promptOptions={promptOptions}
+                        qualityCheckOptions={qualityCheckOptions}
+                        settings={settings}
+                        providers={providers}
+                        fallbackModelSelection={fallbackModelSelection}
+                        disabled={isReadOnlyBuiltIn}
+                        previousPhaseOptions={resolvePreviousPhaseOptions(
+                          draft.phases,
+                          selectedPhase.id,
+                        )}
+                        onChange={(nextPhase) =>
+                          updateDraft((current) => ({
+                            ...current,
+                            phases: current.phases.map((candidate) =>
+                              candidate.id === nextPhase.id ? nextPhase : candidate,
+                            ),
+                          }))
+                        }
+                        onDelete={() => {
+                          const removedIndex = clampedPhaseIndex;
+                          updateDraft((current) =>
+                            removeWorkflowDraftPhase(current, selectedPhase.id),
+                          );
+                          setSelectedPhaseIndex(Math.max(0, removedIndex - 1));
+                        }}
+                        onMoveUp={() =>
+                          updateDraft((current) => {
+                            const reordered = reorderWorkflowDraftPhases(
+                              current,
+                              clampedPhaseIndex,
+                              clampedPhaseIndex - 1,
+                            );
+                            if (reordered !== current) {
+                              setSelectedPhaseIndex(clampedPhaseIndex - 1);
+                            }
+                            return reordered;
+                          })
+                        }
+                        onMoveDown={() =>
+                          updateDraft((current) => {
+                            const reordered = reorderWorkflowDraftPhases(
+                              current,
+                              clampedPhaseIndex,
+                              clampedPhaseIndex + 1,
+                            );
+                            if (reordered !== current) {
+                              setSelectedPhaseIndex(clampedPhaseIndex + 1);
+                            }
+                            return reordered;
+                          })
+                        }
+                      />
+                    </div>
+                  </div>
+                ) : null}
+              </div>
 
               <WorkflowEditorFootnote />
             </div>

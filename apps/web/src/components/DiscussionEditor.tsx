@@ -9,8 +9,8 @@ import type {
 import { PROVIDER_DISPLAY_NAMES } from "@forgetools/contracts";
 import { useMutation, useQueries, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useNavigate } from "@tanstack/react-router";
-import { MessagesSquareIcon, PlusIcon, SaveIcon, Trash2Icon } from "lucide-react";
-import { useEffect, useMemo, useState } from "react";
+import { MessagesSquareIcon, PlusIcon, SaveIcon } from "lucide-react";
+import { useEffect, useMemo, useRef, useState } from "react";
 
 import { getCustomModelOptionsByProvider, resolveAppModelSelectionState } from "../modelSelection";
 import { useServerConfig } from "../rpc/serverState";
@@ -41,6 +41,16 @@ import { toastManager } from "./ui/toast";
 import { cn } from "~/lib/utils";
 
 const ALL_PROJECTS_VALUE = ALL_PROJECTS_DISCUSSION_FILTER;
+
+/**
+ * Color cycle for participant cards and dots.
+ * Blue, rose, amber, green — matches the design reference.
+ */
+const PARTICIPANT_COLORS = ["#3b82f6", "#e54988", "#d99129", "#22a85a"];
+
+function participantColor(index: number): string {
+  return PARTICIPANT_COLORS[index % PARTICIPANT_COLORS.length] ?? PARTICIPANT_COLORS[0]!;
+}
 
 type RenderedDiscussionSummary = {
   description: string;
@@ -172,6 +182,8 @@ export function DiscussionEditor(props: {
   const [editorScope, setEditorScope] = useState<DiscussionScope>("global");
   const [draftDirty, setDraftDirty] = useState(false);
   const [loadedRouteKey, setLoadedRouteKey] = useState<string | null>(null);
+  const [selectedParticipantIndex, setSelectedParticipantIndex] = useState(0);
+  const prevRouteKeyRef = useRef<string | null>(null);
   const orderedProjects = useMemo(
     () => sortProjectsForEditor(projects, projectOrder),
     [projectOrder, projects],
@@ -280,6 +292,14 @@ export function DiscussionEditor(props: {
       : {}),
   });
   const sourceDiscussion = managedDiscussionQuery.data ?? null;
+
+  // Reset participant selection when switching discussions
+  useEffect(() => {
+    if (routeKey !== prevRouteKeyRef.current) {
+      prevRouteKeyRef.current = routeKey;
+      setSelectedParticipantIndex(0);
+    }
+  }, [routeKey]);
 
   useEffect(() => {
     if (props.discussionName === null || props.discussionScope === null) {
@@ -441,6 +461,20 @@ export function DiscussionEditor(props: {
       ? routeProject.name
       : (targetProject?.name ?? "Choose a project");
 
+  // Clamp selected index
+  const participantCount = draft?.participants.length ?? 0;
+  const clampedIndex = Math.max(0, Math.min(selectedParticipantIndex, participantCount - 1));
+  const selectedParticipant = draft?.participants[clampedIndex] ?? null;
+  const selectedProvider = selectedParticipant?.model?.provider ?? fallbackModelSelection.provider;
+  const selectedModel = selectedParticipant?.model?.model ?? fallbackModelSelection.model;
+
+  const scopeBadgeLabel =
+    editorScope === "global"
+      ? "Global"
+      : props.discussionScope === "project" && routeProject
+        ? routeProject.name
+        : (targetProject?.name ?? "Project");
+
   if (
     props.discussionName !== null &&
     props.discussionScope !== null &&
@@ -476,61 +510,67 @@ export function DiscussionEditor(props: {
   return (
     <AgentModesPage activeTab="discussions">
       <div className="flex min-h-0 flex-1 flex-col">
-        <header className="border-b border-border px-3 py-2 sm:px-5">
-          <div className="flex flex-wrap items-center gap-2">
-            <div className="min-w-0 flex-1">
-              <p className="text-sm font-medium text-foreground">Discussions</p>
-              <p className="text-xs text-muted-foreground">
-                Configure participants, scope, and models for multi-agent discussions.
-              </p>
+        {/* ── Top bar: name + scope badge + actions ── */}
+        <header className="border-b border-border px-4 py-3 sm:px-6">
+          <div className="flex items-center justify-between gap-4">
+            <div className="flex min-w-0 items-baseline gap-2.5">
+              <h1 className="truncate text-lg font-semibold text-foreground">
+                {draft?.name || "New discussion"}
+              </h1>
+              <span
+                className={cn(
+                  "rounded-full px-1.5 py-0.5 text-[9px] font-semibold uppercase leading-none tracking-[0.04em]",
+                  editorScope === "global"
+                    ? "bg-blue-500/12 text-blue-400"
+                    : "bg-amber-500/12 text-amber-400",
+                )}
+              >
+                {scopeBadgeLabel}
+              </span>
             </div>
-            {props.discussionName !== null && props.discussionScope !== null ? (
+            <div className="flex items-center gap-1.5">
+              {props.discussionName !== null && props.discussionScope !== null ? (
+                <button
+                  type="button"
+                  onClick={() => void deleteMutation.mutateAsync()}
+                  disabled={deleteMutation.isPending}
+                  className="rounded-md px-2.5 py-1.5 text-xs font-medium text-muted-foreground/60 transition-colors hover:text-red-400 disabled:pointer-events-none disabled:opacity-50"
+                >
+                  Delete
+                </button>
+              ) : null}
               <Button
                 type="button"
+                size="sm"
                 variant="outline"
-                onClick={() => void deleteMutation.mutateAsync()}
-                disabled={deleteMutation.isPending}
+                onClick={() => void navigate({ to: "/agent-modes/discussions" })}
               >
-                <Trash2Icon className="size-4" />
-                Delete
+                <PlusIcon className="size-3.5" />
+                New
               </Button>
-            ) : null}
-            <Button
-              type="button"
-              variant="outline"
-              onClick={() => void navigate({ to: "/agent-modes/discussions" })}
-            >
-              <PlusIcon className="size-4" />
-              New discussion
-            </Button>
-            <Button
-              type="button"
-              onClick={() => void saveMutation.mutateAsync()}
-              disabled={saveMutation.isPending || validationMessage !== null}
-            >
-              <SaveIcon className="size-4" />
-              {saveMutation.isPending ? "Saving…" : "Save"}
-            </Button>
+              <Button
+                type="button"
+                size="sm"
+                onClick={() => void saveMutation.mutateAsync()}
+                disabled={saveMutation.isPending || validationMessage !== null}
+              >
+                <SaveIcon className="size-3.5" />
+                {saveMutation.isPending ? "Saving…" : "Save"}
+              </Button>
+            </div>
           </div>
         </header>
 
-        <div className="grid min-h-0 flex-1 lg:grid-cols-[19rem_minmax(0,1fr)]">
+        <div className="grid min-h-0 flex-1 lg:grid-cols-[272px_minmax(0,1fr)]">
+          {/* ── Sidebar ── */}
           <aside className="min-h-0 border-b border-border/70 bg-card/50 lg:border-r lg:border-b-0">
             <div className="space-y-3 border-b border-border/70 px-4 py-3">
-              <div>
-                <p className="text-xs font-semibold uppercase tracking-[0.08em] text-muted-foreground">
-                  Discussions
-                </p>
-                <p className="text-xs text-muted-foreground">
-                  Global plus the selected project, or every project at once.
-                </p>
-              </div>
+              <span className="text-[11px] font-semibold uppercase tracking-[0.06em] text-muted-foreground/60">
+                Discussions
+              </span>
 
               {orderedProjects.length > 0 ? (
                 <div className="space-y-1">
-                  <p className="text-[11px] font-semibold uppercase tracking-[0.08em] text-muted-foreground">
-                    Project context
-                  </p>
                   <Select
                     value={managedProjectFilter as string}
                     onValueChange={(value) =>
@@ -559,11 +599,11 @@ export function DiscussionEditor(props: {
 
             <div className="max-h-64 overflow-y-auto px-2 py-2 lg:h-full lg:max-h-none">
               {renderedDiscussions.length === 0 ? (
-                <div className="rounded-xl border border-dashed border-border/70 px-3 py-4 text-xs text-muted-foreground">
+                <div className="rounded-[10px] border border-dashed border-border/70 px-3 py-4 text-xs text-muted-foreground/60">
                   No discussions yet.
                 </div>
               ) : (
-                <div className="space-y-1">
+                <div className="flex flex-col gap-0.5">
                   {renderedDiscussions.map((discussion) => {
                     const active =
                       props.discussionName === discussion.name &&
@@ -571,13 +611,14 @@ export function DiscussionEditor(props: {
                       (discussion.scope !== "project" ||
                         props.projectId === discussion.ownerProjectId);
                     return (
-                      <Button
+                      <button
                         key={`${discussion.scope}:${discussion.ownerProjectId ?? "global"}:${discussion.name}`}
                         type="button"
-                        variant="ghost"
                         className={cn(
-                          "h-auto w-full justify-start rounded-xl px-3 py-3 text-left",
-                          active && "bg-accent text-foreground",
+                          "w-full cursor-pointer rounded-[10px] border px-3 py-2.5 text-left transition-all",
+                          active
+                            ? "border-border bg-[#1c1c20]"
+                            : "border-transparent hover:bg-[#1c1c20]",
                         )}
                         onClick={() =>
                           void navigateToDiscussionDetail({
@@ -589,25 +630,42 @@ export function DiscussionEditor(props: {
                           })
                         }
                       >
-                        <div className="min-w-0">
-                          <div className="flex flex-wrap items-center gap-2">
-                            <span className="truncate font-medium">{discussion.name}</span>
-                            <span className="rounded-full border border-border/70 bg-background px-2 py-0.5 text-[10px] uppercase tracking-[0.08em] text-muted-foreground">
-                              {discussion.scope === "global"
-                                ? "Global"
-                                : (discussion.ownerProjectName ?? "Project")}
+                        <div className="flex items-center gap-2">
+                          <span className="truncate text-[13px] font-medium text-foreground">
+                            {discussion.name}
+                          </span>
+                          <span
+                            className={cn(
+                              "rounded-full px-1.5 py-0.5 text-[9px] font-semibold uppercase leading-none tracking-[0.04em]",
+                              discussion.scope === "global"
+                                ? "bg-blue-500/12 text-blue-400"
+                                : "bg-amber-500/12 text-amber-400",
+                            )}
+                          >
+                            {discussion.scope === "global"
+                              ? "Global"
+                              : (discussion.ownerProjectName ?? "Project")}
+                          </span>
+                          {!discussion.effective ? (
+                            <span className="rounded-full bg-muted-foreground/10 px-1.5 py-0.5 text-[9px] font-semibold uppercase leading-none tracking-[0.04em] text-muted-foreground/60">
+                              Shadowed
                             </span>
-                            {!discussion.effective ? (
-                              <span className="rounded-full border border-border/70 bg-background px-2 py-0.5 text-[10px] uppercase tracking-[0.08em] text-muted-foreground">
-                                Shadowed
-                              </span>
-                            ) : null}
-                          </div>
-                          <p className="mt-1 line-clamp-2 text-xs text-muted-foreground">
-                            {discussion.description || "No description"}
-                          </p>
+                          ) : null}
                         </div>
-                      </Button>
+                        {/* Participant role dots */}
+                        <div className="mt-1 flex items-center gap-1 text-[11px] text-muted-foreground/60">
+                          {discussion.participantRoles.map((role, roleIndex) => (
+                            <span key={role} className="inline-flex items-center gap-1">
+                              {roleIndex > 0 ? <span className="text-border">·</span> : null}
+                              <span
+                                className="inline-block size-[5px] shrink-0 rounded-full"
+                                style={{ background: participantColor(roleIndex) }}
+                              />
+                              <span>{role}</span>
+                            </span>
+                          ))}
+                        </div>
+                      </button>
                     );
                   })}
                 </div>
@@ -615,6 +673,7 @@ export function DiscussionEditor(props: {
             </div>
           </aside>
 
+          {/* ── Main editor ── */}
           <main className="min-h-0 overflow-y-auto">
             {!draft ? (
               <Empty className="min-h-full">
@@ -629,162 +688,108 @@ export function DiscussionEditor(props: {
                 </EmptyHeader>
               </Empty>
             ) : (
-              <div className="mx-auto flex w-full max-w-5xl flex-col gap-5 px-4 py-5 sm:px-6">
-                <section className="rounded-2xl border border-border/80 bg-card/90 shadow-sm">
-                  <div className="grid gap-5 border-b border-border/70 px-4 py-4 sm:px-5 lg:grid-cols-[minmax(0,1fr)_18rem]">
-                    <div className="space-y-4">
-                      <div className="space-y-2">
-                        <label className="text-[11px] font-semibold uppercase tracking-[0.08em] text-muted-foreground">
-                          Name
-                        </label>
-                        <Input
-                          value={draft.name}
-                          onChange={(event) =>
-                            updateDraft((current) => ({
-                              ...current,
-                              name: event.target.value,
-                            }))
-                          }
-                          placeholder="debate"
-                        />
-                      </div>
-
-                      <div className="space-y-2">
-                        <label className="text-[11px] font-semibold uppercase tracking-[0.08em] text-muted-foreground">
-                          Description
-                        </label>
-                        <Textarea
-                          value={draft.description}
-                          onChange={(event) =>
-                            updateDraft((current) => ({
-                              ...current,
-                              description: event.target.value,
-                            }))
-                          }
-                          placeholder="Describe what this discussion mode is for."
-                          className="[&_textarea]:min-h-13"
-                        />
-                      </div>
-                    </div>
-
-                    <div className="space-y-4 rounded-2xl border border-border/70 bg-background/60 p-4">
-                      <div className="space-y-2">
-                        <p className="text-[11px] font-semibold uppercase tracking-[0.08em] text-muted-foreground">
-                          Scope
-                        </p>
-                        <div className="flex gap-2">
-                          <Button
-                            type="button"
-                            size="sm"
-                            variant={editorScope === "global" ? "default" : "outline"}
-                            onClick={() => {
-                              setEditorScope("global");
-                              setDraftDirty(true);
-                            }}
-                          >
-                            Global
-                          </Button>
-                          <Button
-                            type="button"
-                            size="sm"
-                            variant={editorScope === "project" ? "default" : "outline"}
-                            onClick={() => {
-                              setEditorScope("project");
-                              setDraftDirty(true);
-                            }}
-                            disabled={orderedProjects.length === 0}
-                          >
-                            This project
-                          </Button>
-                        </div>
-                        {editorScope === "project" ? (
-                          <p className="text-xs text-muted-foreground">{scopeProjectLabel}</p>
-                        ) : null}
-                      </div>
-
-                      {validationMessage ? (
-                        <div className="rounded-xl border border-amber-500/20 bg-amber-500/10 px-3 py-2 text-sm text-amber-700 dark:text-amber-300">
-                          {validationMessage}
-                        </div>
-                      ) : null}
-                    </div>
-                  </div>
-                </section>
-
-                <section className="rounded-2xl border border-border/80 bg-card/90 shadow-sm">
-                  <div className="flex items-center justify-between gap-3 border-b border-border/70 px-4 py-3 sm:px-5">
-                    <div>
-                      <p className="text-xs font-semibold uppercase tracking-[0.08em] text-muted-foreground">
-                        Participants
-                      </p>
-                      <p className="text-xs text-muted-foreground">
-                        Define each role, model selection, and system prompt.
-                      </p>
-                    </div>
-                    <Button
-                      type="button"
-                      variant="outline"
-                      onClick={() =>
+              <div className="mx-auto flex w-full max-w-[760px] flex-col gap-6 px-5 py-7 sm:px-9">
+                {/* ── Identity row: name + scope ── */}
+                <div className="flex items-end gap-3.5">
+                  <div className="min-w-0 flex-1 max-w-56 space-y-1">
+                    <label className="text-[11px] font-medium uppercase tracking-[0.04em] text-muted-foreground/60">
+                      Name
+                    </label>
+                    <Input
+                      value={draft.name}
+                      onChange={(event) =>
                         updateDraft((current) => ({
                           ...current,
-                          participants: [
-                            ...current.participants,
-                            createParticipant(current.participants.length, fallbackModelSelection),
-                          ],
+                          name: event.target.value,
                         }))
                       }
-                    >
-                      <PlusIcon className="size-4" />
-                      Add participant
-                    </Button>
+                      placeholder="debate"
+                    />
                   </div>
+                  <div className="space-y-1">
+                    <span className="text-[11px] font-medium uppercase tracking-[0.04em] text-muted-foreground/60">
+                      Scope
+                    </span>
+                    <div className="flex overflow-hidden rounded-lg border border-border bg-[#1c1c20]">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setEditorScope("global");
+                          setDraftDirty(true);
+                        }}
+                        className={cn(
+                          "px-3.5 py-[7px] text-xs font-medium transition-all whitespace-nowrap",
+                          editorScope === "global"
+                            ? "bg-blue-500 text-white"
+                            : "text-muted-foreground/60 hover:text-muted-foreground",
+                        )}
+                      >
+                        Global
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setEditorScope("project");
+                          setDraftDirty(true);
+                        }}
+                        disabled={orderedProjects.length === 0}
+                        className={cn(
+                          "px-3.5 py-[7px] text-xs font-medium transition-all whitespace-nowrap",
+                          editorScope === "project"
+                            ? "bg-blue-500 text-white"
+                            : "text-muted-foreground/60 hover:text-muted-foreground disabled:pointer-events-none disabled:opacity-50",
+                        )}
+                      >
+                        Project
+                      </button>
+                    </div>
+                  </div>
+                </div>
 
-                  <div className="space-y-4 px-4 py-4 sm:px-5">
-                    {draft.participants.map((participant, index) => (
-                      <DiscussionParticipantCard
-                        key={participant.role}
-                        participant={participant}
-                        index={index}
-                        totalParticipants={draft.participants.length}
-                        availableProviders={selectableProviders}
-                        fallbackModelSelection={fallbackModelSelection}
-                        modelOptionsByProvider={modelOptionsByProvider}
-                        onChange={(nextParticipant) =>
-                          updateDraft((current) => ({
-                            ...current,
-                            participants: current.participants.map((candidate, candidateIndex) =>
-                              candidateIndex === index ? nextParticipant : candidate,
-                            ),
-                          }))
-                        }
-                        onDelete={() =>
-                          updateDraft((current) => ({
-                            ...current,
-                            participants: current.participants.filter(
-                              (_, candidateIndex) => candidateIndex !== index,
-                            ),
-                          }))
-                        }
-                      />
-                    ))}
-                  </div>
-                </section>
+                {/* Scope detail */}
+                {editorScope === "project" ? (
+                  <p className="text-xs text-muted-foreground">{scopeProjectLabel}</p>
+                ) : null}
 
-                <section className="rounded-2xl border border-border/80 bg-card/90 shadow-sm">
-                  <div className="border-b border-border/70 px-4 py-3 sm:px-5">
-                    <p className="text-xs font-semibold uppercase tracking-[0.08em] text-muted-foreground">
-                      Settings
-                    </p>
+                {/* ── Description ── */}
+                <div className="space-y-1">
+                  <label className="text-[11px] font-medium uppercase tracking-[0.04em] text-muted-foreground/60">
+                    Description
+                  </label>
+                  <Textarea
+                    value={draft.description}
+                    onChange={(event) =>
+                      updateDraft((current) => ({
+                        ...current,
+                        description: event.target.value,
+                      }))
+                    }
+                    placeholder="Describe what this discussion mode is for."
+                    className="[&_textarea]:min-h-10"
+                  />
+                </div>
+
+                {/* Validation message */}
+                {validationMessage ? (
+                  <div className="rounded-lg border border-amber-500/20 bg-amber-500/10 px-3 py-2 text-sm text-amber-700 dark:text-amber-300">
+                    {validationMessage}
                   </div>
-                  <div className="grid gap-4 px-4 py-4 sm:px-5 md:grid-cols-2">
-                    <div className="space-y-2">
-                      <label className="text-[11px] font-semibold uppercase tracking-[0.08em] text-muted-foreground">
-                        Max turns
-                      </label>
-                      <Input
+                ) : null}
+
+                {/* ── Section divider ── */}
+                <div className="h-px bg-border" />
+
+                {/* ── Participants header ── */}
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-3.5">
+                    <span className="text-[11px] font-semibold uppercase tracking-[0.06em] text-muted-foreground/60">
+                      Participants
+                    </span>
+                    <div className="flex items-center gap-1.5 rounded-full border border-border bg-[#151518] px-2.5 py-1 text-[11px] text-muted-foreground/60">
+                      <span>max</span>
+                      <input
                         type="number"
                         min={1}
-                        nativeInput
                         value={draft.settings.maxTurns}
                         onChange={(event) =>
                           updateDraft((current) => ({
@@ -795,171 +800,283 @@ export function DiscussionEditor(props: {
                             },
                           }))
                         }
+                        className="w-9 bg-transparent text-center text-[11px] font-semibold text-muted-foreground outline-none focus:text-foreground"
                       />
+                      <span>turns</span>
                     </div>
                   </div>
-                </section>
+                </div>
+
+                {/* ── Participant card strip ── */}
+                <div className="flex gap-2">
+                  {draft.participants.map((participant, index) => {
+                    const color = participantColor(index);
+                    const isActive = clampedIndex === index;
+                    const providerKey =
+                      participant.model?.provider ?? fallbackModelSelection.provider;
+                    const modelKey = participant.model?.model ?? fallbackModelSelection.model;
+                    const modelName =
+                      modelOptionsByProvider[providerKey]?.find((m) => m.slug === modelKey)?.name ??
+                      modelKey;
+                    return (
+                      <button
+                        // eslint-disable-next-line react/no-array-index-key -- participants have no stable ID; role can be duplicated during edits
+                        key={`${participant.role}-${index}`}
+                        type="button"
+                        onClick={() => setSelectedParticipantIndex(index)}
+                        className={cn(
+                          "relative min-w-0 flex-1 cursor-pointer overflow-hidden rounded-xl border bg-[#151518] p-3.5 pt-4 text-left transition-all",
+                          isActive
+                            ? "border-white/8 bg-[#1c1c20] shadow-[0_1px_3px_rgba(0,0,0,.3),0_4px_12px_rgba(0,0,0,.2)]"
+                            : "border-border hover:bg-[#1c1c20]",
+                        )}
+                      >
+                        {/* Color stripe */}
+                        <div
+                          className={cn(
+                            "absolute inset-x-0 top-0 h-[2.5px] transition-opacity",
+                            isActive ? "opacity-100" : "opacity-70",
+                          )}
+                          style={{ background: color }}
+                        />
+                        <div className="text-sm font-semibold text-foreground">
+                          {participant.role || `participant-${index + 1}`}
+                        </div>
+                        <div className="mt-0.5 truncate text-[11px] text-muted-foreground/60">
+                          {participant.description || "No description"}
+                        </div>
+                        <span className="mt-2.5 inline-flex items-center gap-1 rounded-full bg-background px-2 py-0.5 text-[10px] font-medium text-muted-foreground">
+                          <svg
+                            width="10"
+                            height="10"
+                            viewBox="0 0 24 24"
+                            fill="none"
+                            stroke="currentColor"
+                            strokeWidth="2.5"
+                          >
+                            <circle cx="12" cy="12" r="9" />
+                          </svg>
+                          {PROVIDER_DISPLAY_NAMES[providerKey]} · {modelName}
+                        </span>
+                      </button>
+                    );
+                  })}
+                  {/* Add participant button */}
+                  <button
+                    type="button"
+                    onClick={() => {
+                      updateDraft((current) => ({
+                        ...current,
+                        participants: [
+                          ...current.participants,
+                          createParticipant(current.participants.length, fallbackModelSelection),
+                        ],
+                      }));
+                      setSelectedParticipantIndex(participantCount);
+                    }}
+                    className="flex w-12 shrink-0 cursor-pointer items-center justify-center rounded-xl border-[1.5px] border-dashed border-border text-xl text-muted-foreground/60 transition-all hover:border-muted-foreground/60 hover:bg-[#151518] hover:text-muted-foreground"
+                    title="Add participant"
+                  >
+                    +
+                  </button>
+                </div>
+
+                {/* ── Editor panel with connector ── */}
+                {selectedParticipant && (
+                  <div className="relative">
+                    {/* Connector nub */}
+                    <div
+                      className="absolute -top-1.5 z-10 size-3 rotate-45 border border-b-0 border-r-0 border-border bg-[#151518] transition-[left] duration-200 ease-out"
+                      style={{
+                        left:
+                          participantCount <= 1
+                            ? "60px"
+                            : `calc(${((clampedIndex + 0.5) / (participantCount + 0.6)) * 100}% - 6px)`,
+                      }}
+                    />
+                    <div className="rounded-xl border border-border bg-[#151518] p-5 shadow-[0_2px_8px_rgba(0,0,0,.15)]">
+                      {/* Editor header */}
+                      <div className="mb-4 flex items-center justify-between">
+                        <span className="flex items-center gap-2 text-[13px] font-medium text-muted-foreground">
+                          <span
+                            className="inline-block size-[7px] shrink-0 rounded-full"
+                            style={{ background: participantColor(clampedIndex) }}
+                          />
+                          {selectedParticipant.role || `participant-${clampedIndex + 1}`}
+                        </span>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            const removedIndex = clampedIndex;
+                            updateDraft((current) => ({
+                              ...current,
+                              participants: current.participants.filter(
+                                (_, i) => i !== removedIndex,
+                              ),
+                            }));
+                            setSelectedParticipantIndex(Math.max(0, removedIndex - 1));
+                          }}
+                          disabled={participantCount <= 2}
+                          className="rounded-md px-2 py-1 text-[11px] font-medium text-muted-foreground/60 transition-colors hover:text-red-400 disabled:pointer-events-none disabled:opacity-50"
+                        >
+                          Remove
+                        </button>
+                      </div>
+
+                      {/* Editor fields */}
+                      <div className="space-y-3.5">
+                        {/* Role + Description row */}
+                        <div className="grid gap-3.5 md:grid-cols-2">
+                          <div className="space-y-1">
+                            <label className="text-[11px] font-medium uppercase tracking-[0.04em] text-muted-foreground/60">
+                              Role
+                            </label>
+                            <Input
+                              value={selectedParticipant.role}
+                              onChange={(event) =>
+                                updateDraft((current) => ({
+                                  ...current,
+                                  participants: current.participants.map((p, i) =>
+                                    i === clampedIndex ? { ...p, role: event.target.value } : p,
+                                  ),
+                                }))
+                              }
+                              placeholder="advocate"
+                            />
+                          </div>
+                          <div className="space-y-1">
+                            <label className="text-[11px] font-medium uppercase tracking-[0.04em] text-muted-foreground/60">
+                              Description
+                            </label>
+                            <Input
+                              value={selectedParticipant.description}
+                              onChange={(event) =>
+                                updateDraft((current) => ({
+                                  ...current,
+                                  participants: current.participants.map((p, i) =>
+                                    i === clampedIndex
+                                      ? { ...p, description: event.target.value }
+                                      : p,
+                                  ),
+                                }))
+                              }
+                              placeholder="Argues for the current direction"
+                            />
+                          </div>
+                        </div>
+
+                        {/* Provider + Model row */}
+                        <div className="grid gap-3.5 md:grid-cols-2">
+                          <div className="space-y-1">
+                            <label className="text-[11px] font-medium uppercase tracking-[0.04em] text-muted-foreground/60">
+                              Provider
+                            </label>
+                            <Select
+                              value={selectedProvider}
+                              onValueChange={(value) => {
+                                if (!value) {
+                                  return;
+                                }
+                                updateDraft((current) => ({
+                                  ...current,
+                                  participants: current.participants.map((p, i) =>
+                                    i === clampedIndex
+                                      ? {
+                                          ...p,
+                                          model: {
+                                            provider: value as ProviderKind,
+                                            model:
+                                              modelOptionsByProvider[value as ProviderKind][0]
+                                                ?.slug ?? selectedModel,
+                                          } satisfies ModelSelection,
+                                        }
+                                      : p,
+                                  ),
+                                }));
+                              }}
+                            >
+                              <SelectTrigger>
+                                {PROVIDER_DISPLAY_NAMES[selectedProvider]}
+                              </SelectTrigger>
+                              <SelectPopup>
+                                {selectableProviders.map((provider) => (
+                                  <SelectItem key={provider} value={provider}>
+                                    {PROVIDER_DISPLAY_NAMES[provider]}
+                                  </SelectItem>
+                                ))}
+                              </SelectPopup>
+                            </Select>
+                          </div>
+                          <div className="space-y-1">
+                            <label className="text-[11px] font-medium uppercase tracking-[0.04em] text-muted-foreground/60">
+                              Model
+                            </label>
+                            <Select
+                              value={selectedModel}
+                              onValueChange={(value) => {
+                                if (!value) {
+                                  return;
+                                }
+                                updateDraft((current) => ({
+                                  ...current,
+                                  participants: current.participants.map((p, i) =>
+                                    i === clampedIndex
+                                      ? {
+                                          ...p,
+                                          model: {
+                                            provider: selectedProvider,
+                                            model: value,
+                                          } satisfies ModelSelection,
+                                        }
+                                      : p,
+                                  ),
+                                }));
+                              }}
+                            >
+                              <SelectTrigger>
+                                {modelOptionsByProvider[selectedProvider]?.find(
+                                  (model) => model.slug === selectedModel,
+                                )?.name ?? selectedModel}
+                              </SelectTrigger>
+                              <SelectPopup>
+                                {modelOptionsByProvider[selectedProvider]?.map((modelOption) => (
+                                  <SelectItem key={modelOption.slug} value={modelOption.slug}>
+                                    {modelOption.name}
+                                  </SelectItem>
+                                ))}
+                              </SelectPopup>
+                            </Select>
+                          </div>
+                        </div>
+
+                        {/* System prompt */}
+                        <div className="space-y-1">
+                          <label className="text-[11px] font-medium uppercase tracking-[0.04em] text-muted-foreground/60">
+                            System prompt
+                          </label>
+                          <Textarea
+                            value={selectedParticipant.system}
+                            onChange={(event) =>
+                              updateDraft((current) => ({
+                                ...current,
+                                participants: current.participants.map((p, i) =>
+                                  i === clampedIndex ? { ...p, system: event.target.value } : p,
+                                ),
+                              }))
+                            }
+                            className="[&_textarea]:min-h-22"
+                            placeholder="Tell this participant how to behave in the discussion."
+                          />
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                )}
               </div>
             )}
           </main>
         </div>
       </div>
     </AgentModesPage>
-  );
-}
-
-function DiscussionParticipantCard(props: {
-  participant: DiscussionParticipant;
-  index: number;
-  totalParticipants: number;
-  availableProviders: readonly ProviderKind[];
-  fallbackModelSelection: ModelSelection;
-  modelOptionsByProvider: Record<ProviderKind, ReadonlyArray<{ slug: string; name: string }>>;
-  onChange: (participant: DiscussionParticipant) => void;
-  onDelete: () => void;
-}) {
-  const activeProvider = props.participant.model?.provider ?? props.fallbackModelSelection.provider;
-  const activeModel = props.participant.model?.model ?? props.fallbackModelSelection.model;
-
-  return (
-    <section className="rounded-2xl border border-border/70 bg-background/60 p-4">
-      <div className="mb-4 flex items-center justify-between gap-3">
-        <div>
-          <p className="text-sm font-medium text-foreground">Participant {props.index + 1}</p>
-          <p className="text-xs text-muted-foreground">
-            Role, description, model, and system prompt.
-          </p>
-        </div>
-        <Button
-          type="button"
-          size="sm"
-          variant="outline"
-          onClick={props.onDelete}
-          disabled={props.totalParticipants <= 2}
-        >
-          <Trash2Icon className="size-4" />
-          Remove
-        </Button>
-      </div>
-
-      <div className="grid gap-4 md:grid-cols-2">
-        <div className="space-y-2">
-          <label className="text-[11px] font-semibold uppercase tracking-[0.08em] text-muted-foreground">
-            Role
-          </label>
-          <Input
-            value={props.participant.role}
-            onChange={(event) =>
-              props.onChange({
-                ...props.participant,
-                role: event.target.value,
-              })
-            }
-            placeholder="advocate"
-          />
-        </div>
-      </div>
-
-      <div className="mt-4 space-y-2">
-        <label className="text-[11px] font-semibold uppercase tracking-[0.08em] text-muted-foreground">
-          Description
-        </label>
-        <Textarea
-          value={props.participant.description}
-          onChange={(event) =>
-            props.onChange({
-              ...props.participant,
-              description: event.target.value,
-            })
-          }
-          placeholder="Summarize this participant's perspective."
-          className="[&_textarea]:min-h-10"
-        />
-      </div>
-
-      <div className="mt-4 grid gap-4 md:grid-cols-2">
-        <div className="space-y-2">
-          <label className="text-[11px] font-semibold uppercase tracking-[0.08em] text-muted-foreground">
-            Provider
-          </label>
-          <Select
-            value={activeProvider}
-            onValueChange={(value) => {
-              if (!value) {
-                return;
-              }
-              props.onChange({
-                ...props.participant,
-                model: {
-                  provider: value as ProviderKind,
-                  model:
-                    props.modelOptionsByProvider[value as ProviderKind][0]?.slug ?? activeModel,
-                } satisfies ModelSelection,
-              });
-            }}
-          >
-            <SelectTrigger>{PROVIDER_DISPLAY_NAMES[activeProvider]}</SelectTrigger>
-            <SelectPopup>
-              {props.availableProviders.map((provider) => (
-                <SelectItem key={provider} value={provider}>
-                  {PROVIDER_DISPLAY_NAMES[provider]}
-                </SelectItem>
-              ))}
-            </SelectPopup>
-          </Select>
-        </div>
-
-        <div className="space-y-2">
-          <label className="text-[11px] font-semibold uppercase tracking-[0.08em] text-muted-foreground">
-            Model
-          </label>
-          <Select
-            value={activeModel}
-            onValueChange={(value) => {
-              if (!value) {
-                return;
-              }
-              props.onChange({
-                ...props.participant,
-                model: {
-                  provider: activeProvider,
-                  model: value,
-                } satisfies ModelSelection,
-              });
-            }}
-          >
-            <SelectTrigger>
-              {props.modelOptionsByProvider[activeProvider].find(
-                (model) => model.slug === activeModel,
-              )?.name ?? activeModel}
-            </SelectTrigger>
-            <SelectPopup>
-              {props.modelOptionsByProvider[activeProvider].map((modelOption) => (
-                <SelectItem key={modelOption.slug} value={modelOption.slug}>
-                  {modelOption.name}
-                </SelectItem>
-              ))}
-            </SelectPopup>
-          </Select>
-        </div>
-      </div>
-
-      <div className="mt-4 space-y-2">
-        <label className="text-[11px] font-semibold uppercase tracking-[0.08em] text-muted-foreground">
-          System prompt
-        </label>
-        <Textarea
-          value={props.participant.system}
-          onChange={(event) =>
-            props.onChange({
-              ...props.participant,
-              system: event.target.value,
-            })
-          }
-          className="min-h-40"
-          placeholder="Tell this participant how to behave in the discussion."
-        />
-      </div>
-    </section>
   );
 }

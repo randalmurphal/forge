@@ -1,6 +1,6 @@
 import type { ReactNode } from "react";
 import type { Project } from "../types";
-import type { WorkflowDefinition, WorkflowId } from "@forgetools/contracts";
+import type { WorkflowDefinition, WorkflowId, WorkflowPhase } from "@forgetools/contracts";
 import type { WorkflowEditScope } from "../stores/workflowStore";
 import { Link2Icon, PlusIcon, SaveIcon, SparklesIcon } from "lucide-react";
 import { cn } from "~/lib/utils";
@@ -9,6 +9,36 @@ import { Button } from "./ui/button";
 import { Input } from "./ui/input";
 import { SidebarTrigger } from "./ui/sidebar";
 import { Textarea } from "./ui/textarea";
+
+/**
+ * Color mapping from phase type to a Tailwind dot color for sidebar indicators.
+ * Matches the tone colors from PhaseTypeBadge: sky (single), amber (multi),
+ * emerald (automated), violet (human).
+ */
+const PHASE_TYPE_DOT_COLOR: Record<WorkflowPhase["type"], string> = {
+  "single-agent": "bg-sky-400",
+  "multi-agent": "bg-amber-400",
+  automated: "bg-emerald-400",
+  human: "bg-violet-400",
+};
+
+function ScopeBadge({ label }: { label: string }) {
+  const isProject = label.toLowerCase() === "project";
+  return (
+    <span
+      className={cn(
+        "rounded-full px-1.5 py-0.5 text-[9px] font-semibold uppercase leading-none tracking-[0.04em]",
+        isProject
+          ? "bg-amber-500/12 text-amber-400"
+          : label.toLowerCase() === "built-in"
+            ? "bg-emerald-500/12 text-emerald-400"
+            : "bg-blue-500/12 text-blue-400",
+      )}
+    >
+      {label}
+    </span>
+  );
+}
 
 export function WorkflowEditorShell(props: {
   children?: ReactNode;
@@ -36,28 +66,45 @@ export function WorkflowEditorShell(props: {
 }
 
 export function WorkflowEditorTopBar(props: {
+  workflowName: string;
+  scopeLabel: string;
+  isExisting: boolean;
   onCreateNew: () => void;
   onSave: () => void;
+  onDelete?: () => void;
   saveDisabled: boolean;
   savePending: boolean;
+  deleteDisabled?: boolean;
 }) {
   return (
-    <header className="border-b border-border px-3 py-2 sm:px-5">
-      <div className="flex flex-wrap items-center gap-2">
-        <div className="min-w-0 flex-1">
-          <p className="text-sm font-medium text-foreground">Workflows</p>
-          <p className="text-xs text-muted-foreground">
-            Build list-based workflows with phase gates, deliberation, and retry behavior.
-          </p>
+    <header className="border-b border-border px-4 py-3 sm:px-6">
+      <div className="flex items-center justify-between gap-4">
+        <div className="flex min-w-0 items-baseline gap-2.5">
+          <h1 className="truncate text-lg font-semibold text-foreground">
+            {props.workflowName || "New workflow"}
+          </h1>
+          <ScopeBadge label={props.scopeLabel} />
         </div>
-        <Button type="button" variant="outline" onClick={props.onCreateNew}>
-          <PlusIcon className="size-4" />
-          New workflow
-        </Button>
-        <Button type="button" onClick={props.onSave} disabled={props.saveDisabled}>
-          <SaveIcon className="size-4" />
-          {props.savePending ? "Saving…" : "Save"}
-        </Button>
+        <div className="flex items-center gap-1.5">
+          {props.isExisting && props.onDelete ? (
+            <button
+              type="button"
+              onClick={props.onDelete}
+              disabled={props.deleteDisabled}
+              className="rounded-md px-2.5 py-1.5 text-xs font-medium text-muted-foreground/60 transition-colors hover:text-red-400 disabled:pointer-events-none disabled:opacity-50"
+            >
+              Delete
+            </button>
+          ) : null}
+          <Button type="button" size="sm" variant="outline" onClick={props.onCreateNew}>
+            <PlusIcon className="size-3.5" />
+            New
+          </Button>
+          <Button type="button" size="sm" onClick={props.onSave} disabled={props.saveDisabled}>
+            <SaveIcon className="size-3.5" />
+            {props.savePending ? "Saving…" : "Save"}
+          </Button>
+        </div>
       </div>
     </header>
   );
@@ -72,45 +119,64 @@ export function WorkflowEditorSidebar(props: {
   return (
     <aside className="min-h-0 border-b border-border/70 bg-card/50 lg:border-r lg:border-b-0">
       <div className="flex items-center justify-between border-b border-border/70 px-4 py-3">
-        <div>
-          <p className="text-xs font-semibold uppercase tracking-[0.08em] text-muted-foreground">
-            Workflows
-          </p>
-          <p className="text-xs text-muted-foreground">Built-in, then project, then global.</p>
-        </div>
+        <span className="text-[11px] font-semibold uppercase tracking-[0.06em] text-muted-foreground/60">
+          Workflows
+        </span>
         <Button type="button" size="xs" variant="outline" onClick={props.onCreateNew}>
           <PlusIcon className="size-3.5" />
           New
         </Button>
       </div>
       <div className="max-h-64 overflow-y-auto px-2 py-2 lg:h-full lg:max-h-none">
-        <div className="space-y-1">
+        <div className="flex flex-col gap-0.5">
           {props.workflows.map((workflow) => {
             const active = props.activeWorkflowId === workflow.id;
             const scopeLabel = resolveWorkflowScopeLabel(workflow);
+            const phaseTypes = workflow.phases.map((phase) => phase.type);
+            const uniquePhaseTypes = [...new Set(phaseTypes)];
             return (
-              <Button
+              <button
                 key={workflow.id}
                 type="button"
-                variant="ghost"
                 className={cn(
-                  "h-auto w-full justify-start rounded-xl px-3 py-3 text-left",
-                  active && "bg-accent text-foreground",
+                  "w-full cursor-pointer rounded-[10px] border px-3 py-2.5 text-left transition-all",
+                  active ? "border-border bg-[#1c1c20]" : "border-transparent hover:bg-[#1c1c20]",
                 )}
                 onClick={() => props.onSelectWorkflow(workflow.id)}
               >
-                <div className="min-w-0">
-                  <div className="flex items-center gap-2">
-                    <span className="truncate font-medium">{workflow.name}</span>
-                    <span className="rounded-full border border-border/70 bg-background px-2 py-0.5 text-[10px] uppercase tracking-[0.08em] text-muted-foreground">
-                      {scopeLabel}
-                    </span>
-                  </div>
-                  <p className="mt-1 line-clamp-2 text-xs text-muted-foreground">
-                    {workflow.description || "No description"}
-                  </p>
+                <div className="flex items-center gap-2">
+                  <span className="truncate text-[13px] font-medium text-foreground">
+                    {workflow.name || "Untitled"}
+                  </span>
+                  <ScopeBadge label={scopeLabel} />
                 </div>
-              </Button>
+                {uniquePhaseTypes.length > 0 ? (
+                  <div className="mt-1 flex items-center gap-1 text-[11px] text-muted-foreground/60">
+                    {uniquePhaseTypes.map((phaseType, index) => (
+                      <span key={phaseType} className="inline-flex items-center gap-1">
+                        {index > 0 ? <span className="text-border">·</span> : null}
+                        <span
+                          className={cn(
+                            "inline-block size-[5px] shrink-0 rounded-full",
+                            PHASE_TYPE_DOT_COLOR[phaseType],
+                          )}
+                        />
+                        <span>
+                          {phaseType === "single-agent"
+                            ? "single"
+                            : phaseType === "multi-agent"
+                              ? "delib"
+                              : phaseType}
+                        </span>
+                      </span>
+                    ))}
+                  </div>
+                ) : (
+                  <p className="mt-1 truncate text-[11px] text-muted-foreground/60">
+                    {workflow.description || "No phases"}
+                  </p>
+                )}
+              </button>
             );
           })}
         </div>
@@ -140,107 +206,107 @@ export function WorkflowEditorBasicsSection(props: {
     props.draft?.id === props.sourceWorkflow.id;
 
   return (
-    <section className="rounded-2xl border border-border/80 bg-card/90 shadow-sm">
-      <div className="grid gap-5 border-b border-border/70 px-4 py-4 sm:px-5 lg:grid-cols-[minmax(0,1fr)_18rem]">
-        <div className="space-y-4">
-          <div className="space-y-2">
-            <label className="text-[11px] font-semibold uppercase tracking-[0.08em] text-muted-foreground">
-              Name
-            </label>
-            <Input
-              value={props.draft?.name ?? ""}
-              onChange={(event) => props.onDraftNameChange(event.target.value)}
-              placeholder="build-with-review"
-              disabled={props.disabled}
-            />
-          </div>
-
-          <div className="space-y-2">
-            <label className="text-[11px] font-semibold uppercase tracking-[0.08em] text-muted-foreground">
-              Description
-            </label>
-            <Textarea
-              value={props.draft?.description ?? ""}
-              onChange={(event) => props.onDraftDescriptionChange(event.target.value)}
-              placeholder="Describe what this workflow optimizes for."
-              className="min-h-24"
-              disabled={props.disabled}
-            />
-          </div>
+    <div className="space-y-5">
+      {/* Identity row: name + scope inline */}
+      <div className="flex items-end gap-3.5">
+        <div className="min-w-0 flex-1 max-w-56 space-y-1">
+          <label className="text-[11px] font-medium uppercase tracking-[0.04em] text-muted-foreground/60">
+            Name
+          </label>
+          <Input
+            value={props.draft?.name ?? ""}
+            onChange={(event) => props.onDraftNameChange(event.target.value)}
+            placeholder="build-with-review"
+            disabled={props.disabled}
+          />
         </div>
-
-        <div className="space-y-4 rounded-2xl border border-border/70 bg-background/60 p-4">
-          <div className="space-y-2">
-            <p className="text-[11px] font-semibold uppercase tracking-[0.08em] text-muted-foreground">
-              Scope
-            </p>
-            <div className="flex gap-2">
-              <Button
-                type="button"
-                size="sm"
-                variant={props.scope === "global" ? "secondary" : "outline"}
-                onClick={() => props.onScopeChange("global")}
-                disabled={props.disabled}
-              >
-                Global
-              </Button>
-              <Button
-                type="button"
-                size="sm"
-                variant={props.scope === "project" ? "secondary" : "outline"}
-                onClick={props.onProjectScopeRequest}
-                disabled={props.disabled || props.projects.length === 0}
-              >
-                This project
-              </Button>
-            </div>
-            <p className="text-xs text-muted-foreground">
-              {props.scope === "project"
-                ? props.currentProject
-                  ? `Selected project: ${props.currentProject.name}`
-                  : "No project is available yet."
-                : "Available across every project."}
-            </p>
+        <div className="space-y-1">
+          <span className="text-[11px] font-medium uppercase tracking-[0.04em] text-muted-foreground/60">
+            Scope
+          </span>
+          <div className="flex overflow-hidden rounded-lg border border-border bg-[#1c1c20]">
+            <button
+              type="button"
+              onClick={() => props.onScopeChange("global")}
+              disabled={props.disabled}
+              className={cn(
+                "px-3.5 py-[7px] text-xs font-medium transition-all whitespace-nowrap",
+                props.scope === "global"
+                  ? "bg-blue-500 text-white"
+                  : "bg-transparent text-muted-foreground/60 hover:text-muted-foreground disabled:pointer-events-none disabled:opacity-50",
+              )}
+            >
+              Global
+            </button>
+            <button
+              type="button"
+              onClick={props.onProjectScopeRequest}
+              disabled={props.disabled || props.projects.length === 0}
+              className={cn(
+                "px-3.5 py-[7px] text-xs font-medium transition-all whitespace-nowrap",
+                props.scope === "project"
+                  ? "bg-blue-500 text-white"
+                  : "bg-transparent text-muted-foreground/60 hover:text-muted-foreground disabled:pointer-events-none disabled:opacity-50",
+              )}
+            >
+              Project
+            </button>
           </div>
-
-          <div className="space-y-2">
-            <p className="text-[11px] font-semibold uppercase tracking-[0.08em] text-muted-foreground">
-              Status
-            </p>
-            <div className="rounded-xl border border-border/70 bg-card px-3 py-2 text-sm">
-              {props.draftDirty ? "Unsaved changes" : "Saved"}
-            </div>
-          </div>
-
-          {isReadOnlyBuiltIn ? (
-            <div className="space-y-3 rounded-xl border border-amber-500/20 bg-amber-500/10 px-3 py-3">
-              <div className="space-y-1">
-                <p className="text-sm font-medium text-foreground">Built-in workflow</p>
-                <p className="text-xs text-muted-foreground">
-                  Clone it before editing so the shipped template stays read-only.
-                </p>
-              </div>
-              <Button type="button" variant="outline" onClick={props.onCloneBuiltIn}>
-                <SparklesIcon className="size-4" />
-                Clone to edit
-              </Button>
-            </div>
-          ) : null}
-
-          {props.draftDirty && props.validationMessage ? (
-            <div className="rounded-xl border border-amber-500/20 bg-amber-500/10 px-3 py-2 text-sm text-amber-700 dark:text-amber-300">
-              {props.validationMessage}
-            </div>
-          ) : null}
         </div>
       </div>
-    </section>
+
+      {/* Scope detail */}
+      {props.scope === "project" ? (
+        <p className="text-xs text-muted-foreground">
+          {props.currentProject ? `Project: ${props.currentProject.name}` : "No project available."}
+        </p>
+      ) : null}
+
+      {/* Description */}
+      <div className="space-y-1">
+        <label className="text-[11px] font-medium uppercase tracking-[0.04em] text-muted-foreground/60">
+          Description
+        </label>
+        <Textarea
+          value={props.draft?.description ?? ""}
+          onChange={(event) => props.onDraftDescriptionChange(event.target.value)}
+          placeholder="Describe what this workflow optimizes for."
+          className="[&_textarea]:min-h-10"
+          disabled={props.disabled}
+        />
+      </div>
+
+      {/* Compact alerts area */}
+      {isReadOnlyBuiltIn ? (
+        <div className="flex items-center gap-3 rounded-lg border border-amber-500/20 bg-amber-500/10 px-3 py-2.5">
+          <div className="min-w-0 flex-1">
+            <p className="text-sm font-medium text-foreground">Built-in workflow</p>
+            <p className="text-xs text-muted-foreground">
+              Clone before editing so the template stays read-only.
+            </p>
+          </div>
+          <Button type="button" size="sm" variant="outline" onClick={props.onCloneBuiltIn}>
+            <SparklesIcon className="size-3.5" />
+            Clone
+          </Button>
+        </div>
+      ) : null}
+
+      {props.draftDirty && props.validationMessage ? (
+        <div className="rounded-lg border border-amber-500/20 bg-amber-500/10 px-3 py-2 text-sm text-amber-700 dark:text-amber-300">
+          {props.validationMessage}
+        </div>
+      ) : null}
+
+      {/* Section divider */}
+      <div className="h-px bg-border" />
+    </div>
   );
 }
 
 export function WorkflowEditorFootnote() {
   return (
-    <section className="rounded-2xl border border-border/70 bg-card/70 px-4 py-4 text-sm text-muted-foreground shadow-sm sm:px-5">
+    <section className="rounded-xl border border-border/70 bg-card/70 px-4 py-3.5 text-sm text-muted-foreground shadow-sm sm:px-5">
       <div className="flex items-start gap-3">
         <Link2Icon className="mt-0.5 size-4 shrink-0" />
         <p>
