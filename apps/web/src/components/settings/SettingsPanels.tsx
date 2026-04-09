@@ -60,9 +60,11 @@ import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
 import { ProjectFavicon } from "../ProjectFavicon";
 import {
   useServerAvailableEditors,
+  useServerConfig,
   useServerKeybindingsConfigPath,
   useServerObservability,
   useServerProviders,
+  useServerSettingsPath,
 } from "../../rpc/serverState";
 
 const THEME_OPTIONS = [
@@ -526,9 +528,10 @@ export function GeneralSettingsPanel() {
   const [openingPathByTarget, setOpeningPathByTarget] = useState({
     keybindings: false,
     logsDirectory: false,
+    settings: false,
   });
   const [openPathErrorByTarget, setOpenPathErrorByTarget] = useState<
-    Partial<Record<"keybindings" | "logsDirectory", string | null>>
+    Partial<Record<"keybindings" | "logsDirectory" | "settings", string | null>>
   >({});
   const [openProviderDetails, setOpenProviderDetails] = useState<Record<ProviderKind, boolean>>({
     codex: Boolean(
@@ -569,10 +572,16 @@ export function GeneralSettingsPanel() {
       });
   }, []);
 
+  const serverConfig = useServerConfig();
   const keybindingsConfigPath = useServerKeybindingsConfigPath();
+  const settingsPath = useServerSettingsPath();
   const availableEditors = useServerAvailableEditors();
   const observability = useServerObservability();
   const serverProviders = useServerProviders();
+  const appearanceIssues = useMemo(
+    () => serverConfig?.issues.filter((issue) => issue.kind.startsWith("appearance.")) ?? [],
+    [serverConfig?.issues],
+  );
   const codexHomePath = settings.providers.codex.homePath;
   const logsDirectoryPath = observability?.logsDirectoryPath ?? null;
   const diagnosticsDescription = (() => {
@@ -603,7 +612,11 @@ export function GeneralSettingsPanel() {
   );
 
   const openInPreferredEditor = useCallback(
-    (target: "keybindings" | "logsDirectory", path: string | null, failureMessage: string) => {
+    (
+      target: "keybindings" | "logsDirectory" | "settings",
+      path: string | null,
+      failureMessage: string,
+    ) => {
       if (!path) return;
       setOpenPathErrorByTarget((existing) => ({ ...existing, [target]: null }));
       setOpeningPathByTarget((existing) => ({ ...existing, [target]: true }));
@@ -641,10 +654,16 @@ export function GeneralSettingsPanel() {
     openInPreferredEditor("logsDirectory", logsDirectoryPath, "Unable to open logs folder.");
   }, [logsDirectoryPath, openInPreferredEditor]);
 
+  const openSettingsFile = useCallback(() => {
+    openInPreferredEditor("settings", settingsPath, "Unable to open settings file.");
+  }, [openInPreferredEditor, settingsPath]);
+
   const openKeybindingsError = openPathErrorByTarget.keybindings ?? null;
   const openDiagnosticsError = openPathErrorByTarget.logsDirectory ?? null;
+  const openSettingsError = openPathErrorByTarget.settings ?? null;
   const isOpeningKeybindings = openingPathByTarget.keybindings;
   const isOpeningLogsDirectory = openingPathByTarget.logsDirectory;
+  const isOpeningSettings = openingPathByTarget.settings;
 
   const addCustomModel = useCallback(
     (provider: ProviderKind) => {
@@ -1448,6 +1467,47 @@ export function GeneralSettingsPanel() {
       </SettingsSection>
 
       <SettingsSection title="Advanced">
+        <SettingsRow
+          title="Appearance"
+          description="Open the persisted `settings.json` file to edit appearance and typography tokens directly."
+          status={
+            <>
+              <span className="block break-all font-mono text-[11px] text-foreground">
+                {settingsPath ?? "Resolving settings path..."}
+              </span>
+              {appearanceIssues.length > 0 ? (
+                <span className="mt-1 block space-y-1">
+                  {appearanceIssues.map((issue) => (
+                    <span
+                      key={`${issue.kind}:${"path" in issue ? issue.path : issue.message}`}
+                      className="block text-destructive"
+                    >
+                      {issue.kind === "appearance.invalid-entry"
+                        ? `${issue.path}: ${issue.message}`
+                        : issue.message}
+                    </span>
+                  ))}
+                </span>
+              ) : openSettingsError ? (
+                <span className="mt-1 block text-destructive">{openSettingsError}</span>
+              ) : (
+                <span className="mt-1 block">
+                  Changes reload automatically when the file is saved.
+                </span>
+              )}
+            </>
+          }
+          control={
+            <Button
+              size="xs"
+              variant="outline"
+              disabled={!settingsPath || isOpeningSettings}
+              onClick={openSettingsFile}
+            >
+              {isOpeningSettings ? "Opening..." : "Open file"}
+            </Button>
+          }
+        />
         <SettingsRow
           title="Keybindings"
           description="Open the persisted `keybindings.json` file to edit advanced bindings directly."

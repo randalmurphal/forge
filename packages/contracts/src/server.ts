@@ -24,9 +24,22 @@ const KeybindingsInvalidEntryIssue = Schema.Struct({
   index: Schema.Number,
 });
 
+const AppearanceMalformedConfigIssue = Schema.Struct({
+  kind: Schema.Literal("appearance.malformed-config"),
+  message: TrimmedNonEmptyString,
+});
+
+const AppearanceInvalidEntryIssue = Schema.Struct({
+  kind: Schema.Literal("appearance.invalid-entry"),
+  message: TrimmedNonEmptyString,
+  path: TrimmedNonEmptyString,
+});
+
 export const ServerConfigIssue = Schema.Union([
   KeybindingsMalformedConfigIssue,
   KeybindingsInvalidEntryIssue,
+  AppearanceMalformedConfigIssue,
+  AppearanceInvalidEntryIssue,
 ]);
 export type ServerConfigIssue = typeof ServerConfigIssue.Type;
 
@@ -86,6 +99,7 @@ export type ServerObservability = typeof ServerObservability.Type;
 export const ServerConfig = Schema.Struct({
   cwd: TrimmedNonEmptyString,
   keybindingsConfigPath: TrimmedNonEmptyString,
+  settingsPath: TrimmedNonEmptyString,
   keybindings: ResolvedKeybindingsConfig,
   issues: ServerConfigIssues,
   providers: ServerProviders,
@@ -123,6 +137,7 @@ export const ServerConfigProviderStatusesPayload = Schema.Struct({
 export type ServerConfigProviderStatusesPayload = typeof ServerConfigProviderStatusesPayload.Type;
 
 export const ServerConfigSettingsUpdatedPayload = Schema.Struct({
+  issues: ServerConfigIssues,
   settings: ServerSettings,
 });
 export type ServerConfigSettingsUpdatedPayload = typeof ServerConfigSettingsUpdatedPayload.Type;

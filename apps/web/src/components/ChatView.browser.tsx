@@ -122,6 +122,7 @@ function createBaseServerConfig(): ServerConfig {
   return {
     cwd: "/repo/project",
     keybindingsConfigPath: "/repo/project/.forge/keybindings.json",
+    settingsPath: "/repo/project/.forge/settings.json",
     keybindings: [],
     issues: [],
     providers: [

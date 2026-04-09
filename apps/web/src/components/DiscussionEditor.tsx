@@ -39,17 +39,13 @@ import { Select, SelectItem, SelectPopup, SelectTrigger } from "./ui/select";
 import { Textarea } from "./ui/textarea";
 import { toastManager } from "./ui/toast";
 import { cn } from "~/lib/utils";
+import { useTheme } from "~/hooks/useTheme";
+import { resolveDiscussionScopeColor, resolveRolePalette } from "~/lib/appearance";
 
 const ALL_PROJECTS_VALUE = ALL_PROJECTS_DISCUSSION_FILTER;
 
-/**
- * Color cycle for participant cards and dots.
- * Blue, rose, amber, green — matches the design reference.
- */
-const PARTICIPANT_COLORS = ["#3b82f6", "#e54988", "#d99129", "#22a85a"];
-
-function participantColor(index: number): string {
-  return PARTICIPANT_COLORS[index % PARTICIPANT_COLORS.length] ?? PARTICIPANT_COLORS[0]!;
+function participantColor(index: number, palette: readonly string[]): string {
+  return palette[index % palette.length] ?? palette[0]!;
 }
 
 type RenderedDiscussionSummary = {
@@ -173,6 +169,7 @@ export function DiscussionEditor(props: {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
   const settings = useSettings();
+  const { resolvedTheme } = useTheme();
   const serverConfig = useServerConfig();
   const projects = useStore((store) => store.projects);
   const projectOrder = useUiStateStore((store) => store.projectOrder);
@@ -231,6 +228,10 @@ export function DiscussionEditor(props: {
   const selectableProviders =
     availableProviders.length > 0 ? availableProviders : [fallbackModelSelection.provider];
   const modelOptionsByProvider = getCustomModelOptionsByProvider(settings, providers);
+  const rolePalette = useMemo(
+    () => resolveRolePalette(settings, resolvedTheme),
+    [resolvedTheme, settings],
+  );
   const globalDiscussionsQuery = useQuery(discussionManagedListQueryOptions());
   const selectedProjectDiscussionsQuery = useQuery({
     ...discussionManagedListQueryOptions(filterProject?.cwd),
@@ -518,12 +519,15 @@ export function DiscussionEditor(props: {
                 {draft?.name || "New discussion"}
               </h1>
               <span
-                className={cn(
-                  "rounded-full px-1.5 py-0.5 text-[9px] font-semibold uppercase leading-none tracking-[0.04em]",
-                  editorScope === "global"
-                    ? "bg-blue-500/12 text-blue-400"
-                    : "bg-amber-500/12 text-amber-400",
-                )}
+                className="rounded-full px-1.5 py-0.5 text-[9px] font-semibold uppercase leading-none tracking-[0.04em]"
+                style={{
+                  backgroundColor: `color-mix(in srgb, ${resolveDiscussionScopeColor(
+                    settings,
+                    resolvedTheme,
+                    editorScope,
+                  )} 12%, transparent)`,
+                  color: resolveDiscussionScopeColor(settings, resolvedTheme, editorScope),
+                }}
               >
                 {scopeBadgeLabel}
               </span>
@@ -534,7 +538,7 @@ export function DiscussionEditor(props: {
                   type="button"
                   onClick={() => void deleteMutation.mutateAsync()}
                   disabled={deleteMutation.isPending}
-                  className="rounded-md px-2.5 py-1.5 text-xs font-medium text-muted-foreground/60 transition-colors hover:text-red-400 disabled:pointer-events-none disabled:opacity-50"
+                  className="rounded-md px-2.5 py-1.5 text-xs font-medium text-muted-foreground/60 transition-colors hover:text-destructive disabled:pointer-events-none disabled:opacity-50"
                 >
                   Delete
                 </button>
@@ -617,8 +621,8 @@ export function DiscussionEditor(props: {
                         className={cn(
                           "w-full cursor-pointer rounded-[10px] border px-3 py-2.5 text-left transition-all",
                           active
-                            ? "border-border bg-[#1c1c20]"
-                            : "border-transparent hover:bg-[#1c1c20]",
+                            ? "border-border bg-[var(--panel-elevated)]"
+                            : "border-transparent hover:bg-[var(--panel-elevated)]",
                         )}
                         onClick={() =>
                           void navigateToDiscussionDetail({
@@ -635,12 +639,19 @@ export function DiscussionEditor(props: {
                             {discussion.name}
                           </span>
                           <span
-                            className={cn(
-                              "rounded-full px-1.5 py-0.5 text-[9px] font-semibold uppercase leading-none tracking-[0.04em]",
-                              discussion.scope === "global"
-                                ? "bg-blue-500/12 text-blue-400"
-                                : "bg-amber-500/12 text-amber-400",
-                            )}
+                            className="rounded-full px-1.5 py-0.5 text-[9px] font-semibold uppercase leading-none tracking-[0.04em]"
+                            style={{
+                              backgroundColor: `color-mix(in srgb, ${resolveDiscussionScopeColor(
+                                settings,
+                                resolvedTheme,
+                                discussion.scope,
+                              )} 12%, transparent)`,
+                              color: resolveDiscussionScopeColor(
+                                settings,
+                                resolvedTheme,
+                                discussion.scope,
+                              ),
+                            }}
                           >
                             {discussion.scope === "global"
                               ? "Global"
@@ -659,7 +670,7 @@ export function DiscussionEditor(props: {
                               {roleIndex > 0 ? <span className="text-border">·</span> : null}
                               <span
                                 className="inline-block size-[5px] shrink-0 rounded-full"
-                                style={{ background: participantColor(roleIndex) }}
+                                style={{ background: participantColor(roleIndex, rolePalette) }}
                               />
                               <span>{role}</span>
                             </span>
@@ -710,7 +721,7 @@ export function DiscussionEditor(props: {
                     <span className="text-[11px] font-medium uppercase tracking-[0.04em] text-muted-foreground/60">
                       Scope
                     </span>
-                    <div className="flex overflow-hidden rounded-lg border border-border bg-[#1c1c20]">
+                    <div className="flex overflow-hidden rounded-lg border border-border bg-[var(--panel-elevated)]">
                       <button
                         type="button"
                         onClick={() => {
@@ -720,9 +731,14 @@ export function DiscussionEditor(props: {
                         className={cn(
                           "px-3.5 py-[7px] text-xs font-medium transition-all whitespace-nowrap",
                           editorScope === "global"
-                            ? "bg-blue-500 text-white"
+                            ? "text-white"
                             : "text-muted-foreground/60 hover:text-muted-foreground",
                         )}
+                        style={
+                          editorScope === "global"
+                            ? { backgroundColor: "var(--feature-discussion-global)" }
+                            : undefined
+                        }
                       >
                         Global
                       </button>
@@ -736,9 +752,14 @@ export function DiscussionEditor(props: {
                         className={cn(
                           "px-3.5 py-[7px] text-xs font-medium transition-all whitespace-nowrap",
                           editorScope === "project"
-                            ? "bg-blue-500 text-white"
+                            ? "text-white"
                             : "text-muted-foreground/60 hover:text-muted-foreground disabled:pointer-events-none disabled:opacity-50",
                         )}
+                        style={
+                          editorScope === "project"
+                            ? { backgroundColor: "var(--feature-discussion-project)" }
+                            : undefined
+                        }
                       >
                         Project
                       </button>
@@ -771,7 +792,14 @@ export function DiscussionEditor(props: {
 
                 {/* Validation message */}
                 {validationMessage ? (
-                  <div className="rounded-lg border border-amber-500/20 bg-amber-500/10 px-3 py-2 text-sm text-amber-700 dark:text-amber-300">
+                  <div
+                    className="rounded-lg border px-3 py-2 text-sm"
+                    style={{
+                      borderColor: "color-mix(in srgb, var(--warning) 20%, transparent)",
+                      backgroundColor: "color-mix(in srgb, var(--warning) 10%, transparent)",
+                      color: "var(--warning-foreground)",
+                    }}
+                  >
                     {validationMessage}
                   </div>
                 ) : null}
@@ -785,7 +813,7 @@ export function DiscussionEditor(props: {
                     <span className="text-[11px] font-semibold uppercase tracking-[0.06em] text-muted-foreground/60">
                       Participants
                     </span>
-                    <div className="flex items-center gap-1.5 rounded-full border border-border bg-[#151518] px-2.5 py-1 text-[11px] text-muted-foreground/60">
+                    <div className="flex items-center gap-1.5 rounded-full border border-border bg-[var(--panel)] px-2.5 py-1 text-[11px] text-muted-foreground/60">
                       <span>max</span>
                       <input
                         type="number"
@@ -810,7 +838,7 @@ export function DiscussionEditor(props: {
                 {/* ── Participant card strip ── */}
                 <div className="flex gap-2">
                   {draft.participants.map((participant, index) => {
-                    const color = participantColor(index);
+                    const color = participantColor(index, rolePalette);
                     const isActive = clampedIndex === index;
                     const providerKey =
                       participant.model?.provider ?? fallbackModelSelection.provider;
@@ -825,11 +853,19 @@ export function DiscussionEditor(props: {
                         type="button"
                         onClick={() => setSelectedParticipantIndex(index)}
                         className={cn(
-                          "relative min-w-0 flex-1 cursor-pointer overflow-hidden rounded-xl border bg-[#151518] p-3.5 pt-4 text-left transition-all",
+                          "relative min-w-0 flex-1 cursor-pointer overflow-hidden rounded-xl border bg-[var(--panel)] p-3.5 pt-4 text-left transition-all",
                           isActive
-                            ? "border-white/8 bg-[#1c1c20] shadow-[0_1px_3px_rgba(0,0,0,.3),0_4px_12px_rgba(0,0,0,.2)]"
-                            : "border-border hover:bg-[#1c1c20]",
+                            ? "bg-[var(--panel-elevated)]"
+                            : "border-border hover:bg-[var(--panel-elevated)]",
                         )}
+                        style={
+                          isActive
+                            ? {
+                                borderColor: `color-mix(in srgb, ${color} 30%, transparent)`,
+                                boxShadow: "var(--panel-shadow-active)",
+                              }
+                            : undefined
+                        }
                       >
                         {/* Color stripe */}
                         <div
@@ -874,7 +910,7 @@ export function DiscussionEditor(props: {
                       }));
                       setSelectedParticipantIndex(participantCount);
                     }}
-                    className="flex w-12 shrink-0 cursor-pointer items-center justify-center rounded-xl border-[1.5px] border-dashed border-border text-xl text-muted-foreground/60 transition-all hover:border-muted-foreground/60 hover:bg-[#151518] hover:text-muted-foreground"
+                    className="flex w-12 shrink-0 cursor-pointer items-center justify-center rounded-xl border-[1.5px] border-dashed border-border text-xl text-muted-foreground/60 transition-all hover:border-muted-foreground/60 hover:bg-[var(--panel)] hover:text-muted-foreground"
                     title="Add participant"
                   >
                     +
@@ -886,7 +922,7 @@ export function DiscussionEditor(props: {
                   <div className="relative">
                     {/* Connector nub */}
                     <div
-                      className="absolute -top-1.5 z-10 size-3 rotate-45 border border-b-0 border-r-0 border-border bg-[#151518] transition-[left] duration-200 ease-out"
+                      className="absolute -top-1.5 z-10 size-3 rotate-45 border border-b-0 border-r-0 border-border bg-[var(--panel)] transition-[left] duration-200 ease-out"
                       style={{
                         left:
                           participantCount <= 1
@@ -894,13 +930,16 @@ export function DiscussionEditor(props: {
                             : `calc(${((clampedIndex + 0.5) / (participantCount + 0.6)) * 100}% - 6px)`,
                       }}
                     />
-                    <div className="rounded-xl border border-border bg-[#151518] p-5 shadow-[0_2px_8px_rgba(0,0,0,.15)]">
+                    <div
+                      className="rounded-xl border border-border bg-[var(--panel)] p-5"
+                      style={{ boxShadow: "var(--panel-shadow)" }}
+                    >
                       {/* Editor header */}
                       <div className="mb-4 flex items-center justify-between">
                         <span className="flex items-center gap-2 text-[13px] font-medium text-muted-foreground">
                           <span
                             className="inline-block size-[7px] shrink-0 rounded-full"
-                            style={{ background: participantColor(clampedIndex) }}
+                            style={{ background: participantColor(clampedIndex, rolePalette) }}
                           />
                           {selectedParticipant.role || `participant-${clampedIndex + 1}`}
                         </span>
@@ -917,7 +956,7 @@ export function DiscussionEditor(props: {
                             setSelectedParticipantIndex(Math.max(0, removedIndex - 1));
                           }}
                           disabled={participantCount <= 2}
-                          className="rounded-md px-2 py-1 text-[11px] font-medium text-muted-foreground/60 transition-colors hover:text-red-400 disabled:pointer-events-none disabled:opacity-50"
+                          className="rounded-md px-2 py-1 text-[11px] font-medium text-muted-foreground/60 transition-colors hover:text-destructive disabled:pointer-events-none disabled:opacity-50"
                         >
                           Remove
                         </button>

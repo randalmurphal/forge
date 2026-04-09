@@ -20,6 +20,9 @@ import {
 import { ClaudeAI, OpenAI, type Icon } from "../Icons";
 import { cn } from "~/lib/utils";
 import { getProviderSnapshot } from "../../providerModels";
+import { useTheme } from "~/hooks/useTheme";
+import { useSettings } from "~/hooks/useSettings";
+import { resolveProviderAccentColor } from "~/lib/appearance";
 import { useComposerDraftStore } from "../../composerDraftStore";
 import { useWorkflowStore, useWorkflows } from "../../stores/workflowStore";
 import { useDiscussionStore, useDiscussions } from "../../stores/discussionStore";
@@ -42,10 +45,6 @@ const PROVIDER_ICON_BY_PROVIDER: Record<ProviderPickerKind, Icon> = {
   cursor: ClaudeAI, // unused but satisfies the record type
 };
 
-function providerIconClassName(provider: ProviderKind | ProviderPickerKind): string {
-  return provider === "claudeAgent" ? "text-[#d97757]" : "text-muted-foreground/70";
-}
-
 export const UnifiedThreadPicker = memo(function UnifiedThreadPicker(props: {
   threadId: ThreadId;
   provider: ProviderKind;
@@ -59,6 +58,8 @@ export const UnifiedThreadPicker = memo(function UnifiedThreadPicker(props: {
   disabled?: boolean;
 }) {
   const [isMenuOpen, setIsMenuOpen] = useState(false);
+  const settings = useSettings((current) => current);
+  const { resolvedTheme } = useTheme();
 
   // --- Model selection state ---
   const activeProvider = props.lockedProvider ?? props.provider;
@@ -66,6 +67,17 @@ export const UnifiedThreadPicker = memo(function UnifiedThreadPicker(props: {
   const selectedModelLabel =
     selectedProviderOptions.find((option) => option.slug === props.model)?.name ?? props.model;
   const ProviderIcon = PROVIDER_ICON_BY_PROVIDER[activeProvider];
+  const providerIconStyle = (provider: ProviderKind | ProviderPickerKind) =>
+    provider === "claudeAgent"
+      ? {
+          color: resolveProviderAccentColor(
+            settings,
+            resolvedTheme,
+            "claudeAgent",
+            "var(--feature-provider-claude)",
+          ),
+        }
+      : undefined;
 
   const handleModelChange = (provider: ProviderKind, value: string) => {
     if (props.disabled) return;
@@ -242,7 +254,11 @@ export const UnifiedThreadPicker = memo(function UnifiedThreadPicker(props: {
           ) : (
             <ProviderIcon
               aria-hidden="true"
-              className={cn("size-4 shrink-0", providerIconClassName(activeProvider))}
+              className={cn(
+                "size-4 shrink-0",
+                activeProvider === "claudeAgent" ? undefined : "text-muted-foreground/70",
+              )}
+              style={providerIconStyle(activeProvider)}
             />
           )}
           <span className="min-w-0 flex-1 truncate">{triggerLabel}</span>
@@ -288,8 +304,9 @@ export const UnifiedThreadPicker = memo(function UnifiedThreadPicker(props: {
                       aria-hidden="true"
                       className={cn(
                         "size-4 shrink-0 opacity-80",
-                        providerIconClassName(option.value),
+                        option.value === "claudeAgent" ? undefined : "text-muted-foreground/70",
                       )}
+                      style={providerIconStyle(option.value)}
                     />
                     <span>{option.label}</span>
                     <span className="ms-auto text-[11px] text-muted-foreground/80 uppercase tracking-[0.08em]">
@@ -304,7 +321,11 @@ export const UnifiedThreadPicker = memo(function UnifiedThreadPicker(props: {
                   <MenuSubTrigger>
                     <OptionIcon
                       aria-hidden="true"
-                      className={cn("size-4 shrink-0", providerIconClassName(option.value))}
+                      className={cn(
+                        "size-4 shrink-0",
+                        option.value === "claudeAgent" ? undefined : "text-muted-foreground/70",
+                      )}
+                      style={providerIconStyle(option.value)}
                     />
                     {option.label}
                   </MenuSubTrigger>

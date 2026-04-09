@@ -9,8 +9,15 @@ let instance: { api: NativeApi } | null = null;
 function showConfirmFallback(message: string): Promise<boolean> {
   return new Promise<boolean>((resolve) => {
     const overlay = document.createElement("div");
-    overlay.style.cssText =
-      "position:fixed;inset:0;z-index:9999;display:flex;align-items:center;justify-content:center;background:rgba(0,0,0,0.32);backdrop-filter:blur(4px)";
+    overlay.style.position = "fixed";
+    overlay.style.inset = "0";
+    overlay.style.zIndex = "9999";
+    overlay.style.display = "flex";
+    overlay.style.alignItems = "center";
+    overlay.style.justifyContent = "center";
+    overlay.style.background =
+      "color-mix(in srgb, var(--background) 58%, color-mix(in srgb, var(--foreground) 20%, transparent))";
+    overlay.style.backdropFilter = "blur(4px)";
 
     const dialog = document.createElement("div");
     dialog.className =

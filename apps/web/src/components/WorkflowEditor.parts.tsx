@@ -10,30 +10,27 @@ import { Input } from "./ui/input";
 import { SidebarTrigger } from "./ui/sidebar";
 import { Textarea } from "./ui/textarea";
 
-/**
- * Color mapping from phase type to a Tailwind dot color for sidebar indicators.
- * Matches the tone colors from PhaseTypeBadge: sky (single), amber (multi),
- * emerald (automated), violet (human).
- */
 const PHASE_TYPE_DOT_COLOR: Record<WorkflowPhase["type"], string> = {
-  "single-agent": "bg-sky-400",
-  "multi-agent": "bg-amber-400",
-  automated: "bg-emerald-400",
-  human: "bg-violet-400",
+  "single-agent": "var(--feature-phase-single-agent)",
+  "multi-agent": "var(--feature-phase-multi-agent)",
+  automated: "var(--feature-phase-automated)",
+  human: "var(--feature-phase-human)",
 };
 
 function ScopeBadge({ label }: { label: string }) {
   const isProject = label.toLowerCase() === "project";
+  const color = isProject
+    ? "var(--feature-discussion-project)"
+    : label.toLowerCase() === "built-in"
+      ? "var(--feature-phase-automated)"
+      : "var(--feature-discussion-global)";
   return (
     <span
-      className={cn(
-        "rounded-full px-1.5 py-0.5 text-[9px] font-semibold uppercase leading-none tracking-[0.04em]",
-        isProject
-          ? "bg-amber-500/12 text-amber-400"
-          : label.toLowerCase() === "built-in"
-            ? "bg-emerald-500/12 text-emerald-400"
-            : "bg-blue-500/12 text-blue-400",
-      )}
+      className="rounded-full px-1.5 py-0.5 text-[9px] font-semibold uppercase leading-none tracking-[0.04em]"
+      style={{
+        backgroundColor: `color-mix(in srgb, ${color} 12%, transparent)`,
+        color,
+      }}
     >
       {label}
     </span>
@@ -91,7 +88,7 @@ export function WorkflowEditorTopBar(props: {
               type="button"
               onClick={props.onDelete}
               disabled={props.deleteDisabled}
-              className="rounded-md px-2.5 py-1.5 text-xs font-medium text-muted-foreground/60 transition-colors hover:text-red-400 disabled:pointer-events-none disabled:opacity-50"
+              className="rounded-md px-2.5 py-1.5 text-xs font-medium text-muted-foreground/60 transition-colors hover:text-destructive disabled:pointer-events-none disabled:opacity-50"
             >
               Delete
             </button>
@@ -140,7 +137,9 @@ export function WorkflowEditorSidebar(props: {
                 type="button"
                 className={cn(
                   "w-full cursor-pointer rounded-[10px] border px-3 py-2.5 text-left transition-all",
-                  active ? "border-border bg-[#1c1c20]" : "border-transparent hover:bg-[#1c1c20]",
+                  active
+                    ? "border-border bg-[var(--panel-elevated)]"
+                    : "border-transparent hover:bg-[var(--panel-elevated)]",
                 )}
                 onClick={() => props.onSelectWorkflow(workflow.id)}
               >
@@ -156,10 +155,8 @@ export function WorkflowEditorSidebar(props: {
                       <span key={phaseType} className="inline-flex items-center gap-1">
                         {index > 0 ? <span className="text-border">·</span> : null}
                         <span
-                          className={cn(
-                            "inline-block size-[5px] shrink-0 rounded-full",
-                            PHASE_TYPE_DOT_COLOR[phaseType],
-                          )}
+                          className="inline-block size-[5px] shrink-0 rounded-full"
+                          style={{ backgroundColor: PHASE_TYPE_DOT_COLOR[phaseType] }}
                         />
                         <span>
                           {phaseType === "single-agent"
@@ -224,7 +221,7 @@ export function WorkflowEditorBasicsSection(props: {
           <span className="text-[11px] font-medium uppercase tracking-[0.04em] text-muted-foreground/60">
             Scope
           </span>
-          <div className="flex overflow-hidden rounded-lg border border-border bg-[#1c1c20]">
+          <div className="flex overflow-hidden rounded-lg border border-border bg-[var(--panel-elevated)]">
             <button
               type="button"
               onClick={() => props.onScopeChange("global")}
@@ -232,9 +229,14 @@ export function WorkflowEditorBasicsSection(props: {
               className={cn(
                 "px-3.5 py-[7px] text-xs font-medium transition-all whitespace-nowrap",
                 props.scope === "global"
-                  ? "bg-blue-500 text-white"
+                  ? "text-white"
                   : "bg-transparent text-muted-foreground/60 hover:text-muted-foreground disabled:pointer-events-none disabled:opacity-50",
               )}
+              style={
+                props.scope === "global"
+                  ? { backgroundColor: "var(--feature-discussion-global)" }
+                  : undefined
+              }
             >
               Global
             </button>
@@ -245,9 +247,14 @@ export function WorkflowEditorBasicsSection(props: {
               className={cn(
                 "px-3.5 py-[7px] text-xs font-medium transition-all whitespace-nowrap",
                 props.scope === "project"
-                  ? "bg-blue-500 text-white"
+                  ? "text-white"
                   : "bg-transparent text-muted-foreground/60 hover:text-muted-foreground disabled:pointer-events-none disabled:opacity-50",
               )}
+              style={
+                props.scope === "project"
+                  ? { backgroundColor: "var(--feature-discussion-project)" }
+                  : undefined
+              }
             >
               Project
             </button>
@@ -278,7 +285,13 @@ export function WorkflowEditorBasicsSection(props: {
 
       {/* Compact alerts area */}
       {isReadOnlyBuiltIn ? (
-        <div className="flex items-center gap-3 rounded-lg border border-amber-500/20 bg-amber-500/10 px-3 py-2.5">
+        <div
+          className="flex items-center gap-3 rounded-lg border px-3 py-2.5"
+          style={{
+            borderColor: "color-mix(in srgb, var(--warning) 20%, transparent)",
+            backgroundColor: "color-mix(in srgb, var(--warning) 10%, transparent)",
+          }}
+        >
           <div className="min-w-0 flex-1">
             <p className="text-sm font-medium text-foreground">Built-in workflow</p>
             <p className="text-xs text-muted-foreground">
@@ -293,7 +306,14 @@ export function WorkflowEditorBasicsSection(props: {
       ) : null}
 
       {props.draftDirty && props.validationMessage ? (
-        <div className="rounded-lg border border-amber-500/20 bg-amber-500/10 px-3 py-2 text-sm text-amber-700 dark:text-amber-300">
+        <div
+          className="rounded-lg border px-3 py-2 text-sm"
+          style={{
+            borderColor: "color-mix(in srgb, var(--warning) 20%, transparent)",
+            backgroundColor: "color-mix(in srgb, var(--warning) 10%, transparent)",
+            color: "var(--warning-foreground)",
+          }}
+        >
           {props.validationMessage}
         </div>
       ) : null}

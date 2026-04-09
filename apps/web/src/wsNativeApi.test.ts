@@ -161,6 +161,7 @@ const defaultProviders: ReadonlyArray<ServerProvider> = [
 const baseServerConfig: ServerConfig = {
   cwd: "/tmp/workspace",
   keybindingsConfigPath: "/tmp/workspace/.config/keybindings.json",
+  settingsPath: "/tmp/workspace/.config/settings.json",
   keybindings: [],
   issues: [],
   providers: defaultProviders,

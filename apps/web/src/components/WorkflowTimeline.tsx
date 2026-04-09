@@ -1,5 +1,4 @@
 import { queryOptions, useQueries, useQuery } from "@tanstack/react-query";
-import { cva } from "class-variance-authority";
 import {
   CheckCircle2Icon,
   ChevronDownIcon,
@@ -11,6 +10,7 @@ import {
 } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { ThreadId, WorkflowPhase } from "@forgetools/contracts";
+import { buildToneBadgeStyle, buildToneSurfaceStyle } from "../lib/appearance";
 import { cn } from "../lib/utils";
 import { useProjectById, useThreadById, useThreadsByIds } from "../storeSelectors";
 import { useWorkflow, useWorkflowStore } from "../stores/workflowStore";
@@ -35,20 +35,13 @@ import {
 } from "./WorkflowTimeline.parts";
 import { useNavigate } from "@tanstack/react-router";
 
-const phaseStatusBadgeVariants = cva(
-  "inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-[11px] font-medium tracking-[0.08em] uppercase",
-  {
-    variants: {
-      status: {
-        completed: "border-emerald-500/30 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300",
-        failed: "border-rose-500/30 bg-rose-500/10 text-rose-700 dark:text-rose-300",
-        pending: "border-zinc-500/20 bg-zinc-500/8 text-zinc-700 dark:text-zinc-300",
-        running: "border-sky-500/30 bg-sky-500/10 text-sky-700 dark:text-sky-300",
-        skipped: "border-amber-500/25 bg-amber-500/10 text-amber-700 dark:text-amber-300",
-      },
-    },
-  },
-);
+const PHASE_STATUS_COLORS = {
+  completed: "var(--feature-phase-completed)",
+  failed: "var(--feature-phase-failed)",
+  pending: "var(--feature-phase-pending)",
+  running: "var(--feature-phase-running)",
+  skipped: "var(--feature-phase-skipped)",
+} as const;
 
 function workflowPhaseRunsQueryOptions(threadId: ThreadId) {
   return queryOptions({
@@ -102,6 +95,10 @@ function statusIconForPhase(status: string) {
 
 function workflowTimelineTranscriptPanelId(phaseRunId: string): string {
   return `workflow-timeline-transcript-${phaseRunId}`;
+}
+
+function phaseStatusBadgeStyle(status: keyof typeof PHASE_STATUS_COLORS): Record<string, string> {
+  return buildToneBadgeStyle(PHASE_STATUS_COLORS[status]);
 }
 
 export function WorkflowTimeline({ threadId }: { threadId: ThreadId }) {
@@ -284,7 +281,14 @@ export function WorkflowTimeline({ threadId }: { threadId: ThreadId }) {
   if (queryError) {
     return (
       <div className="flex h-full items-center justify-center px-6">
-        <div className="max-w-lg rounded-2xl border border-rose-500/20 bg-rose-500/8 px-5 py-4 text-sm text-rose-700 dark:text-rose-300">
+        <div
+          className="max-w-lg rounded-2xl border px-5 py-4 text-sm"
+          style={buildToneSurfaceStyle("var(--destructive)", {
+            borderPercent: 20,
+            backgroundPercent: 8,
+            textColor: "var(--destructive-foreground)",
+          })}
+        >
           {queryError.message}
         </div>
       </div>
@@ -358,9 +362,8 @@ export function WorkflowTimeline({ threadId }: { threadId: ThreadId }) {
                       <div className="min-w-0 flex-1">
                         <div className="flex flex-wrap items-center gap-2">
                           <span
-                            className={phaseStatusBadgeVariants({
-                              status: phaseItem.status,
-                            })}
+                            className="inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-[11px] font-medium tracking-[0.08em] uppercase"
+                            style={phaseStatusBadgeStyle(phaseItem.status)}
                           >
                             <StatusIcon
                               className={cn(

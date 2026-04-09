@@ -267,7 +267,7 @@ export function SidebarProjectsSection(props: {
               ref={props.addProjectInputRef}
               className={`min-w-0 flex-1 rounded-md border bg-secondary px-2 py-1 font-mono text-xs text-foreground placeholder:text-muted-foreground/40 focus:outline-none ${
                 props.addProjectError
-                  ? "border-red-500/70 focus:border-red-500"
+                  ? "border-destructive/70 focus:border-destructive"
                   : "border-border focus:border-ring"
               }`}
               placeholder="/path/to/project"
@@ -289,7 +289,7 @@ export function SidebarProjectsSection(props: {
             </button>
           </div>
           {props.addProjectError ? (
-            <p className="mt-1 px-0.5 text-[11px] leading-tight text-red-400">
+            <p className="mt-1 px-0.5 text-[11px] leading-tight text-destructive">
               {props.addProjectError}
             </p>
           ) : null}

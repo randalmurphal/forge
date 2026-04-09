@@ -1,8 +1,8 @@
 import { useMutation } from "@tanstack/react-query";
-import { cva } from "class-variance-authority";
 import { AlertCircleIcon, CheckCircle2Icon, ShieldAlertIcon, XCircleIcon } from "lucide-react";
 import { useEffect, useEffectEvent, useRef, useState } from "react";
 import type { PhaseRunId, QualityCheckResult, ThreadId } from "@forgetools/contracts";
+import { buildToneBadgeStyle } from "../lib/appearance";
 import { cn } from "../lib/utils";
 import { getWsRpcClient } from "../wsRpcClient";
 import ChatMarkdown from "./ChatMarkdown";
@@ -16,17 +16,9 @@ import {
 import { Button } from "./ui/button";
 import { Textarea } from "./ui/textarea";
 
-const gateStatusBadgeVariants = cva(
-  "inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-[11px] font-medium uppercase tracking-[0.08em]",
-  {
-    variants: {
-      tone: {
-        waiting: "border-amber-500/25 bg-amber-500/10 text-amber-700 dark:text-amber-300",
-        rejected: "border-rose-500/25 bg-rose-500/10 text-rose-700 dark:text-rose-300",
-      },
-    },
-  },
-);
+function gateStatusBadgeStyle(tone: "waiting" | "rejected"): Record<string, string> {
+  return buildToneBadgeStyle(tone === "waiting" ? "var(--warning)" : "var(--destructive)");
+}
 
 export function GateApproval(props: {
   threadId: ThreadId;
@@ -129,10 +121,18 @@ export function GateApproval(props: {
   }, []);
 
   return (
-    <section className="rounded-2xl border border-amber-500/20 bg-card/75 shadow-sm">
+    <section
+      className="rounded-2xl border bg-card/75 shadow-sm"
+      style={{
+        borderColor: "color-mix(in srgb, var(--warning) 20%, transparent)",
+      }}
+    >
       <header className="border-b border-border/70 px-4 py-4 sm:px-5">
         <div className="flex flex-wrap items-center gap-2">
-          <span className={gateStatusBadgeVariants({ tone: "waiting" })}>
+          <span
+            className="inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-[11px] font-medium uppercase tracking-[0.08em]"
+            style={gateStatusBadgeStyle("waiting")}
+          >
             <ShieldAlertIcon className="size-3.5" />
             Human Review Required
           </span>
@@ -163,7 +163,10 @@ export function GateApproval(props: {
             <ul className="space-y-2 text-sm text-foreground">
               {props.unresolvedItems.map((item) => (
                 <li key={item} className="flex gap-2">
-                  <AlertCircleIcon className="mt-0.5 size-4 shrink-0 text-amber-500" />
+                  <AlertCircleIcon
+                    className="mt-0.5 size-4 shrink-0"
+                    style={{ color: "var(--warning)" }}
+                  />
                   <span>{item}</span>
                 </li>
               ))}
@@ -179,7 +182,10 @@ export function GateApproval(props: {
             <ul className="space-y-2 text-sm text-foreground">
               {props.changesSummary.map((item) => (
                 <li key={item} className="flex gap-2">
-                  <CheckCircle2Icon className="mt-0.5 size-4 shrink-0 text-emerald-500" />
+                  <CheckCircle2Icon
+                    className="mt-0.5 size-4 shrink-0"
+                    style={{ color: "var(--success)" }}
+                  />
                   <span>{item}</span>
                 </li>
               ))}
@@ -208,10 +214,8 @@ export function GateApproval(props: {
 
           {currentError ? (
             <div
-              className={cn(
-                "rounded-lg border px-3 py-2 text-sm",
-                gateStatusBadgeVariants({ tone: "rejected" }),
-              )}
+              className={cn("rounded-lg border px-3 py-2 text-sm")}
+              style={gateStatusBadgeStyle("rejected")}
               role="alert"
             >
               <XCircleIcon className="size-4" />

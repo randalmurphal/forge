@@ -107,6 +107,9 @@ function makeMutableServerSettingsService(
       start: Effect.void,
       ready: Effect.void,
       getSettings: Ref.get(settingsRef),
+      getSettingsState: Ref.get(settingsRef).pipe(
+        Effect.map((settings) => ({ settings, issues: [] as const })),
+      ),
       updateSettings: (patch) =>
         Effect.gen(function* () {
           const current = yield* Ref.get(settingsRef);
@@ -116,6 +119,9 @@ function makeMutableServerSettingsService(
           return next;
         }),
       streamChanges: Stream.fromPubSub(changes),
+      streamStateChanges: Stream.fromPubSub(changes).pipe(
+        Stream.map((settings) => ({ settings, issues: [] as const })),
+      ),
     } satisfies ServerSettingsShape;
   });
 }

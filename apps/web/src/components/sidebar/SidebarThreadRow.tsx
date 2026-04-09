@@ -76,7 +76,7 @@ function terminalStatusFromRunningIds(
   }
   return {
     label: "Terminal process running",
-    colorClass: "text-teal-600 dark:text-teal-300/90",
+    colorClass: "text-[var(--info-foreground)]",
     pulse: true,
   };
 }
@@ -87,7 +87,7 @@ function prStatusIndicator(pr: ThreadPr): PrStatusIndicator | null {
   if (pr.state === "open") {
     return {
       label: "PR open",
-      colorClass: "text-emerald-600 dark:text-emerald-300/90",
+      colorClass: "text-[var(--success-foreground)]",
       tooltip: `#${pr.number} PR open: ${pr.title}`,
       url: pr.url,
     };
@@ -95,7 +95,7 @@ function prStatusIndicator(pr: ThreadPr): PrStatusIndicator | null {
   if (pr.state === "closed") {
     return {
       label: "PR closed",
-      colorClass: "text-zinc-500 dark:text-zinc-400/80",
+      colorClass: "text-[var(--feature-phase-pending)]",
       tooltip: `#${pr.number} PR closed: ${pr.title}`,
       url: pr.url,
     };
@@ -103,7 +103,7 @@ function prStatusIndicator(pr: ThreadPr): PrStatusIndicator | null {
   if (pr.state === "merged") {
     return {
       label: "PR merged",
-      colorClass: "text-violet-600 dark:text-violet-300/90",
+      colorClass: "text-[var(--primary)]",
       tooltip: `#${pr.number} PR merged: ${pr.title}`,
       url: pr.url,
     };
@@ -287,7 +287,7 @@ export function SidebarThreadRow(props: {
             </Tooltip>
           ) : null}
           {thread.interactionMode === "design" ? (
-            <PaletteIcon className="size-3 shrink-0 text-violet-500 dark:text-violet-400" />
+            <PaletteIcon className="size-3 shrink-0 text-[var(--primary)]" />
           ) : null}
           {!showChildMeta && threadStatus ? <ThreadStatusLabel status={threadStatus} /> : null}
           <div className="min-w-0 flex-1">

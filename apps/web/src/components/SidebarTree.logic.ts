@@ -34,22 +34,22 @@ const SORT_GROUP_PRIORITY: Record<SidebarTreeSortGroup, number> = {
 
 const PAUSED_STATUS_PILL: ThreadStatusPill = {
   label: "Paused",
-  colorClass: "text-zinc-500 dark:text-zinc-400/80",
-  dotClass: "bg-zinc-400 dark:bg-zinc-500/80",
+  colorClass: "text-[var(--feature-phase-pending)]",
+  dotClass: "bg-[var(--feature-phase-pending)]",
   pulse: false,
 };
 
 const COMPLETED_STATUS_PILL: ThreadStatusPill = {
   label: "Completed",
-  colorClass: "text-emerald-600 dark:text-emerald-300/90",
-  dotClass: "bg-emerald-500 dark:bg-emerald-300/90",
+  colorClass: "text-[var(--success-foreground)]",
+  dotClass: "bg-[var(--success)]",
   pulse: false,
 };
 
 const FAILED_STATUS_PILL: ThreadStatusPill = {
   label: "Failed",
-  colorClass: "text-rose-600 dark:text-rose-300/90",
-  dotClass: "bg-rose-500 dark:bg-rose-300/90",
+  colorClass: "text-[var(--destructive-foreground)]",
+  dotClass: "bg-[var(--destructive)]",
   pulse: false,
 };
 

@@ -1,7 +1,7 @@
 import type { ModelSelection, ServerProvider, WorkflowPhase } from "@forgetools/contracts";
 import type { UnifiedSettings } from "@forgetools/contracts/settings";
-import { cva } from "class-variance-authority";
 import { ArrowDownIcon, ArrowUpIcon, BotIcon, GitBranchPlusIcon, Trash2Icon } from "lucide-react";
+import { buildToneBadgeStyle, buildToneSurfaceStyle } from "~/lib/appearance";
 import { cn } from "~/lib/utils";
 import {
   setWorkflowPhaseDeliberation,
@@ -15,19 +15,18 @@ import { Input } from "./ui/input";
 import { Select, SelectItem, SelectPopup, SelectTrigger, SelectValue } from "./ui/select";
 import { Switch } from "./ui/switch";
 
-const phaseTypeBadgeVariants = cva(
-  "inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-[11px] font-medium uppercase tracking-[0.08em]",
-  {
-    variants: {
-      tone: {
-        single: "border-sky-500/25 bg-sky-500/10 text-sky-700 dark:text-sky-300",
-        multi: "border-amber-500/25 bg-amber-500/10 text-amber-700 dark:text-amber-300",
-        automated: "border-emerald-500/25 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300",
-        human: "border-violet-500/25 bg-violet-500/10 text-violet-700 dark:text-violet-300",
-      },
-    },
-  },
-);
+function phaseTypeToneColor(phaseType: WorkflowPhase["type"]): string {
+  switch (phaseType) {
+    case "multi-agent":
+      return "var(--feature-phase-multi-agent)";
+    case "automated":
+      return "var(--feature-phase-automated)";
+    case "human":
+      return "var(--feature-phase-human)";
+    default:
+      return "var(--feature-phase-single-agent)";
+  }
+}
 
 export interface PhaseCardSharedProps {
   phase: WorkflowPhase;
@@ -47,17 +46,13 @@ export interface PhaseCardSharedProps {
 }
 
 function PhaseTypeBadge({ phaseType }: { phaseType: WorkflowPhase["type"] }) {
-  const tone =
-    phaseType === "multi-agent"
-      ? "multi"
-      : phaseType === "automated"
-        ? "automated"
-        : phaseType === "human"
-          ? "human"
-          : "single";
+  const color = phaseTypeToneColor(phaseType);
 
   return (
-    <span className={phaseTypeBadgeVariants({ tone })}>
+    <span
+      className="inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-[11px] font-medium uppercase tracking-[0.08em]"
+      style={buildToneBadgeStyle(color)}
+    >
       {phaseType === "multi-agent" ? (
         <GitBranchPlusIcon className="size-3" />
       ) : (
@@ -283,7 +278,14 @@ function PhaseDeliberationSection(
   const secondaryParticipant = props.phase.deliberation?.participants[1];
 
   return (
-    <div className="space-y-4 rounded-2xl border border-amber-500/20 bg-amber-500/5 p-4">
+    <div
+      className="space-y-4 rounded-2xl border p-4"
+      style={buildToneSurfaceStyle("var(--feature-phase-multi-agent)", {
+        borderPercent: 20,
+        backgroundPercent: 5,
+        textColor: "var(--foreground)",
+      })}
+    >
       <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_minmax(0,1fr)]">
         <div className="space-y-4">
           <FieldLabel>Advocate</FieldLabel>

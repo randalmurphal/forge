@@ -11,10 +11,12 @@
  * @module ServerSettings
  */
 import {
+  AppearanceSettings,
   DEFAULT_GIT_TEXT_GENERATION_MODEL_BY_PROVIDER,
   DEFAULT_SERVER_SETTINGS,
   type ModelSelection,
   type ProviderKind,
+  type ServerConfigIssue,
   ServerSettings,
   ServerSettingsError,
   type ServerSettingsPatch,
@@ -53,6 +55,12 @@ export interface ServerSettingsShape {
   /** Read the current settings. */
   readonly getSettings: Effect.Effect<ServerSettings, ServerSettingsError>;
 
+  /** Read the current settings plus any config issues surfaced during load. */
+  readonly getSettingsState: Effect.Effect<
+    { settings: ServerSettings; issues: readonly ServerConfigIssue[] },
+    ServerSettingsError
+  >;
+
   /** Patch settings and persist. Returns the new full settings object. */
   readonly updateSettings: (
     patch: ServerSettingsPatch,
@@ -60,6 +68,12 @@ export interface ServerSettingsShape {
 
   /** Stream of settings change events. */
   readonly streamChanges: Stream.Stream<ServerSettings>;
+
+  /** Stream of settings state change events. */
+  readonly streamStateChanges: Stream.Stream<{
+    settings: ServerSettings;
+    issues: readonly ServerConfigIssue[];
+  }>;
 }
 
 export class ServerSettingsService extends ServiceMap.Service<
@@ -78,12 +92,16 @@ export class ServerSettingsService extends ServiceMap.Service<
           start: Effect.void,
           ready: Effect.void,
           getSettings: Ref.get(currentSettingsRef),
+          getSettingsState: Ref.get(currentSettingsRef).pipe(
+            Effect.map((settings) => ({ settings, issues: [] as const })),
+          ),
           updateSettings: (patch) =>
             Ref.get(currentSettingsRef).pipe(
               Effect.map((currentSettings) => deepMerge(currentSettings, patch)),
               Effect.tap((nextSettings) => Ref.set(currentSettingsRef, nextSettings)),
             ),
           streamChanges: Stream.empty,
+          streamStateChanges: Stream.empty,
         } satisfies ServerSettingsShape;
       }),
     );
@@ -117,6 +135,24 @@ function resolveTextGenerationProvider(settings: ServerSettings): ServerSettings
       provider: fallback,
       model: DEFAULT_GIT_TEXT_GENERATION_MODEL_BY_PROVIDER[fallback],
     } as ModelSelection,
+  };
+}
+
+function resolveSettingsState(state: {
+  settings: ServerSettings;
+  issues: readonly ServerConfigIssue[];
+}): { settings: ServerSettings; issues: readonly ServerConfigIssue[] } {
+  const mergedSettings = deepMerge(DEFAULT_SERVER_SETTINGS, state.settings);
+  return {
+    settings: resolveTextGenerationProvider(mergedSettings),
+    issues: state.issues,
+  };
+}
+
+function appearanceMalformedConfigIssue(detail: string): ServerConfigIssue {
+  return {
+    kind: "appearance.malformed-config",
+    message: detail,
   };
 }
 
@@ -163,14 +199,17 @@ const makeServerSettings = Effect.gen(function* () {
   const pathService = yield* Path.Path;
   const writeSemaphore = yield* Semaphore.make(1);
   const cacheKey = "settings" as const;
-  const changesPubSub = yield* PubSub.unbounded<ServerSettings>();
+  const changesPubSub = yield* PubSub.unbounded<{
+    settings: ServerSettings;
+    issues: readonly ServerConfigIssue[];
+  }>();
   const startedRef = yield* Ref.make(false);
   const startedDeferred = yield* Deferred.make<void, ServerSettingsError>();
   const watcherScope = yield* Scope.make("sequential");
   yield* Effect.addFinalizer(() => Scope.close(watcherScope, Exit.void));
 
-  const emitChange = (settings: ServerSettings) =>
-    PubSub.publish(changesPubSub, settings).pipe(Effect.asVoid);
+  const emitChange = (state: { settings: ServerSettings; issues: readonly ServerConfigIssue[] }) =>
+    PubSub.publish(changesPubSub, resolveSettingsState(state)).pipe(Effect.asVoid);
 
   const readConfigExists = fs.exists(settingsPath).pipe(
     Effect.mapError(
@@ -196,7 +235,7 @@ const makeServerSettings = Effect.gen(function* () {
 
   const loadSettingsFromDisk = Effect.gen(function* () {
     if (!(yield* readConfigExists)) {
-      return DEFAULT_SERVER_SETTINGS;
+      return { settings: DEFAULT_SERVER_SETTINGS, issues: [] as readonly ServerConfigIssue[] };
     }
 
     const raw = yield* readRawConfig;
@@ -206,12 +245,57 @@ const makeServerSettings = Effect.gen(function* () {
         path: settingsPath,
         issues: Cause.pretty(decoded.cause),
       });
-      return DEFAULT_SERVER_SETTINGS;
+      const parsedJsonExit = yield* Effect.exit(
+        Effect.try({
+          try: () => JSON.parse(raw) as unknown,
+          catch: (cause) =>
+            new ServerSettingsError({
+              settingsPath,
+              detail: "failed to parse settings file JSON",
+              cause,
+            }),
+        }),
+      );
+      if (parsedJsonExit._tag === "Failure") {
+        return { settings: DEFAULT_SERVER_SETTINGS, issues: [] as readonly ServerConfigIssue[] };
+      }
+      const parsed = parsedJsonExit.value;
+      if (parsed === null || typeof parsed !== "object" || !("appearance" in parsed)) {
+        return { settings: DEFAULT_SERVER_SETTINGS, issues: [] as readonly ServerConfigIssue[] };
+      }
+
+      const appearanceDecoded = Schema.decodeUnknownExit(AppearanceSettings)(parsed.appearance);
+      const appearanceIssue =
+        appearanceDecoded._tag === "Failure"
+          ? appearanceMalformedConfigIssue(Cause.pretty(appearanceDecoded.cause))
+          : null;
+      const recoveredInput = { ...(parsed as Record<string, unknown>) };
+      delete recoveredInput.appearance;
+      const recovered = Schema.decodeUnknownExit(ServerSettings)(recoveredInput);
+      if (recovered._tag === "Success" && appearanceIssue) {
+        return {
+          settings: {
+            ...recovered.value,
+            appearance: DEFAULT_SERVER_SETTINGS.appearance,
+          },
+          issues: [appearanceIssue] as const,
+        };
+      }
+
+      return {
+        settings: DEFAULT_SERVER_SETTINGS,
+        issues: appearanceIssue ? ([appearanceIssue] as const) : [],
+      };
     }
-    return decoded.value;
+
+    return { settings: decoded.value, issues: [] as readonly ServerConfigIssue[] };
   });
 
-  const settingsCache = yield* Cache.make<typeof cacheKey, ServerSettings, ServerSettingsError>({
+  const settingsCache = yield* Cache.make<
+    typeof cacheKey,
+    { settings: ServerSettings; issues: readonly ServerConfigIssue[] },
+    ServerSettingsError
+  >({
     capacity: 1,
     lookup: () => loadSettingsFromDisk,
   });
@@ -241,8 +325,8 @@ const makeServerSettings = Effect.gen(function* () {
   const revalidateAndEmit = writeSemaphore.withPermits(1)(
     Effect.gen(function* () {
       yield* Cache.invalidate(settingsCache, cacheKey);
-      const settings = yield* getSettingsFromCache;
-      yield* emitChange(settings);
+      const settingsState = yield* getSettingsFromCache;
+      yield* emitChange(settingsState);
     }),
   );
 
@@ -309,12 +393,17 @@ const makeServerSettings = Effect.gen(function* () {
   return {
     start,
     ready: Deferred.await(startedDeferred),
-    getSettings: getSettingsFromCache.pipe(Effect.map(resolveTextGenerationProvider)),
+    getSettings: getSettingsFromCache.pipe(
+      Effect.map((state) => resolveSettingsState(state).settings),
+    ),
+    getSettingsState: getSettingsFromCache.pipe(Effect.map(resolveSettingsState)),
     updateSettings: (patch) =>
       writeSemaphore.withPermits(1)(
         Effect.gen(function* () {
           const current = yield* getSettingsFromCache;
-          const next = yield* Schema.decodeEffect(ServerSettings)(deepMerge(current, patch)).pipe(
+          const next = yield* Schema.decodeEffect(ServerSettings)(
+            deepMerge(current.settings, patch),
+          ).pipe(
             Effect.mapError(
               (cause) =>
                 new ServerSettingsError({
@@ -325,13 +414,16 @@ const makeServerSettings = Effect.gen(function* () {
             ),
           );
           yield* writeSettingsAtomically(next);
-          yield* Cache.set(settingsCache, cacheKey, next);
-          yield* emitChange(next);
+          yield* Cache.set(settingsCache, cacheKey, { settings: next, issues: [] });
+          yield* emitChange({ settings: next, issues: [] });
           return resolveTextGenerationProvider(next);
         }),
       ),
     get streamChanges() {
-      return Stream.fromPubSub(changesPubSub).pipe(Stream.map(resolveTextGenerationProvider));
+      return Stream.fromPubSub(changesPubSub).pipe(Stream.map((state) => state.settings));
+    },
+    get streamStateChanges() {
+      return Stream.fromPubSub(changesPubSub);
     },
   } satisfies ServerSettingsShape;
 });

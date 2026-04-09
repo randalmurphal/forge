@@ -19,6 +19,9 @@ import { ClaudeAI, OpenAI, type Icon } from "../Icons";
 import { cn, newCommandId } from "~/lib/utils";
 import { readNativeApi } from "~/nativeApi";
 import { getProviderSnapshot } from "../../providerModels";
+import { useSettings } from "~/hooks/useSettings";
+import { useTheme } from "~/hooks/useTheme";
+import { resolveProviderAccentColor } from "~/lib/appearance";
 
 const STORAGE_KEY = "forge:summary-model";
 
@@ -33,10 +36,6 @@ const PROVIDER_ICON_BY_PROVIDER: Record<ProviderPickerKind, Icon> = {
   claudeAgent: ClaudeAI,
   cursor: ClaudeAI,
 };
-
-function providerIconClassName(provider: ProviderKind | ProviderPickerKind): string {
-  return provider === "claudeAgent" ? "text-[#d97757]" : "text-muted-foreground/70";
-}
 
 function loadStickyModel(): ModelSelection | null {
   try {
@@ -63,6 +62,19 @@ export const SummarizeButton = memo(function SummarizeButton(props: {
   disabled?: boolean;
 }) {
   const [stickyModel, setStickyModel] = useState<ModelSelection | null>(loadStickyModel);
+  const settings = useSettings((current) => current);
+  const { resolvedTheme } = useTheme();
+  const providerIconStyle = (provider: ProviderKind | ProviderPickerKind) =>
+    provider === "claudeAgent"
+      ? {
+          color: resolveProviderAccentColor(
+            settings,
+            resolvedTheme,
+            "claudeAgent",
+            "var(--feature-provider-claude)",
+          ),
+        }
+      : undefined;
 
   const dispatchSummary = useCallback(
     (selection: ModelSelection) => {
@@ -147,8 +159,9 @@ export const SummarizeButton = memo(function SummarizeButton(props: {
                     aria-hidden="true"
                     className={cn(
                       "size-4 shrink-0 opacity-80",
-                      providerIconClassName(option.value),
+                      option.value === "claudeAgent" ? undefined : "text-muted-foreground/70",
                     )}
+                    style={providerIconStyle(option.value)}
                   />
                   <span>{option.label}</span>
                   <span className="ms-auto text-[11px] text-muted-foreground/80 uppercase tracking-[0.08em]">
@@ -163,7 +176,11 @@ export const SummarizeButton = memo(function SummarizeButton(props: {
                 <MenuSubTrigger>
                   <OptionIcon
                     aria-hidden="true"
-                    className={cn("size-4 shrink-0", providerIconClassName(option.value))}
+                    className={cn(
+                      "size-4 shrink-0",
+                      option.value === "claudeAgent" ? undefined : "text-muted-foreground/70",
+                    )}
+                    style={providerIconStyle(option.value)}
                   />
                   {option.label}
                 </MenuSubTrigger>

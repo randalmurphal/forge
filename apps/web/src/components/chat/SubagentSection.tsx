@@ -125,10 +125,10 @@ function statusIcon(status: SubagentGroup["status"]) {
 function statusColorClass(status: SubagentGroup["status"]): string {
   switch (status) {
     case "running":
-      return "text-blue-400/70";
+      return "text-primary/80";
     case "completed":
-      return "text-emerald-400/70";
+      return "text-success/80";
     case "failed":
-      return "text-rose-400/70";
+      return "text-destructive/80";
   }
 }

@@ -4,7 +4,7 @@ import type {
   ProviderKind,
   ThreadId,
 } from "@forgetools/contracts";
-import { memo, useMemo } from "react";
+import { memo, useMemo, type CSSProperties } from "react";
 import { type ProviderPickerKind, PROVIDER_OPTIONS } from "../../session-logic";
 import { ChevronDownIcon, UsersIcon } from "lucide-react";
 import { Button } from "../ui/button";
@@ -26,6 +26,9 @@ import { useComposerDraftStore } from "../../composerDraftStore";
 import { getProviderSnapshot } from "../../providerModels";
 import { useDiscussion } from "../../stores/discussionStore";
 import type { ServerProvider } from "@forgetools/contracts";
+import { useSettings } from "~/hooks/useSettings";
+import { useTheme } from "~/hooks/useTheme";
+import { resolveProviderAccentColor } from "~/lib/appearance";
 
 const AVAILABLE_PROVIDER_OPTIONS = PROVIDER_OPTIONS.filter((o) => o.available) as Array<{
   value: ProviderKind;
@@ -38,10 +41,6 @@ const PROVIDER_ICON_BY_PROVIDER: Record<ProviderPickerKind, Icon> = {
   claudeAgent: ClaudeAI,
   cursor: ClaudeAI,
 };
-
-function providerIconClassName(provider: ProviderKind | ProviderPickerKind): string {
-  return provider === "claudeAgent" ? "text-[#d97757]" : "text-muted-foreground/70";
-}
 
 function formatRoleLabel(role: string): string {
   return role
@@ -61,6 +60,8 @@ export const DiscussionRolesPicker = memo(function DiscussionRolesPicker(props: 
   disabled?: boolean;
 }) {
   const discussionQuery = useDiscussion(props.discussionId, props.workspaceRoot);
+  const settings = useSettings((current) => current);
+  const { resolvedTheme } = useTheme();
   const discussion = discussionQuery.data;
   const draftThread = useComposerDraftStore((store) => store.getDraftThread(props.threadId));
   const setDraftThreadContext = useComposerDraftStore((store) => store.setDraftThreadContext);
@@ -70,6 +71,17 @@ export const DiscussionRolesPicker = memo(function DiscussionRolesPicker(props: 
     (): ReadonlyArray<DiscussionParticipant> => (discussion ? discussion.participants : []),
     [discussion],
   );
+  const providerIconStyle = (provider: ProviderKind | ProviderPickerKind) =>
+    provider === "claudeAgent"
+      ? {
+          color: resolveProviderAccentColor(
+            settings,
+            resolvedTheme,
+            "claudeAgent",
+            "var(--feature-provider-claude)",
+          ),
+        }
+      : undefined;
 
   const handleRoleModelChange = (role: string, provider: ProviderKind, model: string) => {
     const next: Record<string, ModelSelection> = { ...roleOverrides };
@@ -106,6 +118,7 @@ export const DiscussionRolesPicker = memo(function DiscussionRolesPicker(props: 
             activeModel={roleOverrides?.[participant.role] ?? participant.model ?? null}
             providers={props.providers}
             modelOptionsByProvider={props.modelOptionsByProvider}
+            providerIconStyle={providerIconStyle}
             onModelChange={(provider, model) =>
               handleRoleModelChange(participant.role, provider, model)
             }
@@ -122,6 +135,7 @@ function RoleModelSubMenu(props: {
   activeModel: ModelSelection | null;
   providers: ReadonlyArray<ServerProvider> | undefined;
   modelOptionsByProvider: Record<ProviderKind, ReadonlyArray<{ slug: string; name: string }>>;
+  providerIconStyle: (provider: ProviderKind | ProviderPickerKind) => CSSProperties | undefined;
   onModelChange: (provider: ProviderKind, model: string) => void;
 }) {
   const activeModelLabel = props.activeModel
@@ -155,7 +169,11 @@ function RoleModelSubMenu(props: {
               <MenuItem key={option.value} disabled>
                 <OptionIcon
                   aria-hidden="true"
-                  className={cn("size-4 shrink-0 opacity-80", providerIconClassName(option.value))}
+                  className={cn(
+                    "size-4 shrink-0 opacity-80",
+                    option.value === "claudeAgent" ? undefined : "text-muted-foreground/70",
+                  )}
+                  style={props.providerIconStyle(option.value)}
                 />
                 <span>{option.label}</span>
                 <span className="ms-auto text-[11px] text-muted-foreground/80 uppercase tracking-[0.08em]">
@@ -170,7 +188,11 @@ function RoleModelSubMenu(props: {
               <MenuSubTrigger>
                 <OptionIcon
                   aria-hidden="true"
-                  className={cn("size-4 shrink-0", providerIconClassName(option.value))}
+                  className={cn(
+                    "size-4 shrink-0",
+                    option.value === "claudeAgent" ? undefined : "text-muted-foreground/70",
+                  )}
+                  style={props.providerIconStyle(option.value)}
                 />
                 {option.label}
               </MenuSubTrigger>

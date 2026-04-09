@@ -711,13 +711,14 @@ const WsRpcLayer = WsRpcGroup.toLayer(
     const loadServerConfig = Effect.gen(function* () {
       const keybindingsConfig = yield* keybindings.loadConfigState;
       const providers = yield* providerRegistry.getProviders;
-      const settings = yield* serverSettings.getSettings;
+      const settingsState = yield* serverSettings.getSettingsState;
 
       return {
         cwd: config.cwd,
         keybindingsConfigPath: config.keybindingsConfigPath,
+        settingsPath: config.settingsPath,
         keybindings: keybindingsConfig.keybindings,
-        issues: keybindingsConfig.issues,
+        issues: [...keybindingsConfig.issues, ...settingsState.issues],
         providers,
         availableEditors: resolveAvailableEditors(),
         observability: {
@@ -728,7 +729,7 @@ const WsRpcLayer = WsRpcGroup.toLayer(
           ...(config.otlpMetricsUrl !== undefined ? { otlpMetricsUrl: config.otlpMetricsUrl } : {}),
           otlpMetricsEnabled: config.otlpMetricsUrl !== undefined,
         },
-        settings,
+        settings: settingsState.settings,
       };
     });
 
@@ -1650,11 +1651,11 @@ const WsRpcLayer = WsRpcGroup.toLayer(
                 payload: { providers },
               })),
             );
-            const settingsUpdates = serverSettings.streamChanges.pipe(
-              Stream.map((settings) => ({
+            const settingsUpdates = serverSettings.streamStateChanges.pipe(
+              Stream.map(({ settings, issues }) => ({
                 version: 1 as const,
                 type: "settingsUpdated" as const,
-                payload: { settings },
+                payload: { settings, issues },
               })),
             );
 

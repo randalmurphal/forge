@@ -5,6 +5,7 @@ import {
   MessagesSquareIcon,
   XCircleIcon,
 } from "lucide-react";
+import { buildToneBadgeStyle } from "../lib/appearance";
 import { cn } from "../lib/utils";
 import ChatMarkdown from "./ChatMarkdown";
 import type {
@@ -199,6 +200,17 @@ function transitionDescription(state: WorkflowTimelineTransitionState): string {
   }
 }
 
+function transitionCheckStatusColor(status: "passed" | "failed" | "running"): string {
+  switch (status) {
+    case "passed":
+      return "var(--success)";
+    case "failed":
+      return "var(--destructive)";
+    case "running":
+      return "var(--feature-phase-running)";
+  }
+}
+
 export function WorkflowTimelineTransitionPanel(props: { state: WorkflowTimelineTransitionState }) {
   const { state } = props;
   const TransitionIcon = transitionIcon(state);
@@ -240,14 +252,8 @@ export function WorkflowTimelineTransitionPanel(props: { state: WorkflowTimeline
                 <div className="flex items-center justify-between gap-3">
                   <p className="text-sm font-medium text-foreground">{check.checkName}</p>
                   <span
-                    className={cn(
-                      "inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-[11px] uppercase tracking-[0.08em]",
-                      check.status === "passed"
-                        ? "border-emerald-500/30 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300"
-                        : check.status === "failed"
-                          ? "border-rose-500/30 bg-rose-500/10 text-rose-700 dark:text-rose-300"
-                          : "border-sky-500/30 bg-sky-500/10 text-sky-700 dark:text-sky-300",
-                    )}
+                    className="inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-[11px] uppercase tracking-[0.08em]"
+                    style={buildToneBadgeStyle(transitionCheckStatusColor(check.status))}
                   >
                     {check.status}
                   </span>

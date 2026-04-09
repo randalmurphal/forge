@@ -4,6 +4,7 @@
 
 @theme inline {
   --animate-skeleton: skeleton 2s -1s infinite linear;
+  --font-sans: var(--font-ui);
   --color-warning-foreground: var(--warning-foreground);
   --color-warning: var(--warning);
   --color-success-foreground: var(--success-foreground);
@@ -64,6 +65,18 @@
 :root {
   color-scheme: light;
   --radius: 0.625rem;
+  --font-ui: "DM Sans", -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
+  --font-mono: "SF Mono", "SFMono-Regular", Consolas, "Liberation Mono", Menlo, monospace;
+  --font-size-xs: 11px;
+  --font-size-sm: 12px;
+  --font-size-md: 13px;
+  --font-size-lg: 14px;
+  --font-size-xl: 16px;
+  --line-height-compact: 1.25;
+  --line-height-normal: 1.45;
+  --line-height-relaxed: 1.6;
+  --terminal-font-size: 13;
+  --terminal-line-height: 1.2;
   --background: var(--color-white);
   --foreground: var(--color-neutral-800);
   --card: var(--color-white);
@@ -89,6 +102,64 @@
   --success-foreground: var(--color-emerald-700);
   --warning: var(--color-amber-500);
   --warning-foreground: var(--color-amber-700);
+  --sidebar: color-mix(in srgb, var(--color-neutral-50) 92%, var(--color-white));
+  --sidebar-foreground: var(--foreground);
+  --sidebar-border: var(--border);
+  --sidebar-accent: var(--accent);
+  --sidebar-accent-foreground: var(--accent-foreground);
+  --panel: #151518;
+  --panel-elevated: #1c1c20;
+  --panel-active: #1c1c20;
+  --panel-inset: var(--muted);
+  --list-hover: #1c1c20;
+  --list-active: #1c1c20;
+  --list-muted-badge: color-mix(in srgb, var(--muted-foreground) 10%, transparent);
+  --panel-shadow: 0 2px 8px color-mix(in srgb, var(--foreground) 15%, transparent);
+  --panel-shadow-active:
+    0 1px 3px color-mix(in srgb, var(--foreground) 30%, transparent),
+    0 4px 12px color-mix(in srgb, var(--foreground) 20%, transparent);
+  --diff-context: color-mix(in srgb, var(--background) 97%, var(--foreground));
+  --diff-hover: color-mix(in srgb, var(--background) 94%, var(--foreground));
+  --diff-separator: color-mix(in srgb, var(--background) 95%, var(--foreground));
+  --diff-addition: color-mix(in srgb, var(--background) 92%, var(--success));
+  --diff-addition-emphasis: color-mix(in srgb, var(--background) 80%, var(--success));
+  --diff-deletion: color-mix(in srgb, var(--background) 92%, var(--destructive));
+  --diff-deletion-emphasis: color-mix(in srgb, var(--background) 80%, var(--destructive));
+  --feature-provider-claude: #d97757;
+  --feature-discussion-global: #3b82f6;
+  --feature-discussion-project: #f59e0b;
+  --feature-phase-single-agent: #0ea5e9;
+  --feature-phase-multi-agent: #f59e0b;
+  --feature-phase-automated: #10b981;
+  --feature-phase-human: #8b5cf6;
+  --feature-phase-running: #0ea5e9;
+  --feature-phase-completed: #10b981;
+  --feature-phase-failed: #f43f5e;
+  --feature-phase-pending: #71717a;
+  --feature-phase-skipped: #f59e0b;
+  --terminal-background: rgb(255, 255, 255);
+  --terminal-foreground: rgb(28, 33, 41);
+  --terminal-cursor: rgb(38, 56, 78);
+  --terminal-selection-background: rgba(37, 63, 99, 0.2);
+  --terminal-scrollbar-slider-background: rgba(0, 0, 0, 0.15);
+  --terminal-scrollbar-slider-hover-background: rgba(0, 0, 0, 0.25);
+  --terminal-scrollbar-slider-active-background: rgba(0, 0, 0, 0.3);
+  --terminal-ansi-black: rgb(44, 53, 66);
+  --terminal-ansi-red: rgb(191, 70, 87);
+  --terminal-ansi-green: rgb(60, 126, 86);
+  --terminal-ansi-yellow: rgb(146, 112, 35);
+  --terminal-ansi-blue: rgb(72, 102, 163);
+  --terminal-ansi-magenta: rgb(132, 86, 149);
+  --terminal-ansi-cyan: rgb(53, 127, 141);
+  --terminal-ansi-white: rgb(210, 215, 223);
+  --terminal-ansi-bright-black: rgb(112, 123, 140);
+  --terminal-ansi-bright-red: rgb(212, 95, 112);
+  --terminal-ansi-bright-green: rgb(85, 148, 111);
+  --terminal-ansi-bright-yellow: rgb(173, 133, 45);
+  --terminal-ansi-bright-blue: rgb(91, 124, 194);
+  --terminal-ansi-bright-magenta: rgb(153, 107, 172);
+  --terminal-ansi-bright-cyan: rgb(70, 149, 164);
+  --terminal-ansi-bright-white: rgb(236, 240, 246);
 
   @variant dark {
     color-scheme: dark;
@@ -117,20 +188,52 @@
     --success-foreground: var(--color-emerald-400);
     --warning: var(--color-amber-500);
     --warning-foreground: var(--color-amber-400);
+    --sidebar: color-mix(in srgb, var(--color-neutral-950) 96%, var(--color-white));
+    --sidebar-foreground: var(--foreground);
+    --sidebar-border: var(--border);
+    --sidebar-accent: var(--accent);
+    --sidebar-accent-foreground: var(--accent-foreground);
+    --list-muted-badge: color-mix(in srgb, var(--color-white) 10%, transparent);
+    --panel-shadow: 0 2px 8px color-mix(in srgb, var(--foreground) 18%, transparent);
+    --panel-shadow-active:
+      0 1px 3px color-mix(in srgb, var(--foreground) 30%, transparent),
+      0 4px 12px color-mix(in srgb, var(--foreground) 20%, transparent);
+    --feature-discussion-global: #60a5fa;
+    --feature-discussion-project: #fbbf24;
+    --feature-phase-pending: #a1a1aa;
+    --terminal-background: rgb(14, 18, 24);
+    --terminal-foreground: rgb(237, 241, 247);
+    --terminal-cursor: rgb(180, 203, 255);
+    --terminal-selection-background: rgba(180, 203, 255, 0.25);
+    --terminal-scrollbar-slider-background: rgba(255, 255, 255, 0.1);
+    --terminal-scrollbar-slider-hover-background: rgba(255, 255, 255, 0.18);
+    --terminal-scrollbar-slider-active-background: rgba(255, 255, 255, 0.22);
+    --terminal-ansi-black: rgb(24, 30, 38);
+    --terminal-ansi-red: rgb(255, 122, 142);
+    --terminal-ansi-green: rgb(134, 231, 149);
+    --terminal-ansi-yellow: rgb(244, 205, 114);
+    --terminal-ansi-blue: rgb(137, 190, 255);
+    --terminal-ansi-magenta: rgb(208, 176, 255);
+    --terminal-ansi-cyan: rgb(124, 232, 237);
+    --terminal-ansi-white: rgb(210, 218, 230);
+    --terminal-ansi-bright-black: rgb(110, 120, 136);
+    --terminal-ansi-bright-red: rgb(255, 168, 180);
+    --terminal-ansi-bright-green: rgb(176, 245, 186);
+    --terminal-ansi-bright-yellow: rgb(255, 224, 149);
+    --terminal-ansi-bright-blue: rgb(174, 210, 255);
+    --terminal-ansi-bright-magenta: rgb(229, 203, 255);
+    --terminal-ansi-bright-cyan: rgb(167, 244, 247);
+    --terminal-ansi-bright-white: rgb(244, 247, 252);
   }
 }
 
 body {
-  font-family:
-    "DM Sans",
-    -apple-system,
-    BlinkMacSystemFont,
-    "Segoe UI",
-    system-ui,
-    sans-serif;
+  font-family: var(--font-ui);
   margin: 0;
   padding: 0;
   min-height: 100vh;
+  font-size: var(--font-size-lg);
+  line-height: var(--line-height-normal);
 }
 
 html,
@@ -157,10 +260,19 @@ body::after {
 }
 
 pre,
-code,
+code {
+  font-family: var(--font-mono);
+}
+
+.font-mono {
+  font-family: var(--font-mono);
+}
+
 textarea,
-input {
-  font-family: "SF Mono", "SFMono-Regular", Consolas, "Liberation Mono", Menlo, monospace;
+input,
+select,
+button {
+  font-family: inherit;
 }
 
 /* Window drag region (frameless titlebar) */
@@ -186,20 +298,12 @@ input {
 }
 
 ::-webkit-scrollbar-thumb {
-  background: rgba(0, 0, 0, 0.15);
+  background: var(--terminal-scrollbar-slider-background);
   border-radius: 3px;
 }
 
 ::-webkit-scrollbar-thumb:hover {
-  background: rgba(0, 0, 0, 0.25);
-}
-
-.dark ::-webkit-scrollbar-thumb {
-  background: rgba(255, 255, 255, 0.1);
-}
-
-.dark ::-webkit-scrollbar-thumb:hover {
-  background: rgba(255, 255, 255, 0.18);
+  background: var(--terminal-scrollbar-slider-hover-background);
 }
 
 .turn-chip-strip {

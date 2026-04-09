@@ -519,7 +519,13 @@ export const MessagesTimeline = memo(function MessagesTimeline({
                 {row.message.attribution ? (
                   <p
                     className="mb-1.5 text-[10px] font-medium uppercase tracking-[0.12em]"
-                    style={{ color: resolveRoleColor(row.message.attribution.role, resolvedTheme) }}
+                    style={{
+                      color: resolveRoleColor(
+                        row.message.attribution.role,
+                        resolvedTheme,
+                        settings,
+                      ),
+                    }}
                   >
                     {attributionLabel}
                   </p>
@@ -594,7 +600,7 @@ export const MessagesTimeline = memo(function MessagesTimeline({
           {row.participantLabels.length > 0 ? (
             <div className="mt-1 flex flex-wrap items-center gap-1.5 pl-4 text-[10px]">
               {row.participantLabels.map((participant) => {
-                const color = resolveRoleColor(participant.role, resolvedTheme);
+                const color = resolveRoleColor(participant.role, resolvedTheme, settings);
                 return (
                   <span
                     key={`working-participant:${participant.label}`}

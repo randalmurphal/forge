@@ -334,8 +334,8 @@ export function resolveThreadStatusPill(input: {
   if (thread.hasPendingApprovals) {
     return {
       label: "Pending Approval",
-      colorClass: "text-amber-600 dark:text-amber-300/90",
-      dotClass: "bg-amber-500 dark:bg-amber-300/90",
+      colorClass: "text-[var(--warning-foreground)]",
+      dotClass: "bg-[var(--warning)]",
       pulse: false,
     };
   }
@@ -343,8 +343,8 @@ export function resolveThreadStatusPill(input: {
   if (thread.hasPendingUserInput) {
     return {
       label: "Awaiting Input",
-      colorClass: "text-indigo-600 dark:text-indigo-300/90",
-      dotClass: "bg-indigo-500 dark:bg-indigo-300/90",
+      colorClass: "text-[var(--info-foreground)]",
+      dotClass: "bg-[var(--info)]",
       pulse: false,
     };
   }
@@ -353,16 +353,16 @@ export function resolveThreadStatusPill(input: {
     if (isDeliberationThread) {
       return {
         label: "Deliberating",
-        colorClass: "text-sky-600 dark:text-sky-300/90",
-        dotClass: "border border-sky-500 bg-transparent dark:border-sky-300/90",
+        colorClass: "text-[var(--feature-phase-running)]",
+        dotClass: "border border-[var(--feature-phase-running)] bg-transparent",
         pulse: false,
       };
     }
 
     return {
       label: "Working",
-      colorClass: "text-emerald-600 dark:text-emerald-300/90",
-      dotClass: "bg-emerald-500 dark:bg-emerald-300/90",
+      colorClass: "text-[var(--success-foreground)]",
+      dotClass: "bg-[var(--success)]",
       pulse: true,
     };
   }
@@ -370,8 +370,8 @@ export function resolveThreadStatusPill(input: {
   if (thread.session?.status === "connecting") {
     return {
       label: "Connecting",
-      colorClass: "text-sky-600 dark:text-sky-300/80",
-      dotClass: "bg-sky-500 dark:bg-sky-300/80",
+      colorClass: "text-[var(--feature-phase-running)]",
+      dotClass: "bg-[var(--feature-phase-running)]",
       pulse: true,
     };
   }
@@ -379,8 +379,8 @@ export function resolveThreadStatusPill(input: {
   if (thread.session?.status === "error") {
     return {
       label: "Failed",
-      colorClass: "text-rose-600 dark:text-rose-300/90",
-      dotClass: "bg-rose-500 dark:bg-rose-300/90",
+      colorClass: "text-[var(--destructive-foreground)]",
+      dotClass: "bg-[var(--destructive)]",
       pulse: false,
     };
   }
@@ -393,8 +393,8 @@ export function resolveThreadStatusPill(input: {
   if (hasPlanReadyPrompt) {
     return {
       label: "Plan Ready",
-      colorClass: "text-violet-600 dark:text-violet-300/90",
-      dotClass: "bg-violet-500 dark:bg-violet-300/90",
+      colorClass: "text-[var(--primary)]",
+      dotClass: "bg-[var(--primary)]",
       pulse: false,
     };
   }
@@ -402,8 +402,8 @@ export function resolveThreadStatusPill(input: {
   if (hasUnseenCompletion(thread)) {
     return {
       label: "Completed",
-      colorClass: "text-emerald-600 dark:text-emerald-300/90",
-      dotClass: "bg-emerald-500 dark:bg-emerald-300/90",
+      colorClass: "text-[var(--success-foreground)]",
+      dotClass: "bg-[var(--success)]",
       pulse: false,
     };
   }

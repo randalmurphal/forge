@@ -1,7 +1,7 @@
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import { DEFAULT_SERVER_SETTINGS, ServerSettingsPatch } from "@forgetools/contracts";
 import { assert, it } from "@effect/vitest";
-import { Effect, FileSystem, Layer, Schema } from "effect";
+import { Duration, Effect, FileSystem, Layer, Schema } from "effect";
 import { ServerConfig } from "./config";
 import { ServerSettingsLive, ServerSettingsService } from "./serverSettings";
 
@@ -51,6 +51,23 @@ it.layer(NodeServices.layer)("server settings", (it) => {
         {
           notifications: {
             sessionCompleted: false,
+          },
+        },
+      );
+
+      assert.deepEqual(
+        decodePatch({
+          appearance: {
+            typography: {
+              uiFontFamily: '"IBM Plex Sans", sans-serif',
+            },
+          },
+        }),
+        {
+          appearance: {
+            typography: {
+              uiFontFamily: '"IBM Plex Sans", sans-serif',
+            },
           },
         },
       );
@@ -278,6 +295,98 @@ it.layer(NodeServices.layer)("server settings", (it) => {
           },
         },
       });
+    }).pipe(Effect.provide(makeServerSettingsLayer())),
+  );
+
+  it.effect("persists sparse appearance overrides and reloads them from disk", () =>
+    Effect.gen(function* () {
+      const serverSettings = yield* ServerSettingsService;
+      const serverConfig = yield* ServerConfig;
+      const fileSystem = yield* FileSystem.FileSystem;
+
+      yield* serverSettings.updateSettings({
+        appearance: {
+          typography: {
+            uiFontFamily: '"IBM Plex Sans", sans-serif',
+          },
+          dark: {
+            ui: {
+              background: "#101418",
+            },
+          },
+        },
+      });
+
+      const raw = yield* fileSystem.readFileString(serverConfig.settingsPath);
+      assert.deepEqual(JSON.parse(raw), {
+        appearance: {
+          typography: {
+            uiFontFamily: '"IBM Plex Sans", sans-serif',
+          },
+          dark: {
+            ui: {
+              background: "#101418",
+            },
+          },
+        },
+      });
+    }).pipe(Effect.provide(makeServerSettingsLayer())),
+  );
+
+  it.effect("reloads appearance settings and surfaces appearance issues from external edits", () =>
+    Effect.gen(function* () {
+      const serverSettings = yield* ServerSettingsService;
+      const serverConfig = yield* ServerConfig;
+      const fileSystem = yield* FileSystem.FileSystem;
+
+      yield* serverSettings.start;
+      yield* serverSettings.ready;
+
+      yield* fileSystem.writeFileString(
+        serverConfig.settingsPath,
+        `${JSON.stringify(
+          {
+            appearance: {
+              typography: {
+                uiFontFamily: '"IBM Plex Sans", sans-serif',
+              },
+            },
+          },
+          null,
+          2,
+        )}\n`,
+      );
+      yield* Effect.sleep(Duration.millis(250));
+
+      const reloaded = yield* serverSettings.getSettingsState;
+      assert.equal(
+        reloaded.settings.appearance.typography.uiFontFamily,
+        '"IBM Plex Sans", sans-serif',
+      );
+      assert.deepEqual(reloaded.issues, []);
+
+      yield* fileSystem.writeFileString(
+        serverConfig.settingsPath,
+        `${JSON.stringify(
+          {
+            appearance: {
+              typography: {
+                terminalFontSize: "big",
+              },
+            },
+          },
+          null,
+          2,
+        )}\n`,
+      );
+      yield* Effect.sleep(Duration.millis(250));
+
+      const invalidState = yield* serverSettings.getSettingsState;
+      assert.equal(
+        invalidState.settings.appearance.typography.terminalFontSize,
+        DEFAULT_SERVER_SETTINGS.appearance.typography.terminalFontSize,
+      );
+      assert.equal(invalidState.issues[0]?.kind, "appearance.malformed-config");
     }).pipe(Effect.provide(makeServerSettingsLayer())),
   );
 });

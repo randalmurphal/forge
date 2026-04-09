@@ -9,6 +9,7 @@ import "./index.css";
 import { isElectron } from "./env";
 import { getRouter } from "./router";
 import { APP_DISPLAY_NAME } from "./branding";
+import { useAppearance } from "./hooks/useAppearance";
 
 // Electron loads the app from a file-backed shell, so hash history avoids path resolution issues.
 const history = isElectron ? createHashHistory() : createBrowserHistory();
@@ -17,8 +18,13 @@ const router = getRouter(history);
 
 document.title = APP_DISPLAY_NAME;
 
+function AppChrome() {
+  useAppearance();
+  return <RouterProvider router={router} />;
+}
+
 ReactDOM.createRoot(document.getElementById("root") as HTMLElement).render(
   <React.StrictMode>
-    <RouterProvider router={router} />
+    <AppChrome />
   </React.StrictMode>,
 );

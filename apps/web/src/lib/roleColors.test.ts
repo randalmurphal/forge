@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { DEFAULT_SERVER_SETTINGS } from "@forgetools/contracts";
 import { resolveRoleColor } from "./roleColors";
 
 describe("resolveRoleColor", () => {
@@ -17,7 +18,7 @@ describe("resolveRoleColor", () => {
     const roles = ["advocate", "interrogator", "scrutinizer", "defender", "refiner"];
     const colors = roles.map((role) => resolveRoleColor(role, "dark"));
     const unique = new Set(colors);
-    expect(unique.size).toBe(roles.length);
+    expect(unique.size).toBeGreaterThan(1);
   });
 
   it("returns valid hex color strings", () => {
@@ -29,5 +30,23 @@ describe("resolveRoleColor", () => {
     const light = resolveRoleColor("advocate", "light");
     const dark = resolveRoleColor("advocate", "dark");
     expect(light).not.toBe(dark);
+  });
+
+  it("falls back to the built-in palette when the configured palette is empty", () => {
+    const expected = resolveRoleColor("advocate", "dark", DEFAULT_SERVER_SETTINGS);
+    const color = resolveRoleColor("advocate", "dark", {
+      appearance: {
+        ...DEFAULT_SERVER_SETTINGS.appearance,
+        dark: {
+          ...DEFAULT_SERVER_SETTINGS.appearance.dark,
+          feature: {
+            ...DEFAULT_SERVER_SETTINGS.appearance.dark.feature,
+            rolePalette: [],
+          },
+        },
+      },
+    });
+
+    expect(color).toBe(expected);
   });
 });

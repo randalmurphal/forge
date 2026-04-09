@@ -75,64 +75,50 @@ export function selectPendingTerminalEventEntries(
 }
 
 function terminalThemeFromApp(): ITheme {
-  const isDark = document.documentElement.classList.contains("dark");
-  const bodyStyles = getComputedStyle(document.body);
-  const background =
-    bodyStyles.backgroundColor || (isDark ? "rgb(14, 18, 24)" : "rgb(255, 255, 255)");
-  const foreground = bodyStyles.color || (isDark ? "rgb(237, 241, 247)" : "rgb(28, 33, 41)");
-
-  if (isDark) {
-    return {
-      background,
-      foreground,
-      cursor: "rgb(180, 203, 255)",
-      selectionBackground: "rgba(180, 203, 255, 0.25)",
-      scrollbarSliderBackground: "rgba(255, 255, 255, 0.1)",
-      scrollbarSliderHoverBackground: "rgba(255, 255, 255, 0.18)",
-      scrollbarSliderActiveBackground: "rgba(255, 255, 255, 0.22)",
-      black: "rgb(24, 30, 38)",
-      red: "rgb(255, 122, 142)",
-      green: "rgb(134, 231, 149)",
-      yellow: "rgb(244, 205, 114)",
-      blue: "rgb(137, 190, 255)",
-      magenta: "rgb(208, 176, 255)",
-      cyan: "rgb(124, 232, 237)",
-      white: "rgb(210, 218, 230)",
-      brightBlack: "rgb(110, 120, 136)",
-      brightRed: "rgb(255, 168, 180)",
-      brightGreen: "rgb(176, 245, 186)",
-      brightYellow: "rgb(255, 224, 149)",
-      brightBlue: "rgb(174, 210, 255)",
-      brightMagenta: "rgb(229, 203, 255)",
-      brightCyan: "rgb(167, 244, 247)",
-      brightWhite: "rgb(244, 247, 252)",
-    };
-  }
-
+  const rootStyles = getComputedStyle(document.documentElement);
   return {
-    background,
-    foreground,
-    cursor: "rgb(38, 56, 78)",
-    selectionBackground: "rgba(37, 63, 99, 0.2)",
-    scrollbarSliderBackground: "rgba(0, 0, 0, 0.15)",
-    scrollbarSliderHoverBackground: "rgba(0, 0, 0, 0.25)",
-    scrollbarSliderActiveBackground: "rgba(0, 0, 0, 0.3)",
-    black: "rgb(44, 53, 66)",
-    red: "rgb(191, 70, 87)",
-    green: "rgb(60, 126, 86)",
-    yellow: "rgb(146, 112, 35)",
-    blue: "rgb(72, 102, 163)",
-    magenta: "rgb(132, 86, 149)",
-    cyan: "rgb(53, 127, 141)",
-    white: "rgb(210, 215, 223)",
-    brightBlack: "rgb(112, 123, 140)",
-    brightRed: "rgb(212, 95, 112)",
-    brightGreen: "rgb(85, 148, 111)",
-    brightYellow: "rgb(173, 133, 45)",
-    brightBlue: "rgb(91, 124, 194)",
-    brightMagenta: "rgb(153, 107, 172)",
-    brightCyan: "rgb(70, 149, 164)",
-    brightWhite: "rgb(236, 240, 246)",
+    background: rootStyles.getPropertyValue("--terminal-background").trim(),
+    foreground: rootStyles.getPropertyValue("--terminal-foreground").trim(),
+    cursor: rootStyles.getPropertyValue("--terminal-cursor").trim(),
+    selectionBackground: rootStyles.getPropertyValue("--terminal-selection-background").trim(),
+    scrollbarSliderBackground: rootStyles
+      .getPropertyValue("--terminal-scrollbar-slider-background")
+      .trim(),
+    scrollbarSliderHoverBackground: rootStyles
+      .getPropertyValue("--terminal-scrollbar-slider-hover-background")
+      .trim(),
+    scrollbarSliderActiveBackground: rootStyles
+      .getPropertyValue("--terminal-scrollbar-slider-active-background")
+      .trim(),
+    black: rootStyles.getPropertyValue("--terminal-ansi-black").trim(),
+    red: rootStyles.getPropertyValue("--terminal-ansi-red").trim(),
+    green: rootStyles.getPropertyValue("--terminal-ansi-green").trim(),
+    yellow: rootStyles.getPropertyValue("--terminal-ansi-yellow").trim(),
+    blue: rootStyles.getPropertyValue("--terminal-ansi-blue").trim(),
+    magenta: rootStyles.getPropertyValue("--terminal-ansi-magenta").trim(),
+    cyan: rootStyles.getPropertyValue("--terminal-ansi-cyan").trim(),
+    white: rootStyles.getPropertyValue("--terminal-ansi-white").trim(),
+    brightBlack: rootStyles.getPropertyValue("--terminal-ansi-bright-black").trim(),
+    brightRed: rootStyles.getPropertyValue("--terminal-ansi-bright-red").trim(),
+    brightGreen: rootStyles.getPropertyValue("--terminal-ansi-bright-green").trim(),
+    brightYellow: rootStyles.getPropertyValue("--terminal-ansi-bright-yellow").trim(),
+    brightBlue: rootStyles.getPropertyValue("--terminal-ansi-bright-blue").trim(),
+    brightMagenta: rootStyles.getPropertyValue("--terminal-ansi-bright-magenta").trim(),
+    brightCyan: rootStyles.getPropertyValue("--terminal-ansi-bright-cyan").trim(),
+    brightWhite: rootStyles.getPropertyValue("--terminal-ansi-bright-white").trim(),
+  };
+}
+
+function terminalTypographyFromApp(): { fontFamily: string; fontSize: number; lineHeight: number } {
+  const rootStyles = getComputedStyle(document.documentElement);
+  const fontSize = Number.parseFloat(rootStyles.getPropertyValue("--terminal-font-size").trim());
+  const lineHeight = Number.parseFloat(
+    rootStyles.getPropertyValue("--terminal-line-height").trim(),
+  );
+  return {
+    fontFamily: rootStyles.getPropertyValue("--font-mono").trim(),
+    fontSize: Number.isFinite(fontSize) && fontSize > 0 ? fontSize : 13,
+    lineHeight: Number.isFinite(lineHeight) && lineHeight > 0 ? lineHeight : 1.2,
   };
 }
 
@@ -260,12 +246,13 @@ function TerminalViewport({
     let disposed = false;
 
     const fitAddon = new FitAddon();
+    const terminalTypography = terminalTypographyFromApp();
     const terminal = new Terminal({
       cursorBlink: true,
-      lineHeight: 1.2,
-      fontSize: 12,
+      lineHeight: terminalTypography.lineHeight,
+      fontSize: terminalTypography.fontSize,
       scrollback: 5_000,
-      fontFamily: '"SF Mono", "SFMono-Regular", Consolas, "Liberation Mono", Menlo, monospace',
+      fontFamily: terminalTypography.fontFamily,
       theme: terminalThemeFromApp(),
     });
     terminal.loadAddon(fitAddon);
@@ -482,6 +469,10 @@ function TerminalViewport({
     const themeObserver = new MutationObserver(() => {
       const activeTerminal = terminalRef.current;
       if (!activeTerminal) return;
+      const terminalTypography = terminalTypographyFromApp();
+      activeTerminal.options.fontFamily = terminalTypography.fontFamily;
+      activeTerminal.options.fontSize = terminalTypography.fontSize;
+      activeTerminal.options.lineHeight = terminalTypography.lineHeight;
       activeTerminal.options.theme = terminalThemeFromApp();
       activeTerminal.refresh(0, activeTerminal.rows - 1);
     });

@@ -52,29 +52,22 @@ import {
  * Phase type → color for the card top-bar stripe and active border accent.
  * Matches PhaseTypeBadge tone colors: sky (single), amber (multi), emerald (automated), violet (human).
  */
-const PHASE_CARD_COLORS: Record<
-  WorkflowPhase["type"],
-  { stripe: string; label: string; activeBorder: string }
-> = {
+const PHASE_CARD_COLORS: Record<WorkflowPhase["type"], { stripeColor: string; label: string }> = {
   "single-agent": {
-    stripe: "bg-sky-500",
+    stripeColor: "var(--feature-phase-single-agent)",
     label: "Single agent",
-    activeBorder: "border-sky-500/30",
   },
   "multi-agent": {
-    stripe: "bg-amber-500",
+    stripeColor: "var(--feature-phase-multi-agent)",
     label: "Deliberation",
-    activeBorder: "border-amber-500/30",
   },
   automated: {
-    stripe: "bg-emerald-500",
+    stripeColor: "var(--feature-phase-automated)",
     label: "Automated",
-    activeBorder: "border-emerald-500/30",
   },
   human: {
-    stripe: "bg-violet-500",
+    stripeColor: "var(--feature-phase-human)",
     label: "Human",
-    activeBorder: "border-violet-500/30",
   },
 };
 
@@ -146,22 +139,27 @@ function PhaseStripCard(props: {
       type="button"
       onClick={props.onClick}
       className={cn(
-        "relative min-w-0 flex-1 cursor-pointer overflow-hidden rounded-xl border bg-[#151518] p-3.5 pt-4 text-left transition-all",
+        "relative min-w-0 flex-1 cursor-pointer overflow-hidden rounded-xl border bg-[var(--panel)] p-3.5 pt-4 text-left transition-all",
         props.active
-          ? cn(
-              "border-white/8 bg-[#1c1c20] shadow-[0_1px_3px_rgba(0,0,0,.3),0_4px_12px_rgba(0,0,0,.2)]",
-              colors.activeBorder,
-            )
-          : "border-border hover:bg-[#1c1c20]",
+          ? "bg-[var(--panel-elevated)]"
+          : "border-border hover:bg-[var(--panel-elevated)]",
       )}
+      style={
+        props.active
+          ? {
+              borderColor: `color-mix(in srgb, ${colors.stripeColor} 30%, transparent)`,
+              boxShadow: "var(--panel-shadow-active)",
+            }
+          : undefined
+      }
     >
       {/* Color stripe at top */}
       <div
-        className={cn(
-          "absolute inset-x-0 top-0 h-[2.5px] transition-opacity",
-          colors.stripe,
-          props.active ? "opacity-100" : "opacity-70",
-        )}
+        className={cn("absolute inset-x-0 top-0 h-[2.5px] transition-opacity")}
+        style={{
+          backgroundColor: colors.stripeColor,
+          opacity: props.active ? 1 : 0.7,
+        }}
       />
       <div className="text-sm font-semibold text-foreground">
         {props.phase.name || `Phase ${props.phaseIndex + 1}`}
@@ -182,7 +180,7 @@ function PhaseStripAddButton(props: { onClick: () => void; disabled: boolean }) 
       type="button"
       onClick={props.onClick}
       disabled={props.disabled}
-      className="flex w-12 shrink-0 cursor-pointer items-center justify-center rounded-xl border-[1.5px] border-dashed border-border text-xl text-muted-foreground/60 transition-all hover:border-muted-foreground/60 hover:bg-[#151518] hover:text-muted-foreground disabled:pointer-events-none disabled:opacity-50"
+      className="flex w-12 shrink-0 cursor-pointer items-center justify-center rounded-xl border-[1.5px] border-dashed border-border text-xl text-muted-foreground/60 transition-all hover:border-muted-foreground/60 hover:bg-[var(--panel)] hover:text-muted-foreground disabled:pointer-events-none disabled:opacity-50"
     >
       +
     </button>
@@ -550,7 +548,7 @@ export function WorkflowEditor(props: { workflowId: WorkflowId | null }) {
                   <div className="relative mt-2">
                     {/* Connector nub */}
                     <div
-                      className="absolute -top-1.5 z-10 size-3 rotate-45 border border-b-0 border-r-0 border-border bg-[#151518] transition-[left] duration-200 ease-out"
+                      className="absolute -top-1.5 z-10 size-3 rotate-45 border border-b-0 border-r-0 border-border bg-[var(--panel)] transition-[left] duration-200 ease-out"
                       style={{
                         left:
                           phaseCount <= 1
@@ -558,7 +556,10 @@ export function WorkflowEditor(props: { workflowId: WorkflowId | null }) {
                             : `calc(${((clampedPhaseIndex + 0.5) / (phaseCount + 0.6)) * 100}% - 6px)`,
                       }}
                     />
-                    <div className="rounded-xl border border-border bg-[#151518] p-5 shadow-[0_2px_8px_rgba(0,0,0,.15)]">
+                    <div
+                      className="rounded-xl border border-border bg-[var(--panel)] p-5"
+                      style={{ boxShadow: "var(--panel-shadow)" }}
+                    >
                       <PhaseCard
                         phase={selectedPhase}
                         phaseIndex={clampedPhaseIndex}

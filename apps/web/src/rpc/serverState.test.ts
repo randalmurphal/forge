@@ -56,6 +56,7 @@ const defaultProviders: ReadonlyArray<ServerProvider> = [
 const baseServerConfig: ServerConfig = {
   cwd: "/tmp/workspace",
   keybindingsConfigPath: "/tmp/workspace/.config/keybindings.json",
+  settingsPath: "/tmp/workspace/.config/settings.json",
   keybindings: [],
   issues: [],
   providers: defaultProviders,
@@ -302,6 +303,7 @@ describe("serverState", () => {
       version: 1,
       type: "settingsUpdated",
       payload: {
+        issues: [{ kind: "appearance.malformed-config", message: "bad appearance" }],
         settings: {
           ...DEFAULT_SERVER_SETTINGS,
           enableAssistantStreaming: true,
@@ -312,7 +314,10 @@ describe("serverState", () => {
     await waitFor(() => {
       expect(getServerConfig()).toEqual({
         ...baseServerConfig,
-        issues: [{ kind: "keybindings.malformed-config", message: "bad json" }],
+        issues: [
+          { kind: "keybindings.malformed-config", message: "bad json" },
+          { kind: "appearance.malformed-config", message: "bad appearance" },
+        ],
         providers: nextProviders,
         settings: {
           ...DEFAULT_SERVER_SETTINGS,
@@ -342,7 +347,10 @@ describe("serverState", () => {
     );
     expect(configListener).toHaveBeenLastCalledWith(
       {
-        issues: [{ kind: "keybindings.malformed-config", message: "bad json" }],
+        issues: [
+          { kind: "keybindings.malformed-config", message: "bad json" },
+          { kind: "appearance.malformed-config", message: "bad appearance" },
+        ],
         providers: nextProviders,
         settings: {
           ...DEFAULT_SERVER_SETTINGS,
@@ -354,6 +362,62 @@ describe("serverState", () => {
 
     unsubscribeProviders();
     unsubscribeConfig();
+    stop();
+  });
+
+  it("preserves appearance issues across keybinding updates and preserves keybinding issues across settings updates", async () => {
+    serverApi.getConfig.mockResolvedValueOnce(baseServerConfig);
+    const stop = startServerStateSync(serverApi);
+
+    await waitFor(() => {
+      expect(getServerConfig()).toEqual(baseServerConfig);
+    });
+
+    emitServerConfigEvent({
+      version: 1,
+      type: "settingsUpdated",
+      payload: {
+        issues: [{ kind: "appearance.malformed-config", message: "bad appearance" }],
+        settings: DEFAULT_SERVER_SETTINGS,
+      },
+    });
+
+    await waitFor(() => {
+      expect(getServerConfig()?.issues).toEqual([
+        { kind: "appearance.malformed-config", message: "bad appearance" },
+      ]);
+    });
+
+    emitServerConfigEvent({
+      version: 1,
+      type: "keybindingsUpdated",
+      payload: {
+        issues: [{ kind: "keybindings.malformed-config", message: "bad keybindings" }],
+      },
+    });
+
+    await waitFor(() => {
+      expect(getServerConfig()?.issues).toEqual([
+        { kind: "appearance.malformed-config", message: "bad appearance" },
+        { kind: "keybindings.malformed-config", message: "bad keybindings" },
+      ]);
+    });
+
+    emitServerConfigEvent({
+      version: 1,
+      type: "settingsUpdated",
+      payload: {
+        issues: [],
+        settings: DEFAULT_SERVER_SETTINGS,
+      },
+    });
+
+    await waitFor(() => {
+      expect(getServerConfig()?.issues).toEqual([
+        { kind: "keybindings.malformed-config", message: "bad keybindings" },
+      ]);
+    });
+
     stop();
   });
 });

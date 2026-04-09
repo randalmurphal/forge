@@ -1,25 +1,11 @@
-import { cva } from "class-variance-authority";
 import { CheckCircleIcon, ChevronDownIcon, XCircleIcon } from "lucide-react";
 import type { QualityCheckResult } from "@forgetools/contracts";
+import { buildToneSurfaceStyle } from "../lib/appearance";
 import { cn } from "../lib/utils";
 
-const qualityCheckRowVariants = cva("rounded-xl border bg-background/65", {
-  variants: {
-    passed: {
-      true: "border-emerald-500/20",
-      false: "border-rose-500/20",
-    },
-  },
-});
-
-const qualityCheckStatusVariants = cva("text-xs font-medium uppercase tracking-[0.08em]", {
-  variants: {
-    passed: {
-      true: "text-emerald-600 dark:text-emerald-300",
-      false: "text-rose-600 dark:text-rose-300",
-    },
-  },
-});
+function qualityCheckColor(passed: boolean): string {
+  return passed ? "var(--success)" : "var(--destructive)";
+}
 
 export function QualityCheckResults(props: {
   results: readonly QualityCheckResult[];
@@ -48,22 +34,28 @@ export function QualityCheckResults(props: {
           return (
             <details
               key={result.check}
-              className={qualityCheckRowVariants({ passed: result.passed })}
+              className="rounded-xl border bg-background/65"
+              style={buildToneSurfaceStyle(qualityCheckColor(result.passed), {
+                borderPercent: 20,
+                backgroundPercent: 6,
+                textColor: "var(--foreground)",
+              })}
               open={!result.passed}
             >
               <summary className="flex cursor-pointer list-none items-center justify-between gap-3 px-4 py-3">
                 <span className="inline-flex min-w-0 items-center gap-2 text-sm font-medium text-foreground">
                   <Icon
-                    className={cn(
-                      "size-4 shrink-0",
-                      result.passed ? "text-emerald-500" : "text-rose-500",
-                    )}
+                    className="size-4 shrink-0"
+                    style={{ color: qualityCheckColor(result.passed) }}
                   />
                   <span className="truncate">{result.check}</span>
                 </span>
 
                 <span className="inline-flex items-center gap-2">
-                  <span className={qualityCheckStatusVariants({ passed: result.passed })}>
+                  <span
+                    className="text-xs font-medium uppercase tracking-[0.08em]"
+                    style={{ color: qualityCheckColor(result.passed) }}
+                  >
                     {result.passed ? "passed" : "failed"}
                   </span>
                   <ChevronDownIcon className="size-4 text-muted-foreground" />
