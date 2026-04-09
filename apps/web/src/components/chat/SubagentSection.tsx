@@ -1,4 +1,4 @@
-import { memo, type ReactNode } from "react";
+import { memo, useCallback, type ReactNode } from "react";
 import {
   AlertCircleIcon,
   BoxIcon,
@@ -32,7 +32,7 @@ export const SubagentSection = memo(function SubagentSection(props: SubagentSect
             key={group.taskId}
             group={group}
             isExpanded={expandedTaskId === group.taskId}
-            onToggle={() => onToggle(group.taskId)}
+            onToggle={onToggle}
             renderWorkEntry={renderWorkEntry}
           />
         ))}
@@ -44,10 +44,14 @@ export const SubagentSection = memo(function SubagentSection(props: SubagentSect
 const SubagentGroupRow = memo(function SubagentGroupRow(props: {
   group: SubagentGroup;
   isExpanded: boolean;
-  onToggle: () => void;
+  onToggle: (taskId: string) => void;
   renderWorkEntry: (entry: WorkLogEntry) => ReactNode;
 }) {
   const { group, isExpanded, onToggle, renderWorkEntry } = props;
+
+  const handleToggle = useCallback(() => {
+    onToggle(group.taskId);
+  }, [onToggle, group.taskId]);
 
   const StatusIcon = statusIcon(group.status);
   const statusColor = statusColorClass(group.status);
@@ -60,7 +64,7 @@ const SubagentGroupRow = memo(function SubagentGroupRow(props: {
     <div className="rounded-lg border border-border/30 bg-background/30">
       <button
         type="button"
-        onClick={onToggle}
+        onClick={handleToggle}
         aria-expanded={isExpanded}
         aria-label={`Toggle ${group.label} details`}
         className="flex w-full items-center gap-2 px-2 py-2 text-left transition-colors hover:bg-muted/30"
@@ -79,7 +83,7 @@ const SubagentGroupRow = memo(function SubagentGroupRow(props: {
         </span>
         <div className="flex shrink-0 items-center gap-1.5">
           <span className={cn("flex items-center gap-0.5 text-[9px]", statusColor)}>
-            <StatusIcon className="size-2.5" />
+            <StatusIcon className={cn("size-2.5", group.status === "running" && "animate-spin")} />
             {group.status}
           </span>
           {durationMs !== undefined && durationMs > 0 && (
