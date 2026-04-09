@@ -14,6 +14,8 @@ build/
 release/
 release-mock/
 .forge
+.playwright
+.playwright-mcp/
 .idea/
 apps/web/.playwright
 apps/web/playwright-report
