@@ -272,6 +272,45 @@ function getLatestUserMessageAt(
   return latestUserMessageAt;
 }
 
+/**
+ * Computes the timestamp that should drive sidebar sort order.
+ * Only advances for user-relevant events:
+ * - User sent a message (latest user message timestamp)
+ * - Agent turn settled (completed/failed/cancelled/interrupted — via latestTurn.completedAt)
+ * - Agent needs user attention (pending approvals, pending user input, plan ready)
+ *   — these bump sort order because the thread's `updatedAt` advances when activities are appended
+ *
+ * Falls back to updatedAt → createdAt for threads with no qualifying events.
+ */
+function getLastSortableActivityAt(thread: Thread): string | null {
+  const candidates: string[] = [];
+
+  const latestUserMsg = getLatestUserMessageAt(thread.messages);
+  if (latestUserMsg !== null) {
+    candidates.push(latestUserMsg);
+  }
+
+  if (thread.latestTurn?.completedAt) {
+    candidates.push(thread.latestTurn.completedAt);
+  }
+
+  const needsAttention =
+    derivePendingApprovals(thread.activities).length > 0 ||
+    derivePendingUserInputs(thread.activities).length > 0 ||
+    hasActionableProposedPlan(
+      findLatestProposedPlan(thread.proposedPlans, thread.latestTurn?.turnId ?? null),
+    );
+  if (needsAttention && thread.updatedAt) {
+    candidates.push(thread.updatedAt);
+  }
+
+  if (candidates.length === 0) {
+    return thread.updatedAt ?? thread.createdAt ?? null;
+  }
+
+  return candidates.reduce((a, b) => (a > b ? a : b));
+}
+
 function buildSidebarThreadSummary(thread: Thread): SidebarThreadSummary {
   return {
     id: thread.id,
@@ -295,6 +334,7 @@ function buildSidebarThreadSummary(thread: Thread): SidebarThreadSummary {
     spawnBranch: thread.spawnBranch ?? null,
     spawnWorktreePath: thread.spawnWorktreePath ?? null,
     latestUserMessageAt: getLatestUserMessageAt(thread.messages),
+    lastSortableActivityAt: getLastSortableActivityAt(thread),
     hasPendingApprovals: derivePendingApprovals(thread.activities).length > 0,
     hasPendingUserInput: derivePendingUserInputs(thread.activities).length > 0,
     hasActionableProposedPlan: hasActionableProposedPlan(
@@ -335,6 +375,7 @@ function sidebarThreadSummariesEqual(
     left.spawnBranch === right.spawnBranch &&
     left.spawnWorktreePath === right.spawnWorktreePath &&
     left.latestUserMessageAt === right.latestUserMessageAt &&
+    left.lastSortableActivityAt === right.lastSortableActivityAt &&
     left.hasPendingApprovals === right.hasPendingApprovals &&
     left.hasPendingUserInput === right.hasPendingUserInput &&
     left.hasActionableProposedPlan === right.hasActionableProposedPlan
@@ -987,7 +1028,6 @@ export function applyOrchestrationEvent(state: AppState, event: ForgeEvent): App
         runtimeMode: event.payload.runtimeMode,
         interactionMode: event.payload.interactionMode,
         pendingSourceProposedPlan: event.payload.sourceProposedPlan,
-        updatedAt: event.occurredAt,
       }));
     }
 
@@ -1324,7 +1364,6 @@ export function applyOrchestrationEvent(state: AppState, event: ForgeEvent): App
                 activeTurnId: undefined,
                 updatedAt: event.payload.createdAt,
               },
-              updatedAt: event.occurredAt,
             },
       );
     }

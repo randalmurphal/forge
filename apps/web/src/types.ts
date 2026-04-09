@@ -154,6 +154,7 @@ export interface SidebarThreadSummary {
   spawnBranch?: string | null;
   spawnWorktreePath?: string | null;
   latestUserMessageAt: string | null;
+  lastSortableActivityAt: string | null;
   hasPendingApprovals: boolean;
   hasPendingUserInput: boolean;
   hasActionableProposedPlan: boolean;

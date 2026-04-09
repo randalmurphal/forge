@@ -26,9 +26,9 @@ export interface SidebarTreeVisibleNode extends SidebarTreeNode {
 }
 
 const SORT_GROUP_PRIORITY: Record<SidebarTreeSortGroup, number> = {
-  "needs-attention": 4,
-  running: 3,
-  paused: 2,
+  "needs-attention": 2,
+  running: 1,
+  paused: 1,
   completed: 1,
 };
 
@@ -65,7 +65,7 @@ function resolveLatestActivityAt(
   thread: SidebarTreeThread,
   children: readonly SidebarTreeNode[],
 ): string | null {
-  let latestActivityAt: string | null = thread.updatedAt ?? thread.createdAt ?? null;
+  let latestActivityAt: string | null = thread.lastSortableActivityAt ?? thread.createdAt ?? null;
   let latestTimestamp = toSortableTimestamp(latestActivityAt);
 
   for (const child of children) {

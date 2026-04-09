@@ -32,6 +32,7 @@ function makeThread(
     branch: null,
     worktreePath: null,
     latestUserMessageAt: null,
+    lastSortableActivityAt: null,
     hasPendingApprovals: false,
     hasPendingUserInput: false,
     hasActionableProposedPlan: false,
@@ -95,12 +96,14 @@ describe("buildSidebarThreadTree", () => {
     expect(tree[0]?.displayStatus.label).toBe("Pending Approval");
   });
 
-  it("sorts by status group priority and then most recent activity", () => {
+  it("sorts needs-attention threads above others, then by most recent sortable activity", () => {
     const pausedNewest = makeThread("paused-newest", {
       updatedAt: "2026-04-06T04:00:00.000Z",
+      lastSortableActivityAt: "2026-04-06T04:00:00.000Z",
     });
     const runningOlder = makeThread("running-older", {
       updatedAt: "2026-04-06T02:00:00.000Z",
+      lastSortableActivityAt: "2026-04-06T02:00:00.000Z",
       session: {
         provider: "codex",
         status: "running",
@@ -112,6 +115,7 @@ describe("buildSidebarThreadTree", () => {
     });
     const runningNewest = makeThread("running-newest", {
       updatedAt: "2026-04-06T03:00:00.000Z",
+      lastSortableActivityAt: "2026-04-06T03:00:00.000Z",
       session: {
         provider: "claudeAgent",
         status: "running",
@@ -123,6 +127,7 @@ describe("buildSidebarThreadTree", () => {
     });
     const completed = makeThread("completed", {
       updatedAt: "2026-04-06T05:00:00.000Z",
+      lastSortableActivityAt: "2026-04-06T05:00:00.000Z",
       session: {
         provider: "codex",
         status: "closed",
@@ -134,6 +139,7 @@ describe("buildSidebarThreadTree", () => {
     });
     const needsAttention = makeThread("needs-attention", {
       updatedAt: "2026-04-06T01:00:00.000Z",
+      lastSortableActivityAt: "2026-04-06T01:00:00.000Z",
       hasPendingUserInput: true,
     });
 
@@ -143,21 +149,23 @@ describe("buildSidebarThreadTree", () => {
 
     expect(tree.map((node) => node.thread.id)).toEqual([
       needsAttention.id,
+      completed.id,
+      pausedNewest.id,
       runningNewest.id,
       runningOlder.id,
-      pausedNewest.id,
-      completed.id,
     ]);
   });
 
   it("uses descendant activity when sorting parent containers", () => {
     const staleParent = makeThread("stale-parent", {
       updatedAt: "2026-04-06T01:00:00.000Z",
+      lastSortableActivityAt: "2026-04-06T01:00:00.000Z",
       childThreadIds: [ThreadId.makeUnsafe("active-child")],
     });
     const activeChild = makeThread("active-child", {
       parentThreadId: staleParent.id,
       updatedAt: "2026-04-06T05:00:00.000Z",
+      lastSortableActivityAt: "2026-04-06T05:00:00.000Z",
       session: {
         provider: "codex",
         status: "running",
@@ -169,6 +177,7 @@ describe("buildSidebarThreadTree", () => {
     });
     const newerOwnActivity = makeThread("newer-own-activity", {
       updatedAt: "2026-04-06T04:00:00.000Z",
+      lastSortableActivityAt: "2026-04-06T04:00:00.000Z",
       session: {
         provider: "claudeAgent",
         status: "running",
@@ -184,7 +193,7 @@ describe("buildSidebarThreadTree", () => {
     });
 
     expect(tree.map((node) => node.thread.id)).toEqual([staleParent.id, newerOwnActivity.id]);
-    expect(tree[0]?.latestActivityAt).toBe(activeChild.updatedAt);
+    expect(tree[0]?.latestActivityAt).toBe(activeChild.lastSortableActivityAt);
   });
 
   it("propagates deliberation status from running participants to their parent container", () => {

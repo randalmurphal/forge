@@ -19,6 +19,7 @@ type SidebarProject = {
 };
 type SidebarThreadSortInput = Pick<Thread, "createdAt" | "updatedAt"> & {
   latestUserMessageAt?: string | null;
+  lastSortableActivityAt?: string | null;
   messages?: Pick<Thread["messages"][number], "createdAt" | "role">[];
 };
 
@@ -495,7 +496,10 @@ function getLatestUserMessageTimestamp(thread: SidebarThreadSortInput): number {
     return latestUserMessageTimestamp;
   }
 
-  return toSortableTimestamp(thread.updatedAt ?? thread.createdAt) ?? Number.NEGATIVE_INFINITY;
+  return (
+    toSortableTimestamp(thread.lastSortableActivityAt ?? thread.updatedAt ?? thread.createdAt) ??
+    Number.NEGATIVE_INFINITY
+  );
 }
 
 function getThreadSortTimestamp(
