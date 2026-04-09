@@ -62,6 +62,22 @@ import { isArm64HostRunningIntelBuild, resolveDesktopRuntimeInfo } from "./runti
 
 syncShellEnvironment();
 
+// Catch unhandled errors so they surface through our own error dialog instead
+// of Electron's default "A JavaScript error occurred in the main process" box.
+// This is especially important for transient socket errors (ECONNREFUSED) that
+// can escape event-emitter teardown during daemon health checks.
+process.on("uncaughtException", (error) => {
+  console.error("[desktop] uncaughtException", error);
+  if (!app.isReady()) {
+    process.exit(1);
+  }
+  dialog.showErrorBox("Forge encountered an unexpected error", error.stack ?? String(error));
+});
+
+process.on("unhandledRejection", (reason) => {
+  console.error("[desktop] unhandledRejection", reason);
+});
+
 const PICK_FOLDER_CHANNEL = "desktop:pick-folder";
 const CONFIRM_CHANNEL = "desktop:confirm";
 const SET_THEME_CHANNEL = "desktop:set-theme";
@@ -73,6 +89,7 @@ const UPDATE_GET_STATE_CHANNEL = "desktop:update-get-state";
 const UPDATE_DOWNLOAD_CHANNEL = "desktop:update-download";
 const UPDATE_INSTALL_CHANNEL = "desktop:update-install";
 const UPDATE_CHECK_CHANNEL = "desktop:update-check";
+const GET_WS_URL_CHANNEL = "desktop:get-ws-url";
 const BASE_DIR = resolveDesktopBaseDir(process.env);
 const DAEMON_PATHS = resolveDesktopDaemonPaths(BASE_DIR);
 const DESKTOP_SCHEME = "forge";
@@ -1056,6 +1073,11 @@ async function ensureDaemonReady(): Promise<void> {
 }
 
 function registerIpcHandlers(): void {
+  ipcMain.removeAllListeners(GET_WS_URL_CHANNEL);
+  ipcMain.on(GET_WS_URL_CHANNEL, (event) => {
+    event.returnValue = backendWsUrl || null;
+  });
+
   ipcMain.removeHandler(PICK_FOLDER_CHANNEL);
   ipcMain.handle(PICK_FOLDER_CHANNEL, async () => {
     const owner = BrowserWindow.getFocusedWindow() ?? mainWindow;

@@ -69,6 +69,7 @@ const DEFAULT_PING_TIMEOUT_MS = 1_000;
 const DESKTOP_DAEMON_PING_REQUEST_ID = "forge-desktop-ping";
 
 const sleep = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms));
+const noop = () => {};
 
 const isProcessAlive = (pid: number): boolean => {
   if (!Number.isInteger(pid) || pid <= 0) {
@@ -114,6 +115,10 @@ export const pingDaemon = async (
       clearTimeout(timeout);
       lines.removeAllListeners();
       socket.removeAllListeners();
+      // Attach a permanent error sink so any errors emitted during or after
+      // destroy (e.g. ECONNREFUSED arriving after cleanup) don't surface as
+      // uncaught exceptions.
+      socket.on("error", noop);
       lines.close();
       socket.destroy();
       resolve(result);
@@ -122,6 +127,7 @@ export const pingDaemon = async (
     const timeout = setTimeout(() => finish(false), timeoutMs);
 
     socket.once("error", () => finish(false));
+    lines.once("error", () => finish(false));
     socket.once("connect", () => {
       socket.write(
         `${JSON.stringify({
