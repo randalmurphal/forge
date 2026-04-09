@@ -69,6 +69,7 @@ import {
   normalizeCompactToolLabel,
   type MessagesTimelineRow,
 } from "./MessagesTimeline.logic";
+import { SubagentSection } from "./SubagentSection";
 import { TerminalContextInlineChip } from "./TerminalContextInlineChip";
 import {
   deriveDisplayedUserMessageState,
@@ -152,6 +153,10 @@ export const MessagesTimeline = memo(function MessagesTimeline({
   const timelineRootRef = useRef<HTMLDivElement | null>(null);
   const [timelineWidthPx, setTimelineWidthPx] = useState<number | null>(null);
   const [expandedInlineDiff, setExpandedInlineDiff] = useState<ExpandedInlineDiffState>(null);
+  const [expandedSubagentTaskId, setExpandedSubagentTaskId] = useState<string | null>(null);
+  const onToggleSubagent = useCallback((taskId: string) => {
+    setExpandedSubagentTaskId((prev) => (prev === taskId ? null : taskId));
+  }, []);
   const settings = useSettings();
 
   useLayoutEffect(() => {
@@ -257,6 +262,7 @@ export const MessagesTimeline = memo(function MessagesTimeline({
       return estimateMessagesTimelineRowHeight(row, {
         expandedWorkGroups,
         expandedInlineDiff,
+        expandedSubagentTaskId,
         timelineWidthPx,
         turnDiffSummaryByAssistantMessageId,
       });
@@ -270,6 +276,7 @@ export const MessagesTimeline = memo(function MessagesTimeline({
     rowVirtualizer.measure();
   }, [
     expandedInlineDiff,
+    expandedSubagentTaskId,
     expandedWorkGroups,
     rowVirtualizer,
     timelineWidthPx,
@@ -342,6 +349,18 @@ export const MessagesTimeline = memo(function MessagesTimeline({
     );
   }, []);
 
+  const renderSubagentWorkEntry = useCallback(
+    (entry: WorkLogEntry) => (
+      <SimpleWorkEntryRow
+        workEntry={entry}
+        expandedInlineDiff={expandedInlineDiff}
+        onToggleInlineDiff={onToggleInlineDiff}
+        resolvedTheme={resolvedTheme}
+      />
+    ),
+    [expandedInlineDiff, onToggleInlineDiff, resolvedTheme],
+  );
+
   const renderRowContent = (row: TimelineRow) => (
     <div
       className="pb-4"
@@ -367,6 +386,15 @@ export const MessagesTimeline = memo(function MessagesTimeline({
           expandedInlineDiff={expandedInlineDiff}
           onToggleInlineDiff={onToggleInlineDiff}
           resolvedTheme={resolvedTheme}
+        />
+      )}
+
+      {row.kind === "subagent-section" && (
+        <SubagentSection
+          groups={row.subagentGroups}
+          expandedTaskId={expandedSubagentTaskId}
+          onToggle={onToggleSubagent}
+          renderWorkEntry={renderSubagentWorkEntry}
         />
       )}
 

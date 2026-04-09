@@ -79,6 +79,7 @@ interface CodexSessionContext {
   pendingApprovals: Map<ApprovalRequestId, PendingApprovalRequest>;
   pendingUserInputs: Map<ApprovalRequestId, PendingUserInputRequest>;
   collabReceiverTurns: Map<string, TurnId>;
+  collabChildTaskIds: Map<string, { taskId: string; label: string | undefined }>;
   nextRequestId: number;
   stopping: boolean;
   dynamicToolHandler?: DynamicToolHandler;
@@ -504,6 +505,7 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
         pendingApprovals: new Map(),
         pendingUserInputs: new Map(),
         collabReceiverTurns: new Map(),
+        collabChildTaskIds: new Map(),
         nextRequestId: 1,
         stopping: false,
       };
@@ -677,6 +679,7 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
   async sendTurn(input: CodexAppServerSendTurnInput): Promise<ProviderTurnStartResult> {
     const context = this.requireSession(input.threadId);
     context.collabReceiverTurns.clear();
+    context.collabChildTaskIds.clear();
 
     const turnInput: Array<
       { type: "text"; text: string; text_elements: [] } | { type: "image"; url: string }
@@ -1081,6 +1084,26 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
         ? this.readString(notification.params, "delta")
         : undefined;
 
+    const childProviderThreadId = isChildConversation
+      ? this.readProviderConversationId(notification.params)
+      : undefined;
+    const childMeta = childProviderThreadId
+      ? context.collabChildTaskIds.get(childProviderThreadId)
+      : undefined;
+    const eventPayload =
+      isChildConversation && childProviderThreadId
+        ? {
+            ...(typeof notification.params === "object" && notification.params !== null
+              ? notification.params
+              : {}),
+            _childThreadAttribution: {
+              childProviderThreadId,
+              taskId: childMeta?.taskId ?? childProviderThreadId,
+              label: childMeta?.label,
+            },
+          }
+        : notification.params;
+
     this.emitEvent({
       id: EventId.makeUnsafe(randomUUID()),
       kind: "notification",
@@ -1093,7 +1116,7 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
         : {}),
       ...(rawRoute.itemId ? { itemId: rawRoute.itemId } : {}),
       textDelta,
-      payload: notification.params,
+      payload: eventPayload,
     });
 
     if (notification.method === "thread/started") {
@@ -1123,6 +1146,7 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
         return;
       }
       context.collabReceiverTurns.clear();
+      context.collabChildTaskIds.clear();
       const turn = this.readObject(notification.params, "turn");
       const status = this.readString(turn, "status");
       const errorMessage = this.readString(this.readObject(turn, "error"), "message");
@@ -1502,8 +1526,16 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
       this.readArray(item, "receiverThreadIds")
         ?.map((value) => (typeof value === "string" ? value : null))
         .filter((value): value is string => value !== null) ?? [];
+    const prompt = this.readString(item, "prompt");
+    const description = this.readString(item, "description");
+    const itemId = this.readString(item, "id") ?? this.readString(payload, "itemId");
+    const label = description ?? prompt?.slice(0, 120) ?? undefined;
     for (const receiverThreadId of receiverThreadIds) {
       context.collabReceiverTurns.set(receiverThreadId, parentTurnId);
+      context.collabChildTaskIds.set(receiverThreadId, {
+        taskId: itemId ?? receiverThreadId,
+        label,
+      });
     }
   }
 

@@ -38,6 +38,7 @@ function createSendTurnHarness() {
       sparkEnabled: true,
     },
     collabReceiverTurns: new Map(),
+    collabChildTaskIds: new Map(),
   };
 
   const requireSession = vi
@@ -77,6 +78,7 @@ function createThreadControlHarness() {
       updatedAt: "2026-02-10T00:00:00.000Z",
     },
     collabReceiverTurns: new Map(),
+    collabChildTaskIds: new Map(),
   };
 
   const requireSession = vi
@@ -120,6 +122,7 @@ function createPendingUserInputHarness() {
       ],
     ]),
     collabReceiverTurns: new Map(),
+    collabChildTaskIds: new Map(),
   };
 
   const requireSession = vi
@@ -154,6 +157,7 @@ function createDynamicToolHarness() {
     pendingApprovals: new Map(),
     pendingUserInputs: new Map(),
     collabReceiverTurns: new Map(),
+    collabChildTaskIds: new Map(),
     dynamicToolHandler: vi.fn(),
   };
 
@@ -183,6 +187,7 @@ type DynamicToolRequestHarnessContext = {
   pendingApprovals: Map<unknown, unknown>;
   pendingUserInputs: Map<unknown, unknown>;
   collabReceiverTurns: Map<unknown, unknown>;
+  collabChildTaskIds: Map<unknown, unknown>;
 };
 
 function createCollabNotificationHarness() {
@@ -208,6 +213,7 @@ function createCollabNotificationHarness() {
     pendingApprovals: new Map(),
     pendingUserInputs: new Map(),
     collabReceiverTurns: new Map<string, string>(),
+    collabChildTaskIds: new Map(),
     nextRequestId: 1,
     stopping: false,
   };
@@ -870,6 +876,7 @@ describe("respondToUserInput", () => {
       pendingApprovals: new Map(),
       pendingUserInputs: new Map(),
       collabReceiverTurns: new Map(),
+      collabChildTaskIds: new Map(),
     };
     type ApprovalRequestContext = {
       session: Record<string, unknown>;
@@ -964,6 +971,7 @@ describe("respondToUserInput", () => {
       pendingApprovals: new Map(),
       pendingUserInputs: new Map(),
       collabReceiverTurns: new Map(),
+      collabChildTaskIds: new Map(),
     };
     const writeMessage = vi
       .spyOn(manager as unknown as { writeMessage: (...args: unknown[]) => void }, "writeMessage")
@@ -1139,6 +1147,150 @@ describe("collab child conversation routing", () => {
         itemId: "call_child_1",
       }),
     );
+  });
+
+  it("injects _childThreadAttribution with label into child event payloads", () => {
+    const { manager, context, emitEvent } = createCollabNotificationHarness();
+
+    // Establish the child thread mapping via a collabAgentToolCall with a description
+    (
+      manager as unknown as {
+        handleServerNotification: (context: unknown, notification: Record<string, unknown>) => void;
+      }
+    ).handleServerNotification(context, {
+      method: "item/completed",
+      params: {
+        item: {
+          type: "collabAgentToolCall",
+          id: "call_collab_attr",
+          receiverThreadIds: ["child_provider_attr"],
+          description: "Refactor the auth module",
+        },
+        threadId: "provider_parent",
+        turnId: "turn_parent",
+      },
+    });
+    emitEvent.mockClear();
+
+    // Send a child thread notification
+    (
+      manager as unknown as {
+        handleServerNotification: (context: unknown, notification: Record<string, unknown>) => void;
+      }
+    ).handleServerNotification(context, {
+      method: "item/agentMessage/delta",
+      params: {
+        threadId: "child_provider_attr",
+        turnId: "turn_child_attr",
+        itemId: "msg_child_attr",
+        delta: "refactoring",
+      },
+    });
+
+    expect(emitEvent).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        method: "item/agentMessage/delta",
+        turnId: "turn_parent",
+        payload: expect.objectContaining({
+          _childThreadAttribution: {
+            childProviderThreadId: "child_provider_attr",
+            taskId: "call_collab_attr",
+            label: "Refactor the auth module",
+          },
+        }),
+      }),
+    );
+  });
+
+  it("derives label from prompt when description is absent", () => {
+    const { manager, context, emitEvent } = createCollabNotificationHarness();
+
+    (
+      manager as unknown as {
+        handleServerNotification: (context: unknown, notification: Record<string, unknown>) => void;
+      }
+    ).handleServerNotification(context, {
+      method: "item/completed",
+      params: {
+        item: {
+          type: "collabAgentToolCall",
+          id: "call_collab_prompt",
+          receiverThreadIds: ["child_provider_prompt"],
+          prompt: "Write unit tests for the parser",
+        },
+        threadId: "provider_parent",
+        turnId: "turn_parent",
+      },
+    });
+    emitEvent.mockClear();
+
+    (
+      manager as unknown as {
+        handleServerNotification: (context: unknown, notification: Record<string, unknown>) => void;
+      }
+    ).handleServerNotification(context, {
+      method: "item/agentMessage/delta",
+      params: {
+        threadId: "child_provider_prompt",
+        turnId: "turn_child_prompt",
+        itemId: "msg_child_prompt",
+        delta: "testing",
+      },
+    });
+
+    expect(emitEvent).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        payload: expect.objectContaining({
+          _childThreadAttribution: {
+            childProviderThreadId: "child_provider_prompt",
+            taskId: "call_collab_prompt",
+            label: "Write unit tests for the parser",
+          },
+        }),
+      }),
+    );
+  });
+
+  it("does not inject _childThreadAttribution into parent thread event payloads", () => {
+    const { manager, context, emitEvent } = createCollabNotificationHarness();
+
+    // Establish a child mapping so we know the manager is tracking children
+    (
+      manager as unknown as {
+        handleServerNotification: (context: unknown, notification: Record<string, unknown>) => void;
+      }
+    ).handleServerNotification(context, {
+      method: "item/completed",
+      params: {
+        item: {
+          type: "collabAgentToolCall",
+          id: "call_collab_parent_check",
+          receiverThreadIds: ["child_provider_other"],
+          description: "Some child task",
+        },
+        threadId: "provider_parent",
+        turnId: "turn_parent",
+      },
+    });
+    emitEvent.mockClear();
+
+    // Emit a parent thread notification (threadId matches the parent's resumeCursor)
+    (
+      manager as unknown as {
+        handleServerNotification: (context: unknown, notification: Record<string, unknown>) => void;
+      }
+    ).handleServerNotification(context, {
+      method: "item/agentMessage/delta",
+      params: {
+        threadId: "provider_parent",
+        turnId: "turn_parent",
+        itemId: "msg_parent_1",
+        delta: "parent working",
+      },
+    });
+
+    const emittedEvent = emitEvent.mock.calls[0]?.[0] as Record<string, unknown> | undefined;
+    expect(emittedEvent?.payload).not.toHaveProperty("_childThreadAttribution");
   });
 });
 

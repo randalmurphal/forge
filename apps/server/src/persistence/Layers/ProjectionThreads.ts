@@ -1,4 +1,9 @@
-import { DeliberationState, ModelSelection, WorkflowDefinition } from "@forgetools/contracts";
+import {
+  DeliberationState,
+  ModelSelection,
+  ThreadId,
+  WorkflowDefinition,
+} from "@forgetools/contracts";
 import { Effect, Layer, Option, Schema, Struct } from "effect";
 import * as SqlClient from "effect/unstable/sql/SqlClient";
 import * as SqlSchema from "effect/unstable/sql/SqlSchema";
@@ -6,6 +11,7 @@ import * as SqlSchema from "effect/unstable/sql/SqlSchema";
 import { toPersistenceSqlError, toPersistenceSqlOrDecodeError } from "../Errors.ts";
 import {
   DeleteProjectionThreadInput,
+  GetChildThreadIdsInput,
   GetProjectionThreadInput,
   ListProjectionThreadsByProjectInput,
   ProjectionThread,
@@ -240,6 +246,17 @@ const makeProjectionThreadRepository = Effect.gen(function* () {
       `,
   });
 
+  const getChildThreadIdRows = SqlSchema.findAll({
+    Request: GetChildThreadIdsInput,
+    Result: Schema.Struct({ threadId: ThreadId }),
+    execute: ({ parentThreadId }) =>
+      sql`
+        SELECT thread_id AS "threadId"
+        FROM projection_threads
+        WHERE parent_thread_id = ${parentThreadId}
+      `,
+  });
+
   const upsert: ProjectionThreadRepositoryShape["upsert"] = (row) =>
     upsertProjectionThreadRow(row).pipe(
       Effect.mapError(toPersistenceSqlError("ProjectionThreadRepository.upsert:query")),
@@ -272,11 +289,23 @@ const makeProjectionThreadRepository = Effect.gen(function* () {
       Effect.mapError(toPersistenceSqlError("ProjectionThreadRepository.deleteById:query")),
     );
 
+  const getChildThreadIds: ProjectionThreadRepositoryShape["getChildThreadIds"] = (input) =>
+    getChildThreadIdRows(input).pipe(
+      Effect.mapError(
+        toPersistenceSqlOrDecodeError(
+          "ProjectionThreadRepository.getChildThreadIds:query",
+          "ProjectionThreadRepository.getChildThreadIds:decodeRows",
+        ),
+      ),
+      Effect.map((rows) => rows.map((row) => row.threadId)),
+    );
+
   return {
     upsert,
     getById,
     listByProjectId,
     deleteById,
+    getChildThreadIds,
   } satisfies ProjectionThreadRepositoryShape;
 });
 

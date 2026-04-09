@@ -198,6 +198,14 @@ function isApprovalRequestType(requestType: string | undefined): boolean {
   return requestKindFromCanonicalRequestType(requestType) !== undefined;
 }
 
+function extractChildThreadAttribution(eventPayload: unknown): Record<string, unknown> | undefined {
+  if (!eventPayload || typeof eventPayload !== "object") return undefined;
+  const payload = eventPayload as Record<string, unknown>;
+  const attr = payload.childThreadAttribution;
+  if (!attr || typeof attr !== "object") return undefined;
+  return attr as Record<string, unknown>;
+}
+
 function runtimeEventToActivities(
   event: ProviderRuntimeEvent,
 ): ReadonlyArray<OrchestrationThreadActivity> {
@@ -355,6 +363,7 @@ function runtimeEventToActivities(
     }
 
     case "task.started": {
+      const taskStartedChildAttr = extractChildThreadAttribution(event.payload);
       return [
         {
           id: event.eventId,
@@ -373,6 +382,7 @@ function runtimeEventToActivities(
             ...(event.payload.description
               ? { detail: truncateDetail(event.payload.description) }
               : {}),
+            ...(taskStartedChildAttr ? { childThreadAttribution: taskStartedChildAttr } : {}),
           },
           turnId: toTurnId(event.turnId) ?? null,
           ...maybeSequence,
@@ -381,6 +391,7 @@ function runtimeEventToActivities(
     }
 
     case "task.progress": {
+      const taskProgressChildAttr = extractChildThreadAttribution(event.payload);
       return [
         {
           id: event.eventId,
@@ -394,6 +405,7 @@ function runtimeEventToActivities(
             ...(event.payload.summary ? { summary: truncateDetail(event.payload.summary) } : {}),
             ...(event.payload.lastToolName ? { lastToolName: event.payload.lastToolName } : {}),
             ...(event.payload.usage !== undefined ? { usage: event.payload.usage } : {}),
+            ...(taskProgressChildAttr ? { childThreadAttribution: taskProgressChildAttr } : {}),
           },
           turnId: toTurnId(event.turnId) ?? null,
           ...maybeSequence,
@@ -402,6 +414,7 @@ function runtimeEventToActivities(
     }
 
     case "task.completed": {
+      const taskCompletedChildAttr = extractChildThreadAttribution(event.payload);
       return [
         {
           id: event.eventId,
@@ -419,6 +432,7 @@ function runtimeEventToActivities(
             status: event.payload.status,
             ...(event.payload.summary ? { detail: truncateDetail(event.payload.summary) } : {}),
             ...(event.payload.usage !== undefined ? { usage: event.payload.usage } : {}),
+            ...(taskCompletedChildAttr ? { childThreadAttribution: taskCompletedChildAttr } : {}),
           },
           turnId: toTurnId(event.turnId) ?? null,
           ...maybeSequence,
@@ -527,6 +541,7 @@ function runtimeEventToActivities(
           ? buildToolInlineDiffArtifact(event.payload.data)
           : undefined;
       const itemUpdatedToolName = (event.payload as Record<string, unknown>).toolName;
+      const itemUpdatedChildAttr = extractChildThreadAttribution(event.payload);
       return [
         {
           id: event.eventId,
@@ -542,6 +557,7 @@ function runtimeEventToActivities(
             ...(event.payload.data !== undefined ? { data: event.payload.data } : {}),
             ...(inlineDiff ? { inlineDiff } : {}),
             ...(typeof itemUpdatedToolName === "string" ? { toolName: itemUpdatedToolName } : {}),
+            ...(itemUpdatedChildAttr ? { childThreadAttribution: itemUpdatedChildAttr } : {}),
           },
           turnId: toTurnId(event.turnId) ?? null,
           ...maybeSequence,
@@ -558,6 +574,7 @@ function runtimeEventToActivities(
           ? buildToolInlineDiffArtifact(event.payload.data)
           : undefined;
       const itemCompletedToolName = (event.payload as Record<string, unknown>).toolName;
+      const itemCompletedChildAttr = extractChildThreadAttribution(event.payload);
       return [
         {
           id: event.eventId,
@@ -574,6 +591,7 @@ function runtimeEventToActivities(
             ...(typeof itemCompletedToolName === "string"
               ? { toolName: itemCompletedToolName }
               : {}),
+            ...(itemCompletedChildAttr ? { childThreadAttribution: itemCompletedChildAttr } : {}),
           },
           turnId: toTurnId(event.turnId) ?? null,
           ...maybeSequence,
@@ -586,6 +604,7 @@ function runtimeEventToActivities(
         return [];
       }
       const itemStartedToolName = (event.payload as Record<string, unknown>).toolName;
+      const itemStartedChildAttr = extractChildThreadAttribution(event.payload);
       return [
         {
           id: event.eventId,
@@ -598,6 +617,7 @@ function runtimeEventToActivities(
             ...(event.itemId ? { itemId: event.itemId } : {}),
             ...(event.payload.detail ? { detail: truncateDetail(event.payload.detail) } : {}),
             ...(typeof itemStartedToolName === "string" ? { toolName: itemStartedToolName } : {}),
+            ...(itemStartedChildAttr ? { childThreadAttribution: itemStartedChildAttr } : {}),
           },
           turnId: toTurnId(event.turnId) ?? null,
           ...maybeSequence,

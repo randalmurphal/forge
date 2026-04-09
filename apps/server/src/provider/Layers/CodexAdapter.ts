@@ -588,6 +588,7 @@ function mapItemLifecycle(
         ? "completed"
         : undefined;
   const toolName = extractToolName(source);
+  const childThreadAttribution = asObject(payload?._childThreadAttribution);
 
   return {
     ...runtimeEventBase(event, canonicalThreadId),
@@ -599,6 +600,7 @@ function mapItemLifecycle(
       ...(toolName ? { toolName } : {}),
       ...(detail ? { detail } : {}),
       ...(event.payload !== undefined ? { data: event.payload } : {}),
+      ...(childThreadAttribution ? { childThreadAttribution } : {}),
     },
   };
 }
@@ -971,6 +973,7 @@ function mapToRuntimeEvents(
     if (!delta || delta.length === 0) {
       return [];
     }
+    const childThreadAttribution = asObject(payload?._childThreadAttribution);
     return [
       {
         ...runtimeEventBase(event, canonicalThreadId),
@@ -984,6 +987,7 @@ function mapToRuntimeEvents(
           ...(typeof payload?.summaryIndex === "number"
             ? { summaryIndex: payload.summaryIndex }
             : {}),
+          ...(childThreadAttribution ? { childThreadAttribution } : {}),
         },
       },
     ];
@@ -1045,6 +1049,7 @@ function mapToRuntimeEvents(
     if (!taskId) {
       return [];
     }
+    const childThreadAttribution = asObject(payload?._childThreadAttribution);
     return [
       {
         ...codexEventBase(event, canonicalThreadId),
@@ -1054,6 +1059,7 @@ function mapToRuntimeEvents(
           ...(asString(msg?.collaboration_mode_kind)
             ? { taskType: asString(msg?.collaboration_mode_kind) }
             : {}),
+          ...(childThreadAttribution ? { childThreadAttribution } : {}),
         },
       },
     ];
@@ -1077,6 +1083,7 @@ function mapToRuntimeEvents(
         },
       ];
     }
+    const childThreadAttribution = asObject(payload?._childThreadAttribution);
     const events: ProviderRuntimeEvent[] = [
       {
         ...codexEventBase(event, canonicalThreadId),
@@ -1087,6 +1094,7 @@ function mapToRuntimeEvents(
           ...(asString(msg?.last_agent_message)
             ? { summary: asString(msg?.last_agent_message) }
             : {}),
+          ...(childThreadAttribution ? { childThreadAttribution } : {}),
         },
       },
     ];
@@ -1109,6 +1117,7 @@ function mapToRuntimeEvents(
     if (!taskId || !description) {
       return [];
     }
+    const childThreadAttribution = asObject(payload?._childThreadAttribution);
     return [
       {
         ...codexEventBase(event, canonicalThreadId),
@@ -1116,6 +1125,7 @@ function mapToRuntimeEvents(
         payload: {
           taskId: asRuntimeTaskId(taskId),
           description,
+          ...(childThreadAttribution ? { childThreadAttribution } : {}),
         },
       },
     ];

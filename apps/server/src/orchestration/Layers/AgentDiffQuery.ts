@@ -10,6 +10,7 @@ import { parseTurnDiffFilesFromUnifiedDiff } from "../../checkpointing/Diffs.ts"
 import { CheckpointStore } from "../../checkpointing/Services/CheckpointStore.ts";
 import { checkpointRefForThreadTurn } from "../../checkpointing/Utils.ts";
 import { ProjectionAgentDiffRepository } from "../../persistence/Services/ProjectionAgentDiffs.ts";
+import { ProjectionThreadRepository } from "../../persistence/Services/ProjectionThreads.ts";
 import { ProjectionTurnRepository } from "../../persistence/Services/ProjectionTurns.ts";
 import {
   ProjectionSnapshotQuery,
@@ -22,6 +23,7 @@ const isFullThreadAgentDiffResult = Schema.is(OrchestrationGetFullThreadAgentDif
 
 const make = Effect.gen(function* () {
   const projectionAgentDiffRepository = yield* ProjectionAgentDiffRepository;
+  const projectionThreadRepository = yield* ProjectionThreadRepository;
   const projectionTurnRepository = yield* ProjectionTurnRepository;
   const projectionSnapshotQuery = yield* ProjectionSnapshotQuery;
   const checkpointStore = yield* CheckpointStore;
@@ -136,20 +138,107 @@ const make = Effect.gen(function* () {
     const checkpointContext = yield* projectionSnapshotQuery.getThreadCheckpointContext(
       input.threadId,
     );
-    const checkpointBackedResult = yield* tryGetCheckpointBackedThreadDiff({
+    const parentResult = yield* tryGetCheckpointBackedThreadDiff({
       threadId: input.threadId,
       checkpointContext,
     });
 
-    if (Option.isSome(checkpointBackedResult)) {
-      return checkpointBackedResult.value;
+    // Query child thread IDs for aggregation
+    const childThreadIds = yield* projectionThreadRepository
+      .getChildThreadIds({ parentThreadId: input.threadId })
+      .pipe(Effect.catch(() => Effect.succeed<ReadonlyArray<ThreadId>>([])));
+
+    // If no children, return parent result as-is (preserves original behavior)
+    if (childThreadIds.length === 0) {
+      if (Option.isSome(parentResult)) {
+        return parentResult.value;
+      }
+
+      const result = {
+        threadId: input.threadId,
+        diff: "",
+        files: [],
+        coverage: "unavailable",
+      } satisfies OrchestrationGetFullThreadAgentDiffResult;
+
+      if (!isFullThreadAgentDiffResult(result)) {
+        throw new Error("Computed full thread agent diff result does not satisfy contract schema.");
+      }
+      return result;
+    }
+
+    // Aggregate child thread diffs (limit to 20 for safety)
+    const childIdsToQuery = childThreadIds.slice(0, 20);
+    const childDiffResults = yield* Effect.all(
+      childIdsToQuery.map((childThreadId) =>
+        Effect.gen(function* () {
+          const childCheckpointContext = yield* projectionSnapshotQuery
+            .getThreadCheckpointContext(childThreadId)
+            .pipe(
+              Effect.catch(() => Effect.succeed(Option.none<ProjectionThreadCheckpointContext>())),
+            );
+          if (Option.isNone(childCheckpointContext)) {
+            return Option.none<OrchestrationGetFullThreadAgentDiffResult>();
+          }
+          return yield* tryGetCheckpointBackedThreadDiff({
+            threadId: childThreadId,
+            checkpointContext: childCheckpointContext,
+          });
+        }),
+      ),
+      { concurrency: 5 },
+    );
+
+    // Combine parent + child diffs
+    const allDiffs: string[] = [];
+    const allFiles: OrchestrationCheckpointFile[] = [];
+
+    if (Option.isSome(parentResult)) {
+      if (parentResult.value.diff) allDiffs.push(parentResult.value.diff);
+      allFiles.push(...parentResult.value.files);
+    }
+
+    for (const childResult of childDiffResults) {
+      if (Option.isSome(childResult)) {
+        if (childResult.value.diff) allDiffs.push(childResult.value.diff);
+        allFiles.push(...childResult.value.files);
+      }
+    }
+
+    if (allDiffs.length === 0) {
+      const result = {
+        threadId: input.threadId,
+        diff: "",
+        files: [],
+        coverage: "unavailable",
+      } satisfies OrchestrationGetFullThreadAgentDiffResult;
+
+      if (!isFullThreadAgentDiffResult(result)) {
+        throw new Error("Computed full thread agent diff result does not satisfy contract schema.");
+      }
+      return result;
+    }
+
+    // Deduplicate files by path, summing additions/deletions for the same path
+    const filesByPath = new Map<string, OrchestrationCheckpointFile>();
+    for (const file of allFiles) {
+      const existing = filesByPath.get(file.path);
+      if (existing) {
+        filesByPath.set(file.path, {
+          ...file,
+          additions: ((existing.additions ?? 0) + (file.additions ?? 0)) as typeof file.additions,
+          deletions: ((existing.deletions ?? 0) + (file.deletions ?? 0)) as typeof file.deletions,
+        });
+      } else {
+        filesByPath.set(file.path, file);
+      }
     }
 
     const result = {
       threadId: input.threadId,
-      diff: "",
-      files: [],
-      coverage: "unavailable",
+      diff: allDiffs.join("\n"),
+      files: [...filesByPath.values()],
+      coverage: "complete",
     } satisfies OrchestrationGetFullThreadAgentDiffResult;
 
     if (!isFullThreadAgentDiffResult(result)) {

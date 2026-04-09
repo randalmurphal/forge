@@ -246,6 +246,7 @@ const CheckpointDiffQueryRuntimeLive = CheckpointDiffQueryLive.pipe(
 const AgentDiffQueryRuntimeLive = AgentDiffQueryLive.pipe(
   Layer.provide(ProjectionTurnRepositoryLive.pipe(Layer.provide(PersistenceLayerLive))),
   Layer.provide(ProjectionAgentDiffRepositoryLive.pipe(Layer.provide(PersistenceLayerLive))),
+  Layer.provide(ProjectionThreadRepositoryLive.pipe(Layer.provide(PersistenceLayerLive))),
   Layer.provide(OrchestrationProjectionSnapshotQueryLive.pipe(Layer.provide(PersistenceLayerLive))),
   Layer.provide(CheckpointStoreRuntimeLive),
 );

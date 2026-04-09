@@ -1,0 +1,419 @@
+import { describe, expect, it } from "vitest";
+
+import { groupSubagentEntries, type WorkLogEntry } from "./session-logic";
+
+/** Minimal builder — only fills required fields; callers override what matters. */
+function makeEntry(overrides: Partial<WorkLogEntry> & { id: string }): WorkLogEntry {
+  return {
+    createdAt: "2026-04-01T00:00:00.000Z",
+    label: "some entry",
+    tone: "tool",
+    ...overrides,
+  };
+}
+
+describe("groupSubagentEntries", () => {
+  it("returns empty standalone and subagentGroups for empty input", () => {
+    const result = groupSubagentEntries([]);
+    expect(result).toEqual({ standalone: [], subagentGroups: [] });
+  });
+
+  it("places all entries without childThreadAttribution into standalone", () => {
+    const entries = [makeEntry({ id: "a" }), makeEntry({ id: "b", label: "second" })];
+
+    const result = groupSubagentEntries(entries);
+
+    expect(result.standalone).toHaveLength(2);
+    expect(result.standalone.map((e) => e.id)).toEqual(["a", "b"]);
+    expect(result.subagentGroups).toEqual([]);
+  });
+
+  it("groups entries with the same taskId into one SubagentGroup", () => {
+    const entries = [
+      makeEntry({
+        id: "w1",
+        childThreadAttribution: {
+          taskId: "task-abc",
+          childProviderThreadId: "thread-1",
+        },
+      }),
+      makeEntry({
+        id: "w2",
+        childThreadAttribution: {
+          taskId: "task-abc",
+          childProviderThreadId: "thread-1",
+        },
+      }),
+    ];
+
+    const result = groupSubagentEntries(entries);
+
+    expect(result.standalone).toEqual([]);
+    expect(result.subagentGroups).toHaveLength(1);
+    expect(result.subagentGroups[0]!.taskId).toBe("task-abc");
+    expect(result.subagentGroups[0]!.entries).toHaveLength(2);
+    expect(result.subagentGroups[0]!.entries.map((e) => e.id)).toEqual(["w1", "w2"]);
+  });
+
+  it("creates separate groups for different taskIds", () => {
+    const entries = [
+      makeEntry({
+        id: "a1",
+        childThreadAttribution: {
+          taskId: "task-x",
+          childProviderThreadId: "t1",
+        },
+      }),
+      makeEntry({
+        id: "b1",
+        childThreadAttribution: {
+          taskId: "task-y",
+          childProviderThreadId: "t2",
+        },
+      }),
+      makeEntry({
+        id: "a2",
+        childThreadAttribution: {
+          taskId: "task-x",
+          childProviderThreadId: "t1",
+        },
+      }),
+    ];
+
+    const result = groupSubagentEntries(entries);
+
+    expect(result.subagentGroups).toHaveLength(2);
+
+    const groupX = result.subagentGroups.find((g) => g.taskId === "task-x")!;
+    const groupY = result.subagentGroups.find((g) => g.taskId === "task-y")!;
+
+    expect(groupX.entries.map((e) => e.id)).toEqual(["a1", "a2"]);
+    expect(groupY.entries.map((e) => e.id)).toEqual(["b1"]);
+  });
+
+  it("sets startedAt and label from a task.started entry", () => {
+    const entries = [
+      makeEntry({
+        id: "started",
+        activityKind: "task.started",
+        createdAt: "2026-04-01T01:00:00.000Z",
+        detail: "Lint the project",
+        childThreadAttribution: {
+          taskId: "task-1",
+          childProviderThreadId: "t1",
+        },
+      }),
+      makeEntry({
+        id: "w1",
+        createdAt: "2026-04-01T01:00:01.000Z",
+        childThreadAttribution: {
+          taskId: "task-1",
+          childProviderThreadId: "t1",
+        },
+      }),
+    ];
+
+    const result = groupSubagentEntries(entries);
+    const group = result.subagentGroups[0]!;
+
+    expect(group.startedAt).toBe("2026-04-01T01:00:00.000Z");
+    expect(group.label).toBe("Lint the project");
+    // task.started is a lifecycle entry — not pushed into entries[]
+    expect(group.entries).toHaveLength(1);
+    expect(group.entries[0]!.id).toBe("w1");
+  });
+
+  it("sets completedAt and status='completed' from a task.completed entry", () => {
+    const entries = [
+      makeEntry({
+        id: "started",
+        activityKind: "task.started",
+        createdAt: "2026-04-01T01:00:00.000Z",
+        detail: "Run tests",
+        childThreadAttribution: {
+          taskId: "task-2",
+          childProviderThreadId: "t2",
+        },
+      }),
+      makeEntry({
+        id: "completed",
+        activityKind: "task.completed",
+        createdAt: "2026-04-01T01:05:00.000Z",
+        tone: "info",
+        childThreadAttribution: {
+          taskId: "task-2",
+          childProviderThreadId: "t2",
+        },
+      }),
+    ];
+
+    const result = groupSubagentEntries(entries);
+    const group = result.subagentGroups[0]!;
+
+    expect(group.status).toBe("completed");
+    expect(group.completedAt).toBe("2026-04-01T01:05:00.000Z");
+  });
+
+  it("sets status='failed' when task.completed has error tone", () => {
+    const entries = [
+      makeEntry({
+        id: "completed-err",
+        activityKind: "task.completed",
+        createdAt: "2026-04-01T02:00:00.000Z",
+        tone: "error",
+        childThreadAttribution: {
+          taskId: "task-3",
+          childProviderThreadId: "t3",
+        },
+      }),
+    ];
+
+    const result = groupSubagentEntries(entries);
+    const group = result.subagentGroups[0]!;
+
+    expect(group.status).toBe("failed");
+    expect(group.completedAt).toBe("2026-04-01T02:00:00.000Z");
+  });
+
+  it("defaults status to 'running' when no task.completed entry exists", () => {
+    const entries = [
+      makeEntry({
+        id: "w1",
+        childThreadAttribution: {
+          taskId: "task-4",
+          childProviderThreadId: "t4",
+        },
+      }),
+    ];
+
+    const result = groupSubagentEntries(entries);
+
+    expect(result.subagentGroups[0]!.status).toBe("running");
+    expect(result.subagentGroups[0]!.completedAt).toBeUndefined();
+  });
+
+  it("partitions mixed entries: some attributed, some standalone", () => {
+    const entries = [
+      makeEntry({ id: "standalone-1" }),
+      makeEntry({
+        id: "agent-1",
+        childThreadAttribution: {
+          taskId: "task-m",
+          childProviderThreadId: "t",
+        },
+      }),
+      makeEntry({ id: "standalone-2" }),
+      makeEntry({
+        id: "agent-2",
+        childThreadAttribution: {
+          taskId: "task-m",
+          childProviderThreadId: "t",
+        },
+      }),
+    ];
+
+    const result = groupSubagentEntries(entries);
+
+    expect(result.standalone.map((e) => e.id)).toEqual(["standalone-1", "standalone-2"]);
+    expect(result.subagentGroups).toHaveLength(1);
+    expect(result.subagentGroups[0]!.entries.map((e) => e.id)).toEqual(["agent-1", "agent-2"]);
+  });
+
+  it("forms group correctly even when entries arrive before task.started", () => {
+    const entries = [
+      makeEntry({
+        id: "early-work",
+        createdAt: "2026-04-01T00:59:00.000Z",
+        childThreadAttribution: {
+          taskId: "task-early",
+          childProviderThreadId: "t",
+        },
+      }),
+      makeEntry({
+        id: "started",
+        activityKind: "task.started",
+        createdAt: "2026-04-01T01:00:00.000Z",
+        detail: "Late start",
+        childThreadAttribution: {
+          taskId: "task-early",
+          childProviderThreadId: "t",
+        },
+      }),
+    ];
+
+    const result = groupSubagentEntries(entries);
+    const group = result.subagentGroups[0]!;
+
+    // task.started overwrites startedAt even if the first entry was earlier
+    expect(group.startedAt).toBe("2026-04-01T01:00:00.000Z");
+    expect(group.entries).toHaveLength(1);
+    expect(group.entries[0]!.id).toBe("early-work");
+    expect(group.label).toBe("Late start");
+  });
+
+  it("has empty entries array when group contains only lifecycle events", () => {
+    const entries = [
+      makeEntry({
+        id: "started",
+        activityKind: "task.started",
+        createdAt: "2026-04-01T01:00:00.000Z",
+        detail: "No real work",
+        childThreadAttribution: {
+          taskId: "task-empty",
+          childProviderThreadId: "t",
+        },
+      }),
+      makeEntry({
+        id: "completed",
+        activityKind: "task.completed",
+        createdAt: "2026-04-01T01:01:00.000Z",
+        tone: "info",
+        childThreadAttribution: {
+          taskId: "task-empty",
+          childProviderThreadId: "t",
+        },
+      }),
+    ];
+
+    const result = groupSubagentEntries(entries);
+    const group = result.subagentGroups[0]!;
+
+    expect(group.entries).toEqual([]);
+    expect(group.status).toBe("completed");
+  });
+
+  it("falls back to 'Subagent {taskId.slice(0,8)}' when no label is available", () => {
+    const taskId = "abcdef1234567890";
+    const entries = [
+      makeEntry({
+        id: "w1",
+        childThreadAttribution: {
+          taskId,
+          childProviderThreadId: "t",
+          // no label
+        },
+      }),
+    ];
+
+    const result = groupSubagentEntries(entries);
+
+    expect(result.subagentGroups[0]!.label).toBe(`Subagent ${taskId.slice(0, 8)}`);
+  });
+
+  it("prefers attribution label over detail for group label", () => {
+    const entries = [
+      makeEntry({
+        id: "started",
+        activityKind: "task.started",
+        createdAt: "2026-04-01T01:00:00.000Z",
+        detail: "Detail-based label",
+        childThreadAttribution: {
+          taskId: "task-label",
+          label: "Attribution label",
+          childProviderThreadId: "t",
+        },
+      }),
+    ];
+
+    const result = groupSubagentEntries(entries);
+
+    // The attribution label is set first (when group is created),
+    // so the detail won't overwrite it (guarded by `!group.label`).
+    expect(result.subagentGroups[0]!.label).toBe("Attribution label");
+  });
+
+  it("uses detail as label when attribution has no label", () => {
+    const entries = [
+      makeEntry({
+        id: "started",
+        activityKind: "task.started",
+        createdAt: "2026-04-01T01:00:00.000Z",
+        detail: "From detail field",
+        childThreadAttribution: {
+          taskId: "task-detail",
+          childProviderThreadId: "t",
+          // no label
+        },
+      }),
+    ];
+
+    const result = groupSubagentEntries(entries);
+
+    expect(result.subagentGroups[0]!.label).toBe("From detail field");
+  });
+
+  it("preserves insertion order of groups based on first encounter", () => {
+    const entries = [
+      makeEntry({
+        id: "first-b",
+        childThreadAttribution: {
+          taskId: "task-b",
+          childProviderThreadId: "t",
+        },
+      }),
+      makeEntry({
+        id: "first-a",
+        childThreadAttribution: {
+          taskId: "task-a",
+          childProviderThreadId: "t",
+        },
+      }),
+    ];
+
+    const result = groupSubagentEntries(entries);
+
+    expect(result.subagentGroups.map((g) => g.taskId)).toEqual(["task-b", "task-a"]);
+  });
+
+  it("uses first entry's createdAt as startedAt when no task.started exists", () => {
+    const entries = [
+      makeEntry({
+        id: "w1",
+        createdAt: "2026-04-01T00:30:00.000Z",
+        childThreadAttribution: {
+          taskId: "task-no-start",
+          childProviderThreadId: "t",
+        },
+      }),
+      makeEntry({
+        id: "w2",
+        createdAt: "2026-04-01T00:31:00.000Z",
+        childThreadAttribution: {
+          taskId: "task-no-start",
+          childProviderThreadId: "t",
+        },
+      }),
+    ];
+
+    const result = groupSubagentEntries(entries);
+
+    // startedAt is set from the first entry's createdAt during group creation
+    expect(result.subagentGroups[0]!.startedAt).toBe("2026-04-01T00:30:00.000Z");
+  });
+
+  it("later attribution label does not overwrite existing label", () => {
+    const entries = [
+      makeEntry({
+        id: "w1",
+        childThreadAttribution: {
+          taskId: "task-lbl",
+          label: "First label",
+          childProviderThreadId: "t",
+        },
+      }),
+      makeEntry({
+        id: "w2",
+        childThreadAttribution: {
+          taskId: "task-lbl",
+          label: "Second label",
+          childProviderThreadId: "t",
+        },
+      }),
+    ];
+
+    const result = groupSubagentEntries(entries);
+
+    // The label guard `!group.label` prevents later labels from overwriting
+    expect(result.subagentGroups[0]!.label).toBe("First label");
+  });
+});

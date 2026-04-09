@@ -58,6 +58,14 @@ export interface WorkLogEntry {
   searchPattern?: string | undefined;
   searchResultCount?: number | undefined;
   filePath?: string | undefined;
+  activityKind?: string | undefined;
+  childThreadAttribution?:
+    | {
+        taskId: string;
+        label?: string | undefined;
+        childProviderThreadId: string;
+      }
+    | undefined;
 }
 
 interface DerivedWorkLogEntry extends WorkLogEntry {
@@ -521,14 +529,103 @@ export function deriveWorkLogEntries(
       scope === "latest-turn" && latestTurnId ? activity.turnId === latestTurnId : true,
     )
     .filter((activity) => activity.kind !== "tool.started")
-    .filter((activity) => activity.kind !== "task.started" && activity.kind !== "task.completed")
+    .filter((activity) => {
+      if (activity.kind === "task.started" || activity.kind === "task.completed") {
+        const activityPayload =
+          activity.payload && typeof activity.payload === "object"
+            ? (activity.payload as Record<string, unknown>)
+            : null;
+        // Only keep entries that have child thread attribution — these are subagent boundaries.
+        // Parent-thread task events (which also have taskId) should stay filtered out.
+        return activityPayload?.childThreadAttribution != null;
+      }
+      return true;
+    })
     .filter((activity) => activity.kind !== "context-window.updated")
     .filter((activity) => activity.summary !== "Checkpoint captured")
     .filter((activity) => !isPlanBoundaryToolActivity(activity))
     .map(toDerivedWorkLogEntry);
   return collapseDerivedWorkLogEntries(entries).map(
-    ({ activityKind: _activityKind, collapseKey: _collapseKey, ...entry }) => entry,
+    ({ collapseKey: _collapseKey, ...entry }) => entry,
   );
+}
+
+export interface SubagentGroup {
+  taskId: string;
+  label: string;
+  entries: WorkLogEntry[];
+  status: "running" | "completed" | "failed";
+  startedAt: string;
+  completedAt?: string | undefined;
+}
+
+export function groupSubagentEntries(workEntries: ReadonlyArray<WorkLogEntry>): {
+  standalone: WorkLogEntry[];
+  subagentGroups: SubagentGroup[];
+} {
+  const standalone: WorkLogEntry[] = [];
+  const groupsByTaskId = new Map<
+    string,
+    {
+      entries: WorkLogEntry[];
+      label: string | undefined;
+      startedAt: string;
+      completedAt?: string;
+      status: SubagentGroup["status"];
+    }
+  >();
+
+  for (const entry of workEntries) {
+    const taskId = entry.childThreadAttribution?.taskId;
+    if (!taskId) {
+      standalone.push(entry);
+      continue;
+    }
+
+    let group = groupsByTaskId.get(taskId);
+    if (!group) {
+      group = {
+        entries: [],
+        label: entry.childThreadAttribution?.label ?? undefined,
+        startedAt: entry.createdAt,
+        status: "running",
+      };
+      groupsByTaskId.set(taskId, group);
+    }
+
+    // Update group metadata from task lifecycle entries
+    if (entry.activityKind === "task.started") {
+      group.startedAt = entry.createdAt;
+      if (!group.label && entry.detail) {
+        group.label = entry.detail;
+      }
+    } else if (entry.activityKind === "task.completed") {
+      group.completedAt = entry.createdAt;
+      group.status = entry.tone === "error" ? "failed" : "completed";
+    } else {
+      // Regular work entry for this subagent
+      group.entries.push(entry);
+    }
+
+    // Update label from attribution if available
+    if (entry.childThreadAttribution?.label && !group.label) {
+      group.label = entry.childThreadAttribution.label;
+    }
+  }
+
+  const subagentGroups: SubagentGroup[] = [];
+  for (const [taskId, group] of groupsByTaskId) {
+    subagentGroups.push({
+      taskId,
+      label: group.label ?? `Subagent ${taskId.slice(0, 8)}`,
+      entries: group.entries,
+      status: group.status,
+      startedAt: group.startedAt,
+      completedAt: group.completedAt,
+    });
+  }
+
+  return { standalone, subagentGroups };
 }
 
 function isPlanBoundaryToolActivity(activity: OrchestrationThreadActivity): boolean {
@@ -735,6 +832,12 @@ function toDerivedWorkLogEntry(activity: OrchestrationThreadActivity): DerivedWo
   if (enrichments.searchResultCount !== undefined)
     entry.searchResultCount = enrichments.searchResultCount;
   if (enrichments.filePath) entry.filePath = enrichments.filePath;
+
+  // Extract child thread attribution for subagent grouping
+  const childThreadAttribution = extractChildThreadAttribution(payload);
+  if (childThreadAttribution) {
+    entry.childThreadAttribution = childThreadAttribution;
+  }
 
   // For task.progress entries (subagent reasoning updates), extract lastToolName as toolName
   if (
@@ -1078,6 +1181,21 @@ function extractWorkLogRequestKind(
     return payload.requestKind;
   }
   return requestKindFromRequestType(payload?.requestType) ?? undefined;
+}
+
+function extractChildThreadAttribution(
+  payload: Record<string, unknown> | null,
+): WorkLogEntry["childThreadAttribution"] {
+  if (!payload) return undefined;
+  const attr = payload.childThreadAttribution;
+  if (!attr || typeof attr !== "object") return undefined;
+  const record = attr as Record<string, unknown>;
+  const taskId = typeof record.taskId === "string" ? record.taskId : undefined;
+  const childProviderThreadId =
+    typeof record.childProviderThreadId === "string" ? record.childProviderThreadId : undefined;
+  if (!taskId || !childProviderThreadId) return undefined;
+  const label = typeof record.label === "string" ? record.label : undefined;
+  return { taskId, childProviderThreadId, label };
 }
 
 function normalizeStatValue(value: unknown): number | undefined {

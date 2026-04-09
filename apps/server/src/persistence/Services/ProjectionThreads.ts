@@ -73,6 +73,11 @@ export const ListProjectionThreadsByProjectInput = Schema.Struct({
 });
 export type ListProjectionThreadsByProjectInput = typeof ListProjectionThreadsByProjectInput.Type;
 
+export const GetChildThreadIdsInput = Schema.Struct({
+  parentThreadId: ThreadId,
+});
+export type GetChildThreadIdsInput = typeof GetChildThreadIdsInput.Type;
+
 /**
  * ProjectionThreadRepositoryShape - Service API for projected thread records.
  */
@@ -106,6 +111,13 @@ export interface ProjectionThreadRepositoryShape {
   readonly deleteById: (
     input: DeleteProjectionThreadInput,
   ) => Effect.Effect<void, ProjectionRepositoryError>;
+
+  /**
+   * List thread IDs for all child threads of a given parent thread.
+   */
+  readonly getChildThreadIds: (
+    input: GetChildThreadIdsInput,
+  ) => Effect.Effect<ReadonlyArray<ThreadId>, ProjectionRepositoryError>;
 }
 
 /**

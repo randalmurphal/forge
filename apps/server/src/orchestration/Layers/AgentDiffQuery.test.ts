@@ -12,6 +12,10 @@ import {
   type ProjectionAgentDiffRepositoryShape,
 } from "../../persistence/Services/ProjectionAgentDiffs.ts";
 import {
+  ProjectionThreadRepository,
+  type ProjectionThreadRepositoryShape,
+} from "../../persistence/Services/ProjectionThreads.ts";
+import {
   ProjectionTurnRepository,
   type ProjectionTurnRepositoryShape,
 } from "../../persistence/Services/ProjectionTurns.ts";
@@ -119,6 +123,10 @@ describe("AgentDiffQueryLive", () => {
         ),
     };
 
+    const projectionThreadRepository: Pick<ProjectionThreadRepositoryShape, "getChildThreadIds"> = {
+      getChildThreadIds: () => Effect.succeed([]),
+    };
+
     const checkpointStore: CheckpointStoreShape = {
       isGitRepository: () => Effect.succeed(true),
       captureCheckpoint: () => Effect.void,
@@ -132,6 +140,12 @@ describe("AgentDiffQueryLive", () => {
       Layer.provideMerge(Layer.succeed(ProjectionTurnRepository, projectionTurnRepository)),
       Layer.provideMerge(
         Layer.succeed(ProjectionAgentDiffRepository, projectionAgentDiffRepository),
+      ),
+      Layer.provideMerge(
+        Layer.succeed(
+          ProjectionThreadRepository,
+          projectionThreadRepository as ProjectionThreadRepositoryShape,
+        ),
       ),
       Layer.provideMerge(Layer.succeed(ProjectionSnapshotQuery, projectionSnapshotQuery)),
       Layer.provideMerge(Layer.succeed(CheckpointStore, checkpointStore)),
@@ -212,6 +226,10 @@ describe("AgentDiffQueryLive", () => {
       getThreadCheckpointContext: () => Effect.succeed(Option.none()),
     };
 
+    const projectionThreadRepository: Pick<ProjectionThreadRepositoryShape, "getChildThreadIds"> = {
+      getChildThreadIds: () => Effect.succeed([]),
+    };
+
     const checkpointStore: CheckpointStoreShape = {
       isGitRepository: () => Effect.succeed(true),
       captureCheckpoint: () => Effect.void,
@@ -225,6 +243,12 @@ describe("AgentDiffQueryLive", () => {
       Layer.provideMerge(Layer.succeed(ProjectionTurnRepository, projectionTurnRepository)),
       Layer.provideMerge(
         Layer.succeed(ProjectionAgentDiffRepository, projectionAgentDiffRepository),
+      ),
+      Layer.provideMerge(
+        Layer.succeed(
+          ProjectionThreadRepository,
+          projectionThreadRepository as ProjectionThreadRepositoryShape,
+        ),
       ),
       Layer.provideMerge(Layer.succeed(ProjectionSnapshotQuery, projectionSnapshotQuery)),
       Layer.provideMerge(Layer.succeed(CheckpointStore, checkpointStore)),

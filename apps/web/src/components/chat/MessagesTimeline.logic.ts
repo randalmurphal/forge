@@ -1,8 +1,10 @@
 import { type MessageId } from "@forgetools/contracts";
 import {
   type ExpandedInlineDiffState,
+  type SubagentGroup,
   type TimelineEntry,
   type WorkLogEntry,
+  groupSubagentEntries,
 } from "../../session-logic";
 import { type ChatMessage, type ProposedPlan, type TurnDiffSummary } from "../../types";
 import { estimateTimelineMessageHeight } from "../timelineHeight";
@@ -42,6 +44,12 @@ export type MessagesTimelineRow =
       id: string;
       createdAt: string;
       proposedPlan: ProposedPlan;
+    }
+  | {
+      kind: "subagent-section";
+      id: string;
+      createdAt: string;
+      subagentGroups: SubagentGroup[];
     }
   | {
       kind: "working";
@@ -92,36 +100,61 @@ export function deriveMessagesTimelineRows(input: {
     }
 
     if (timelineEntry.kind === "work") {
-      if (shouldRenderStandaloneWorkEntry(timelineEntry.entry)) {
-        nextRows.push({
-          kind: "work-entry",
-          id: timelineEntry.id,
-          createdAt: timelineEntry.createdAt,
-          entry: timelineEntry.entry,
-        });
-        continue;
-      }
-
-      const groupedEntries = [timelineEntry.entry];
+      // Collect all consecutive work entries
+      const allWorkEntries = [timelineEntry.entry];
       let cursor = index + 1;
       while (cursor < input.timelineEntries.length) {
         const nextEntry = input.timelineEntries[cursor];
-        if (
-          !nextEntry ||
-          nextEntry.kind !== "work" ||
-          shouldRenderStandaloneWorkEntry(nextEntry.entry)
-        ) {
-          break;
-        }
-        groupedEntries.push(nextEntry.entry);
+        if (!nextEntry || nextEntry.kind !== "work") break;
+        allWorkEntries.push(nextEntry.entry);
         cursor += 1;
       }
-      nextRows.push({
-        kind: "work-group",
-        id: timelineEntry.id,
-        createdAt: timelineEntry.createdAt,
-        groupedEntries,
-      });
+
+      // Split into standalone entries and subagent groups
+      const { standalone, subagentGroups } = groupSubagentEntries(allWorkEntries);
+
+      // Emit standalone entries using existing logic
+      let standaloneIndex = 0;
+      while (standaloneIndex < standalone.length) {
+        const entry = standalone[standaloneIndex]!;
+        if (shouldRenderStandaloneWorkEntry(entry)) {
+          nextRows.push({
+            kind: "work-entry",
+            id: entry.id,
+            createdAt: entry.createdAt,
+            entry,
+          });
+          standaloneIndex += 1;
+          continue;
+        }
+        // Group consecutive non-standalone entries
+        const groupedEntries = [entry];
+        let groupCursor = standaloneIndex + 1;
+        while (groupCursor < standalone.length) {
+          const nextEntry = standalone[groupCursor];
+          if (!nextEntry || shouldRenderStandaloneWorkEntry(nextEntry)) break;
+          groupedEntries.push(nextEntry);
+          groupCursor += 1;
+        }
+        nextRows.push({
+          kind: "work-group",
+          id: entry.id,
+          createdAt: entry.createdAt,
+          groupedEntries,
+        });
+        standaloneIndex = groupCursor;
+      }
+
+      // Emit subagent section if there are any groups
+      if (subagentGroups.length > 0) {
+        nextRows.push({
+          kind: "subagent-section",
+          id: `subagent-section:${timelineEntry.id}`,
+          createdAt: timelineEntry.createdAt,
+          subagentGroups,
+        });
+      }
+
       index = cursor - 1;
       continue;
     }
@@ -167,6 +200,7 @@ export function estimateMessagesTimelineRowHeight(
     timelineWidthPx: number | null;
     expandedWorkGroups?: Readonly<Record<string, boolean>>;
     expandedInlineDiff?: ExpandedInlineDiffState;
+    expandedSubagentTaskId?: string | null;
     turnDiffSummaryByAssistantMessageId?: ReadonlyMap<MessageId, TurnDiffSummary>;
   },
 ): number {
@@ -175,6 +209,8 @@ export function estimateMessagesTimelineRowHeight(
       return estimateWorkGroupRowHeight(row, input);
     case "work-entry":
       return estimateStandaloneWorkRowHeight(row, input);
+    case "subagent-section":
+      return estimateSubagentSectionHeight(row, input);
     case "proposed-plan":
       return estimateTimelineProposedPlanHeight(row.proposedPlan);
     case "working":
@@ -240,6 +276,37 @@ function estimateStandaloneWorkRowHeight(
         : estimateCollapsedDiffCardHeight();
   }
   return estimate;
+}
+
+function estimateSubagentSectionHeight(
+  row: Extract<MessagesTimelineRow, { kind: "subagent-section" }>,
+  input: {
+    expandedSubagentTaskId?: string | null;
+    expandedInlineDiff?: ExpandedInlineDiffState;
+  },
+): number {
+  // Section header
+  let totalHeight = 36;
+  for (const group of row.subagentGroups) {
+    const isExpanded = input.expandedSubagentTaskId === group.taskId;
+    // Collapsed row height for each group
+    totalHeight += 44;
+    if (isExpanded) {
+      // Entry rows + padding
+      totalHeight += group.entries.length * 32 + 16;
+      for (const entry of group.entries) {
+        if (entry.inlineDiff) {
+          totalHeight +=
+            input.expandedInlineDiff?.scope === "tool" && input.expandedInlineDiff.id === entry.id
+              ? entry.inlineDiff.availability === "exact_patch"
+                ? 420
+                : 130
+              : 52;
+        }
+      }
+    }
+  }
+  return totalHeight;
 }
 
 function estimateTimelineProposedPlanHeight(proposedPlan: ProposedPlan): number {
