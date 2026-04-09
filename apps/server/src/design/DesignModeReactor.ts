@@ -120,6 +120,7 @@ export const makeDesignModeReactor = Effect.gen(function* () {
           html: option.html,
           title: option.title,
           description: option.description,
+          kind: "option",
         });
         return {
           id: option.id,

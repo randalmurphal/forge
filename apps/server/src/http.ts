@@ -9,7 +9,11 @@ import {
 } from "./attachmentPaths";
 import { resolveAttachmentPathById } from "./attachmentStore";
 import { ServerConfig } from "./config";
-import { getArtifactPath } from "./design/artifactStorage";
+import {
+  captureArtifactScreenshot,
+  getArtifactPath,
+  listArtifacts,
+} from "./design/artifactStorage";
 import {
   hasDesignBridge,
   invokeDesignBridge,
@@ -220,6 +224,99 @@ export const designArtifactRouteLayer = HttpRouter.add(
       Effect.catch(() =>
         Effect.succeed(HttpServerResponse.text("Internal Server Error", { status: 500 })),
       ),
+    );
+  }),
+);
+
+const DESIGN_ARTIFACT_LIST_ROUTE_PREFIX = "/api/internal/design/artifact-list";
+
+export const designArtifactListRouteLayer = HttpRouter.add(
+  "GET",
+  `${DESIGN_ARTIFACT_LIST_ROUTE_PREFIX}/*`,
+  Effect.gen(function* () {
+    const request = yield* HttpServerRequest.HttpServerRequest;
+    const url = HttpServerRequest.toURL(request);
+    if (Option.isNone(url)) {
+      return HttpServerResponse.text("Bad Request", { status: 400 });
+    }
+
+    const config = yield* ServerConfig;
+    const rawPath = url.value.pathname.slice(DESIGN_ARTIFACT_LIST_ROUTE_PREFIX.length);
+    // Expect /<threadId>
+    const match = rawPath.match(/^\/([^/]+)$/);
+    if (!match || !match[1]) {
+      return HttpServerResponse.text("Invalid thread ID", { status: 400 });
+    }
+
+    const threadId = match[1];
+    if (threadId.includes("..")) {
+      return HttpServerResponse.text("Invalid thread ID", { status: 400 });
+    }
+
+    const artifacts = listArtifacts(config.artifactsDir, threadId, { kind: "render" });
+    return HttpServerResponse.jsonUnsafe(
+      {
+        artifacts: artifacts.map((entry) => ({
+          artifactId: entry.artifactId,
+          title: entry.title,
+          description: entry.description,
+          artifactPath: `${config.artifactsDir}/${threadId}/${entry.artifactId}.html`,
+          renderedAt: entry.createdAt,
+        })),
+      },
+      {
+        status: 200,
+        headers: { "Access-Control-Allow-Origin": "*" },
+      },
+    );
+  }),
+);
+
+class ScreenshotCaptureHttpError extends Error {
+  readonly _tag = "ScreenshotCaptureHttpError";
+}
+
+export const designArtifactScreenshotRouteLayer = HttpRouter.add(
+  "POST",
+  `${DESIGN_ARTIFACT_ROUTE_PREFIX}/*`,
+  Effect.gen(function* () {
+    const request = yield* HttpServerRequest.HttpServerRequest;
+    const url = HttpServerRequest.toURL(request);
+    if (Option.isNone(url)) {
+      return HttpServerResponse.text("Bad Request", { status: 400 });
+    }
+
+    const config = yield* ServerConfig;
+    const rawPath = url.value.pathname.slice(DESIGN_ARTIFACT_ROUTE_PREFIX.length);
+    // Expect /<threadId>/<artifactId>/screenshot
+    const match = rawPath.match(/^\/([^/]+)\/([^/]+)\/screenshot$/);
+    if (!match || !match[1] || !match[2]) {
+      return HttpServerResponse.text("Invalid screenshot path", { status: 400 });
+    }
+
+    const threadId = match[1];
+    const artifactId = match[2];
+
+    if (threadId.includes("..") || artifactId.includes("..")) {
+      return HttpServerResponse.text("Invalid screenshot path", { status: 400 });
+    }
+
+    const screenshotPath = yield* Effect.tryPromise({
+      try: () => captureArtifactScreenshot(config.artifactsDir, threadId, artifactId),
+      catch: (cause) =>
+        new ScreenshotCaptureHttpError(
+          cause instanceof Error ? cause.message : `Screenshot capture failed: ${String(cause)}`,
+        ),
+    }).pipe(
+      Effect.catch((error) => {
+        console.warn("Screenshot capture failed:", error.message);
+        return Effect.succeed(null as string | null);
+      }),
+    );
+
+    return HttpServerResponse.jsonUnsafe(
+      { screenshotPath },
+      { status: 200, headers: { "Access-Control-Allow-Origin": "*" } },
     );
   }),
 );

@@ -5,6 +5,7 @@ export interface DiffRouteSearch {
   diffMode?: "agent" | "workspace" | undefined;
   diffTurnId?: TurnId | undefined;
   diffFilePath?: string | undefined;
+  designPanel?: "1" | undefined;
 }
 
 function isDiffOpenValue(value: unknown): boolean {
@@ -21,15 +22,16 @@ function normalizeSearchString(value: unknown): string | undefined {
 
 export function stripDiffSearchParams<T extends Record<string, unknown>>(
   params: T,
-): Omit<T, "diff" | "diffMode" | "diffTurnId" | "diffFilePath"> {
+): Omit<T, "diff" | "diffMode" | "diffTurnId" | "diffFilePath" | "designPanel"> {
   const {
     diff: _diff,
     diffMode: _diffMode,
     diffTurnId: _diffTurnId,
     diffFilePath: _diffFilePath,
+    designPanel: _designPanel,
     ...rest
   } = params;
-  return rest as Omit<T, "diff" | "diffMode" | "diffTurnId" | "diffFilePath">;
+  return rest as Omit<T, "diff" | "diffMode" | "diffTurnId" | "diffFilePath" | "designPanel">;
 }
 
 export function parseDiffRouteSearch(search: Record<string, unknown>): DiffRouteSearch {
@@ -41,10 +43,13 @@ export function parseDiffRouteSearch(search: Record<string, unknown>): DiffRoute
   const diffTurnId = diffTurnIdRaw ? TurnId.makeUnsafe(diffTurnIdRaw) : undefined;
   const diffFilePath = diff && diffTurnId ? normalizeSearchString(search.diffFilePath) : undefined;
 
+  const designPanel = isDiffOpenValue(search.designPanel) ? "1" : undefined;
+
   return {
     ...(diff ? { diff } : {}),
     ...(diff ? { diffMode } : {}),
     ...(diffTurnId ? { diffTurnId } : {}),
     ...(diffFilePath ? { diffFilePath } : {}),
+    ...(designPanel ? { designPanel } : {}),
   };
 }

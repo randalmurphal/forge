@@ -909,6 +909,7 @@ export default function ChatView({ threadId }: ChatViewProps) {
   const isLocalDraftThread = !isServerThread && localDraftThread !== undefined;
   const canCheckoutPullRequestIntoThread = isLocalDraftThread;
   const diffOpen = rawSearch.diff === "1";
+  const designPanelOpen = rawSearch.designPanel === "1";
   const activeThreadId = activeThread?.id ?? null;
   const existingOpenTerminalThreadIds = useMemo(() => {
     const existingThreadIds = new Set<ThreadId>([...serverThreadIds, ...draftThreadIds]);
@@ -1724,6 +1725,19 @@ export default function ChatView({ threadId }: ChatViewProps) {
       },
     });
   }, [diffOpen, navigate, threadId]);
+  const onToggleDesignPanel = useCallback(() => {
+    void navigate({
+      to: "/$threadId",
+      params: { threadId },
+      replace: true,
+      search: (previous) => {
+        const rest = stripDiffSearchParams(previous);
+        return designPanelOpen
+          ? { ...rest, designPanel: undefined }
+          : { ...rest, designPanel: "1" };
+      },
+    });
+  }, [designPanelOpen, navigate, threadId]);
 
   const envLocked = Boolean(
     activeThread &&
@@ -4153,6 +4167,7 @@ export default function ChatView({ threadId }: ChatViewProps) {
           diffToggleShortcutLabel={diffPanelShortcutLabel}
           gitCwd={gitCwd}
           diffOpen={diffOpen}
+          designPanelOpen={designPanelOpen}
           onRunProjectScript={(script) => {
             void runProjectScript(script);
           }}
@@ -4161,6 +4176,7 @@ export default function ChatView({ threadId }: ChatViewProps) {
           onDeleteProjectScript={deleteProjectScript}
           onToggleTerminal={toggleTerminalVisibility}
           onToggleDiff={onToggleDiff}
+          onToggleDesignPanel={onToggleDesignPanel}
         />
       </header>
 

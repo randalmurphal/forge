@@ -4,7 +4,9 @@ import { FetchHttpClient, HttpRouter, HttpServer } from "effect/unstable/http";
 import { ServerConfig } from "./config";
 import {
   attachmentsRouteLayer,
+  designArtifactListRouteLayer,
   designArtifactRouteLayer,
+  designArtifactScreenshotRouteLayer,
   designBridgeRouteLayer,
   projectFaviconRouteLayer,
   sharedChatBridgeRouteLayer,
@@ -408,7 +410,9 @@ const DaemonRuntimeEnvironmentLive = DaemonLayerLive.pipe(
 
 export const makeRoutesLayer = Layer.mergeAll(
   attachmentsRouteLayer,
+  designArtifactListRouteLayer,
   designArtifactRouteLayer,
+  designArtifactScreenshotRouteLayer,
   designBridgeRouteLayer,
   projectFaviconRouteLayer,
   sharedChatBridgeRouteLayer,

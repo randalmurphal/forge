@@ -188,13 +188,19 @@ const LazyDesignPreviewPanel = (props: { mode: DiffPanelMode; threadId: ThreadId
   );
 };
 
-const DesignPreviewInlineSidebar = (props: { threadId: ThreadId; hasArtifacts: boolean }) => {
-  const { threadId, hasArtifacts } = props;
+const DesignPreviewInlineSidebar = (props: {
+  threadId: ThreadId;
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+  renderContent: boolean;
+}) => {
+  const { threadId, open, onOpenChange, renderContent } = props;
 
   return (
     <SidebarProvider
-      defaultOpen={hasArtifacts}
-      open={hasArtifacts}
+      defaultOpen={false}
+      open={open}
+      onOpenChange={onOpenChange}
       className="w-auto min-h-0 flex-none bg-transparent"
       style={{ "--sidebar-width": DESIGN_INLINE_DEFAULT_WIDTH } as React.CSSProperties}
     >
@@ -208,7 +214,7 @@ const DesignPreviewInlineSidebar = (props: { threadId: ThreadId; hasArtifacts: b
           storageKey: DESIGN_INLINE_SIDEBAR_WIDTH_STORAGE_KEY,
         }}
       >
-        {hasArtifacts ? <LazyDesignPreviewPanel mode="sidebar" threadId={threadId} /> : null}
+        {renderContent ? <LazyDesignPreviewPanel mode="sidebar" threadId={threadId} /> : null}
         <SidebarRail />
       </Sidebar>
     </SidebarProvider>
@@ -260,13 +266,33 @@ function ChatThreadRouteView() {
     ((thread?.designArtifacts?.length ?? 0) > 0 ||
       (thread?.designPendingOptions !== null && thread?.designPendingOptions !== undefined));
 
-  const [designPanelOpen, setDesignPanelOpen] = useState(true);
-  // Reopen the design panel when new artifacts arrive
+  const designPanelOpen = search.designPanel === "1";
+  const toggleDesignPanel = useCallback(() => {
+    void navigate({
+      to: "/$threadId",
+      params: { threadId },
+      replace: true,
+      search: (previous) => {
+        const rest = stripDiffSearchParams(previous);
+        return designPanelOpen
+          ? { ...rest, designPanel: undefined }
+          : { ...rest, designPanel: "1" };
+      },
+    });
+  }, [designPanelOpen, navigate, threadId]);
+  // Auto-open the design panel when first artifacts arrive
+  const [hasAutoOpened, setHasAutoOpened] = useState(false);
   useEffect(() => {
-    if (hasDesignArtifacts) {
-      setDesignPanelOpen(true);
+    if (hasDesignArtifacts && !designPanelOpen && !hasAutoOpened) {
+      setHasAutoOpened(true);
+      void navigate({
+        to: "/$threadId",
+        params: { threadId },
+        replace: true,
+        search: (previous) => ({ ...previous, designPanel: "1" }),
+      });
     }
-  }, [hasDesignArtifacts]);
+  }, [hasDesignArtifacts, designPanelOpen, hasAutoOpened, navigate, threadId]);
 
   // TanStack Router keeps active route components mounted across param-only navigations
   // unless remountDeps are configured, so this stays warm across thread switches.
@@ -312,6 +338,8 @@ function ChatThreadRouteView() {
 
   const shouldRenderDiffContent = diffOpen || hasOpenedDiff;
 
+  const hasOpenedDesignPanel = designPanelOpen || hasAutoOpened;
+
   // Design mode: show design preview panel instead of diff panel
   if (isDesignMode) {
     if (!shouldUseDiffSheet) {
@@ -320,7 +348,12 @@ function ChatThreadRouteView() {
           <SidebarInset className="h-dvh min-h-0 overflow-hidden overscroll-y-none bg-background text-foreground">
             <ChatView threadId={threadId} />
           </SidebarInset>
-          <DesignPreviewInlineSidebar threadId={threadId} hasArtifacts={!!hasDesignArtifacts} />
+          <DesignPreviewInlineSidebar
+            threadId={threadId}
+            open={designPanelOpen}
+            onOpenChange={() => toggleDesignPanel()}
+            renderContent={hasOpenedDesignPanel}
+          />
         </>
       );
     }
@@ -330,11 +363,11 @@ function ChatThreadRouteView() {
         <SidebarInset className="h-dvh min-h-0 overflow-hidden overscroll-y-none bg-background text-foreground">
           <ChatView threadId={threadId} />
         </SidebarInset>
-        {hasDesignArtifacts ? (
-          <DesignPreviewSheet open={designPanelOpen} onClose={() => setDesignPanelOpen(false)}>
+        <DesignPreviewSheet open={designPanelOpen} onClose={toggleDesignPanel}>
+          {hasOpenedDesignPanel ? (
             <LazyDesignPreviewPanel mode="sheet" threadId={threadId} />
-          </DesignPreviewSheet>
-        ) : null}
+          ) : null}
+        </DesignPreviewSheet>
       </>
     );
   }
@@ -371,7 +404,7 @@ function ChatThreadRouteView() {
 export const Route = createFileRoute("/_chat/$threadId")({
   validateSearch: (search) => parseDiffRouteSearch(search),
   search: {
-    middlewares: [retainSearchParams<DiffRouteSearch>(["diff", "diffMode"])],
+    middlewares: [retainSearchParams<DiffRouteSearch>(["diff", "diffMode", "designPanel"])],
   },
   component: ChatThreadRouteView,
 });

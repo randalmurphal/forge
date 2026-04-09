@@ -1,6 +1,6 @@
-import { memo, useCallback, useMemo, useState } from "react";
+import { memo, useCallback, useEffect, useMemo, useState } from "react";
 import { useNavigate } from "@tanstack/react-router";
-import { MonitorIcon, SmartphoneIcon, TabletIcon, WrenchIcon, PaletteIcon } from "lucide-react";
+import { MonitorIcon, SmartphoneIcon, TabletIcon, PaletteIcon } from "lucide-react";
 
 import { InteractiveRequestId, type ThreadId } from "@forgetools/contracts";
 
@@ -12,7 +12,7 @@ import type { DesignArtifact, DesignPendingOptions } from "~/types";
 
 import { DiffPanelShell, type DiffPanelMode } from "./DiffPanelShell";
 import { Button } from "./ui/button";
-import { Select, SelectTrigger, SelectValue, SelectPopup, SelectItem } from "./ui/select";
+import { Select, SelectTrigger, SelectPopup, SelectItem } from "./ui/select";
 import { Tooltip, TooltipTrigger, TooltipPopup } from "./ui/tooltip";
 
 // ── Types ────────────────────────────────────────────────────────────
@@ -133,7 +133,36 @@ const DesignPreviewPanel = memo(function DesignPreviewPanel(props: DesignPreview
   const thread = useThreadById(threadId);
   const navigate = useNavigate();
 
-  const artifacts = thread?.designArtifacts ?? EMPTY_ARTIFACTS;
+  // Fetch persisted artifacts from the server (survives page refresh)
+  const [serverArtifacts, setServerArtifacts] = useState<DesignArtifact[]>([]);
+  useEffect(() => {
+    const listUrl = resolveServerUrl({
+      protocol: window.location.protocol === "https:" ? "https" : "http",
+      pathname: `/api/internal/design/artifact-list/${threadId}`,
+    });
+    fetch(listUrl)
+      .then((res) => res.json())
+      .then((data: { artifacts?: DesignArtifact[] }) => {
+        if (data.artifacts && data.artifacts.length > 0) {
+          setServerArtifacts(data.artifacts);
+        }
+      })
+      .catch(() => {
+        // Silently ignore — artifacts just won't appear until a new one is rendered
+      });
+  }, [threadId]);
+
+  // Merge server-persisted artifacts with real-time store artifacts, dedup by ID
+  const storeArtifacts = thread?.designArtifacts ?? EMPTY_ARTIFACTS;
+  const artifacts = useMemo(() => {
+    const byId = new Map<string, DesignArtifact>();
+    for (const a of serverArtifacts) byId.set(a.artifactId, a);
+    for (const a of storeArtifacts) byId.set(a.artifactId, a);
+    return Array.from(byId.values()).toSorted(
+      (a, b) => new Date(a.renderedAt).getTime() - new Date(b.renderedAt).getTime(),
+    );
+  }, [serverArtifacts, storeArtifacts]);
+
   const pendingOptions = thread?.designPendingOptions ?? null;
   const showOptionsPicker = pendingOptions !== null && pendingOptions.chosenOptionId === null;
 
@@ -198,29 +227,50 @@ const DesignPreviewPanel = memo(function DesignPreviewPanel(props: DesignPreview
     }
   }, [pendingOptions, effectiveOptionId]);
 
+  const [isExporting, setIsExporting] = useState(false);
+
   const handleImplementThis = useCallback(async () => {
     if (!activeArtifact || !thread) return;
 
-    const projectId = thread.projectId;
-    const nextThreadId = newThreadId();
-    const { setProjectDraftThreadId, setPrompt, applyStickyState } =
-      useComposerDraftStore.getState();
+    setIsExporting(true);
+    try {
+      // Capture a screenshot of the rendered design before export
+      let screenshotPath: string | null = null;
+      try {
+        const screenshotUrl = resolveServerUrl({
+          protocol: window.location.protocol === "https:" ? "https" : "http",
+          pathname: `/api/internal/design/artifacts/${threadId}/${activeArtifact.artifactId}/screenshot`,
+        });
+        const response = await fetch(screenshotUrl, { method: "POST" });
+        const result = (await response.json()) as { screenshotPath?: string | null };
+        screenshotPath = result.screenshotPath ?? null;
+      } catch (err: unknown) {
+        console.warn("Screenshot capture failed, exporting without screenshot:", err);
+      }
 
-    const artifactUrl = buildArtifactUrl(threadId, activeArtifact.artifactId);
+      const projectId = thread.projectId;
+      const nextThreadId = newThreadId();
+      const { setProjectDraftThreadId, setPrompt, applyStickyState } =
+        useComposerDraftStore.getState();
 
-    setProjectDraftThreadId(projectId, nextThreadId, {
-      createdAt: new Date().toISOString(),
-    });
-    applyStickyState(nextThreadId);
-    setPrompt(
-      nextThreadId,
-      `Implement this design.\n\nTitle: ${activeArtifact.title}${activeArtifact.description ? `\nDescription: ${activeArtifact.description}` : ""}\n\nDesign preview URL (for reference): ${artifactUrl}`,
-    );
+      setProjectDraftThreadId(projectId, nextThreadId, {
+        createdAt: new Date().toISOString(),
+      });
+      applyStickyState(nextThreadId);
+      setPrompt(
+        nextThreadId,
+        `\n\n---\nDesign reference: ${activeArtifact.title}\nArtifact: ${activeArtifact.artifactPath}${screenshotPath ? `\nScreenshot: ${screenshotPath}` : ""}`,
+      );
 
-    await navigate({
-      to: "/$threadId",
-      params: { threadId: nextThreadId },
-    });
+      await navigate({
+        to: "/$threadId",
+        params: { threadId: nextThreadId },
+      });
+    } catch (err: unknown) {
+      console.error("Failed to export design:", err);
+    } finally {
+      setIsExporting(false);
+    }
   }, [activeArtifact, thread, threadId, navigate]);
 
   const handleSelectOption = useCallback((optionId: string) => {
@@ -242,7 +292,7 @@ const DesignPreviewPanel = memo(function DesignPreviewPanel(props: DesignPreview
         {artifacts.length > 1 ? (
           <Select value={resolvedArtifactId ?? undefined} onValueChange={handleArtifactChange}>
             <SelectTrigger variant="ghost" size="xs" className="max-w-48">
-              <SelectValue placeholder="Select artifact" />
+              <span className="truncate">{activeArtifact?.title ?? "Select artifact"}</span>
             </SelectTrigger>
             <SelectPopup>
               {artifacts.map((artifact) => (
@@ -281,21 +331,15 @@ const DesignPreviewPanel = memo(function DesignPreviewPanel(props: DesignPreview
           label="Desktop (100%)"
         />
         {activeArtifact ? (
-          <Tooltip>
-            <TooltipTrigger
-              render={
-                <Button
-                  variant="ghost"
-                  size="icon-xs"
-                  onClick={handleImplementThis}
-                  className="ml-1"
-                />
-              }
-            >
-              <WrenchIcon />
-            </TooltipTrigger>
-            <TooltipPopup>Implement this design</TooltipPopup>
-          </Tooltip>
+          <Button
+            variant="ghost"
+            size="xs"
+            onClick={handleImplementThis}
+            disabled={isExporting}
+            className="ml-1"
+          >
+            {isExporting ? "Exporting..." : "Export to thread"}
+          </Button>
         ) : null}
       </div>
     </>

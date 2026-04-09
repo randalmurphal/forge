@@ -1,4 +1,10 @@
-import { ArchiveIcon, ChevronRightIcon, GitPullRequestIcon, TerminalIcon } from "lucide-react";
+import {
+  ArchiveIcon,
+  ChevronRightIcon,
+  GitPullRequestIcon,
+  PaletteIcon,
+  TerminalIcon,
+} from "lucide-react";
 import type { Dispatch, MouseEvent, MutableRefObject, SetStateAction } from "react";
 import type { GitStatusResult, ThreadId } from "@forgetools/contracts";
 import { useSidebarThreadSummaryById } from "../../storeSelectors";
@@ -279,6 +285,9 @@ export function SidebarThreadRow(props: {
               />
               <TooltipPopup side="top">{prStatus.tooltip}</TooltipPopup>
             </Tooltip>
+          ) : null}
+          {thread.interactionMode === "design" ? (
+            <PaletteIcon className="size-3 shrink-0 text-violet-500 dark:text-violet-400" />
           ) : null}
           {!showChildMeta && threadStatus ? <ThreadStatusLabel status={threadStatus} /> : null}
           <div className="min-w-0 flex-1">
