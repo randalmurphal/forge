@@ -468,6 +468,56 @@ function runtimeEventToActivities(
       ];
     }
 
+    case "tool.progress": {
+      // Access payload fields safely - the schema is being updated by another agent
+      // but the payload will have: toolUseId?, toolName?, message?, elapsedSeconds?
+      const payload = event.payload as Record<string, unknown>;
+      const message = typeof payload.message === "string" ? payload.message : undefined;
+      const toolName = typeof payload.toolName === "string" ? payload.toolName : undefined;
+      return [
+        {
+          id: event.eventId,
+          createdAt: event.createdAt,
+          tone: "tool" as const,
+          kind: "tool.progress",
+          summary: message ?? (toolName ? `${toolName} in progress` : "Tool in progress"),
+          payload: {
+            ...(typeof payload.toolUseId === "string" ? { toolCallId: payload.toolUseId } : {}),
+            ...(toolName ? { toolName } : {}),
+            ...(message ? { detail: truncateDetail(message) } : {}),
+            ...(typeof payload.elapsedSeconds === "number"
+              ? { elapsedSeconds: payload.elapsedSeconds }
+              : {}),
+          },
+          turnId: toTurnId(event.turnId) ?? null,
+          ...maybeSequence,
+        },
+      ];
+    }
+
+    case "tool.summary": {
+      const payload = event.payload as Record<string, unknown>;
+      const summary = typeof payload.summary === "string" ? payload.summary : undefined;
+      if (!summary) {
+        return [];
+      }
+      return [
+        {
+          id: event.eventId,
+          createdAt: event.createdAt,
+          tone: "tool" as const,
+          kind: "tool.summary",
+          summary,
+          payload: {
+            summary,
+            ...(Array.isArray(payload.toolUseIds) ? { toolUseIds: payload.toolUseIds } : {}),
+          },
+          turnId: toTurnId(event.turnId) ?? null,
+          ...maybeSequence,
+        },
+      ];
+    }
+
     case "item.updated": {
       if (!isToolLifecycleItemType(event.payload.itemType)) {
         return [];
@@ -476,6 +526,7 @@ function runtimeEventToActivities(
         event.payload.itemType === "file_change"
           ? buildToolInlineDiffArtifact(event.payload.data)
           : undefined;
+      const itemUpdatedToolName = (event.payload as Record<string, unknown>).toolName;
       return [
         {
           id: event.eventId,
@@ -490,6 +541,7 @@ function runtimeEventToActivities(
             ...(event.payload.detail ? { detail: truncateDetail(event.payload.detail) } : {}),
             ...(event.payload.data !== undefined ? { data: event.payload.data } : {}),
             ...(inlineDiff ? { inlineDiff } : {}),
+            ...(typeof itemUpdatedToolName === "string" ? { toolName: itemUpdatedToolName } : {}),
           },
           turnId: toTurnId(event.turnId) ?? null,
           ...maybeSequence,
@@ -505,6 +557,7 @@ function runtimeEventToActivities(
         event.payload.itemType === "file_change"
           ? buildToolInlineDiffArtifact(event.payload.data)
           : undefined;
+      const itemCompletedToolName = (event.payload as Record<string, unknown>).toolName;
       return [
         {
           id: event.eventId,
@@ -518,6 +571,9 @@ function runtimeEventToActivities(
             ...(event.payload.detail ? { detail: truncateDetail(event.payload.detail) } : {}),
             ...(event.payload.data !== undefined ? { data: event.payload.data } : {}),
             ...(inlineDiff ? { inlineDiff } : {}),
+            ...(typeof itemCompletedToolName === "string"
+              ? { toolName: itemCompletedToolName }
+              : {}),
           },
           turnId: toTurnId(event.turnId) ?? null,
           ...maybeSequence,
@@ -529,6 +585,7 @@ function runtimeEventToActivities(
       if (!isToolLifecycleItemType(event.payload.itemType)) {
         return [];
       }
+      const itemStartedToolName = (event.payload as Record<string, unknown>).toolName;
       return [
         {
           id: event.eventId,
@@ -540,6 +597,7 @@ function runtimeEventToActivities(
             itemType: event.payload.itemType,
             ...(event.itemId ? { itemId: event.itemId } : {}),
             ...(event.payload.detail ? { detail: truncateDetail(event.payload.detail) } : {}),
+            ...(typeof itemStartedToolName === "string" ? { toolName: itemStartedToolName } : {}),
           },
           turnId: toTurnId(event.turnId) ?? null,
           ...maybeSequence,

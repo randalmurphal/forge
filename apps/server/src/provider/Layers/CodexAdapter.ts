@@ -204,8 +204,10 @@ function toCanonicalItemType(raw: unknown): CanonicalItemType {
   if (type.includes("reasoning") || type.includes("thought")) return "reasoning";
   if (type.includes("plan") || type.includes("todo")) return "plan";
   if (type.includes("command")) return "command_execution";
+  if (type.includes("file read")) return "file_read";
   if (type.includes("file change") || type.includes("patch") || type.includes("edit"))
     return "file_change";
+  if (type.includes("search") || type.includes("grep") || type.includes("glob")) return "search";
   if (type.includes("mcp")) return "mcp_tool_call";
   if (type.includes("dynamic tool")) return "dynamic_tool_call";
   if (type.includes("collab")) return "collab_agent_tool_call";
@@ -229,13 +231,19 @@ function itemTitle(itemType: CanonicalItemType): string | undefined {
     case "plan":
       return "Plan";
     case "command_execution":
-      return "Ran command";
+      return "Command";
     case "file_change":
       return "File change";
+    case "file_read":
+      return "File read";
+    case "search":
+      return "Search";
     case "mcp_tool_call":
       return "MCP tool call";
     case "dynamic_tool_call":
       return "Tool call";
+    case "collab_agent_tool_call":
+      return "Subagent task";
     case "web_search":
       return "Web search";
     case "image_view":
@@ -544,6 +552,17 @@ function runtimeEventBase(
   };
 }
 
+function extractToolName(source: Record<string, unknown>): string | undefined {
+  // Try common fields that carry a tool name in Codex payloads
+  const candidates = [source.tool, source.name, source.toolName, source.type];
+  for (const c of candidates) {
+    if (typeof c === "string" && c.trim().length > 0) {
+      return c.trim();
+    }
+  }
+  return undefined;
+}
+
 function mapItemLifecycle(
   event: ProviderEvent,
   canonicalThreadId: ThreadId,
@@ -568,6 +587,7 @@ function mapItemLifecycle(
       : lifecycle === "item.completed"
         ? "completed"
         : undefined;
+  const toolName = extractToolName(source);
 
   return {
     ...runtimeEventBase(event, canonicalThreadId),
@@ -576,6 +596,7 @@ function mapItemLifecycle(
       itemType,
       ...(status ? { status } : {}),
       ...(itemTitle(itemType) ? { title: itemTitle(itemType) } : {}),
+      ...(toolName ? { toolName } : {}),
       ...(detail ? { detail } : {}),
       ...(event.payload !== undefined ? { data: event.payload } : {}),
     },

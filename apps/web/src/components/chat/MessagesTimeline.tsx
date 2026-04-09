@@ -18,6 +18,7 @@ import {
 } from "@tanstack/react-virtual";
 import {
   deriveTimelineEntries,
+  formatDuration,
   formatElapsed,
   type ExpandedInlineDiffState,
   type ToolInlineDiffSummary,
@@ -39,12 +40,14 @@ import {
 import ChatMarkdown from "../ChatMarkdown";
 import {
   BotIcon,
+  BoxIcon,
   CheckIcon,
   CircleAlertIcon,
   EyeIcon,
+  FolderSearchIcon,
   GlobeIcon,
-  HammerIcon,
   type LucideIcon,
+  NetworkIcon,
   SquarePenIcon,
   TerminalIcon,
   Undo2Icon,
@@ -837,40 +840,127 @@ function workToneClass(tone: "thinking" | "tool" | "info" | "error"): string {
   return "text-muted-foreground/40";
 }
 
-function workEntryPreview(
-  workEntry: Pick<TimelineWorkEntry, "detail" | "command" | "changedFiles">,
-) {
+function extractSubagentPreview(detail: string | undefined): string | null {
+  if (!detail) return null;
+  // The detail often looks like 'Agent: {"description":"...","model":"opus","prompt":"..."}'
+  // Try to extract the description field from the JSON
+  const jsonStart = detail.indexOf("{");
+  if (jsonStart >= 0) {
+    try {
+      const parsed = JSON.parse(detail.slice(jsonStart));
+      if (typeof parsed === "object" && parsed !== null) {
+        const description =
+          typeof parsed.description === "string" ? parsed.description.trim() : null;
+        if (description) return description;
+        const prompt = typeof parsed.prompt === "string" ? parsed.prompt.trim() : null;
+        if (prompt) return prompt.length > 120 ? `${prompt.slice(0, 117)}...` : prompt;
+      }
+    } catch {
+      // Not valid JSON — fall through
+    }
+  }
+  // Strip tool name prefix like "Agent: ..." or "Task: ..."
+  const prefixMatch = /^[A-Za-z]+:\s*/.exec(detail);
+  if (prefixMatch) {
+    const rest = detail.slice(prefixMatch[0].length).trim();
+    if (rest.length > 0) return rest.length > 120 ? `${rest.slice(0, 117)}...` : rest;
+  }
+  return detail.length > 120 ? `${detail.slice(0, 117)}...` : detail;
+}
+
+function workEntryPreview(workEntry: TimelineWorkEntry): string | null {
+  // Commands: show the command string
+  if (workEntry.itemType === "command_execution" || workEntry.command) {
+    return workEntry.command ?? workEntry.detail ?? null;
+  }
+
+  // File changes: show file path
+  if (workEntry.itemType === "file_change") {
+    if (workEntry.filePath) return workEntry.filePath;
+    if ((workEntry.changedFiles?.length ?? 0) > 0) {
+      const [firstPath] = workEntry.changedFiles!;
+      return workEntry.changedFiles!.length === 1
+        ? (firstPath ?? null)
+        : `${firstPath} +${workEntry.changedFiles!.length - 1} more`;
+    }
+    return workEntry.detail ?? null;
+  }
+
+  // File reads: show file path
+  if (workEntry.itemType === "file_read") {
+    return workEntry.filePath ?? workEntry.detail ?? null;
+  }
+
+  // Search: show the pattern
+  if (workEntry.itemType === "search") {
+    if (workEntry.searchPattern) {
+      const count = workEntry.searchResultCount;
+      return count !== undefined
+        ? `/${workEntry.searchPattern}/ → ${count} results`
+        : `/${workEntry.searchPattern}/`;
+    }
+    return workEntry.detail ?? null;
+  }
+
+  // Subagent: extract description from JSON detail if present
+  if (workEntry.itemType === "collab_agent_tool_call") {
+    return extractSubagentPreview(workEntry.detail) ?? null;
+  }
+
+  // MCP: show detail or arguments summary
+  if (workEntry.itemType === "mcp_tool_call") {
+    return workEntry.detail ?? null;
+  }
+
+  // Web search: show query
+  if (workEntry.itemType === "web_search") {
+    return workEntry.detail ?? null;
+  }
+
+  // Generic fallback
   if (workEntry.command) return workEntry.command;
   if (workEntry.detail) return workEntry.detail;
-  if ((workEntry.changedFiles?.length ?? 0) === 0) return null;
-  const [firstPath] = workEntry.changedFiles ?? [];
-  if (!firstPath) return null;
-  return workEntry.changedFiles!.length === 1
-    ? firstPath
-    : `${firstPath} +${workEntry.changedFiles!.length - 1} more`;
+  if ((workEntry.changedFiles?.length ?? 0) > 0) {
+    const [firstPath] = workEntry.changedFiles ?? [];
+    if (!firstPath) return null;
+    return workEntry.changedFiles!.length === 1
+      ? firstPath
+      : `${firstPath} +${workEntry.changedFiles!.length - 1} more`;
+  }
+  return null;
 }
 
 function workEntryIcon(workEntry: TimelineWorkEntry): LucideIcon {
+  // Approval-specific overrides
   if (workEntry.requestKind === "command") return TerminalIcon;
   if (workEntry.requestKind === "file-read") return EyeIcon;
   if (workEntry.requestKind === "file-change") return SquarePenIcon;
 
-  if (workEntry.itemType === "command_execution" || workEntry.command) {
-    return TerminalIcon;
-  }
-  if (workEntry.itemType === "file_change" || (workEntry.changedFiles?.length ?? 0) > 0) {
-    return SquarePenIcon;
-  }
-  if (workEntry.itemType === "web_search") return GlobeIcon;
-  if (workEntry.itemType === "image_view") return EyeIcon;
-
+  // Type-specific icons
   switch (workEntry.itemType) {
+    case "command_execution":
+      return TerminalIcon;
+    case "file_change":
+      return SquarePenIcon;
+    case "file_read":
+      return EyeIcon;
+    case "search":
+      return FolderSearchIcon;
     case "mcp_tool_call":
-      return WrenchIcon;
-    case "dynamic_tool_call":
+      return NetworkIcon;
+    case "web_search":
+      return GlobeIcon;
+    case "image_view":
+      return EyeIcon;
     case "collab_agent_tool_call":
-      return HammerIcon;
+      return BoxIcon;
+    case "dynamic_tool_call":
+      return WrenchIcon;
   }
+
+  // Fallback heuristics
+  if (workEntry.command) return TerminalIcon;
+  if ((workEntry.changedFiles?.length ?? 0) > 0) return SquarePenIcon;
 
   return workToneIcon(workEntry.tone).icon;
 }
@@ -884,10 +974,32 @@ function capitalizePhrase(value: string): string {
 }
 
 function toolWorkEntryHeading(workEntry: TimelineWorkEntry): string {
-  if (!workEntry.toolTitle) {
-    return capitalizePhrase(normalizeCompactToolLabel(workEntry.label));
+  // For MCP tools, show server:tool format
+  if (workEntry.itemType === "mcp_tool_call" && workEntry.mcpServer && workEntry.mcpTool) {
+    return `${workEntry.mcpServer}:${workEntry.mcpTool}`;
   }
-  return capitalizePhrase(normalizeCompactToolLabel(workEntry.toolTitle));
+
+  // For commands, use "Command" (not the raw tool name)
+  if (workEntry.itemType === "command_execution") {
+    return "Command";
+  }
+
+  // Use the actual tool name if available and meaningful
+  if (workEntry.toolName) {
+    const name = workEntry.toolName;
+    // Strip mcp__ prefix if present
+    if (name.startsWith("mcp__")) {
+      const parts = name.slice(5).split("__");
+      return parts.length >= 2 ? `${parts[0]}:${parts.slice(1).join(".")}` : name;
+    }
+    return capitalizePhrase(name);
+  }
+
+  // Fall back to toolTitle or label
+  if (workEntry.toolTitle) {
+    return capitalizePhrase(normalizeCompactToolLabel(workEntry.toolTitle));
+  }
+  return capitalizePhrase(normalizeCompactToolLabel(workEntry.label));
 }
 
 const SimpleWorkEntryRow = memo(function SimpleWorkEntryRow(props: {
@@ -901,12 +1013,26 @@ const SimpleWorkEntryRow = memo(function SimpleWorkEntryRow(props: {
   const EntryIcon = workEntryIcon(workEntry);
   const heading = toolWorkEntryHeading(workEntry);
   const preview = workEntryPreview(workEntry);
-  const displayText = preview ? `${heading} - ${preview}` : heading;
-  const hasChangedFiles = (workEntry.changedFiles?.length ?? 0) > 0;
-  const previewIsChangedFiles = hasChangedFiles && !workEntry.command && !workEntry.detail;
   const toolInlineDiff = workEntry.inlineDiff;
   const isToolDiffExpanded =
     expandedInlineDiff?.scope === "tool" && expandedInlineDiff.id === workEntry.id;
+
+  // Determine if preview should be monospace (commands, file paths, search patterns)
+  const isMonoPreview =
+    workEntry.itemType === "command_execution" ||
+    workEntry.itemType === "file_read" ||
+    workEntry.itemType === "file_change" ||
+    workEntry.itemType === "search" ||
+    Boolean(workEntry.command);
+
+  // Exit code badge for commands
+  const showExitCode =
+    workEntry.itemType === "command_execution" && workEntry.exitCode !== undefined;
+  const exitSuccess = workEntry.exitCode === 0;
+
+  // Duration
+  const durationLabel =
+    workEntry.durationMs !== undefined ? formatDuration(workEntry.durationMs) : null;
 
   return (
     <div className="rounded-lg px-1 py-1">
@@ -918,38 +1044,41 @@ const SimpleWorkEntryRow = memo(function SimpleWorkEntryRow(props: {
         </span>
         <div className="min-w-0 flex-1 overflow-hidden">
           <p
-            className={cn(
-              "truncate text-[11px] leading-5",
-              workToneClass(workEntry.tone),
-              preview ? "text-muted-foreground/70" : "",
-            )}
-            title={displayText}
+            className={cn("truncate text-[11px] leading-5", workToneClass(workEntry.tone))}
+            title={preview ? `${heading} – ${preview}` : heading}
           >
-            <span className={cn("text-foreground/80", workToneClass(workEntry.tone))}>
-              {heading}
-            </span>
-            {preview && <span className="text-muted-foreground/55"> - {preview}</span>}
+            <span className="text-foreground/80">{heading}</span>
+            {preview && (
+              <span
+                className={cn("text-muted-foreground/55", isMonoPreview && "font-mono text-[10px]")}
+              >
+                {" – "}
+                {preview}
+              </span>
+            )}
           </p>
         </div>
-      </div>
-      {hasChangedFiles && !previewIsChangedFiles && !toolInlineDiff && (
-        <div className="mt-1 flex flex-wrap gap-1 pl-6">
-          {workEntry.changedFiles?.slice(0, 4).map((filePath) => (
+        {/* Right-side metadata badges */}
+        <div className="flex shrink-0 items-center gap-1.5">
+          {showExitCode && (
             <span
-              key={`${workEntry.id}:${filePath}`}
-              className="rounded-md border border-border/55 bg-background/75 px-1.5 py-0.5 font-mono text-[10px] text-muted-foreground/75"
-              title={filePath}
+              className={cn(
+                "inline-flex items-center rounded px-1 py-px text-[9px] font-medium leading-none",
+                exitSuccess
+                  ? "bg-emerald-500/10 text-emerald-400/80"
+                  : "bg-rose-500/10 text-rose-400/80",
+              )}
             >
-              {filePath}
+              {exitSuccess ? "✓" : `exit ${workEntry.exitCode}`}
             </span>
-          ))}
-          {(workEntry.changedFiles?.length ?? 0) > 4 && (
-            <span className="px-1 text-[10px] text-muted-foreground/55">
-              +{(workEntry.changedFiles?.length ?? 0) - 4}
+          )}
+          {durationLabel && (
+            <span className="text-[9px] tabular-nums text-muted-foreground/40">
+              {durationLabel}
             </span>
           )}
         </div>
-      )}
+      </div>
       {toolInlineDiff ? (
         <InlineToolDiffBlock
           inlineDiff={toolInlineDiff}

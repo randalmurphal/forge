@@ -406,9 +406,8 @@ function readClaudeResumeState(resumeCursor: unknown): ClaudeResumeState | undef
 
 function classifyToolItemType(toolName: string): CanonicalItemType {
   const normalized = toolName.toLowerCase();
-  if (normalized.includes("agent")) {
-    return "collab_agent_tool_call";
-  }
+
+  // Agent/subagent tools — exact matches first
   if (
     normalized === "task" ||
     normalized === "agent" ||
@@ -417,6 +416,12 @@ function classifyToolItemType(toolName: string): CanonicalItemType {
   ) {
     return "collab_agent_tool_call";
   }
+  // Compound agent names (e.g. "dispatch_agent"), but not "useragent" false positives
+  if (normalized.includes("agent") && !normalized.includes("useragent")) {
+    return "collab_agent_tool_call";
+  }
+
+  // Command execution
   if (
     normalized.includes("bash") ||
     normalized.includes("command") ||
@@ -425,10 +430,33 @@ function classifyToolItemType(toolName: string): CanonicalItemType {
   ) {
     return "command_execution";
   }
+
+  // Search tools (before file_change since "grep" etc. shouldn't match file patterns)
+  if (
+    normalized === "grep" ||
+    normalized === "glob" ||
+    normalized.includes("search") ||
+    normalized.includes("toolsearch")
+  ) {
+    return "search";
+  }
+
+  // File read tools
+  if (
+    normalized === "read" ||
+    normalized.includes("readfile") ||
+    normalized.includes("read_file") ||
+    normalized.includes("read-file") ||
+    normalized === "view"
+  ) {
+    return "file_read";
+  }
+
+  // File change tools
   if (
     normalized.includes("edit") ||
     normalized.includes("write") ||
-    normalized.includes("file") ||
+    normalized.includes("notebookedit") ||
     normalized.includes("patch") ||
     normalized.includes("replace") ||
     normalized.includes("create") ||
@@ -436,10 +464,17 @@ function classifyToolItemType(toolName: string): CanonicalItemType {
   ) {
     return "file_change";
   }
+
+  // MCP tools (identified by prefix pattern)
   if (normalized.includes("mcp")) {
     return "mcp_tool_call";
   }
-  if (normalized.includes("websearch") || normalized.includes("web search")) {
+
+  if (
+    normalized.includes("websearch") ||
+    normalized.includes("web_search") ||
+    normalized.includes("web search")
+  ) {
     return "web_search";
   }
   if (normalized.includes("image")) {
@@ -465,11 +500,17 @@ function classifyRequestType(toolName: string): CanonicalRequestType {
     return "file_read_approval";
   }
   const itemType = classifyToolItemType(toolName);
-  return itemType === "command_execution"
-    ? "command_execution_approval"
-    : itemType === "file_change"
-      ? "file_change_approval"
-      : "dynamic_tool_call";
+  switch (itemType) {
+    case "command_execution":
+      return "command_execution_approval";
+    case "file_change":
+      return "file_change_approval";
+    case "file_read":
+    case "search":
+      return "file_read_approval";
+    default:
+      return "dynamic_tool_call";
+  }
 }
 
 function summarizeToolRequest(toolName: string, input: Record<string, unknown>): string {
@@ -489,9 +530,13 @@ function summarizeToolRequest(toolName: string, input: Record<string, unknown>):
 function titleForTool(itemType: CanonicalItemType): string {
   switch (itemType) {
     case "command_execution":
-      return "Command run";
+      return "Command";
     case "file_change":
       return "File change";
+    case "file_read":
+      return "File read";
+    case "search":
+      return "Search";
     case "mcp_tool_call":
       return "MCP tool call";
     case "collab_agent_tool_call":
@@ -1507,6 +1552,7 @@ const makeClaudeAdapter = Effect.fn("makeClaudeAdapter")(function* (
           itemType: tool.itemType,
           status: status === "completed" ? "completed" : "failed",
           title: tool.title,
+          toolName: tool.toolName,
           ...(tool.detail ? { detail: tool.detail } : {}),
           data: {
             toolName: tool.toolName,
@@ -1700,6 +1746,7 @@ const makeClaudeAdapter = Effect.fn("makeClaudeAdapter")(function* (
             itemType: nextTool.itemType,
             status: "inProgress",
             title: nextTool.title,
+            toolName: nextTool.toolName,
             ...(nextTool.detail ? { detail: nextTool.detail } : {}),
             data: {
               toolName: nextTool.toolName,
@@ -1769,6 +1816,7 @@ const makeClaudeAdapter = Effect.fn("makeClaudeAdapter")(function* (
           itemType: tool.itemType,
           status: "inProgress",
           title: tool.title,
+          toolName: tool.toolName,
           ...(tool.detail ? { detail: tool.detail } : {}),
           data: {
             toolName: tool.toolName,
@@ -1844,6 +1892,7 @@ const makeClaudeAdapter = Effect.fn("makeClaudeAdapter")(function* (
           itemType: tool.itemType,
           status: toolResult.isError ? "failed" : "inProgress",
           title: tool.title,
+          toolName: tool.toolName,
           ...(tool.detail ? { detail: tool.detail } : {}),
           data: toolData,
         },
@@ -1896,6 +1945,7 @@ const makeClaudeAdapter = Effect.fn("makeClaudeAdapter")(function* (
           itemType: tool.itemType,
           status: itemStatus,
           title: tool.title,
+          toolName: tool.toolName,
           ...(tool.detail ? { detail: tool.detail } : {}),
           data: toolData,
         },

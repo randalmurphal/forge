@@ -104,6 +104,8 @@ export type RuntimeErrorClass = typeof RuntimeErrorClass.Type;
 export const TOOL_LIFECYCLE_ITEM_TYPES = [
   "command_execution",
   "file_change",
+  "file_read",
+  "search",
   "mcp_tool_call",
   "dynamic_tool_call",
   "collab_agent_tool_call",
@@ -402,6 +404,7 @@ export const ItemLifecyclePayload = Schema.Struct({
   itemType: CanonicalItemType,
   status: Schema.optional(RuntimeItemStatus),
   title: Schema.optional(TrimmedNonEmptyStringSchema),
+  toolName: Schema.optional(TrimmedNonEmptyStringSchema),
   detail: Schema.optional(TrimmedNonEmptyStringSchema),
   data: Schema.optional(Schema.Unknown),
 });

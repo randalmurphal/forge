@@ -49,6 +49,15 @@ export interface WorkLogEntry {
   itemType?: ToolLifecycleItemType;
   requestKind?: PendingApproval["requestKind"];
   inlineDiff?: ToolInlineDiffSummary | undefined;
+  toolName?: string | undefined;
+  exitCode?: number | undefined;
+  durationMs?: number | undefined;
+  output?: string | undefined;
+  mcpServer?: string | undefined;
+  mcpTool?: string | undefined;
+  searchPattern?: string | undefined;
+  searchResultCount?: number | undefined;
+  filePath?: string | undefined;
 }
 
 interface DerivedWorkLogEntry extends WorkLogEntry {
@@ -534,6 +543,135 @@ function isPlanBoundaryToolActivity(activity: OrchestrationThreadActivity): bool
   return typeof payload?.detail === "string" && payload.detail.startsWith("ExitPlanMode:");
 }
 
+interface ToolEnrichments {
+  toolName?: string;
+  exitCode?: number;
+  durationMs?: number;
+  output?: string;
+  mcpServer?: string;
+  mcpTool?: string;
+  searchPattern?: string;
+  searchResultCount?: number;
+  filePath?: string;
+}
+
+function extractToolEnrichments(payload: Record<string, unknown> | null): ToolEnrichments {
+  const enrichments: ToolEnrichments = {};
+  if (!payload) return enrichments;
+
+  // toolName from payload level (set by ingestion from ItemLifecyclePayload.toolName)
+  const payloadToolName = asTrimmedString(payload.toolName);
+  if (payloadToolName) {
+    enrichments.toolName = payloadToolName;
+  }
+
+  const data = asRecord(payload.data);
+  if (!data) return enrichments;
+
+  // Claude shape: { toolName, input, result? }
+  const claudeToolName = asTrimmedString(data.toolName);
+  if (claudeToolName && !enrichments.toolName) {
+    enrichments.toolName = claudeToolName;
+  }
+
+  const claudeInput = asRecord(data.input);
+  const claudeResult = asRecord(data.result);
+
+  // Codex shape: { item: { type, command, output, exitCode, durationMs, ... }, ... }
+  const codexItem = asRecord(data.item);
+  const codexResult = asRecord(codexItem?.result);
+
+  // Exit code
+  const exitCodeCandidates = [
+    codexItem?.exitCode,
+    claudeResult?.exit_code,
+    claudeResult?.exitCode,
+    codexResult?.exitCode,
+  ];
+  for (const candidate of exitCodeCandidates) {
+    if (typeof candidate === "number" && Number.isInteger(candidate)) {
+      enrichments.exitCode = candidate;
+      break;
+    }
+  }
+
+  // Duration
+  const durationCandidates = [codexItem?.durationMs, data.durationMs];
+  for (const candidate of durationCandidates) {
+    if (typeof candidate === "number" && Number.isFinite(candidate) && candidate >= 0) {
+      enrichments.durationMs = candidate;
+      break;
+    }
+  }
+
+  // Output (truncated for display)
+  const outputCandidates = [
+    codexItem?.aggregatedOutput,
+    claudeResult?.stdout,
+    claudeResult?.output,
+    codexResult?.output,
+  ];
+  for (const candidate of outputCandidates) {
+    if (typeof candidate === "string" && candidate.trim().length > 0) {
+      const trimmed = candidate.trim();
+      enrichments.output = trimmed.length > 500 ? `${trimmed.slice(0, 497)}...` : trimmed;
+      break;
+    }
+  }
+
+  // MCP server and tool
+  // Codex: item.server, item.tool
+  // Claude: toolName is like "mcp__serverName__toolName" or just the tool name
+  const mcpServer = asTrimmedString(codexItem?.server);
+  const mcpTool = asTrimmedString(codexItem?.tool);
+  if (mcpServer) {
+    enrichments.mcpServer = mcpServer;
+  }
+  if (mcpTool) {
+    enrichments.mcpTool = mcpTool;
+  }
+  // Parse Claude MCP tool names: mcp__server__tool
+  if (!enrichments.mcpServer && enrichments.toolName) {
+    const mcpMatch = /^mcp__([^_]+(?:__[^_]+)*)__([^_]+(?:__[^_]+)*)$/.exec(enrichments.toolName);
+    if (mcpMatch?.[1] && mcpMatch[2]) {
+      enrichments.mcpServer = mcpMatch[1];
+      enrichments.mcpTool = mcpMatch[2];
+    }
+  }
+
+  // Search pattern and result count
+  const searchPattern = asTrimmedString(claudeInput?.pattern) ?? asTrimmedString(codexItem?.query);
+  if (searchPattern) {
+    enrichments.searchPattern = searchPattern;
+  }
+  // Try to extract result count from grep/glob results
+  if (claudeResult) {
+    const resultContent = claudeResult.content;
+    if (typeof resultContent === "string") {
+      const fileMatches = resultContent.match(/\n/g);
+      if (fileMatches) {
+        enrichments.searchResultCount = fileMatches.length;
+      }
+    }
+  }
+
+  // File path
+  const filePathCandidates = [
+    claudeInput?.file_path,
+    claudeInput?.filePath,
+    claudeInput?.path,
+    codexItem?.path,
+  ];
+  for (const candidate of filePathCandidates) {
+    if (typeof candidate === "string" && candidate.trim().length > 0) {
+      enrichments.filePath = candidate.trim();
+      break;
+    }
+  }
+
+  return enrichments;
+}
+
 function toDerivedWorkLogEntry(activity: OrchestrationThreadActivity): DerivedWorkLogEntry {
   const payload =
     activity.payload && typeof activity.payload === "object"
@@ -556,7 +694,7 @@ function toDerivedWorkLogEntry(activity: OrchestrationThreadActivity): DerivedWo
   if (payload && typeof payload.detail === "string" && payload.detail.length > 0) {
     const detail = stripTrailingExitCode(payload.detail).output;
     if (detail) {
-      entry.detail = detail;
+      entry.detail = stripToolNamePrefix(detail);
     }
   }
   if (command) {
@@ -585,6 +723,27 @@ function toDerivedWorkLogEntry(activity: OrchestrationThreadActivity): DerivedWo
   if (inlineDiff) {
     entry.inlineDiff = inlineDiff;
     entry.changedFiles = inlineDiff.files.map((file) => file.path);
+  }
+  const enrichments = extractToolEnrichments(payload);
+  if (enrichments.toolName) entry.toolName = enrichments.toolName;
+  if (enrichments.exitCode !== undefined) entry.exitCode = enrichments.exitCode;
+  if (enrichments.durationMs !== undefined) entry.durationMs = enrichments.durationMs;
+  if (enrichments.output) entry.output = enrichments.output;
+  if (enrichments.mcpServer) entry.mcpServer = enrichments.mcpServer;
+  if (enrichments.mcpTool) entry.mcpTool = enrichments.mcpTool;
+  if (enrichments.searchPattern) entry.searchPattern = enrichments.searchPattern;
+  if (enrichments.searchResultCount !== undefined)
+    entry.searchResultCount = enrichments.searchResultCount;
+  if (enrichments.filePath) entry.filePath = enrichments.filePath;
+
+  // For task.progress entries (subagent reasoning updates), extract lastToolName as toolName
+  if (
+    activity.kind === "task.progress" &&
+    !entry.toolName &&
+    payload &&
+    typeof payload.lastToolName === "string"
+  ) {
+    entry.toolName = payload.lastToolName;
   }
   const collapseKey = deriveToolLifecycleCollapseKey(entry);
   if (collapseKey) {
@@ -639,6 +798,15 @@ function mergeDerivedWorkLogEntries(
   const requestKind = next.requestKind ?? previous.requestKind;
   const inlineDiff = mergeToolInlineDiffSummaries(previous.inlineDiff, next.inlineDiff);
   const collapseKey = next.collapseKey ?? previous.collapseKey;
+  const toolName = next.toolName ?? previous.toolName;
+  const exitCode = next.exitCode ?? previous.exitCode;
+  const durationMs = next.durationMs ?? previous.durationMs;
+  const output = next.output ?? previous.output;
+  const mcpServer = next.mcpServer ?? previous.mcpServer;
+  const mcpTool = next.mcpTool ?? previous.mcpTool;
+  const searchPattern = next.searchPattern ?? previous.searchPattern;
+  const searchResultCount = next.searchResultCount ?? previous.searchResultCount;
+  const filePath = next.filePath ?? previous.filePath;
   return {
     ...previous,
     ...next,
@@ -650,6 +818,15 @@ function mergeDerivedWorkLogEntries(
     ...(requestKind ? { requestKind } : {}),
     ...(inlineDiff ? { inlineDiff } : {}),
     ...(collapseKey ? { collapseKey } : {}),
+    ...(toolName ? { toolName } : {}),
+    ...(exitCode !== undefined ? { exitCode } : {}),
+    ...(durationMs !== undefined ? { durationMs } : {}),
+    ...(output ? { output } : {}),
+    ...(mcpServer ? { mcpServer } : {}),
+    ...(mcpTool ? { mcpTool } : {}),
+    ...(searchPattern ? { searchPattern } : {}),
+    ...(searchResultCount !== undefined ? { searchResultCount } : {}),
+    ...(filePath ? { filePath } : {}),
   };
 }
 
@@ -795,6 +972,20 @@ function asTrimmedString(value: unknown): string | null {
   }
   const trimmed = value.trim();
   return trimmed.length > 0 ? trimmed : null;
+}
+
+/**
+ * Strip leading tool name prefix from detail strings.
+ * Claude adapter produces detail like "Read: /some/file.ts" or "Bash: git status".
+ * Since we now display the tool name separately in the heading, the prefix is redundant.
+ */
+function stripToolNamePrefix(detail: string): string {
+  // Match "ToolName: rest" where ToolName is a single PascalCase/camelCase word
+  const match = /^[A-Za-z][A-Za-z0-9_-]*:\s+/.exec(detail);
+  if (!match) return detail;
+  const rest = detail.slice(match[0].length).trim();
+  // Only strip if there's meaningful content after the prefix
+  return rest.length > 0 ? rest : detail;
 }
 
 function normalizeCommandValue(value: unknown): string | null {
