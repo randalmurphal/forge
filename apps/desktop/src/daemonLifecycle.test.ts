@@ -1,15 +1,18 @@
 import * as FS from "node:fs";
+import * as Http from "node:http";
 import * as Net from "node:net";
 import * as OS from "node:os";
 import * as Path from "node:path";
 
 import { afterEach, describe, expect, it, vi } from "vitest";
 
+import { probeServerHealth } from "./connectionConfig";
 import type { DesktopDaemonInfo } from "./daemonLifecycle";
 import {
   buildDaemonWsUrl,
   buildDesktopWindowUrl,
   buildDetachedDaemonLaunchPlan,
+  buildWslDaemonLaunchPlan,
   ensureDaemonConnection,
   extractProtocolUrlFromArgv,
   handleDesktopBeforeQuit,
@@ -267,6 +270,7 @@ describe("daemon process launch", () => {
       env: { PATH: "/usr/bin" },
       detached: true,
       stdio: "ignore",
+      windowsHide: true,
     });
     expect(unref).toHaveBeenCalledTimes(1);
   });
@@ -379,6 +383,171 @@ describe("pingDaemon", () => {
       });
       FS.rmSync(socketPath, { force: true });
     }
+  });
+});
+
+describe("WSL daemon launch plan", () => {
+  it("builds a launch plan that runs forge inside a WSL distro via wsl.exe", () => {
+    const plan = buildWslDaemonLaunchPlan({
+      distro: "Ubuntu",
+      forgePath: "/usr/local/bin/forge",
+      wslHome: "/home/randy",
+      port: 4000,
+      authToken: "abc123",
+    });
+
+    expect(plan.command).toBe("wsl.exe");
+    expect(plan.args).toEqual([
+      "-d",
+      "Ubuntu",
+      "--",
+      "/usr/local/bin/forge",
+      "--mode",
+      "web",
+      "--host",
+      "0.0.0.0",
+      "--no-browser",
+      "--base-dir",
+      "/home/randy/.forge",
+      "--port",
+      "4000",
+      "--auth-token",
+      "abc123",
+    ]);
+  });
+
+  it("uses a custom baseDir when provided", () => {
+    const plan = buildWslDaemonLaunchPlan({
+      distro: "Debian",
+      forgePath: "/usr/bin/forge",
+      wslHome: "/home/user",
+      port: 5000,
+      authToken: "token",
+      baseDir: "/custom/base",
+    });
+
+    expect(plan.args).toContain("--base-dir");
+    const baseDirIndex = plan.args.indexOf("--base-dir");
+    expect(plan.args[baseDirIndex + 1]).toBe("/custom/base");
+  });
+
+  it("appends FORGE_LOG_LEVEL to existing WSLENV", () => {
+    const original = process.env.WSLENV;
+    process.env.WSLENV = "PATH/l";
+
+    try {
+      const plan = buildWslDaemonLaunchPlan({
+        distro: "Ubuntu",
+        forgePath: "/usr/local/bin/forge",
+        wslHome: "/home/randy",
+        port: 4000,
+        authToken: "abc123",
+      });
+
+      expect(plan.env.WSLENV).toBe("PATH/l:FORGE_LOG_LEVEL");
+    } finally {
+      if (original === undefined) {
+        delete process.env.WSLENV;
+      } else {
+        process.env.WSLENV = original;
+      }
+    }
+  });
+
+  it("sets WSLENV to just FORGE_LOG_LEVEL when WSLENV is not set", () => {
+    const original = process.env.WSLENV;
+    delete process.env.WSLENV;
+
+    try {
+      const plan = buildWslDaemonLaunchPlan({
+        distro: "Ubuntu",
+        forgePath: "/usr/local/bin/forge",
+        wslHome: "/home/randy",
+        port: 4000,
+        authToken: "abc123",
+      });
+
+      expect(plan.env.WSLENV).toBe("FORGE_LOG_LEVEL");
+    } finally {
+      if (original !== undefined) {
+        process.env.WSLENV = original;
+      }
+    }
+  });
+
+  it("converts the port number to a string in args", () => {
+    const plan = buildWslDaemonLaunchPlan({
+      distro: "Ubuntu",
+      forgePath: "/usr/local/bin/forge",
+      wslHome: "/home/randy",
+      port: 9999,
+      authToken: "token",
+    });
+
+    const portIndex = plan.args.indexOf("--port");
+    expect(portIndex).toBeGreaterThan(-1);
+    expect(plan.args[portIndex + 1]).toBe("9999");
+    expect(typeof plan.args[portIndex + 1]).toBe("string");
+  });
+});
+
+describe("probeServerHealth", () => {
+  it("resolves true when a server responds with 200 on /health", async () => {
+    const server = Http.createServer((_req, res) => {
+      res.writeHead(200, { "Content-Type": "application/json" });
+      res.end(JSON.stringify({ status: "ok" }));
+    });
+
+    const port = await new Promise<number>((resolve, reject) => {
+      server.once("error", reject);
+      server.listen(0, "127.0.0.1", () => {
+        const addr = server.address();
+        if (addr && typeof addr === "object") {
+          resolve(addr.port);
+        } else {
+          reject(new Error("Failed to get server port"));
+        }
+      });
+    });
+
+    try {
+      await expect(probeServerHealth("127.0.0.1", port)).resolves.toBe(true);
+    } finally {
+      await new Promise<void>((resolve) => {
+        server.close(() => resolve());
+      });
+    }
+  });
+
+  it("resolves false when a server responds with a non-200 status", async () => {
+    const server = Http.createServer((_req, res) => {
+      res.writeHead(503);
+      res.end();
+    });
+
+    const port = await new Promise<number>((resolve, reject) => {
+      server.once("error", reject);
+      server.listen(0, "127.0.0.1", () => {
+        const addr = server.address();
+        if (addr && typeof addr === "object") {
+          resolve(addr.port);
+        } else {
+          reject(new Error("Failed to get server port"));
+        }
+      });
+    });
+
+    try {
+      await expect(probeServerHealth("127.0.0.1", port)).resolves.toBe(false);
+    } finally {
+      await new Promise<void>((resolve) => {
+        server.close(() => resolve());
+      });
+    }
+  });
+
+  it("resolves false when nothing is listening on the port", async () => {
+    await expect(probeServerHealth("127.0.0.1", 1, 500)).resolves.toBe(false);
   });
 });
 

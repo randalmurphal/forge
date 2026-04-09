@@ -35,6 +35,7 @@ import {
 import {
   buildDesktopWindowUrl,
   buildDetachedDaemonLaunchPlan,
+  buildWslDaemonLaunchPlan,
   ensureDaemonConnection,
   extractProtocolUrlFromArgv,
   handleDesktopBeforeQuit,
@@ -44,7 +45,18 @@ import {
   registerProtocolClient,
   requestSingleInstanceOrQuit,
 } from "./daemonLifecycle";
+import {
+  resolveConnectionMode,
+  readConnectionConfig,
+  writeConnectionConfig,
+  clearConnectionConfig,
+  validateWsUrl,
+  probeServerHealth,
+  generateAuthToken,
+} from "./connectionConfig";
+import type { ConnectionConfig } from "./connectionConfig";
 import { syncShellEnvironment } from "./syncShellEnvironment";
+import { isWslAvailable, listDistros, findForgeBinary, resolveWslHome } from "./wsl";
 import { getAutoUpdateDisabledReason, shouldBroadcastDownloadProgress } from "./updateState";
 import {
   createInitialDesktopUpdateState,
@@ -90,6 +102,12 @@ const UPDATE_DOWNLOAD_CHANNEL = "desktop:update-download";
 const UPDATE_INSTALL_CHANNEL = "desktop:update-install";
 const UPDATE_CHECK_CHANNEL = "desktop:update-check";
 const GET_WS_URL_CHANNEL = "desktop:get-ws-url";
+const WSL_DISTROS_CHANNEL = "desktop:wsl-distros";
+const WSL_CHECK_FORGE_CHANNEL = "desktop:wsl-check-forge";
+const CONNECTION_CONFIG_CHANNEL = "desktop:connection-config";
+const CONNECTION_TEST_CHANNEL = "desktop:connection-test";
+const CONNECTION_SAVE_CHANNEL = "desktop:connection-save";
+const CONNECTION_CLEAR_CHANNEL = "desktop:connection-clear";
 const BASE_DIR = resolveDesktopBaseDir(process.env);
 const DAEMON_PATHS = resolveDesktopDaemonPaths(BASE_DIR);
 const DESKTOP_SCHEME = "forge";
@@ -133,6 +151,8 @@ let desktopLogSink: RotatingFileSink | null = null;
 let restoreStdIoCapture: (() => void) | null = null;
 let daemonTray: Tray | null = null;
 let daemonStatus: DaemonStatus = DAEMON_STATUS_STARTING;
+let connectionMode: "local" | "wsl" | "external" = "local";
+let reconnectInProgress = false;
 let pendingProtocolUrl = extractProtocolUrlFromArgv(process.argv, DESKTOP_SCHEME);
 
 let destructiveMenuIconCache: Electron.NativeImage | null | undefined;
@@ -419,26 +439,44 @@ function updateDaemonStatus(nextStatus: DaemonStatus, detail?: string): void {
   daemonStatus = nextStatus;
   if (daemonTray) {
     const label = nextStatus === DAEMON_STATUS_RUNNING ? "running" : nextStatus;
-    daemonTray.setToolTip(`Forge daemon: ${label}`);
+    daemonTray.setToolTip(`Forge: ${label}`);
+
+    const statusLabel =
+      nextStatus === DAEMON_STATUS_RUNNING
+        ? connectionMode === "wsl"
+          ? "WSL server running"
+          : connectionMode === "external"
+            ? "External server connected"
+            : "Daemon running"
+        : nextStatus === DAEMON_STATUS_STARTING
+          ? "Connecting..."
+          : "Connection error";
+
     const menuTemplate: MenuItemConstructorOptions[] = [
-      {
-        label:
-          nextStatus === DAEMON_STATUS_RUNNING
-            ? "Daemon running"
-            : nextStatus === DAEMON_STATUS_STARTING
-              ? "Daemon starting"
-              : "Daemon error",
-        enabled: false,
-      },
+      { label: statusLabel, enabled: false },
       ...(detail ? [{ label: detail, enabled: false } satisfies MenuItemConstructorOptions] : []),
-      { type: "separator" },
+      { type: "separator" as const },
+      ...(connectionMode !== "local"
+        ? [
+            {
+              label: "Connection Settings...",
+              click: () => {
+                // Clear connection config to show setup UI, then reload window
+                clearConnectionConfig(app.getPath("userData"));
+                backendWsUrl = "";
+                const window = mainWindow;
+                if (window && !window.isDestroyed()) {
+                  window.reload();
+                }
+              },
+            } satisfies MenuItemConstructorOptions,
+          ]
+        : []),
       {
         label: "Show Forge",
         click: () => {
           const window = mainWindow ?? getOrCreateDesktopWindow("tray-menu-show");
-          if (!window) {
-            return;
-          }
+          if (!window) return;
           window.show();
           window.focus();
         },
@@ -1072,6 +1110,105 @@ async function ensureDaemonReady(): Promise<void> {
   );
 }
 
+async function connectViaWsl(config: ConnectionConfig): Promise<void> {
+  const distro = config.wslDistro;
+  const forgePath = config.wslForgePath;
+  if (!distro || !forgePath) {
+    throw new Error("WSL connection config missing distro or forge path");
+  }
+
+  updateDaemonStatus(DAEMON_STATUS_STARTING, `WSL: ${distro}`);
+  writeDesktopLogHeader(`connecting via WSL distro=${distro} forgePath=${forgePath}`);
+
+  const port = config.wslPort ?? 3773;
+  const savedToken = config.wslAuthToken;
+
+  // Try to reconnect to an existing server first
+  if (savedToken) {
+    const healthy = await probeServerHealth("127.0.0.1", port);
+    if (healthy) {
+      backendWsUrl = `ws://127.0.0.1:${port}/ws?token=${encodeURIComponent(savedToken)}`;
+      updateDaemonStatus(DAEMON_STATUS_RUNNING, `WSL: ${distro}`);
+      writeDesktopLogHeader("reconnected to existing WSL server");
+      return;
+    }
+  }
+
+  // No existing server — spawn a new one
+  const wslHome = await resolveWslHome(distro);
+  const authToken = generateAuthToken();
+
+  const launchPlan = buildWslDaemonLaunchPlan({
+    distro,
+    forgePath,
+    wslHome,
+    port,
+    authToken,
+  });
+
+  writeDesktopLogHeader(
+    `spawning WSL daemon command=${launchPlan.command} args=${launchPlan.args.join(" ")}`,
+  );
+  await launchDetachedDaemon(launchPlan);
+
+  // Poll until the server is ready
+  const deadline = Date.now() + 30_000;
+  const pollIntervalMs = 250;
+  while (Date.now() < deadline) {
+    if (isQuitting) {
+      throw new Error("App is quitting, aborting WSL server startup");
+    }
+    const healthy = await probeServerHealth("127.0.0.1", port);
+    if (healthy) {
+      // Persist the token and port for future reconnections
+      writeConnectionConfig(app.getPath("userData"), {
+        ...config,
+        wslPort: port,
+        wslAuthToken: authToken,
+      });
+
+      backendWsUrl = `ws://127.0.0.1:${port}/ws?token=${encodeURIComponent(authToken)}`;
+      updateDaemonStatus(DAEMON_STATUS_RUNNING, `WSL: ${distro}`);
+      writeDesktopLogHeader("WSL server ready");
+      return;
+    }
+    await new Promise<void>((resolve) => setTimeout(resolve, pollIntervalMs));
+  }
+
+  throw new Error(`WSL server in ${distro} did not become ready within 30 seconds`);
+}
+
+async function connectToExternalServer(wsUrl: string, label?: string): Promise<void> {
+  updateDaemonStatus(DAEMON_STATUS_STARTING, `External: ${label ?? "server"}`);
+
+  let parsed: URL;
+  try {
+    parsed = new URL(wsUrl);
+  } catch {
+    throw new Error(`Invalid external server URL: ${wsUrl}`);
+  }
+
+  const host = parsed.hostname || "127.0.0.1";
+  const port = parsed.port ? parseInt(parsed.port, 10) : 3773;
+  const useHttps = parsed.protocol === "wss:";
+
+  writeDesktopLogHeader(`connecting to external server host=${host} port=${port}`);
+
+  const healthy = await probeServerHealth(host, port, 10_000, useHttps);
+  if (!healthy) {
+    throw new Error(`External server at ${host}:${port} is not reachable`);
+  }
+
+  // Ensure the URL has /ws pathname if it doesn't already
+  if (parsed.pathname === "/" || parsed.pathname === "") {
+    parsed.pathname = "/ws";
+  }
+
+  backendWsUrl = parsed.toString();
+  updateDaemonStatus(DAEMON_STATUS_RUNNING, `External: ${host}:${port}`);
+  writeDesktopLogHeader(`external server ready host=${host} port=${port}`);
+}
+
 function registerIpcHandlers(): void {
   ipcMain.removeAllListeners(GET_WS_URL_CHANNEL);
   ipcMain.on(GET_WS_URL_CHANNEL, (event) => {
@@ -1233,6 +1370,114 @@ function registerIpcHandlers(): void {
       checked,
       state: updateState,
     } satisfies DesktopUpdateCheckResult;
+  });
+
+  // WSL integration
+  ipcMain.removeHandler(WSL_DISTROS_CHANNEL);
+  ipcMain.handle(WSL_DISTROS_CHANNEL, async () => {
+    if (!isWslAvailable()) return [];
+    return listDistros();
+  });
+
+  ipcMain.removeHandler(WSL_CHECK_FORGE_CHANNEL);
+  ipcMain.handle(WSL_CHECK_FORGE_CHANNEL, async (_event, distro: unknown) => {
+    if (typeof distro !== "string" || distro.length === 0) return undefined;
+    return findForgeBinary(distro);
+  });
+
+  // Connection management
+  ipcMain.removeHandler(CONNECTION_CONFIG_CHANNEL);
+  ipcMain.handle(CONNECTION_CONFIG_CHANNEL, async () => {
+    return readConnectionConfig(app.getPath("userData")) ?? null;
+  });
+
+  ipcMain.removeHandler(CONNECTION_TEST_CHANNEL);
+  ipcMain.handle(CONNECTION_TEST_CHANNEL, async (_event, rawUrl: unknown) => {
+    if (typeof rawUrl !== "string") {
+      return { success: false, error: "URL must be a string" };
+    }
+
+    const validation = validateWsUrl(rawUrl);
+    if (!validation.valid) {
+      return { success: false, error: validation.error };
+    }
+
+    let parsed: URL;
+    try {
+      parsed = new URL(rawUrl);
+    } catch {
+      return { success: false, error: "Invalid URL" };
+    }
+
+    const host = parsed.hostname || "127.0.0.1";
+    const port = parsed.port ? parseInt(parsed.port, 10) : 3773;
+    const useHttps = parsed.protocol === "wss:";
+
+    const reachable = await probeServerHealth(host, port, 5_000, useHttps);
+    return reachable ? { success: true } : { success: false, error: "Server not reachable" };
+  });
+
+  ipcMain.removeHandler(CONNECTION_SAVE_CHANNEL);
+  ipcMain.handle(CONNECTION_SAVE_CHANNEL, async (_event, config: unknown) => {
+    if (!config || typeof config !== "object") return;
+    const obj = config as Record<string, unknown>;
+    const mode = obj.mode;
+    if (mode !== "local" && mode !== "wsl" && mode !== "external") return;
+
+    const typedConfig: ConnectionConfig = {
+      mode,
+      ...(typeof obj.wslDistro === "string" ? { wslDistro: obj.wslDistro } : {}),
+      ...(typeof obj.wslForgePath === "string" ? { wslForgePath: obj.wslForgePath } : {}),
+      ...(typeof obj.wslPort === "number" ? { wslPort: obj.wslPort } : {}),
+      ...(typeof obj.wslAuthToken === "string" ? { wslAuthToken: obj.wslAuthToken } : {}),
+      ...(typeof obj.externalWsUrl === "string" ? { externalWsUrl: obj.externalWsUrl } : {}),
+      ...(typeof obj.externalLabel === "string" ? { externalLabel: obj.externalLabel } : {}),
+    };
+
+    if (reconnectInProgress) return;
+    reconnectInProgress = true;
+    try {
+      writeConnectionConfig(app.getPath("userData"), typedConfig);
+
+      // Trigger a reconnect: restart the bootstrap flow
+      backendWsUrl = "";
+      connectionMode = typedConfig.mode;
+
+      switch (typedConfig.mode) {
+        case "wsl":
+          await connectViaWsl(typedConfig);
+          break;
+        case "external":
+          if (typedConfig.externalWsUrl) {
+            await connectToExternalServer(typedConfig.externalWsUrl, typedConfig.externalLabel);
+          }
+          break;
+        case "local":
+          await ensureDaemonReady();
+          break;
+      }
+    } catch (error) {
+      updateDaemonStatus(DAEMON_STATUS_ERROR, formatErrorMessage(error));
+      writeDesktopLogHeader(`connection-save reconnect failed: ${formatErrorMessage(error)}`);
+    } finally {
+      reconnectInProgress = false;
+    }
+
+    // Reload the renderer to pick up the new backendWsUrl
+    if (mainWindow && !mainWindow.isDestroyed()) {
+      mainWindow.reload();
+    }
+  });
+
+  ipcMain.removeHandler(CONNECTION_CLEAR_CHANNEL);
+  ipcMain.handle(CONNECTION_CLEAR_CHANNEL, async () => {
+    clearConnectionConfig(app.getPath("userData"));
+    connectionMode = "local";
+    backendWsUrl = "";
+    // Reload to show setup UI
+    if (mainWindow && !mainWindow.isDestroyed()) {
+      mainWindow.reload();
+    }
   });
 }
 
@@ -1430,7 +1675,45 @@ if (singleInstanceAcquired) {
 
 async function bootstrap(): Promise<void> {
   writeDesktopLogHeader("bootstrap start");
-  await ensureDaemonReady();
+
+  const resolved = resolveConnectionMode(process.env, app.getPath("userData"));
+  connectionMode = resolved.type;
+  writeDesktopLogHeader(`connection mode=${resolved.type}`);
+
+  switch (resolved.type) {
+    case "wsl": {
+      if (resolved.config?.wslDistro && resolved.config?.wslForgePath) {
+        await connectViaWsl(resolved.config);
+      } else {
+        // No saved WSL config yet — register IPC handlers and show setup UI
+        // (backendWsUrl stays empty, renderer will show ConnectionSetup)
+        writeDesktopLogHeader("WSL mode: no saved config, showing setup UI");
+        registerIpcHandlers();
+        mainWindow = createWindow();
+        writeDesktopLogHeader("bootstrap main window created (setup mode)");
+        return;
+      }
+      break;
+    }
+    case "external": {
+      const wsUrl = resolved.config?.externalWsUrl;
+      if (!wsUrl) {
+        // No URL configured — show setup UI
+        writeDesktopLogHeader("external mode: no saved URL, showing setup UI");
+        registerIpcHandlers();
+        mainWindow = createWindow();
+        writeDesktopLogHeader("bootstrap main window created (setup mode)");
+        return;
+      }
+      await connectToExternalServer(wsUrl, resolved.config?.externalLabel);
+      break;
+    }
+    case "local":
+    default:
+      await ensureDaemonReady();
+      break;
+  }
+
   registerIpcHandlers();
   writeDesktopLogHeader("bootstrap ipc handlers registered");
   mainWindow = createWindow();
@@ -1468,7 +1751,19 @@ app
     configureAutoUpdater();
     void bootstrap().catch((error) => {
       updateDaemonStatus(DAEMON_STATUS_ERROR, formatErrorMessage(error));
-      handleFatalStartupError("bootstrap", error);
+      if (connectionMode === "local") {
+        handleFatalStartupError("bootstrap", error);
+      } else {
+        // Non-local modes: show the window with setup UI instead of quitting
+        writeDesktopLogHeader(
+          `bootstrap failed in ${connectionMode} mode: ${formatErrorMessage(error)}`,
+        );
+        backendWsUrl = "";
+        registerIpcHandlers();
+        if (!mainWindow || mainWindow.isDestroyed()) {
+          mainWindow = createWindow();
+        }
+      }
     });
 
     app.on("activate", () => {

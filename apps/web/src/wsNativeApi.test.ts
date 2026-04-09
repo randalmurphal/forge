@@ -135,6 +135,12 @@ function makeDesktopBridge(overrides: Partial<DesktopBridge> = {}): DesktopBridg
       throw new Error("installUpdate not implemented in test");
     },
     onUpdateState: () => () => undefined,
+    getWslDistros: async () => [],
+    checkWslForge: async () => undefined,
+    getConnectionConfig: async () => null,
+    testConnection: async () => ({ success: false, error: "not implemented in test" }),
+    saveConnection: async () => undefined,
+    clearConnection: async () => undefined,
     ...overrides,
   };
 }

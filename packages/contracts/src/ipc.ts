@@ -109,6 +109,28 @@ export interface DesktopUpdateCheckResult {
   state: DesktopUpdateState;
 }
 
+export interface WslDistroInfo {
+  readonly name: string;
+  readonly isDefault: boolean;
+  readonly state: string;
+  readonly version: number;
+}
+
+export interface ConnectionConfig {
+  readonly mode: "local" | "wsl" | "external";
+  readonly wslDistro?: string;
+  readonly wslForgePath?: string;
+  readonly wslPort?: number;
+  readonly wslAuthToken?: string;
+  readonly externalWsUrl?: string;
+  readonly externalLabel?: string;
+}
+
+export interface ConnectionTestResult {
+  readonly success: boolean;
+  readonly error?: string;
+}
+
 export interface DesktopBridge {
   getWsUrl: () => string | null;
   pickFolder: () => Promise<string | null>;
@@ -125,6 +147,14 @@ export interface DesktopBridge {
   downloadUpdate: () => Promise<DesktopUpdateActionResult>;
   installUpdate: () => Promise<DesktopUpdateActionResult>;
   onUpdateState: (listener: (state: DesktopUpdateState) => void) => () => void;
+  // Connection management
+  getConnectionConfig: () => Promise<ConnectionConfig | null>;
+  testConnection: (wsUrl: string) => Promise<ConnectionTestResult>;
+  saveConnection: (config: ConnectionConfig) => Promise<void>;
+  clearConnection: () => Promise<void>;
+  // WSL integration
+  getWslDistros: () => Promise<WslDistroInfo[]>;
+  checkWslForge: (distro: string) => Promise<string | undefined>;
 }
 
 export interface NativeApi {

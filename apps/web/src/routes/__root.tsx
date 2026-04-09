@@ -18,9 +18,11 @@ import { Schema } from "effect";
 
 import { APP_DISPLAY_NAME } from "../branding";
 import { AppSidebarLayout } from "../components/AppSidebarLayout";
+import { ConnectionSetup } from "../components/ConnectionSetup";
 import { Button } from "../components/ui/button";
 import { AnchoredToastProvider, ToastProvider, toastManager } from "../components/ui/toast";
 import { resolveAndPersistPreferredEditor } from "../editorPreferences";
+import { isElectron } from "../env";
 import { readNativeApi } from "../nativeApi";
 import {
   getServerConfigUpdatedNotification,
@@ -60,6 +62,18 @@ export const Route = createRootRouteWithContext<{
 });
 
 function RootRouteView() {
+  // When running inside Electron and the desktop bridge has no server URL configured,
+  // show the connection setup UI instead of attempting to connect.
+  // This check is at the component boundary level to avoid Rules of Hooks violation —
+  // RootRouteViewConnected has all the hooks and is either rendered or not.
+  if (isElectron && window.desktopBridge && !window.desktopBridge.getWsUrl()) {
+    return <ConnectionSetup />;
+  }
+
+  return <RootRouteViewConnected />;
+}
+
+function RootRouteViewConnected() {
   const nativeApi = readNativeApi();
   const compatibilityIssue = useServerLifecycleCompatibilityIssue();
 

@@ -13,6 +13,12 @@ const UPDATE_CHECK_CHANNEL = "desktop:update-check";
 const UPDATE_DOWNLOAD_CHANNEL = "desktop:update-download";
 const UPDATE_INSTALL_CHANNEL = "desktop:update-install";
 const GET_WS_URL_CHANNEL = "desktop:get-ws-url";
+const WSL_DISTROS_CHANNEL = "desktop:wsl-distros";
+const WSL_CHECK_FORGE_CHANNEL = "desktop:wsl-check-forge";
+const CONNECTION_CONFIG_CHANNEL = "desktop:connection-config";
+const CONNECTION_TEST_CHANNEL = "desktop:connection-test";
+const CONNECTION_SAVE_CHANNEL = "desktop:connection-save";
+const CONNECTION_CLEAR_CHANNEL = "desktop:connection-clear";
 
 contextBridge.exposeInMainWorld("desktopBridge", {
   getWsUrl: () => ipcRenderer.sendSync(GET_WS_URL_CHANNEL) as string | null,
@@ -47,4 +53,12 @@ contextBridge.exposeInMainWorld("desktopBridge", {
       ipcRenderer.removeListener(UPDATE_STATE_CHANNEL, wrappedListener);
     };
   },
+  // Connection management
+  getConnectionConfig: () => ipcRenderer.invoke(CONNECTION_CONFIG_CHANNEL),
+  testConnection: (wsUrl) => ipcRenderer.invoke(CONNECTION_TEST_CHANNEL, wsUrl),
+  saveConnection: (config) => ipcRenderer.invoke(CONNECTION_SAVE_CHANNEL, config),
+  clearConnection: () => ipcRenderer.invoke(CONNECTION_CLEAR_CHANNEL),
+  // WSL
+  getWslDistros: () => ipcRenderer.invoke(WSL_DISTROS_CHANNEL),
+  checkWslForge: (distro) => ipcRenderer.invoke(WSL_CHECK_FORGE_CHANNEL, distro),
 } satisfies DesktopBridge);

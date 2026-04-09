@@ -1,5 +1,6 @@
 import * as ChildProcess from "node:child_process";
 import * as Net from "node:net";
+import * as OS from "node:os";
 import * as readline from "node:readline";
 import {
   readTrustedDaemonSocketStat,
@@ -175,6 +176,42 @@ export const buildDetachedDaemonLaunchPlan = (input: {
   },
 });
 
+export const buildWslDaemonLaunchPlan = (input: {
+  readonly distro: string;
+  readonly forgePath: string;
+  readonly wslHome: string;
+  readonly port: number;
+  readonly authToken: string;
+  readonly baseDir?: string;
+}): DetachedDaemonLaunchPlan => {
+  const baseDir = input.baseDir ?? `${input.wslHome}/.forge`;
+  return {
+    command: "wsl.exe",
+    args: [
+      "-d",
+      input.distro,
+      "--",
+      input.forgePath,
+      "--mode",
+      "web",
+      "--host",
+      "0.0.0.0",
+      "--no-browser",
+      "--base-dir",
+      baseDir,
+      "--port",
+      String(input.port),
+      "--auth-token",
+      input.authToken,
+    ],
+    cwd: process.env.USERPROFILE ?? OS.homedir(),
+    env: {
+      ...process.env,
+      WSLENV: [process.env.WSLENV, "FORGE_LOG_LEVEL"].filter(Boolean).join(":"),
+    },
+  };
+};
+
 export const launchDetachedDaemon = async (
   plan: DetachedDaemonLaunchPlan,
   spawn: typeof ChildProcess.spawn = ChildProcess.spawn,
@@ -184,6 +221,7 @@ export const launchDetachedDaemon = async (
     env: plan.env,
     detached: true,
     stdio: "ignore",
+    windowsHide: true,
   });
   child.unref();
 };
