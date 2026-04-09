@@ -800,6 +800,7 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
           files: command.files,
           source: command.source,
           coverage: command.coverage,
+          assistantMessageId: command.assistantMessageId ?? null,
           completedAt: command.completedAt,
         },
       };

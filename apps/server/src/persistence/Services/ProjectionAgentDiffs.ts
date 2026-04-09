@@ -3,6 +3,7 @@ import {
   OrchestrationAgentDiffCoverage,
   OrchestrationAgentDiffSource,
   OrchestrationCheckpointFile,
+  MessageId,
   ThreadId,
   TurnId,
 } from "@forgetools/contracts";
@@ -18,6 +19,7 @@ export const ProjectionAgentDiff = Schema.Struct({
   files: Schema.Array(OrchestrationCheckpointFile),
   source: OrchestrationAgentDiffSource,
   coverage: OrchestrationAgentDiffCoverage,
+  assistantMessageId: Schema.NullOr(MessageId),
   completedAt: IsoDateTime,
 });
 export type ProjectionAgentDiff = typeof ProjectionAgentDiff.Type;

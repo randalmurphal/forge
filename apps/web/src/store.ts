@@ -18,6 +18,7 @@ import {
   ThreadCreatedPayload,
   ThreadMessageSentPayload,
   ThreadId,
+  type TurnId,
   type OrchestrationReadModel,
   type OrchestrationSession,
   type OrchestrationCheckpointSummary,
@@ -198,6 +199,7 @@ function mapAgentDiffSummary(
     provenance: "agent",
     coverage: agentDiff.coverage,
     source: agentDiff.source,
+    assistantMessageId: agentDiff.assistantMessageId ?? undefined,
     files: agentDiff.files.map((file) => ({ ...file })),
   };
 }
@@ -485,6 +487,25 @@ function rebindTurnDiffSummariesForAssistantMessage(
     };
   });
   return changed ? nextSummaries : [...turnDiffSummaries];
+}
+
+function rebindAgentDiffSummariesForAssistantMessage(
+  agentDiffSummaries: ReadonlyArray<NonNullable<Thread["agentDiffSummaries"]>[number]>,
+  turnId: TurnId,
+  assistantMessageId: NonNullable<Thread["latestTurn"]>["assistantMessageId"],
+): NonNullable<Thread["agentDiffSummaries"]> {
+  let changed = false;
+  const nextSummaries = agentDiffSummaries.map((summary) => {
+    if (summary.turnId !== turnId || summary.assistantMessageId === assistantMessageId) {
+      return summary;
+    }
+    changed = true;
+    return {
+      ...summary,
+      assistantMessageId: assistantMessageId ?? undefined,
+    };
+  });
+  return changed ? nextSummaries : [...agentDiffSummaries];
 }
 
 function retainThreadMessagesAfterRevert(
@@ -1063,6 +1084,16 @@ export function applyOrchestrationEvent(state: AppState, event: ForgeEvent): App
                 event.payload.messageId,
               )
             : thread.turnDiffSummaries;
+        const agentDiffSummaries =
+          event.payload.role === "assistant" &&
+          event.payload.turnId !== null &&
+          thread.agentDiffSummaries !== undefined
+            ? rebindAgentDiffSummariesForAssistantMessage(
+                thread.agentDiffSummaries,
+                event.payload.turnId,
+                event.payload.messageId,
+              )
+            : thread.agentDiffSummaries;
         const latestTurn: Thread["latestTurn"] =
           event.payload.role === "assistant" &&
           event.payload.turnId !== null &&
@@ -1098,6 +1129,7 @@ export function applyOrchestrationEvent(state: AppState, event: ForgeEvent): App
           ...thread,
           messages: cappedMessages,
           turnDiffSummaries,
+          ...(agentDiffSummaries ? { agentDiffSummaries } : {}),
           latestTurn,
         };
       });
@@ -1366,11 +1398,16 @@ export function applyOrchestrationEvent(state: AppState, event: ForgeEvent): App
 
     case "thread.agent-diff-upserted": {
       return updateThreadState(state, event.payload.threadId, (thread) => {
+        const existingSummary = (thread.agentDiffSummaries ?? []).find(
+          (entry) => entry.turnId === event.payload.turnId,
+        );
         const agentDiffSummary = mapAgentDiffSummary({
           turnId: event.payload.turnId,
           files: event.payload.files,
           source: event.payload.source,
           coverage: event.payload.coverage,
+          assistantMessageId:
+            event.payload.assistantMessageId ?? existingSummary?.assistantMessageId ?? null,
           completedAt: event.payload.completedAt,
         });
         const agentDiffSummaries = [

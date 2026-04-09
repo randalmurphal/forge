@@ -69,7 +69,13 @@ export function gitStatusQueryOptions(cwd: string | null) {
   });
 }
 
-export function gitWorkingTreeDiffQueryOptions(cwd: string | null, enabled = true) {
+export function gitWorkingTreeDiffQueryOptions(
+  cwd: string | null,
+  options: { enabled?: boolean; live?: boolean } = {},
+) {
+  const enabled = options.enabled ?? true;
+  const live = options.live ?? true;
+
   return queryOptions({
     queryKey: gitQueryKeys.workingTreeDiff(cwd),
     queryFn: async () => {
@@ -78,10 +84,10 @@ export function gitWorkingTreeDiffQueryOptions(cwd: string | null, enabled = tru
       return api.git.getWorkingTreeDiff({ cwd });
     },
     enabled: enabled && cwd !== null,
-    staleTime: GIT_STATUS_STALE_TIME_MS,
-    refetchOnWindowFocus: "always",
-    refetchOnReconnect: "always",
-    refetchInterval: GIT_STATUS_REFETCH_INTERVAL_MS,
+    staleTime: live ? GIT_STATUS_STALE_TIME_MS : Infinity,
+    refetchOnWindowFocus: live ? "always" : false,
+    refetchOnReconnect: live ? "always" : false,
+    refetchInterval: live ? GIT_STATUS_REFETCH_INTERVAL_MS : false,
   });
 }
 

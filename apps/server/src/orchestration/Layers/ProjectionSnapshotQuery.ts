@@ -422,6 +422,7 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
           files_json AS "files",
           source,
           coverage,
+          assistant_message_id AS "assistantMessageId",
           completed_at AS "completedAt"
         FROM projection_agent_diffs
         ORDER BY thread_id ASC, completed_at ASC, turn_id ASC
@@ -863,6 +864,7 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
               files: row.files,
               source: row.source,
               coverage: row.coverage,
+              assistantMessageId: row.assistantMessageId,
               completedAt: row.completedAt,
             });
             agentDiffsByThread.set(row.threadId, threadAgentDiffs);

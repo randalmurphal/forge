@@ -663,11 +663,36 @@ export function projectEvent(
             )
           : [...thread.messages, message];
         const cappedMessages = messages.slice(-MAX_THREAD_MESSAGES);
+        const reboundAgentDiffs =
+          payload.role === "assistant" && payload.turnId !== null
+            ? (thread.agentDiffs ?? []).map((entry) => {
+                if (
+                  entry.turnId !== payload.turnId ||
+                  entry.assistantMessageId === payload.messageId
+                ) {
+                  return entry;
+                }
+                return Object.assign({}, entry, {
+                  assistantMessageId: payload.messageId,
+                });
+              })
+            : thread.agentDiffs;
+        const nextLatestTurn =
+          payload.role === "assistant" &&
+          payload.turnId !== null &&
+          thread.latestTurn?.turnId === payload.turnId
+            ? {
+                ...thread.latestTurn,
+                assistantMessageId: payload.messageId,
+              }
+            : thread.latestTurn;
 
         return {
           ...nextBase,
           threads: updateThread(nextBase.threads, payload.threadId, {
             messages: cappedMessages,
+            ...(reboundAgentDiffs ? { agentDiffs: reboundAgentDiffs } : {}),
+            ...(nextLatestTurn ? { latestTurn: nextLatestTurn } : {}),
             updatedAt: event.occurredAt,
           }),
         };
@@ -942,6 +967,11 @@ export function projectEvent(
             files: payload.files,
             source: payload.source,
             coverage: payload.coverage,
+            assistantMessageId:
+              payload.assistantMessageId ??
+              thread.agentDiffs?.find((entry) => entry.turnId === payload.turnId)
+                ?.assistantMessageId ??
+              null,
             completedAt: payload.completedAt,
           },
           event.type,

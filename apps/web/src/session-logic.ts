@@ -2,9 +2,11 @@ import {
   ApprovalRequestId,
   isToolLifecycleItemType,
   type OrchestrationLatestTurn,
+  type OrchestrationToolInlineDiff,
   type OrchestrationThreadActivity,
   type OrchestrationProposedPlanId,
   type ProviderKind,
+  type MessageId,
   type ToolLifecycleItemType,
   type UserInputQuestion,
   type ThreadId,
@@ -16,6 +18,7 @@ import type {
   ProposedPlan,
   SessionPhase,
   Thread,
+  TurnDiffFileChange,
   ThreadSession,
   TurnDiffSummary,
 } from "./types";
@@ -35,6 +38,8 @@ export const PROVIDER_OPTIONS: Array<{
 export interface WorkLogEntry {
   id: string;
   createdAt: string;
+  turnId?: TurnId | undefined;
+  toolCallId?: string | undefined;
   label: string;
   detail?: string;
   command?: string;
@@ -43,12 +48,45 @@ export interface WorkLogEntry {
   toolTitle?: string;
   itemType?: ToolLifecycleItemType;
   requestKind?: PendingApproval["requestKind"];
+  inlineDiff?: ToolInlineDiffSummary | undefined;
 }
 
 interface DerivedWorkLogEntry extends WorkLogEntry {
   activityKind: OrchestrationThreadActivity["kind"];
   collapseKey?: string;
 }
+
+export type InlineDiffScope = "tool" | "turn";
+export type InlineDiffAvailability = "exact_patch" | "summary_only";
+
+export interface ToolInlineDiffSummary {
+  id: string;
+  turnId?: TurnId | undefined;
+  activityId: string;
+  toolCallId?: string | undefined;
+  title: string;
+  files: ReadonlyArray<TurnDiffFileChange>;
+  additions?: number | undefined;
+  deletions?: number | undefined;
+  unifiedDiff?: string | undefined;
+  availability: InlineDiffAvailability;
+}
+
+export interface TurnInlineDiffSummary extends TurnDiffSummary {
+  id: string;
+  assistantMessageId?: MessageId | undefined;
+}
+
+export type ExpandedInlineDiffState =
+  | null
+  | {
+      scope: "tool";
+      id: string;
+    }
+  | {
+      scope: "turn";
+      id: string;
+    };
 
 export interface PendingApproval {
   requestId: ApprovalRequestId;
@@ -454,13 +492,25 @@ export function hasActionableProposedPlan(
   return proposedPlan !== null && proposedPlan.implementedAt === null;
 }
 
+export type WorkLogScope = "latest-turn" | "all-turns";
+
 export function deriveWorkLogEntries(
   activities: ReadonlyArray<OrchestrationThreadActivity>,
-  latestTurnId: TurnId | undefined,
+  input:
+    | {
+        scope: WorkLogScope;
+        latestTurnId?: TurnId | undefined;
+      }
+    | TurnId
+    | undefined,
 ): WorkLogEntry[] {
+  const scope = typeof input === "object" && input !== null ? input.scope : "all-turns";
+  const latestTurnId = typeof input === "object" && input !== null ? input.latestTurnId : input;
   const ordered = [...activities].toSorted(compareActivitiesByOrder);
   const entries = ordered
-    .filter((activity) => (latestTurnId ? activity.turnId === latestTurnId : true))
+    .filter((activity) =>
+      scope === "latest-turn" && latestTurnId ? activity.turnId === latestTurnId : true,
+    )
     .filter((activity) => activity.kind !== "tool.started")
     .filter((activity) => activity.kind !== "task.started" && activity.kind !== "task.completed")
     .filter((activity) => activity.kind !== "context-window.updated")
@@ -490,11 +540,13 @@ function toDerivedWorkLogEntry(activity: OrchestrationThreadActivity): DerivedWo
       ? (activity.payload as Record<string, unknown>)
       : null;
   const command = extractToolCommand(payload);
-  const changedFiles = extractChangedFiles(payload);
   const title = extractToolTitle(payload);
+  const toolCallId = extractToolCallId(payload);
   const entry: DerivedWorkLogEntry = {
     id: activity.id,
     createdAt: activity.createdAt,
+    ...(activity.turnId ? { turnId: activity.turnId } : {}),
+    ...(toolCallId ? { toolCallId } : {}),
     label: activity.summary,
     tone: activity.tone === "approval" ? "info" : activity.tone,
     activityKind: activity.kind,
@@ -510,9 +562,6 @@ function toDerivedWorkLogEntry(activity: OrchestrationThreadActivity): DerivedWo
   if (command) {
     entry.command = command;
   }
-  if (changedFiles.length > 0) {
-    entry.changedFiles = changedFiles;
-  }
   if (title) {
     entry.toolTitle = title;
   }
@@ -521,6 +570,21 @@ function toDerivedWorkLogEntry(activity: OrchestrationThreadActivity): DerivedWo
   }
   if (requestKind) {
     entry.requestKind = requestKind;
+  }
+  const inlineDiff =
+    (activity.kind === "tool.updated" || activity.kind === "tool.completed") &&
+    itemType === "file_change"
+      ? extractPersistedToolInlineDiffSummary({
+          activityId: activity.id,
+          turnId: activity.turnId ?? undefined,
+          toolCallId: toolCallId ?? undefined,
+          payload,
+          title: title ?? activity.summary,
+        })
+      : undefined;
+  if (inlineDiff) {
+    entry.inlineDiff = inlineDiff;
+    entry.changedFiles = inlineDiff.files.map((file) => file.path);
   }
   const collapseKey = deriveToolLifecycleCollapseKey(entry);
   if (collapseKey) {
@@ -557,6 +621,9 @@ function shouldCollapseToolLifecycleEntries(
   if (previous.activityKind === "tool.completed") {
     return false;
   }
+  if (previous.turnId !== next.turnId) {
+    return false;
+  }
   return previous.collapseKey !== undefined && previous.collapseKey === next.collapseKey;
 }
 
@@ -570,6 +637,7 @@ function mergeDerivedWorkLogEntries(
   const toolTitle = next.toolTitle ?? previous.toolTitle;
   const itemType = next.itemType ?? previous.itemType;
   const requestKind = next.requestKind ?? previous.requestKind;
+  const inlineDiff = mergeToolInlineDiffSummaries(previous.inlineDiff, next.inlineDiff);
   const collapseKey = next.collapseKey ?? previous.collapseKey;
   return {
     ...previous,
@@ -580,6 +648,7 @@ function mergeDerivedWorkLogEntries(
     ...(toolTitle ? { toolTitle } : {}),
     ...(itemType ? { itemType } : {}),
     ...(requestKind ? { requestKind } : {}),
+    ...(inlineDiff ? { inlineDiff } : {}),
     ...(collapseKey ? { collapseKey } : {}),
   };
 }
@@ -595,17 +664,109 @@ function mergeChangedFiles(
   return [...new Set(merged)];
 }
 
+function mergeToolInlineDiffSummaries(
+  previous: ToolInlineDiffSummary | undefined,
+  next: ToolInlineDiffSummary | undefined,
+): ToolInlineDiffSummary | undefined {
+  if (!previous) return next;
+  if (!next) return previous;
+
+  const files = mergeToolInlineDiffFiles(previous.files, next.files);
+  const exactPatch =
+    next.availability === "exact_patch"
+      ? next
+      : previous.availability === "exact_patch"
+        ? previous
+        : next;
+  const summarizedFiles = summarizeToolInlineDiffFiles(files);
+
+  return {
+    ...previous,
+    ...next,
+    files,
+    availability: exactPatch.availability,
+    unifiedDiff: exactPatch.unifiedDiff ?? previous.unifiedDiff,
+    additions:
+      exactPatch.additions ?? next.additions ?? previous.additions ?? summarizedFiles.additions,
+    deletions:
+      exactPatch.deletions ?? next.deletions ?? previous.deletions ?? summarizedFiles.deletions,
+  };
+}
+
+function mergeToolInlineDiffFiles(
+  previous: ReadonlyArray<TurnDiffFileChange>,
+  next: ReadonlyArray<TurnDiffFileChange>,
+): TurnDiffFileChange[] {
+  const byPath = new Map<string, TurnDiffFileChange>();
+  for (const file of [...previous, ...next]) {
+    const existing = byPath.get(file.path);
+    if (!existing) {
+      byPath.set(file.path, { ...file });
+      continue;
+    }
+    byPath.set(file.path, {
+      ...existing,
+      kind: file.kind ?? existing.kind,
+      additions: file.additions ?? existing.additions,
+      deletions: file.deletions ?? existing.deletions,
+    });
+  }
+  return [...byPath.values()];
+}
+
+function summarizeToolInlineDiffFiles(files: ReadonlyArray<TurnDiffFileChange>): {
+  additions?: number | undefined;
+  deletions?: number | undefined;
+} {
+  let additions = 0;
+  let deletions = 0;
+  let hasStats = false;
+  for (const file of files) {
+    if (typeof file.additions === "number") {
+      additions += file.additions;
+      hasStats = true;
+    }
+    if (typeof file.deletions === "number") {
+      deletions += file.deletions;
+      hasStats = true;
+    }
+  }
+  return hasStats ? { additions, deletions } : {};
+}
+
 function deriveToolLifecycleCollapseKey(entry: DerivedWorkLogEntry): string | undefined {
   if (entry.activityKind !== "tool.updated" && entry.activityKind !== "tool.completed") {
     return undefined;
   }
   const normalizedLabel = normalizeCompactToolLabel(entry.toolTitle ?? entry.label);
-  const detail = entry.detail?.trim() ?? "";
   const itemType = entry.itemType ?? "";
-  if (normalizedLabel.length === 0 && detail.length === 0 && itemType.length === 0) {
+  const stableIdentity = deriveToolLifecycleIdentity(entry);
+  if (normalizedLabel.length === 0 && stableIdentity.length === 0 && itemType.length === 0) {
     return undefined;
   }
-  return [itemType, normalizedLabel, detail].join("\u001f");
+  return [itemType, normalizedLabel, stableIdentity].join("\u001f");
+}
+
+function deriveToolLifecycleIdentity(entry: DerivedWorkLogEntry): string {
+  if (entry.toolCallId) {
+    return `tool:${entry.toolCallId}`;
+  }
+  if ((entry.changedFiles?.length ?? 0) > 0) {
+    return `files:${[...(entry.changedFiles ?? [])].toSorted().join("|")}`;
+  }
+  const inlineDiffFiles = entry.inlineDiff?.files;
+  if (inlineDiffFiles && inlineDiffFiles.length > 0) {
+    const inlineDiffPaths = inlineDiffFiles.map((file) => file.path).toSorted();
+    return `diff-files:${inlineDiffPaths.join("|")}`;
+  }
+  const normalizedDetail = entry.detail?.trim() ?? "";
+  if (normalizedDetail.length > 0) {
+    return normalizedDetail;
+  }
+  if (entry.command) {
+    return `command:${entry.command}`;
+  }
+  return "";
 }
 
 function normalizeCompactToolLabel(value: string): string {
@@ -668,6 +829,23 @@ function extractToolTitle(payload: Record<string, unknown> | null): string | nul
   return asTrimmedString(payload?.title);
 }
 
+function extractToolCallId(payload: Record<string, unknown> | null): string | null {
+  const data = asRecord(payload?.data);
+  const item = asRecord(data?.item);
+  const itemResult = asRecord(item?.result);
+  const candidates = [
+    asTrimmedString(payload?.toolCallId),
+    asTrimmedString(payload?.itemId),
+    asTrimmedString(data?.toolUseId),
+    asTrimmedString(data?.itemId),
+    asTrimmedString(item?.id),
+    asTrimmedString(item?.itemId),
+    asTrimmedString(itemResult?.tool_use_id),
+    asTrimmedString(itemResult?.toolUseId),
+  ];
+  return candidates.find((candidate) => candidate !== null) ?? null;
+}
+
 function stripTrailingExitCode(value: string): {
   output: string | null;
   exitCode?: number | undefined;
@@ -711,68 +889,72 @@ function extractWorkLogRequestKind(
   return requestKindFromRequestType(payload?.requestType) ?? undefined;
 }
 
-function pushChangedFile(target: string[], seen: Set<string>, value: unknown) {
-  const normalized = asTrimmedString(value);
-  if (!normalized || seen.has(normalized)) {
-    return;
-  }
-  seen.add(normalized);
-  target.push(normalized);
+function normalizeStatValue(value: unknown): number | undefined {
+  return typeof value === "number" && Number.isFinite(value) && value >= 0 ? value : undefined;
 }
 
-function collectChangedFiles(value: unknown, target: string[], seen: Set<string>, depth: number) {
-  if (depth > 4 || target.length >= 12) {
-    return;
+function toTurnDiffFileChange(
+  file: OrchestrationToolInlineDiff["files"][number],
+): TurnDiffFileChange | undefined {
+  const path = asTrimmedString(file.path);
+  if (!path) {
+    return undefined;
   }
-  if (Array.isArray(value)) {
-    for (const entry of value) {
-      collectChangedFiles(entry, target, seen, depth + 1);
-      if (target.length >= 12) {
-        return;
-      }
-    }
-    return;
-  }
-
-  const record = asRecord(value);
-  if (!record) {
-    return;
-  }
-
-  pushChangedFile(target, seen, record.path);
-  pushChangedFile(target, seen, record.filePath);
-  pushChangedFile(target, seen, record.relativePath);
-  pushChangedFile(target, seen, record.filename);
-  pushChangedFile(target, seen, record.newPath);
-  pushChangedFile(target, seen, record.oldPath);
-
-  for (const nestedKey of [
-    "item",
-    "result",
-    "input",
-    "data",
-    "changes",
-    "files",
-    "edits",
-    "patch",
-    "patches",
-    "operations",
-  ]) {
-    if (!(nestedKey in record)) {
-      continue;
-    }
-    collectChangedFiles(record[nestedKey], target, seen, depth + 1);
-    if (target.length >= 12) {
-      return;
-    }
-  }
+  const kind = asTrimmedString(file.kind);
+  const additions = normalizeStatValue(file.additions);
+  const deletions = normalizeStatValue(file.deletions);
+  return {
+    path,
+    ...(kind ? { kind } : {}),
+    ...(additions !== undefined ? { additions } : {}),
+    ...(deletions !== undefined ? { deletions } : {}),
+  };
 }
 
-function extractChangedFiles(payload: Record<string, unknown> | null): string[] {
-  const changedFiles: string[] = [];
-  const seen = new Set<string>();
-  collectChangedFiles(asRecord(payload?.data), changedFiles, seen, 0);
-  return changedFiles;
+function extractPersistedToolInlineDiffSummary(input: {
+  activityId: string;
+  turnId?: TurnId | undefined;
+  toolCallId?: string | undefined;
+  payload: Record<string, unknown> | null;
+  title: string;
+}): ToolInlineDiffSummary | undefined {
+  const inlineDiff = asRecord(input.payload?.inlineDiff);
+  if (!inlineDiff || !Array.isArray(inlineDiff.files)) {
+    return undefined;
+  }
+
+  const availability =
+    inlineDiff.availability === "exact_patch" || inlineDiff.availability === "summary_only"
+      ? inlineDiff.availability
+      : null;
+  if (!availability) {
+    return undefined;
+  }
+
+  const files = inlineDiff.files
+    .map((file) => toTurnDiffFileChange(file as OrchestrationToolInlineDiff["files"][number]))
+    .filter((file): file is TurnDiffFileChange => file !== undefined);
+  if (files.length === 0) {
+    return undefined;
+  }
+
+  const fileStats = summarizeToolInlineDiffFiles(files);
+  const additions = normalizeStatValue(inlineDiff.additions) ?? fileStats.additions;
+  const deletions = normalizeStatValue(inlineDiff.deletions) ?? fileStats.deletions;
+  return {
+    id: input.activityId,
+    activityId: input.activityId,
+    ...(input.turnId ? { turnId: input.turnId } : {}),
+    ...(input.toolCallId ? { toolCallId: input.toolCallId } : {}),
+    title: input.title,
+    files,
+    availability,
+    ...(typeof inlineDiff.unifiedDiff === "string" && inlineDiff.unifiedDiff.trim().length > 0
+      ? { unifiedDiff: inlineDiff.unifiedDiff }
+      : {}),
+    ...(additions !== undefined ? { additions } : {}),
+    ...(deletions !== undefined ? { deletions } : {}),
+  };
 }
 
 function compareActivitiesByOrder(

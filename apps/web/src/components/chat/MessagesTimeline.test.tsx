@@ -2,6 +2,10 @@ import { MessageId } from "@forgetools/contracts";
 import { renderToStaticMarkup } from "react-dom/server";
 import { beforeAll, describe, expect, it, vi } from "vitest";
 
+vi.mock("../ChatMarkdown", () => ({
+  default: (props: { text: string }) => <div>{props.text}</div>,
+}));
+
 function matchMedia() {
   return {
     matches: false,
@@ -47,6 +51,7 @@ describe("MessagesTimeline", () => {
     const { MessagesTimeline } = await import("./MessagesTimeline");
     const markup = renderToStaticMarkup(
       <MessagesTimeline
+        threadId={null}
         hasMessages
         isWorking={false}
         activeTurnInProgress={false}
@@ -77,6 +82,7 @@ describe("MessagesTimeline", () => {
         completionDividerBeforeEntryId={null}
         completionSummary={null}
         turnDiffSummaryByAssistantMessageId={new Map()}
+        inferredCheckpointTurnCountByTurnId={{}}
         nowIso="2026-03-17T19:12:30.000Z"
         expandedWorkGroups={{}}
         onToggleWorkGroup={() => {}}
@@ -101,6 +107,7 @@ describe("MessagesTimeline", () => {
     const { MessagesTimeline } = await import("./MessagesTimeline");
     const markup = renderToStaticMarkup(
       <MessagesTimeline
+        threadId={null}
         hasMessages
         isWorking={false}
         activeTurnInProgress={false}
@@ -122,6 +129,7 @@ describe("MessagesTimeline", () => {
         completionDividerBeforeEntryId={null}
         completionSummary={null}
         turnDiffSummaryByAssistantMessageId={new Map()}
+        inferredCheckpointTurnCountByTurnId={{}}
         nowIso="2026-03-17T19:12:30.000Z"
         expandedWorkGroups={{}}
         onToggleWorkGroup={() => {}}
@@ -139,5 +147,93 @@ describe("MessagesTimeline", () => {
 
     expect(markup).toContain("Context compacted");
     expect(markup).toContain("Work log");
+  });
+
+  it("renders collapsed tool and turn diff blocks inline in chat history", async () => {
+    const { MessagesTimeline } = await import("./MessagesTimeline");
+    const assistantMessageId = MessageId.makeUnsafe("assistant-1");
+    const markup = renderToStaticMarkup(
+      <MessagesTimeline
+        threadId={null}
+        hasMessages
+        isWorking={false}
+        activeTurnInProgress={false}
+        activeTurnStartedAt={null}
+        scrollContainer={null}
+        timelineEntries={[
+          {
+            id: "work-entry",
+            kind: "work",
+            createdAt: "2026-03-17T19:12:28.000Z",
+            entry: {
+              id: "tool-1",
+              createdAt: "2026-03-17T19:12:28.000Z",
+              label: "File change",
+              tone: "tool",
+              changedFiles: ["src/app.ts"],
+              inlineDiff: {
+                id: "tool-1",
+                activityId: "tool-1",
+                title: "Edit file",
+                availability: "summary_only",
+                files: [{ path: "src/app.ts", additions: 1, deletions: 0 }],
+                additions: 1,
+                deletions: 0,
+              },
+            },
+          },
+          {
+            id: "assistant-entry",
+            kind: "message",
+            createdAt: "2026-03-17T19:12:29.000Z",
+            message: {
+              id: assistantMessageId,
+              role: "assistant",
+              text: "Updated the file.",
+              turnId: "turn-1" as never,
+              createdAt: "2026-03-17T19:12:29.000Z",
+              completedAt: "2026-03-17T19:12:30.000Z",
+              streaming: false,
+            },
+          },
+        ]}
+        completionDividerBeforeEntryId={null}
+        completionSummary={null}
+        turnDiffSummaryByAssistantMessageId={
+          new Map([
+            [
+              assistantMessageId,
+              {
+                turnId: "turn-1" as never,
+                completedAt: "2026-03-17T19:12:30.000Z",
+                provenance: "agent",
+                coverage: "complete",
+                source: "native_turn_diff",
+                assistantMessageId,
+                files: [{ path: "src/app.ts", additions: 2, deletions: 1 }],
+              },
+            ],
+          ])
+        }
+        inferredCheckpointTurnCountByTurnId={{}}
+        nowIso="2026-03-17T19:12:31.000Z"
+        expandedWorkGroups={{}}
+        onToggleWorkGroup={() => {}}
+        onOpenTurnDiff={() => {}}
+        revertTurnCountByUserMessageId={new Map()}
+        onRevertUserMessage={() => {}}
+        isRevertingCheckpoint={false}
+        onImageExpand={() => {}}
+        markdownCwd={undefined}
+        resolvedTheme="light"
+        timestampFormat="locale"
+        workspaceRoot={undefined}
+      />,
+    );
+
+    expect(markup).toContain("Tool changes");
+    expect(markup).toContain("Summary only");
+    expect(markup).toContain("Turn changes");
+    expect(markup).toContain("Expand");
   });
 });

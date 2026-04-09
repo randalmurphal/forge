@@ -416,6 +416,16 @@ function useLocalDispatchState(input: {
   };
 }
 
+function threadHasActiveTurn(thread: Thread | undefined): boolean {
+  if (!thread) {
+    return false;
+  }
+  if (thread.session?.activeTurnId != null) {
+    return true;
+  }
+  return thread.latestTurn?.state === "running";
+}
+
 interface PersistentThreadTerminalDrawerProps {
   threadId: ThreadId;
   visible: boolean;
@@ -870,7 +880,7 @@ export default function ChatView({ threadId }: ChatViewProps) {
       isDiscussionContainerThread
         ? childThreads.filter((thread) => {
             const childPhase = derivePhase(thread.session ?? null);
-            return childPhase === "connecting" || childPhase === "running";
+            return childPhase === "connecting" || threadHasActiveTurn(thread);
           })
         : [],
     [childThreads, isDiscussionContainerThread],
@@ -1104,7 +1114,11 @@ export default function ChatView({ threadId }: ChatViewProps) {
     : derivePhase(activeThread?.session ?? null);
   const threadActivities = activeThread?.activities ?? EMPTY_ACTIVITIES;
   const workLogEntries = useMemo(
-    () => deriveWorkLogEntries(threadActivities, activeLatestTurn?.turnId ?? undefined),
+    () =>
+      deriveWorkLogEntries(threadActivities, {
+        scope: "all-turns",
+        latestTurnId: activeLatestTurn?.turnId ?? undefined,
+      }),
     [activeLatestTurn?.turnId, threadActivities],
   );
   const latestTurnHasToolActivity = useMemo(
@@ -1196,7 +1210,13 @@ export default function ChatView({ threadId }: ChatViewProps) {
     activePendingUserInput: activePendingUserInput?.requestId ?? null,
     threadError: activeThread?.error,
   });
-  const isWorking = phase === "running" || isSendBusy || isConnecting || isRevertingCheckpoint;
+  const isWorking =
+    isConnecting ||
+    isSendBusy ||
+    isRevertingCheckpoint ||
+    (isDiscussionContainerThread
+      ? activeDiscussionChildren.length > 0
+      : threadHasActiveTurn(activeThread));
   const nowIso = new Date(nowTick).toISOString();
   const activeWorkStartedAt = isDiscussionContainerThread
     ? discussionActiveTurnStartedAt
@@ -1422,7 +1442,8 @@ export default function ChatView({ threadId }: ChatViewProps) {
     }
 
     for (const summary of activeThread?.agentDiffSummaries ?? []) {
-      const assistantMessageId = assistantMessageIdByTurnId.get(summary.turnId);
+      const assistantMessageId =
+        summary.assistantMessageId ?? assistantMessageIdByTurnId.get(summary.turnId);
       if (!assistantMessageId) continue;
       byMessageId.set(assistantMessageId, summary);
     }
@@ -2657,14 +2678,14 @@ export default function ChatView({ threadId }: ChatViewProps) {
       : "local";
 
   useEffect(() => {
-    if (phase !== "running") return;
+    if (!isWorking) return;
     const timer = window.setInterval(() => {
       setNowTick(Date.now());
     }, 1000);
     return () => {
       window.clearInterval(timer);
     };
-  }, [phase]);
+  }, [isWorking]);
 
   useEffect(() => {
     if (!activeThreadId) return;
@@ -4159,9 +4180,12 @@ export default function ChatView({ threadId }: ChatViewProps) {
             >
               <MessagesTimeline
                 key={activeThread.id}
+                threadId={activeThread.id}
                 hasMessages={timelineEntries.length > 0}
                 isWorking={isWorking}
-                activeTurnInProgress={isWorking || !latestTurnSettled}
+                activeTurnInProgress={
+                  Boolean(activeWorkStartedAt) && (isWorking || !latestTurnSettled)
+                }
                 activeTurnStartedAt={activeWorkStartedAt}
                 workingParticipantLabels={discussionWorkingParticipantLabels}
                 scrollContainer={messagesScrollElement}
@@ -4169,6 +4193,7 @@ export default function ChatView({ threadId }: ChatViewProps) {
                 completionDividerBeforeEntryId={completionDividerBeforeEntryId}
                 completionSummary={completionSummary}
                 turnDiffSummaryByAssistantMessageId={turnDiffSummaryByAssistantMessageId}
+                inferredCheckpointTurnCountByTurnId={inferredCheckpointTurnCountByTurnId}
                 nowIso={nowIso}
                 expandedWorkGroups={expandedWorkGroups}
                 onToggleWorkGroup={onToggleWorkGroup}

@@ -217,6 +217,30 @@ export const OrchestrationCheckpointFile = Schema.Struct({
 });
 export type OrchestrationCheckpointFile = typeof OrchestrationCheckpointFile.Type;
 
+export const OrchestrationDiffFileChange = Schema.Struct({
+  path: TrimmedNonEmptyString,
+  kind: Schema.optional(TrimmedNonEmptyString),
+  additions: Schema.optional(NonNegativeInt),
+  deletions: Schema.optional(NonNegativeInt),
+});
+export type OrchestrationDiffFileChange = typeof OrchestrationDiffFileChange.Type;
+
+export const OrchestrationToolInlineDiffAvailability = Schema.Literals([
+  "exact_patch",
+  "summary_only",
+]);
+export type OrchestrationToolInlineDiffAvailability =
+  typeof OrchestrationToolInlineDiffAvailability.Type;
+
+export const OrchestrationToolInlineDiff = Schema.Struct({
+  availability: OrchestrationToolInlineDiffAvailability,
+  files: Schema.Array(OrchestrationDiffFileChange),
+  additions: Schema.optional(NonNegativeInt),
+  deletions: Schema.optional(NonNegativeInt),
+  unifiedDiff: Schema.optional(Schema.String),
+});
+export type OrchestrationToolInlineDiff = typeof OrchestrationToolInlineDiff.Type;
+
 export const OrchestrationCheckpointStatus = Schema.Literals(["ready", "missing", "error"]);
 export type OrchestrationCheckpointStatus = typeof OrchestrationCheckpointStatus.Type;
 
@@ -249,6 +273,7 @@ export const OrchestrationAgentDiffSummary = Schema.Struct({
   files: Schema.Array(OrchestrationCheckpointFile),
   source: OrchestrationAgentDiffSource,
   coverage: OrchestrationAgentDiffCoverage,
+  assistantMessageId: Schema.NullOr(MessageId),
   completedAt: IsoDateTime,
 });
 export type OrchestrationAgentDiffSummary = typeof OrchestrationAgentDiffSummary.Type;
@@ -1213,6 +1238,7 @@ const ThreadAgentDiffUpsertCommand = Schema.Struct({
   files: Schema.Array(OrchestrationCheckpointFile),
   source: OrchestrationAgentDiffSource,
   coverage: OrchestrationAgentDiffCoverage,
+  assistantMessageId: Schema.optional(MessageId),
   completedAt: IsoDateTime,
   createdAt: IsoDateTime,
 });
@@ -1625,6 +1651,7 @@ export const ThreadAgentDiffUpsertedPayload = Schema.Struct({
   files: Schema.Array(OrchestrationCheckpointFile),
   source: OrchestrationAgentDiffSource,
   coverage: OrchestrationAgentDiffCoverage,
+  assistantMessageId: Schema.NullOr(MessageId),
   completedAt: IsoDateTime,
 });
 

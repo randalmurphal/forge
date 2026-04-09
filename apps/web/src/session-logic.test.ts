@@ -742,7 +742,7 @@ describe("deriveWorkLogEntries", () => {
     });
   });
 
-  it("extracts changed file paths for file-change tool activities", () => {
+  it("extracts changed file paths from persisted tool diff artifacts", () => {
     const activities: OrchestrationThreadActivity[] = [
       makeActivity({
         id: "file-tool",
@@ -750,13 +750,12 @@ describe("deriveWorkLogEntries", () => {
         summary: "File change",
         payload: {
           itemType: "file_change",
-          data: {
-            item: {
-              changes: [
-                { path: "apps/web/src/components/ChatView.tsx" },
-                { filename: "apps/web/src/session-logic.ts" },
-              ],
-            },
+          inlineDiff: {
+            availability: "summary_only",
+            files: [
+              { path: "apps/web/src/components/ChatView.tsx" },
+              { path: "apps/web/src/session-logic.ts" },
+            ],
           },
         },
       }),
@@ -767,6 +766,180 @@ describe("deriveWorkLogEntries", () => {
       "apps/web/src/components/ChatView.tsx",
       "apps/web/src/session-logic.ts",
     ]);
+  });
+
+  it("keeps historical tool rows across turns in all-turns scope", () => {
+    const activities: OrchestrationThreadActivity[] = [
+      makeActivity({
+        id: "tool-turn-1",
+        turnId: "turn-1",
+        kind: "tool.completed",
+        summary: "Edited file",
+        payload: {
+          itemType: "file_change",
+          title: "Edit",
+          detail: "Updated README",
+        },
+      }),
+      makeActivity({
+        id: "tool-turn-2",
+        turnId: "turn-2",
+        kind: "tool.completed",
+        summary: "Edited file",
+        payload: {
+          itemType: "file_change",
+          title: "Edit",
+          detail: "Updated README",
+        },
+      }),
+    ];
+
+    const entries = deriveWorkLogEntries(activities, { scope: "all-turns" });
+    expect(entries.map((entry) => entry.id)).toEqual(["tool-turn-1", "tool-turn-2"]);
+  });
+
+  it("reads an exact tool patch from a persisted inline diff artifact", () => {
+    const activities: OrchestrationThreadActivity[] = [
+      makeActivity({
+        id: "file-tool-with-patch",
+        kind: "tool.completed",
+        summary: "File change",
+        payload: {
+          itemType: "file_change",
+          inlineDiff: {
+            availability: "exact_patch",
+            files: [{ path: "apps/web/src/app.tsx", additions: 1, deletions: 0 }],
+            additions: 1,
+            deletions: 0,
+            unifiedDiff: [
+              "diff --git a/apps/web/src/app.tsx b/apps/web/src/app.tsx",
+              "--- a/apps/web/src/app.tsx",
+              "+++ b/apps/web/src/app.tsx",
+              "@@ -1 +1,2 @@",
+              " export const App = () => null;",
+              "+console.log('changed');",
+            ].join("\n"),
+          },
+        },
+      }),
+    ];
+
+    const [entry] = deriveWorkLogEntries(activities, { scope: "all-turns" });
+    expect(entry?.inlineDiff).toMatchObject({
+      availability: "exact_patch",
+      additions: 1,
+      deletions: 0,
+      files: [{ path: "apps/web/src/app.tsx", additions: 1, deletions: 0 }],
+    });
+  });
+
+  it("does not parse raw payload diffs when no persisted inline diff artifact exists", () => {
+    const activities: OrchestrationThreadActivity[] = [
+      makeActivity({
+        id: "file-tool-with-hunk",
+        kind: "tool.completed",
+        summary: "File change",
+        payload: {
+          itemType: "file_change",
+          data: {
+            item: {
+              changes: [{ path: "apps/server/src/orchestration/projector.test.ts" }],
+            },
+            diff: [
+              "@@ -199,12 +199,12 @@",
+              '           diff: "diff --git a/src/app.ts b/src/app.ts\\n+hello\\n",',
+              '-          files: [{ path: "src/app.ts", additions: 1, deletions: 0 }],',
+              '+          files: [{ path: "src/app.ts", kind: "modified", additions: 1, deletions: 0 }],',
+            ].join("\n"),
+          },
+        },
+      }),
+    ];
+
+    const [entry] = deriveWorkLogEntries(activities, { scope: "all-turns" });
+    expect(entry?.inlineDiff).toBeUndefined();
+  });
+
+  it("does not create a diff block for file-change tools without patch or file metadata", () => {
+    const activities: OrchestrationThreadActivity[] = [
+      makeActivity({
+        id: "empty-file-change",
+        kind: "tool.completed",
+        summary: "File change",
+        payload: {
+          itemType: "file_change",
+          data: {
+            item: {},
+          },
+        },
+      }),
+    ];
+
+    const [entry] = deriveWorkLogEntries(activities, { scope: "all-turns" });
+    expect(entry?.inlineDiff).toBeUndefined();
+  });
+
+  it("does not create a tool diff block for non-file-change tools even when their payload contains diff-like text", () => {
+    const activities: OrchestrationThreadActivity[] = [
+      makeActivity({
+        id: "command-tool-with-diff-output",
+        kind: "tool.completed",
+        summary: "Command execution",
+        payload: {
+          itemType: "command_execution",
+          title: "Command execution",
+          data: {
+            diff: [
+              "diff --git a/apps/web/src/app.tsx b/apps/web/src/app.tsx",
+              "--- a/apps/web/src/app.tsx",
+              "+++ b/apps/web/src/app.tsx",
+              "@@ -1 +1,2 @@",
+              " export const App = () => null;",
+              "+console.log('changed');",
+            ].join("\n"),
+            item: {
+              command: ["git", "diff", "--", "apps/web/src/app.tsx"],
+            },
+          },
+        },
+      }),
+    ];
+
+    const [entry] = deriveWorkLogEntries(activities, { scope: "all-turns" });
+    expect(entry?.itemType).toBe("command_execution");
+    expect(entry?.inlineDiff).toBeUndefined();
+  });
+
+  it("reads summary-only persisted artifacts without attempting client-side patch reconstruction", () => {
+    const activities: OrchestrationThreadActivity[] = [
+      makeActivity({
+        id: "mixed-file-change",
+        kind: "tool.completed",
+        summary: "File change",
+        payload: {
+          itemType: "file_change",
+          inlineDiff: {
+            availability: "summary_only",
+            files: [
+              { path: "diff-render-smoke/tool-created-file.md", kind: "added" },
+              { path: "diff-render-smoke/tool-deleted-file.md", kind: "deleted" },
+              { path: "apps/web/src/session-logic.ts", kind: "modified" },
+            ],
+          },
+        },
+      }),
+    ];
+
+    const [entry] = deriveWorkLogEntries(activities, { scope: "all-turns" });
+    expect(entry?.inlineDiff).toMatchObject({
+      availability: "summary_only",
+      files: [
+        { path: "diff-render-smoke/tool-created-file.md" },
+        { path: "diff-render-smoke/tool-deleted-file.md" },
+        { path: "apps/web/src/session-logic.ts" },
+      ],
+    });
+    expect(entry?.inlineDiff?.unifiedDiff).toBeUndefined();
   });
 
   it("collapses repeated lifecycle updates for the same tool call into one entry", () => {
@@ -823,6 +996,206 @@ describe("deriveWorkLogEntries", () => {
       itemType: "dynamic_tool_call",
       toolTitle: "Tool call",
     });
+  });
+
+  it("preserves an exact file-change patch when the completion row only has summary metadata", () => {
+    const activities: OrchestrationThreadActivity[] = [
+      makeActivity({
+        id: "file-change-updated",
+        createdAt: "2026-02-23T00:00:01.000Z",
+        kind: "tool.updated",
+        summary: "File change",
+        payload: {
+          itemType: "file_change",
+          title: "File change",
+          detail: "Editing apps/web/src/session-logic.ts",
+          inlineDiff: {
+            availability: "exact_patch",
+            files: [{ path: "apps/web/src/session-logic.ts", kind: "modified" }],
+            unifiedDiff: [
+              "diff --git a/apps/web/src/session-logic.ts b/apps/web/src/session-logic.ts",
+              "--- a/apps/web/src/session-logic.ts",
+              "+++ b/apps/web/src/session-logic.ts",
+              "@@ -1 +1,2 @@",
+              " export const value = 1;",
+              "+export const next = 2;",
+            ].join("\n"),
+          },
+        },
+      }),
+      makeActivity({
+        id: "file-change-completed",
+        createdAt: "2026-02-23T00:00:02.000Z",
+        kind: "tool.completed",
+        summary: "File change completed",
+        payload: {
+          itemType: "file_change",
+          title: "File change",
+          detail: "Updated 1 file",
+          inlineDiff: {
+            availability: "summary_only",
+            files: [{ path: "apps/web/src/session-logic.ts", kind: "modified" }],
+          },
+        },
+      }),
+    ];
+
+    const entries = deriveWorkLogEntries(activities, { scope: "all-turns" });
+    expect(entries).toHaveLength(1);
+    expect(entries[0]).toMatchObject({
+      id: "file-change-completed",
+      inlineDiff: {
+        availability: "exact_patch",
+        files: [{ path: "apps/web/src/session-logic.ts" }],
+      },
+    });
+  });
+
+  it("collapses file-change lifecycle rows even when file order changes between updates", () => {
+    const activities: OrchestrationThreadActivity[] = [
+      makeActivity({
+        id: "file-change-updated",
+        createdAt: "2026-02-23T00:00:01.000Z",
+        turnId: "turn-1",
+        kind: "tool.updated",
+        summary: "File change",
+        payload: {
+          itemType: "file_change",
+          title: "File change",
+          inlineDiff: {
+            availability: "summary_only",
+            files: [
+              { path: "apps/web/src/session-logic.ts" },
+              { path: "apps/web/src/components/ChatView.tsx" },
+            ],
+          },
+        },
+      }),
+      makeActivity({
+        id: "file-change-completed",
+        createdAt: "2026-02-23T00:00:02.000Z",
+        turnId: "turn-1",
+        kind: "tool.completed",
+        summary: "File change completed",
+        payload: {
+          itemType: "file_change",
+          title: "File change",
+          inlineDiff: {
+            availability: "summary_only",
+            files: [
+              { path: "apps/web/src/components/ChatView.tsx" },
+              { path: "apps/web/src/session-logic.ts" },
+            ],
+          },
+        },
+      }),
+    ];
+
+    const entries = deriveWorkLogEntries(activities, { scope: "all-turns" });
+    expect(entries).toHaveLength(1);
+    expect(entries[0]?.id).toBe("file-change-completed");
+    expect(entries[0]?.changedFiles).toEqual([
+      "apps/web/src/session-logic.ts",
+      "apps/web/src/components/ChatView.tsx",
+    ]);
+  });
+
+  it("does not double-count per-file stats when collapsing repeated file-change lifecycle rows", () => {
+    const activities: OrchestrationThreadActivity[] = [
+      makeActivity({
+        id: "file-change-updated",
+        createdAt: "2026-02-23T00:00:01.000Z",
+        turnId: "turn-1",
+        kind: "tool.updated",
+        summary: "File change",
+        payload: {
+          itemType: "file_change",
+          itemId: "tool-a",
+          title: "File change",
+          inlineDiff: {
+            availability: "summary_only",
+            files: [
+              {
+                path: "apps/web/src/session-logic.ts",
+                additions: 1,
+                deletions: 0,
+              },
+            ],
+          },
+        },
+      }),
+      makeActivity({
+        id: "file-change-completed",
+        createdAt: "2026-02-23T00:00:02.000Z",
+        turnId: "turn-1",
+        kind: "tool.completed",
+        summary: "File change completed",
+        payload: {
+          itemType: "file_change",
+          itemId: "tool-a",
+          title: "File change",
+          inlineDiff: {
+            availability: "summary_only",
+            files: [
+              {
+                path: "apps/web/src/session-logic.ts",
+                additions: 1,
+                deletions: 0,
+              },
+            ],
+          },
+        },
+      }),
+    ];
+
+    const entries = deriveWorkLogEntries(activities, { scope: "all-turns" });
+    expect(entries).toHaveLength(1);
+    expect(entries[0]?.inlineDiff).toMatchObject({
+      files: [{ path: "apps/web/src/session-logic.ts", additions: 1, deletions: 0 }],
+      additions: 1,
+      deletions: 0,
+    });
+  });
+
+  it("keeps separate file-change tool rows when two different tool ids touch the same files", () => {
+    const activities: OrchestrationThreadActivity[] = [
+      makeActivity({
+        id: "file-change-tool-a",
+        createdAt: "2026-02-23T00:00:01.000Z",
+        turnId: "turn-1",
+        kind: "tool.updated",
+        summary: "File change",
+        payload: {
+          itemType: "file_change",
+          itemId: "tool-a",
+          title: "File change",
+          inlineDiff: {
+            availability: "summary_only",
+            files: [{ path: "apps/web/src/session-logic.ts" }],
+          },
+        },
+      }),
+      makeActivity({
+        id: "file-change-tool-b",
+        createdAt: "2026-02-23T00:00:02.000Z",
+        turnId: "turn-1",
+        kind: "tool.updated",
+        summary: "File change",
+        payload: {
+          itemType: "file_change",
+          itemId: "tool-b",
+          title: "File change",
+          inlineDiff: {
+            availability: "summary_only",
+            files: [{ path: "apps/web/src/session-logic.ts" }],
+          },
+        },
+      }),
+    ];
+
+    const entries = deriveWorkLogEntries(activities, { scope: "all-turns" });
+    expect(entries).toHaveLength(2);
+    expect(entries.map((entry) => entry.toolCallId)).toEqual(["tool-a", "tool-b"]);
   });
 
   it("keeps separate tool entries when an identical call starts after the prior one completed", () => {

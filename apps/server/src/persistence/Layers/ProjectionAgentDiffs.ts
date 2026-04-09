@@ -40,6 +40,7 @@ const makeProjectionAgentDiffRepository = Effect.gen(function* () {
           files_json,
           source,
           coverage,
+          assistant_message_id,
           completed_at
         )
         VALUES (
@@ -49,6 +50,7 @@ const makeProjectionAgentDiffRepository = Effect.gen(function* () {
           ${row.files},
           ${row.source},
           ${row.coverage},
+          ${row.assistantMessageId},
           ${row.completedAt}
         )
         ON CONFLICT (thread_id, turn_id)
@@ -57,6 +59,7 @@ const makeProjectionAgentDiffRepository = Effect.gen(function* () {
           files_json = excluded.files_json,
           source = excluded.source,
           coverage = excluded.coverage,
+          assistant_message_id = excluded.assistant_message_id,
           completed_at = excluded.completed_at
       `,
   });
@@ -73,6 +76,7 @@ const makeProjectionAgentDiffRepository = Effect.gen(function* () {
           files_json AS "files",
           source,
           coverage,
+          assistant_message_id AS "assistantMessageId",
           completed_at AS "completedAt"
         FROM projection_agent_diffs
         WHERE thread_id = ${threadId}
@@ -92,6 +96,7 @@ const makeProjectionAgentDiffRepository = Effect.gen(function* () {
           files_json AS "files",
           source,
           coverage,
+          assistant_message_id AS "assistantMessageId",
           completed_at AS "completedAt"
         FROM projection_agent_diffs
         WHERE thread_id = ${threadId}

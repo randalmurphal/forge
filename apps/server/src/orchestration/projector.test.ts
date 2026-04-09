@@ -165,6 +165,78 @@ describe("orchestration projector", () => {
     ]);
   });
 
+  it("rebinds agent diffs when the assistant message arrives after the diff upsert", async () => {
+    const createdAt = "2026-04-08T12:00:00.000Z";
+    const events = [
+      makeEvent({
+        sequence: 1,
+        type: "thread.created",
+        aggregateKind: "thread",
+        aggregateId: "thread-1",
+        occurredAt: createdAt,
+        commandId: "cmd-thread-create",
+        payload: {
+          threadId: "thread-1",
+          projectId: "project-1",
+          title: "demo",
+          modelSelection: {
+            provider: "codex",
+            model: "gpt-5-codex",
+          },
+          runtimeMode: "full-access",
+          branch: null,
+          worktreePath: null,
+          createdAt,
+          updatedAt: createdAt,
+        },
+      }),
+      makeEvent({
+        sequence: 2,
+        type: "thread.agent-diff-upserted",
+        aggregateKind: "thread",
+        aggregateId: "thread-1",
+        occurredAt: "2026-04-08T12:00:01.000Z",
+        commandId: "cmd-agent-diff",
+        payload: {
+          threadId: "thread-1",
+          turnId: "turn-1",
+          diff: "diff --git a/src/app.ts b/src/app.ts\n+hello\n",
+          files: [{ path: "src/app.ts", kind: "modified", additions: 1, deletions: 0 }],
+          source: "native_turn_diff",
+          coverage: "complete",
+          assistantMessageId: null,
+          completedAt: "2026-04-08T12:00:01.000Z",
+        },
+      }),
+      makeEvent({
+        sequence: 3,
+        type: "thread.message-sent",
+        aggregateKind: "thread",
+        aggregateId: "thread-1",
+        occurredAt: "2026-04-08T12:00:02.000Z",
+        commandId: "cmd-message",
+        payload: {
+          threadId: "thread-1",
+          messageId: "assistant-1",
+          role: "assistant",
+          text: "Done.",
+          turnId: "turn-1",
+          streaming: false,
+          createdAt: "2026-04-08T12:00:02.000Z",
+          updatedAt: "2026-04-08T12:00:02.000Z",
+        },
+      }),
+    ];
+
+    const finalState = await events.reduce<Promise<OrchestrationReadModel>>(
+      (statePromise, event) =>
+        statePromise.then((current) => Effect.runPromise(projectEvent(current, event))),
+      Promise.resolve(createEmptyReadModel(createdAt)),
+    );
+
+    expect(finalState.threads[0]?.agentDiffs?.[0]?.assistantMessageId).toBe("assistant-1");
+  });
+
   it("fails when event payload cannot be decoded by runtime schema", async () => {
     const now = new Date().toISOString();
     const model = createEmptyReadModel(now);
@@ -512,7 +584,7 @@ describe("orchestration projector", () => {
         checkpointRef: "refs/forge/checkpoints/thread-checkpoint-stage/turn/1",
         status: "ready",
         files: [],
-        assistantMessageId: null,
+        assistantMessageId: "message-checkpoint-stage-1",
         completedAt: capturedAt,
       },
     ]);

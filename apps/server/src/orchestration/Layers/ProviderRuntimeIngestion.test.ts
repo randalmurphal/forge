@@ -2011,6 +2011,7 @@ describe("ProviderRuntimeIngestion", () => {
         ? (toolUpdate.payload as Record<string, unknown>)
         : undefined;
     expect(toolUpdate?.kind).toBe("tool.updated");
+    expect(toolUpdatePayload?.itemId).toBe("item-p1-tool");
     expect(toolUpdatePayload?.itemType).toBe("command_execution");
     expect(toolUpdatePayload?.status).toBe("in_progress");
 
@@ -2030,6 +2031,65 @@ describe("ProviderRuntimeIngestion", () => {
     expect(checkpoint?.status).toBe("missing");
     expect(checkpoint?.assistantMessageId).toBe("assistant:item-p1-assistant");
     expect(checkpoint?.checkpointRef).toBe("provider-diff:evt-turn-diff-updated");
+  });
+
+  it("persists normalized inline diffs on file-change tool activities", async () => {
+    const harness = await createHarness();
+    const now = new Date().toISOString();
+
+    harness.emit({
+      type: "item.updated",
+      eventId: asEventId("evt-file-change-updated"),
+      provider: "codex",
+      createdAt: now,
+      threadId: asThreadId("thread-1"),
+      turnId: asTurnId("turn-file-change"),
+      itemId: asItemId("item-file-change"),
+      payload: {
+        itemType: "file_change",
+        status: "in_progress",
+        title: "File change",
+        detail: "Editing apps/web/src/session-logic.ts",
+        data: {
+          item: {
+            changes: [
+              {
+                path: "apps/web/src/session-logic.ts",
+                kind: "modified",
+                diff: ["@@ -1 +1,2 @@", " export const value = 1;", "+export const next = 2;"].join(
+                  "\n",
+                ),
+              },
+            ],
+          },
+        },
+      },
+    });
+
+    const thread = await waitForThread(harness.engine, (entry) =>
+      entry.activities.some(
+        (activity: ProviderRuntimeTestActivity) => activity.id === "evt-file-change-updated",
+      ),
+    );
+
+    const toolUpdate = thread.activities.find(
+      (activity: ProviderRuntimeTestActivity) => activity.id === "evt-file-change-updated",
+    );
+    const payload =
+      toolUpdate?.payload && typeof toolUpdate.payload === "object"
+        ? (toolUpdate.payload as Record<string, unknown>)
+        : undefined;
+    const inlineDiff =
+      payload?.inlineDiff && typeof payload.inlineDiff === "object"
+        ? (payload.inlineDiff as Record<string, unknown>)
+        : undefined;
+
+    expect(toolUpdate?.kind).toBe("tool.updated");
+    expect(payload?.itemId).toBe("item-file-change");
+    expect(inlineDiff?.availability).toBe("exact_patch");
+    expect(inlineDiff?.unifiedDiff).toContain(
+      "diff --git a/apps/web/src/session-logic.ts b/apps/web/src/session-logic.ts",
+    );
   });
 
   it("projects context window updates into normalized thread activities", async () => {

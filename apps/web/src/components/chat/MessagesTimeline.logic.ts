@@ -1,6 +1,9 @@
 import { type MessageId } from "@forgetools/contracts";
-import { type TimelineEntry, type WorkLogEntry } from "../../session-logic";
-import { buildTurnDiffTree, type TurnDiffTreeNode } from "../../lib/turnDiffTree";
+import {
+  type ExpandedInlineDiffState,
+  type TimelineEntry,
+  type WorkLogEntry,
+} from "../../session-logic";
 import { type ChatMessage, type ProposedPlan, type TurnDiffSummary } from "../../types";
 import { estimateTimelineMessageHeight } from "../timelineHeight";
 
@@ -141,6 +144,7 @@ export function estimateMessagesTimelineRowHeight(
   input: {
     timelineWidthPx: number | null;
     expandedWorkGroups?: Readonly<Record<string, boolean>>;
+    expandedInlineDiff?: ExpandedInlineDiffState;
     turnDiffSummaryByAssistantMessageId?: ReadonlyMap<MessageId, TurnDiffSummary>;
   },
 ): number {
@@ -157,7 +161,11 @@ export function estimateMessagesTimelineRowHeight(
       });
       const turnDiffSummary = input.turnDiffSummaryByAssistantMessageId?.get(row.message.id);
       if (turnDiffSummary && turnDiffSummary.files.length > 0) {
-        estimate += estimateChangedFilesCardHeight(turnDiffSummary);
+        estimate +=
+          input.expandedInlineDiff?.scope === "turn" &&
+          input.expandedInlineDiff.id === turnDiffSummary.turnId
+            ? 520
+            : estimateCollapsedDiffCardHeight();
       }
       return estimate;
     }
@@ -168,6 +176,7 @@ function estimateWorkRowHeight(
   row: Extract<MessagesTimelineRow, { kind: "work" }>,
   input: {
     expandedWorkGroups?: Readonly<Record<string, boolean>>;
+    expandedInlineDiff?: ExpandedInlineDiffState;
   },
 ): number {
   const isExpanded = input.expandedWorkGroups?.[row.id] ?? false;
@@ -178,7 +187,17 @@ function estimateWorkRowHeight(
   const showHeader = hasOverflow || !onlyToolEntries;
 
   // Card chrome, optional header, and one compact work-entry row per visible entry.
-  return 28 + (showHeader ? 26 : 0) + visibleEntries * 32;
+  let estimate = 28 + (showHeader ? 26 : 0) + visibleEntries * 32;
+  for (const entry of row.groupedEntries.slice(-visibleEntries)) {
+    if (!entry.inlineDiff) continue;
+    estimate +=
+      input.expandedInlineDiff?.scope === "tool" && input.expandedInlineDiff.id === entry.id
+        ? entry.inlineDiff.availability === "exact_patch"
+          ? 420
+          : 130
+        : estimateCollapsedDiffCardHeight();
+  }
+  return estimate;
 }
 
 function estimateTimelineProposedPlanHeight(proposedPlan: ProposedPlan): number {
@@ -186,21 +205,6 @@ function estimateTimelineProposedPlanHeight(proposedPlan: ProposedPlan): number 
   return 120 + Math.min(estimatedLines * 22, 880);
 }
 
-function estimateChangedFilesCardHeight(turnDiffSummary: TurnDiffSummary): number {
-  const treeNodes = buildTurnDiffTree(turnDiffSummary.files);
-  const visibleNodeCount = countTurnDiffTreeNodes(treeNodes);
-
-  // Card chrome: top/bottom padding, header row, and tree spacing.
-  return 60 + visibleNodeCount * 25;
-}
-
-function countTurnDiffTreeNodes(nodes: ReadonlyArray<TurnDiffTreeNode>): number {
-  let count = 0;
-  for (const node of nodes) {
-    count += 1;
-    if (node.kind === "directory") {
-      count += countTurnDiffTreeNodes(node.children);
-    }
-  }
-  return count;
+function estimateCollapsedDiffCardHeight(): number {
+  return 52;
 }

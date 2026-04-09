@@ -28,6 +28,7 @@ import {
   type ProviderRuntimeIngestionShape,
 } from "../Services/ProviderRuntimeIngestion.ts";
 import { ServerSettingsService } from "../../serverSettings.ts";
+import { buildToolInlineDiffArtifact } from "../toolDiffArtifacts.ts";
 
 const providerTurnKey = (threadId: ThreadId, turnId: TurnId) => `${threadId}:${turnId}`;
 const providerCommandId = (event: ProviderRuntimeEvent, tag: string): CommandId =>
@@ -471,6 +472,10 @@ function runtimeEventToActivities(
       if (!isToolLifecycleItemType(event.payload.itemType)) {
         return [];
       }
+      const inlineDiff =
+        event.payload.itemType === "file_change"
+          ? buildToolInlineDiffArtifact(event.payload.data)
+          : undefined;
       return [
         {
           id: event.eventId,
@@ -480,9 +485,11 @@ function runtimeEventToActivities(
           summary: event.payload.title ?? "Tool updated",
           payload: {
             itemType: event.payload.itemType,
+            ...(event.itemId ? { itemId: event.itemId } : {}),
             ...(event.payload.status ? { status: event.payload.status } : {}),
             ...(event.payload.detail ? { detail: truncateDetail(event.payload.detail) } : {}),
             ...(event.payload.data !== undefined ? { data: event.payload.data } : {}),
+            ...(inlineDiff ? { inlineDiff } : {}),
           },
           turnId: toTurnId(event.turnId) ?? null,
           ...maybeSequence,
@@ -494,6 +501,10 @@ function runtimeEventToActivities(
       if (!isToolLifecycleItemType(event.payload.itemType)) {
         return [];
       }
+      const inlineDiff =
+        event.payload.itemType === "file_change"
+          ? buildToolInlineDiffArtifact(event.payload.data)
+          : undefined;
       return [
         {
           id: event.eventId,
@@ -503,7 +514,10 @@ function runtimeEventToActivities(
           summary: event.payload.title ?? "Tool",
           payload: {
             itemType: event.payload.itemType,
+            ...(event.itemId ? { itemId: event.itemId } : {}),
             ...(event.payload.detail ? { detail: truncateDetail(event.payload.detail) } : {}),
+            ...(event.payload.data !== undefined ? { data: event.payload.data } : {}),
+            ...(inlineDiff ? { inlineDiff } : {}),
           },
           turnId: toTurnId(event.turnId) ?? null,
           ...maybeSequence,
@@ -524,6 +538,7 @@ function runtimeEventToActivities(
           summary: `${event.payload.title ?? "Tool"} started`,
           payload: {
             itemType: event.payload.itemType,
+            ...(event.itemId ? { itemId: event.itemId } : {}),
             ...(event.payload.detail ? { detail: truncateDetail(event.payload.detail) } : {}),
           },
           turnId: toTurnId(event.turnId) ?? null,
@@ -1218,6 +1233,8 @@ const make = Effect.fn("make")(function* () {
     if (event.type === "turn.diff.updated") {
       const turnId = toTurnId(event.turnId);
       if (turnId) {
+        const assistantMessageIds = yield* getAssistantMessageIdsForTurn(thread.id, turnId);
+        const assistantMessageId = [...assistantMessageIds].at(-1);
         const files = mergeDiffFilesByPath(
           parseTurnDiffFilesFromUnifiedDiff(event.payload.unifiedDiff).map((file) => ({
             path: file.path,
@@ -1237,6 +1254,7 @@ const make = Effect.fn("make")(function* () {
             event.payload.source ??
             (event.provider === "codex" ? "native_turn_diff" : "derived_tool_results"),
           coverage: event.payload.coverage ?? "complete",
+          ...(assistantMessageId ? { assistantMessageId } : {}),
           completedAt: now,
           createdAt: now,
         });

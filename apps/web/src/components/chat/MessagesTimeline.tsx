@@ -1,4 +1,5 @@
-import { type MessageId, type TurnId } from "@forgetools/contracts";
+import { type MessageId, type ThreadId, type TurnId } from "@forgetools/contracts";
+import { useQuery } from "@tanstack/react-query";
 import { resolveRoleColor } from "../../lib/roleColors";
 import {
   memo,
@@ -15,10 +16,26 @@ import {
   type VirtualItem,
   useVirtualizer,
 } from "@tanstack/react-virtual";
-import { deriveTimelineEntries, formatElapsed } from "../../session-logic";
+import {
+  deriveTimelineEntries,
+  formatElapsed,
+  type ExpandedInlineDiffState,
+  type ToolInlineDiffSummary,
+} from "../../session-logic";
 import { AUTO_SCROLL_BOTTOM_THRESHOLD_PX } from "../../chat-scroll";
 import { type TurnDiffSummary } from "../../types";
 import { summarizeTurnDiffStats } from "../../lib/turnDiffTree";
+import { agentDiffQueryOptions, checkpointDiffQueryOptions } from "../../lib/providerReactQuery";
+import {
+  buildPatchCacheKey,
+  classifyDiffComplexity,
+  getDiffLoadingLabel,
+  getRenderablePatch,
+  resolveFileDiffPath,
+  shouldDefaultCollapseDiffFiles,
+  shouldDeferDiffRendering,
+  summarizeDiffFileSummaries,
+} from "../../lib/diffRendering";
 import ChatMarkdown from "../ChatMarkdown";
 import {
   BotIcon,
@@ -39,7 +56,6 @@ import { clamp } from "effect/Number";
 import { buildExpandedImagePreview, ExpandedImagePreview } from "./ExpandedImagePreview";
 import { ProposedPlanCard } from "./ProposedPlanCard";
 import { SummaryCard } from "./SummaryCard";
-import { ChangedFilesTree } from "./ChangedFilesTree";
 import { DiffStatLabel, hasNonZeroStat } from "./DiffStatLabel";
 import { MessageCopyButton } from "./MessageCopyButton";
 import {
@@ -56,16 +72,18 @@ import {
 } from "~/lib/terminalContext";
 import { cn } from "~/lib/utils";
 import { type TimestampFormat } from "@forgetools/contracts/settings";
+import { useSettings } from "../../hooks/useSettings";
 import { formatTimestamp } from "../../timestampFormat";
+import { CollapsibleFileDiffList } from "../CollapsibleFileDiffList";
 import {
   buildInlineTerminalContextText,
   formatInlineTerminalContextLabel,
   textContainsInlineTerminalContextLabels,
 } from "./userMessageTerminalContexts";
-
 const ALWAYS_UNVIRTUALIZED_TAIL_ROWS = 8;
 
 interface MessagesTimelineProps {
+  threadId: ThreadId | null;
   hasMessages: boolean;
   isWorking: boolean;
   activeTurnInProgress: boolean;
@@ -76,6 +94,7 @@ interface MessagesTimelineProps {
   completionDividerBeforeEntryId: string | null;
   completionSummary: string | null;
   turnDiffSummaryByAssistantMessageId: Map<MessageId, TurnDiffSummary>;
+  inferredCheckpointTurnCountByTurnId: Record<TurnId, number>;
   nowIso: string;
   expandedWorkGroups: Record<string, boolean>;
   onToggleWorkGroup: (groupId: string) => void;
@@ -102,6 +121,7 @@ interface MessagesTimelineProps {
 }
 
 export const MessagesTimeline = memo(function MessagesTimeline({
+  threadId,
   hasMessages,
   isWorking,
   activeTurnInProgress,
@@ -112,6 +132,7 @@ export const MessagesTimeline = memo(function MessagesTimeline({
   completionDividerBeforeEntryId,
   completionSummary,
   turnDiffSummaryByAssistantMessageId,
+  inferredCheckpointTurnCountByTurnId,
   nowIso,
   expandedWorkGroups,
   onToggleWorkGroup,
@@ -128,6 +149,8 @@ export const MessagesTimeline = memo(function MessagesTimeline({
 }: MessagesTimelineProps) {
   const timelineRootRef = useRef<HTMLDivElement | null>(null);
   const [timelineWidthPx, setTimelineWidthPx] = useState<number | null>(null);
+  const [expandedInlineDiff, setExpandedInlineDiff] = useState<ExpandedInlineDiffState>(null);
+  const settings = useSettings();
 
   useLayoutEffect(() => {
     const timelineRoot = timelineRootRef.current;
@@ -231,6 +254,7 @@ export const MessagesTimeline = memo(function MessagesTimeline({
       if (!row) return 96;
       return estimateMessagesTimelineRowHeight(row, {
         expandedWorkGroups,
+        expandedInlineDiff,
         timelineWidthPx,
         turnDiffSummaryByAssistantMessageId,
       });
@@ -242,7 +266,13 @@ export const MessagesTimeline = memo(function MessagesTimeline({
   useEffect(() => {
     if (timelineWidthPx === null) return;
     rowVirtualizer.measure();
-  }, [rowVirtualizer, timelineWidthPx]);
+  }, [
+    expandedInlineDiff,
+    expandedWorkGroups,
+    rowVirtualizer,
+    timelineWidthPx,
+    turnDiffSummaryByAssistantMessageId,
+  ]);
   useEffect(() => {
     rowVirtualizer.shouldAdjustScrollPositionOnItemSizeChange = (item, _delta, instance) => {
       const viewportHeight = instance.scrollRect?.height ?? 0;
@@ -304,14 +334,10 @@ export const MessagesTimeline = memo(function MessagesTimeline({
 
   const virtualRows = rowVirtualizer.getVirtualItems();
   const nonVirtualizedRows = rows.slice(virtualizedRowCount);
-  const [allDirectoriesExpandedByTurnId, setAllDirectoriesExpandedByTurnId] = useState<
-    Record<string, boolean>
-  >({});
-  const onToggleAllDirectories = useCallback((turnId: TurnId) => {
-    setAllDirectoriesExpandedByTurnId((current) => ({
-      ...current,
-      [turnId]: !(current[turnId] ?? true),
-    }));
+  const onToggleInlineDiff = useCallback((scope: "tool" | "turn", id: string) => {
+    setExpandedInlineDiff((current) =>
+      current?.scope === scope && current.id === id ? null : { scope, id },
+    );
   }, []);
 
   const renderRowContent = (row: TimelineRow) => (
@@ -357,7 +383,13 @@ export const MessagesTimeline = memo(function MessagesTimeline({
               )}
               <div className="space-y-0.5">
                 {visibleEntries.map((workEntry) => (
-                  <SimpleWorkEntryRow key={`work-row:${workEntry.id}`} workEntry={workEntry} />
+                  <SimpleWorkEntryRow
+                    key={`work-row:${workEntry.id}`}
+                    workEntry={workEntry}
+                    expandedInlineDiff={expandedInlineDiff}
+                    onToggleInlineDiff={onToggleInlineDiff}
+                    resolvedTheme={resolvedTheme}
+                  />
                 ))}
               </div>
             </div>
@@ -499,64 +531,19 @@ export const MessagesTimeline = memo(function MessagesTimeline({
                   if (!turnSummary) return null;
                   const checkpointFiles = turnSummary.files;
                   if (checkpointFiles.length === 0) return null;
-                  const summaryStat = summarizeTurnDiffStats(checkpointFiles);
-                  const changedFileCountLabel = String(checkpointFiles.length);
-                  const summaryLabel =
-                    turnSummary.provenance === "agent"
-                      ? turnSummary.coverage === "partial"
-                        ? "Agent changes (partial)"
-                        : "Agent changes"
-                      : "Workspace changes during turn";
-                  const allDirectoriesExpanded =
-                    allDirectoriesExpandedByTurnId[turnSummary.turnId] ?? true;
                   return (
-                    <div className="mt-2 rounded-lg border border-border/80 bg-card/45 p-2.5">
-                      <div className="mb-1.5 flex items-center justify-between gap-2">
-                        <p className="text-[10px] uppercase tracking-[0.12em] text-muted-foreground/65">
-                          <span>
-                            {summaryLabel} ({changedFileCountLabel})
-                          </span>
-                          {hasNonZeroStat(summaryStat) && (
-                            <>
-                              <span className="mx-1">•</span>
-                              <DiffStatLabel
-                                additions={summaryStat.additions}
-                                deletions={summaryStat.deletions}
-                              />
-                            </>
-                          )}
-                        </p>
-                        <div className="flex items-center gap-1.5">
-                          <Button
-                            type="button"
-                            size="xs"
-                            variant="outline"
-                            data-scroll-anchor-ignore
-                            onClick={() => onToggleAllDirectories(turnSummary.turnId)}
-                          >
-                            {allDirectoriesExpanded ? "Collapse all" : "Expand all"}
-                          </Button>
-                          <Button
-                            type="button"
-                            size="xs"
-                            variant="outline"
-                            onClick={() =>
-                              onOpenTurnDiff(turnSummary.turnId, checkpointFiles[0]?.path)
-                            }
-                          >
-                            View diff
-                          </Button>
-                        </div>
-                      </div>
-                      <ChangedFilesTree
-                        key={`changed-files-tree:${turnSummary.turnId}`}
-                        turnId={turnSummary.turnId}
-                        files={checkpointFiles}
-                        allDirectoriesExpanded={allDirectoriesExpanded}
-                        resolvedTheme={resolvedTheme}
-                        onOpenTurnDiff={onOpenTurnDiff}
-                      />
-                    </div>
+                    <InlineTurnDiffBlock
+                      threadId={threadId}
+                      turnSummary={turnSummary}
+                      inferredCheckpointTurnCount={
+                        inferredCheckpointTurnCountByTurnId[turnSummary.turnId]
+                      }
+                      expandedInlineDiff={expandedInlineDiff}
+                      onToggleInlineDiff={onToggleInlineDiff}
+                      onOpenTurnDiff={onOpenTurnDiff}
+                      resolvedTheme={resolvedTheme}
+                      diffWordWrap={settings.diffWordWrap}
+                    />
                   );
                 })()}
                 <p className="mt-1.5 text-[10px] text-muted-foreground/30">
@@ -905,8 +892,11 @@ function toolWorkEntryHeading(workEntry: TimelineWorkEntry): string {
 
 const SimpleWorkEntryRow = memo(function SimpleWorkEntryRow(props: {
   workEntry: TimelineWorkEntry;
+  expandedInlineDiff: ExpandedInlineDiffState;
+  onToggleInlineDiff: (scope: "tool" | "turn", id: string) => void;
+  resolvedTheme: "light" | "dark";
 }) {
-  const { workEntry } = props;
+  const { workEntry, expandedInlineDiff, onToggleInlineDiff, resolvedTheme } = props;
   const iconConfig = workToneIcon(workEntry.tone);
   const EntryIcon = workEntryIcon(workEntry);
   const heading = toolWorkEntryHeading(workEntry);
@@ -914,6 +904,9 @@ const SimpleWorkEntryRow = memo(function SimpleWorkEntryRow(props: {
   const displayText = preview ? `${heading} - ${preview}` : heading;
   const hasChangedFiles = (workEntry.changedFiles?.length ?? 0) > 0;
   const previewIsChangedFiles = hasChangedFiles && !workEntry.command && !workEntry.detail;
+  const toolInlineDiff = workEntry.inlineDiff;
+  const isToolDiffExpanded =
+    expandedInlineDiff?.scope === "tool" && expandedInlineDiff.id === workEntry.id;
 
   return (
     <div className="rounded-lg px-1 py-1">
@@ -939,7 +932,7 @@ const SimpleWorkEntryRow = memo(function SimpleWorkEntryRow(props: {
           </p>
         </div>
       </div>
-      {hasChangedFiles && !previewIsChangedFiles && (
+      {hasChangedFiles && !previewIsChangedFiles && !toolInlineDiff && (
         <div className="mt-1 flex flex-wrap gap-1 pl-6">
           {workEntry.changedFiles?.slice(0, 4).map((filePath) => (
             <span
@@ -957,6 +950,345 @@ const SimpleWorkEntryRow = memo(function SimpleWorkEntryRow(props: {
           )}
         </div>
       )}
+      {toolInlineDiff ? (
+        <InlineToolDiffBlock
+          inlineDiff={toolInlineDiff}
+          expanded={isToolDiffExpanded}
+          onToggle={() => onToggleInlineDiff("tool", workEntry.id)}
+          resolvedTheme={resolvedTheme}
+        />
+      ) : null}
+    </div>
+  );
+});
+
+const InlineToolDiffBlock = memo(function InlineToolDiffBlock(props: {
+  inlineDiff: ToolInlineDiffSummary;
+  expanded: boolean;
+  onToggle: () => void;
+  resolvedTheme: "light" | "dark";
+}) {
+  const { inlineDiff, expanded, onToggle, resolvedTheme } = props;
+  return (
+    <div className="mt-2 rounded-lg border border-border/70 bg-background/55 p-2.5">
+      <div className="flex items-center justify-between gap-2">
+        <InlineDiffHeader
+          label="Tool changes"
+          fileCount={inlineDiff.files.length}
+          additions={inlineDiff.additions}
+          deletions={inlineDiff.deletions}
+          badge={inlineDiff.availability === "exact_patch" ? "Exact patch" : "Summary only"}
+        />
+        <Button type="button" size="xs" variant="outline" onClick={onToggle}>
+          {expanded ? "Collapse" : "Expand"}
+        </Button>
+      </div>
+      {expanded ? (
+        inlineDiff.availability === "exact_patch" && inlineDiff.unifiedDiff ? (
+          <InlinePatchRenderer
+            patch={inlineDiff.unifiedDiff}
+            cacheScope={`tool-inline:${inlineDiff.id}`}
+            resolvedTheme={resolvedTheme}
+            files={inlineDiff.files}
+          />
+        ) : (
+          <InlineSummaryFallback
+            files={inlineDiff.files}
+            emptyLabel="Patch unavailable for this tool call."
+          />
+        )
+      ) : null}
+    </div>
+  );
+});
+
+const InlineTurnDiffBlock = memo(function InlineTurnDiffBlock(props: {
+  threadId: ThreadId | null;
+  turnSummary: TurnDiffSummary;
+  inferredCheckpointTurnCount: number | undefined;
+  expandedInlineDiff: ExpandedInlineDiffState;
+  onToggleInlineDiff: (scope: "tool" | "turn", id: string) => void;
+  onOpenTurnDiff: (turnId: TurnId, filePath?: string) => void;
+  resolvedTheme: "light" | "dark";
+  diffWordWrap: boolean;
+}) {
+  const {
+    threadId,
+    turnSummary,
+    inferredCheckpointTurnCount,
+    expandedInlineDiff,
+    onToggleInlineDiff,
+    onOpenTurnDiff,
+    resolvedTheme,
+    diffWordWrap,
+  } = props;
+  const expanded =
+    expandedInlineDiff?.scope === "turn" && expandedInlineDiff.id === turnSummary.turnId;
+  const summaryStat = summarizeTurnDiffStats(turnSummary.files);
+  const summaryLabel =
+    turnSummary.provenance === "agent"
+      ? turnSummary.coverage === "partial"
+        ? "Turn changes (partial)"
+        : "Turn changes"
+      : "Workspace changes during turn";
+
+  return (
+    <div className="mt-2 rounded-lg border border-border/70 bg-card/45 p-2.5">
+      <div className="flex items-center justify-between gap-2">
+        <InlineDiffHeader
+          label={summaryLabel}
+          fileCount={turnSummary.files.length}
+          additions={hasNonZeroStat(summaryStat) ? summaryStat.additions : undefined}
+          deletions={hasNonZeroStat(summaryStat) ? summaryStat.deletions : undefined}
+          badge={turnSummary.provenance === "agent" ? "Agent" : "Workspace"}
+        />
+        <div className="flex items-center gap-1.5">
+          <Button
+            type="button"
+            size="xs"
+            variant="outline"
+            onClick={() => onToggleInlineDiff("turn", turnSummary.turnId)}
+          >
+            {expanded ? "Collapse" : "Expand"}
+          </Button>
+          <Button
+            type="button"
+            size="xs"
+            variant="outline"
+            onClick={() => onOpenTurnDiff(turnSummary.turnId, turnSummary.files[0]?.path)}
+          >
+            Open in diff panel
+          </Button>
+        </div>
+      </div>
+      {expanded ? (
+        <ExpandedTurnDiffContent
+          threadId={threadId}
+          turnSummary={turnSummary}
+          inferredCheckpointTurnCount={inferredCheckpointTurnCount}
+          resolvedTheme={resolvedTheme}
+          diffWordWrap={diffWordWrap}
+        />
+      ) : null}
+    </div>
+  );
+});
+
+const ExpandedTurnDiffContent = memo(function ExpandedTurnDiffContent(props: {
+  threadId: ThreadId | null;
+  turnSummary: TurnDiffSummary;
+  inferredCheckpointTurnCount: number | undefined;
+  resolvedTheme: "light" | "dark";
+  diffWordWrap: boolean;
+}) {
+  const { threadId, turnSummary, inferredCheckpointTurnCount, resolvedTheme, diffWordWrap } = props;
+  const turnCount = turnSummary.checkpointTurnCount ?? inferredCheckpointTurnCount;
+  const checkpointRange =
+    typeof turnCount === "number"
+      ? {
+          fromTurnCount: Math.max(0, turnCount - 1),
+          toTurnCount: turnCount,
+        }
+      : null;
+  const agentDiffQuery = useQuery(
+    agentDiffQueryOptions({
+      threadId,
+      turnId: turnSummary.provenance === "agent" ? turnSummary.turnId : null,
+      cacheScope: `timeline:turn:${turnSummary.turnId}`,
+      enabled: turnSummary.provenance === "agent",
+    }),
+  );
+  const showWorkspaceFallback =
+    turnSummary.provenance === "workspace" || agentDiffQuery.data?.coverage === "unavailable";
+  const checkpointDiffQuery = useQuery(
+    checkpointDiffQueryOptions({
+      threadId,
+      fromTurnCount: showWorkspaceFallback ? (checkpointRange?.fromTurnCount ?? null) : null,
+      toTurnCount: showWorkspaceFallback ? (checkpointRange?.toTurnCount ?? null) : null,
+      cacheScope: `timeline:checkpoint:${turnSummary.turnId}`,
+      enabled: showWorkspaceFallback && checkpointRange !== null,
+    }),
+  );
+  const patch =
+    turnSummary.provenance === "agent" && !showWorkspaceFallback
+      ? agentDiffQuery.data?.diff
+      : checkpointDiffQuery.data?.diff;
+  const isLoading =
+    turnSummary.provenance === "agent" && !showWorkspaceFallback
+      ? agentDiffQuery.isLoading
+      : checkpointDiffQuery.isLoading;
+
+  return (
+    <div className="mt-2">
+      {showWorkspaceFallback ? (
+        <p className="mb-2 text-[11px] text-muted-foreground/70">
+          Agent attribution is unavailable for this turn. Showing workspace changes during the turn
+          instead.
+        </p>
+      ) : null}
+      {isLoading ? (
+        <p className="text-[11px] text-muted-foreground/70">
+          {getDiffLoadingLabel(
+            "Loading diff…",
+            classifyDiffComplexity(summarizeDiffFileSummaries(turnSummary.files)),
+          )}
+        </p>
+      ) : patch && patch.trim().length > 0 ? (
+        <InlinePatchRenderer
+          patch={patch}
+          cacheScope={`turn-inline:${turnSummary.turnId}`}
+          resolvedTheme={resolvedTheme}
+          diffWordWrap={diffWordWrap}
+          files={turnSummary.files}
+        />
+      ) : (
+        <p className="text-[11px] text-muted-foreground/70">No patch available for this turn.</p>
+      )}
+    </div>
+  );
+});
+
+const InlineDiffHeader = memo(function InlineDiffHeader(props: {
+  label: string;
+  fileCount: number;
+  additions?: number | undefined;
+  deletions?: number | undefined;
+  badge: string;
+}) {
+  return (
+    <div className="min-w-0">
+      <p className="text-[10px] uppercase tracking-[0.12em] text-muted-foreground/65">
+        <span>{props.label}</span>
+        <span className="mx-1">•</span>
+        <span>{props.fileCount} files</span>
+        {typeof props.additions === "number" && typeof props.deletions === "number" ? (
+          <>
+            <span className="mx-1">•</span>
+            <DiffStatLabel additions={props.additions} deletions={props.deletions} />
+          </>
+        ) : null}
+      </p>
+      <p className="mt-1 text-[10px] text-muted-foreground/55">{props.badge}</p>
+    </div>
+  );
+});
+
+const InlineSummaryFallback = memo(function InlineSummaryFallback(props: {
+  files: ReadonlyArray<{ path: string }>;
+  emptyLabel: string;
+}) {
+  if (props.files.length === 0) {
+    return <p className="mt-2 text-[11px] text-muted-foreground/70">{props.emptyLabel}</p>;
+  }
+
+  return (
+    <div className="mt-2">
+      <p className="mb-2 text-[11px] text-muted-foreground/70">{props.emptyLabel}</p>
+      <div className="flex flex-wrap gap-1">
+        {props.files.map((file) => (
+          <span
+            key={`inline-summary-file:${file.path}`}
+            className="rounded-md border border-border/55 bg-background/75 px-1.5 py-0.5 font-mono text-[10px] text-muted-foreground/75"
+            title={file.path}
+          >
+            {file.path}
+          </span>
+        ))}
+      </div>
+    </div>
+  );
+});
+
+const InlinePatchRenderer = memo(function InlinePatchRenderer(props: {
+  patch: string;
+  cacheScope: string;
+  resolvedTheme: "light" | "dark";
+  diffWordWrap?: boolean;
+  files: ReadonlyArray<{
+    path: string;
+    additions?: number | undefined;
+    deletions?: number | undefined;
+  }>;
+}) {
+  const sourceStats = useMemo(() => summarizeDiffFileSummaries(props.files), [props.files]);
+  const diffComplexity = classifyDiffComplexity({
+    ...sourceStats,
+    patchChars: props.patch.length,
+  });
+  const [renderRequested, setRenderRequested] = useState(false);
+  const renderResetKey = useMemo(
+    () => buildPatchCacheKey(props.patch, props.cacheScope),
+    [props.cacheScope, props.patch],
+  );
+  useEffect(() => {
+    setRenderRequested(false);
+  }, [renderResetKey]);
+  const renderablePatch = useMemo(
+    () =>
+      shouldDeferDiffRendering(diffComplexity) && !renderRequested
+        ? null
+        : getRenderablePatch(props.patch, props.cacheScope),
+    [diffComplexity, props.cacheScope, props.patch, renderRequested],
+  );
+
+  if (!renderablePatch && !(shouldDeferDiffRendering(diffComplexity) && !renderRequested)) {
+    return <p className="text-[11px] text-muted-foreground/70">No patch available.</p>;
+  }
+
+  if (shouldDeferDiffRendering(diffComplexity) && !renderRequested) {
+    return (
+      <div className="space-y-3 rounded-md border border-border/70 bg-card/45 p-3">
+        <p className="text-[11px] text-muted-foreground/75">
+          This diff is huge. Render it manually to keep scrolling smooth.
+        </p>
+        <Button type="button" size="xs" variant="outline" onClick={() => setRenderRequested(true)}>
+          Render diff
+        </Button>
+      </div>
+    );
+  }
+
+  if (!renderablePatch) {
+    return <p className="text-[11px] text-muted-foreground/70">No patch available.</p>;
+  }
+
+  if (renderablePatch.kind === "raw") {
+    return (
+      <div className="space-y-2">
+        <p className="text-[11px] text-muted-foreground/75">{renderablePatch.reason}</p>
+        <pre
+          className={cn(
+            "max-h-[420px] overflow-auto rounded-md border border-border/70 bg-background/70 p-3 font-mono text-[11px] leading-relaxed text-muted-foreground/90",
+            props.diffWordWrap ? "whitespace-pre-wrap wrap-break-word" : "",
+          )}
+        >
+          {renderablePatch.text}
+        </pre>
+      </div>
+    );
+  }
+
+  const renderableFiles = useMemo(
+    () =>
+      [...renderablePatch.files].toSorted((left, right) =>
+        resolveFileDiffPath(left).localeCompare(resolveFileDiffPath(right), undefined, {
+          numeric: true,
+          sensitivity: "base",
+        }),
+      ),
+    [renderablePatch.files],
+  );
+
+  return (
+    <div className="mt-2 max-h-[420px] overflow-auto rounded-md border border-border/60 bg-background/40 p-1.5">
+      <CollapsibleFileDiffList
+        files={renderableFiles}
+        resolvedTheme={props.resolvedTheme}
+        diffRenderMode="stacked"
+        diffWordWrap={Boolean(props.diffWordWrap)}
+        defaultExpandMode={shouldDefaultCollapseDiffFiles(diffComplexity) ? "selected-only" : "all"}
+        confirmExpandAll={diffComplexity !== "normal"}
+      />
     </div>
   );
 });

@@ -145,6 +145,7 @@ function createBaseTimelineProps(input: {
   onVirtualizerSnapshot?: ComponentProps<typeof MessagesTimeline>["onVirtualizerSnapshot"];
 }): Omit<ComponentProps<typeof MessagesTimeline>, "scrollContainer"> {
   return {
+    threadId: null,
     hasMessages: true,
     isWorking: false,
     activeTurnInProgress: false,
@@ -157,6 +158,7 @@ function createBaseTimelineProps(input: {
     completionDividerBeforeEntryId: input.completionDividerBeforeEntryId ?? null,
     completionSummary: null,
     turnDiffSummaryByAssistantMessageId: input.turnDiffSummaryByAssistantMessageId ?? new Map(),
+    inferredCheckpointTurnCountByTurnId: {},
     nowIso: isoAt(10_000),
     expandedWorkGroups: input.expandedWorkGroups ?? {},
     onToggleWorkGroup: () => {},

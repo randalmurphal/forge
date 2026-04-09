@@ -1,5 +1,3 @@
-import { parsePatchFiles } from "@pierre/diffs";
-import { FileDiff, type FileDiffMetadata, Virtualizer } from "@pierre/diffs/react";
 import { useQuery } from "@tanstack/react-query";
 import { useNavigate, useParams, useSearch } from "@tanstack/react-router";
 import { ThreadId, type TurnId } from "@forgetools/contracts";
@@ -26,139 +24,41 @@ import { readNativeApi } from "../nativeApi";
 import { resolvePathLinkTarget } from "../terminal-links";
 import { parseDiffRouteSearch, stripDiffSearchParams } from "../diffRouteSearch";
 import { useTheme } from "../hooks/useTheme";
-import { buildPatchCacheKey } from "../lib/diffRendering";
-import { resolveDiffThemeName } from "../lib/diffRendering";
+import {
+  buildPatchCacheKey,
+  classifyDiffComplexity,
+  getDiffLoadingLabel,
+  getRenderablePatch,
+  resolveFileDiffPath,
+  shouldDefaultCollapseDiffFiles,
+  shouldDeferDiffRendering,
+  summarizeDiffFileSummaries,
+  summarizeFileDiff,
+} from "../lib/diffRendering";
 import { useTurnDiffSummaries } from "../hooks/useTurnDiffSummaries";
 import { useStore } from "../store";
 import { useSettings } from "../hooks/useSettings";
 import { formatShortTimestamp } from "../timestampFormat";
 import { DiffPanelLoadingState, DiffPanelShell, type DiffPanelMode } from "./DiffPanelShell";
 import { ToggleGroup, Toggle } from "./ui/toggle-group";
+import { Button } from "./ui/button";
+import { CollapsibleFileDiffList } from "./CollapsibleFileDiffList";
 
 type DiffRenderMode = "stacked" | "split";
-type DiffThemeType = "light" | "dark";
-
-const DIFF_PANEL_UNSAFE_CSS = `
-[data-diffs-header],
-[data-diff],
-[data-file],
-[data-error-wrapper],
-[data-virtualizer-buffer] {
-  --diffs-bg: color-mix(in srgb, var(--card) 90%, var(--background)) !important;
-  --diffs-light-bg: color-mix(in srgb, var(--card) 90%, var(--background)) !important;
-  --diffs-dark-bg: color-mix(in srgb, var(--card) 90%, var(--background)) !important;
-  --diffs-token-light-bg: transparent;
-  --diffs-token-dark-bg: transparent;
-
-  --diffs-bg-context-override: color-mix(in srgb, var(--background) 97%, var(--foreground));
-  --diffs-bg-hover-override: color-mix(in srgb, var(--background) 94%, var(--foreground));
-  --diffs-bg-separator-override: color-mix(in srgb, var(--background) 95%, var(--foreground));
-  --diffs-bg-buffer-override: color-mix(in srgb, var(--background) 90%, var(--foreground));
-
-  --diffs-bg-addition-override: color-mix(in srgb, var(--background) 92%, var(--success));
-  --diffs-bg-addition-number-override: color-mix(in srgb, var(--background) 88%, var(--success));
-  --diffs-bg-addition-hover-override: color-mix(in srgb, var(--background) 85%, var(--success));
-  --diffs-bg-addition-emphasis-override: color-mix(in srgb, var(--background) 80%, var(--success));
-
-  --diffs-bg-deletion-override: color-mix(in srgb, var(--background) 92%, var(--destructive));
-  --diffs-bg-deletion-number-override: color-mix(in srgb, var(--background) 88%, var(--destructive));
-  --diffs-bg-deletion-hover-override: color-mix(in srgb, var(--background) 85%, var(--destructive));
-  --diffs-bg-deletion-emphasis-override: color-mix(
-    in srgb,
-    var(--background) 80%,
-    var(--destructive)
-  );
-
-  background-color: var(--diffs-bg) !important;
-}
-
-[data-file-info] {
-  background-color: color-mix(in srgb, var(--card) 94%, var(--foreground)) !important;
-  border-block-color: var(--border) !important;
-  color: var(--foreground) !important;
-}
-
-[data-diffs-header] {
-  position: sticky !important;
-  top: 0;
-  z-index: 4;
-  background-color: color-mix(in srgb, var(--card) 94%, var(--foreground)) !important;
-  border-bottom: 1px solid var(--border) !important;
-}
-
-[data-title] {
-  cursor: pointer;
-  transition:
-    color 120ms ease,
-    text-decoration-color 120ms ease;
-  text-decoration: underline;
-  text-decoration-color: transparent;
-  text-underline-offset: 2px;
-}
-
-[data-title]:hover {
-  color: color-mix(in srgb, var(--foreground) 84%, var(--primary)) !important;
-  text-decoration-color: currentColor;
-}
-`;
-
-type RenderablePatch =
-  | {
-      kind: "files";
-      files: FileDiffMetadata[];
-    }
-  | {
-      kind: "raw";
-      text: string;
-      reason: string;
-    };
-
-function getRenderablePatch(
-  patch: string | undefined,
-  cacheScope = "diff-panel",
-): RenderablePatch | null {
-  if (!patch) return null;
-  const normalizedPatch = patch.trim();
-  if (normalizedPatch.length === 0) return null;
-
-  try {
-    const parsedPatches = parsePatchFiles(
-      normalizedPatch,
-      buildPatchCacheKey(normalizedPatch, cacheScope),
-    );
-    const files = parsedPatches.flatMap((parsedPatch) => parsedPatch.files);
-    if (files.length > 0) {
-      return { kind: "files", files };
-    }
-
-    return {
-      kind: "raw",
-      text: normalizedPatch,
-      reason: "Unsupported diff format. Showing raw patch.",
-    };
-  } catch {
-    return {
-      kind: "raw",
-      text: normalizedPatch,
-      reason: "Failed to parse patch. Showing raw patch.",
-    };
-  }
-}
-
-function resolveFileDiffPath(fileDiff: FileDiffMetadata): string {
-  const raw = fileDiff.name ?? fileDiff.prevName ?? "";
-  if (raw.startsWith("a/") || raw.startsWith("b/")) {
-    return raw.slice(2);
-  }
-  return raw;
-}
-
-function buildFileDiffRenderKey(fileDiff: FileDiffMetadata): string {
-  return fileDiff.cacheKey ?? `${fileDiff.prevName ?? "none"}:${fileDiff.name}`;
-}
-
 interface DiffPanelProps {
   mode?: DiffPanelMode;
+}
+
+function DiffTotalsLabel(props: { files: number; additions: number; deletions: number }) {
+  return (
+    <div className="flex items-center gap-2 text-[11px] font-medium">
+      <span className="text-muted-foreground/75">
+        {props.files} file{props.files === 1 ? "" : "s"}
+      </span>
+      <span className="text-emerald-500/85">+{props.additions}</span>
+      <span className="text-red-500/80">-{props.deletions}</span>
+    </div>
+  );
 }
 
 export { DiffWorkerPoolProvider } from "./DiffWorkerPoolProvider";
@@ -263,8 +163,38 @@ export default function DiffPanel({ mode = "inline" }: DiffPanelProps) {
       enabled: isGitRepo && showWorkspaceFallback,
     }),
   );
+  const workspaceSourceStats = useMemo(() => {
+    if (!gitStatusQuery.data) return null;
+    return {
+      files: gitStatusQuery.data.workingTree.files.length,
+      additions: gitStatusQuery.data.workingTree.insertions,
+      deletions: gitStatusQuery.data.workingTree.deletions,
+    };
+  }, [gitStatusQuery.data]);
+  const agentSourceStats = useMemo(() => {
+    if (selectedTurn) {
+      return summarizeDiffFileSummaries(selectedTurn.files);
+    }
+
+    if (activeAgentDiffQuery.data) {
+      return summarizeDiffFileSummaries(activeAgentDiffQuery.data.files);
+    }
+
+    return null;
+  }, [activeAgentDiffQuery.data, selectedTurn]);
+  const sourceStats = diffMode === "workspace" ? workspaceSourceStats : agentSourceStats;
+  const sourceDiffComplexity = classifyDiffComplexity({
+    files: sourceStats?.files ?? 0,
+    additions: sourceStats?.additions ?? 0,
+    deletions: sourceStats?.deletions ?? 0,
+  });
+  const shouldUseLiveWorkspaceRefresh =
+    diffMode === "workspace" && sourceDiffComplexity === "normal";
   const workspaceDiffQuery = useQuery(
-    gitWorkingTreeDiffQueryOptions(activeCwd ?? null, diffMode === "workspace" && isGitRepo),
+    gitWorkingTreeDiffQueryOptions(activeCwd ?? null, {
+      enabled: diffMode === "workspace" && isGitRepo,
+      live: shouldUseLiveWorkspaceRefresh,
+    }),
   );
   const selectedPatch =
     diffMode === "workspace"
@@ -274,6 +204,24 @@ export default function DiffPanel({ mode = "inline" }: DiffPanelProps) {
         : selectedTurn
           ? activeAgentDiffQuery.data?.diff
           : activeAgentDiffQuery.data?.diff;
+  const selectedPatchIdentity = useMemo(
+    () =>
+      typeof selectedPatch === "string"
+        ? buildPatchCacheKey(selectedPatch, `selection:${diffMode}`)
+        : "pending",
+    [diffMode, selectedPatch],
+  );
+  const activeDiffIdentity = `${activeThreadId ?? "none"}:${diffMode}:${selectedTurn?.turnId ?? "all"}:${showWorkspaceFallback ? "fallback" : "direct"}:${selectedPatchIdentity}`;
+  const [deferredDiffRenderKey, setDeferredDiffRenderKey] = useState<string | null>(null);
+  useEffect(() => {
+    setDeferredDiffRenderKey(null);
+  }, [activeDiffIdentity]);
+  const diffComplexity = classifyDiffComplexity({
+    files: sourceStats?.files ?? 0,
+    additions: sourceStats?.additions ?? 0,
+    deletions: sourceStats?.deletions ?? 0,
+    ...(typeof selectedPatch === "string" ? { patchChars: selectedPatch.length } : {}),
+  });
   const isLoadingPatch =
     diffMode === "workspace"
       ? workspaceDiffQuery.isLoading
@@ -300,9 +248,18 @@ export default function DiffPanel({ mode = "inline" }: DiffPanelProps) {
             : null;
   const hasResolvedPatch = typeof selectedPatch === "string";
   const hasNoNetChanges = hasResolvedPatch && selectedPatch.trim().length === 0;
+  const isWholeThreadNetDiffUnavailable =
+    diffMode === "agent" &&
+    selectedTurn === undefined &&
+    activeAgentDiffQuery.data?.coverage === "unavailable";
+  const showDeferredRenderCard =
+    shouldDeferDiffRendering(diffComplexity) && deferredDiffRenderKey !== activeDiffIdentity;
   const renderablePatch = useMemo(
-    () => getRenderablePatch(selectedPatch, `diff-panel:${resolvedTheme}`),
-    [resolvedTheme, selectedPatch],
+    () =>
+      showDeferredRenderCard
+        ? null
+        : getRenderablePatch(selectedPatch, `diff-panel:${resolvedTheme}`),
+    [resolvedTheme, selectedPatch, showDeferredRenderCard],
   );
   const renderableFiles = useMemo(() => {
     if (!renderablePatch || renderablePatch.kind !== "files") {
@@ -315,6 +272,35 @@ export default function DiffPanel({ mode = "inline" }: DiffPanelProps) {
       }),
     );
   }, [renderablePatch]);
+  const viewDiffTotals = useMemo(() => {
+    if (renderableFiles.length > 0) {
+      return renderableFiles.reduce(
+        (totals, file) => {
+          const stats = summarizeFileDiff(file);
+          return {
+            files: totals.files + 1,
+            additions: totals.additions + stats.additions,
+            deletions: totals.deletions + stats.deletions,
+          };
+        },
+        { files: 0, additions: 0, deletions: 0 },
+      );
+    }
+
+    if (sourceStats) {
+      return {
+        files: sourceStats.files,
+        additions: sourceStats.additions,
+        deletions: sourceStats.deletions,
+      };
+    }
+
+    if (hasNoNetChanges) {
+      return { files: 0, additions: 0, deletions: 0 };
+    }
+
+    return null;
+  }, [hasNoNetChanges, renderableFiles, sourceStats]);
 
   useEffect(() => {
     if (diffOpen && !previousDiffOpenRef.current) {
@@ -442,13 +428,16 @@ export default function DiffPanel({ mode = "inline" }: DiffPanelProps) {
   }, [selectedTurn?.turnId, selectedTurnId]);
 
   const headerRow = (
-    <>
-      <div className="relative min-w-0 flex-1 [-webkit-app-region:no-drag]">
-        <div className="mb-1 flex items-center gap-1">
+    <div className="flex min-w-0 flex-1 flex-col gap-2 [-webkit-app-region:no-drag]">
+      <div className="grid grid-cols-[1fr_auto_1fr] items-center gap-2">
+        <div className="flex min-w-0 items-center">
+          {viewDiffTotals ? <DiffTotalsLabel {...viewDiffTotals} /> : null}
+        </div>
+        <div className="flex justify-center">
           <ToggleGroup
             className="shrink-0"
             variant="outline"
-            size="xs"
+            size="sm"
             value={[diffMode]}
             onValueChange={(value) => {
               const next = value[0];
@@ -457,16 +446,60 @@ export default function DiffPanel({ mode = "inline" }: DiffPanelProps) {
               }
             }}
           >
-            <Toggle aria-label="Agent diff mode" value="agent">
+            <Toggle aria-label="Agent diff mode" value="agent" className="min-w-16 px-4">
               Agent
             </Toggle>
-            <Toggle aria-label="Workspace diff mode" value="workspace">
-              Workspace
+            <Toggle
+              aria-label="Full workspace diff mode"
+              value="workspace"
+              className="min-w-14 px-4"
+            >
+              Full
             </Toggle>
           </ToggleGroup>
         </div>
+        <div className="flex justify-end gap-1">
+          {diffMode === "workspace" && !shouldUseLiveWorkspaceRefresh ? (
+            <Button size="xs" variant="outline" onClick={() => void workspaceDiffQuery.refetch()}>
+              Refresh
+            </Button>
+          ) : null}
+          <ToggleGroup
+            className="shrink-0"
+            variant="outline"
+            size="xs"
+            value={[diffRenderMode]}
+            onValueChange={(value) => {
+              const next = value[0];
+              if (next === "stacked" || next === "split") {
+                setDiffRenderMode(next);
+              }
+            }}
+          >
+            <Toggle aria-label="Stacked diff view" value="stacked">
+              <Rows3Icon className="size-3" />
+            </Toggle>
+            <Toggle aria-label="Split diff view" value="split">
+              <Columns2Icon className="size-3" />
+            </Toggle>
+          </ToggleGroup>
+          <Toggle
+            aria-label={diffWordWrap ? "Disable diff line wrapping" : "Enable diff line wrapping"}
+            title={diffWordWrap ? "Disable line wrapping" : "Enable line wrapping"}
+            variant="outline"
+            size="xs"
+            pressed={diffWordWrap}
+            onPressedChange={(pressed) => {
+              setDiffWordWrap(Boolean(pressed));
+            }}
+          >
+            <TextWrapIcon className="size-3" />
+          </Toggle>
+        </div>
+      </div>
+      <div className="relative min-w-0 flex-1">
         {diffMode === "agent" ? (
-          <>
+          <div>
             {canScrollTurnStripLeft && (
               <div className="pointer-events-none absolute inset-y-0 left-8 z-10 w-7 bg-linear-to-r from-card to-transparent" />
             )}
@@ -555,47 +588,10 @@ export default function DiffPanel({ mode = "inline" }: DiffPanelProps) {
                 </button>
               ))}
             </div>
-          </>
-        ) : (
-          <div className="px-1 py-1 text-[11px] text-muted-foreground/70">
-            Live working tree diff vs HEAD
           </div>
-        )}
+        ) : null}
       </div>
-      <div className="flex shrink-0 items-center gap-1 [-webkit-app-region:no-drag]">
-        <ToggleGroup
-          className="shrink-0"
-          variant="outline"
-          size="xs"
-          value={[diffRenderMode]}
-          onValueChange={(value) => {
-            const next = value[0];
-            if (next === "stacked" || next === "split") {
-              setDiffRenderMode(next);
-            }
-          }}
-        >
-          <Toggle aria-label="Stacked diff view" value="stacked">
-            <Rows3Icon className="size-3" />
-          </Toggle>
-          <Toggle aria-label="Split diff view" value="split">
-            <Columns2Icon className="size-3" />
-          </Toggle>
-        </ToggleGroup>
-        <Toggle
-          aria-label={diffWordWrap ? "Disable diff line wrapping" : "Enable diff line wrapping"}
-          title={diffWordWrap ? "Disable line wrapping" : "Enable line wrapping"}
-          variant="outline"
-          size="xs"
-          pressed={diffWordWrap}
-          onPressedChange={(pressed) => {
-            setDiffWordWrap(Boolean(pressed));
-          }}
-        >
-          <TextWrapIcon className="size-3" />
-        </Toggle>
-      </div>
-    </>
+    </div>
   );
 
   return (
@@ -632,70 +628,77 @@ export default function DiffPanel({ mode = "inline" }: DiffPanelProps) {
               </div>
             )}
             {!renderablePatch ? (
-              isLoadingPatch ? (
+              showDeferredRenderCard ? (
+                <div className="flex h-full items-center justify-center px-4 py-3">
+                  <div className="w-full max-w-sm rounded-lg border border-border/70 bg-card/50 p-4">
+                    <p className="text-sm font-medium text-foreground/90">This diff is huge.</p>
+                    <p className="mt-1 text-[11px] text-muted-foreground/70">
+                      Rich rendering is deferred to keep the UI responsive.
+                    </p>
+                    {viewDiffTotals ? (
+                      <div className="mt-3">
+                        <DiffTotalsLabel {...viewDiffTotals} />
+                      </div>
+                    ) : null}
+                    <div className="mt-4 flex gap-2">
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        onClick={() => setDeferredDiffRenderKey(activeDiffIdentity)}
+                      >
+                        Render diff
+                      </Button>
+                      {diffMode === "workspace" && !shouldUseLiveWorkspaceRefresh ? (
+                        <Button
+                          size="sm"
+                          variant="ghost"
+                          onClick={() => void workspaceDiffQuery.refetch()}
+                        >
+                          Refresh
+                        </Button>
+                      ) : null}
+                    </div>
+                  </div>
+                </div>
+              ) : isLoadingPatch ? (
                 <DiffPanelLoadingState
-                  label={
+                  label={getDiffLoadingLabel(
                     diffMode === "workspace"
                       ? "Loading workspace diff..."
                       : showWorkspaceFallback
                         ? "Loading workspace fallback diff..."
-                        : "Loading agent diff..."
-                  }
+                        : "Loading agent diff...",
+                    diffComplexity,
+                  )}
                 />
               ) : (
                 <div className="flex h-full items-center justify-center px-3 py-2 text-xs text-muted-foreground/70">
                   <p>
-                    {hasNoNetChanges
-                      ? diffMode === "workspace"
-                        ? "Working tree is clean."
-                        : "No net changes in this selection."
-                      : "No patch available for this selection."}
+                    {isWholeThreadNetDiffUnavailable
+                      ? "No net diff available for this agent yet."
+                      : hasNoNetChanges
+                        ? diffMode === "workspace"
+                          ? "Working tree is clean."
+                          : "No net changes in this selection."
+                        : "No patch available for this selection."}
                   </p>
                 </div>
               )
             ) : renderablePatch.kind === "files" ? (
-              <Virtualizer
-                className="diff-render-surface h-full min-h-0 overflow-auto px-2 pb-2"
-                config={{
-                  overscrollSize: 600,
-                  intersectionObserverMargin: 1200,
-                }}
-              >
-                {renderableFiles.map((fileDiff) => {
-                  const filePath = resolveFileDiffPath(fileDiff);
-                  const fileKey = buildFileDiffRenderKey(fileDiff);
-                  const themedFileKey = `${fileKey}:${resolvedTheme}`;
-                  return (
-                    <div
-                      key={themedFileKey}
-                      data-diff-file-path={filePath}
-                      className="diff-render-file mb-2 rounded-md first:mt-2 last:mb-0"
-                      onClickCapture={(event) => {
-                        const nativeEvent = event.nativeEvent as MouseEvent;
-                        const composedPath = nativeEvent.composedPath?.() ?? [];
-                        const clickedHeader = composedPath.some((node) => {
-                          if (!(node instanceof Element)) return false;
-                          return node.hasAttribute("data-title");
-                        });
-                        if (!clickedHeader) return;
-                        openDiffFileInEditor(filePath);
-                      }}
-                    >
-                      <FileDiff
-                        fileDiff={fileDiff}
-                        options={{
-                          diffStyle: diffRenderMode === "split" ? "split" : "unified",
-                          lineDiffType: "none",
-                          overflow: diffWordWrap ? "wrap" : "scroll",
-                          theme: resolveDiffThemeName(resolvedTheme),
-                          themeType: resolvedTheme as DiffThemeType,
-                          unsafeCSS: DIFF_PANEL_UNSAFE_CSS,
-                        }}
-                      />
-                    </div>
-                  );
-                })}
-              </Virtualizer>
+              <CollapsibleFileDiffList
+                files={renderableFiles}
+                resolvedTheme={resolvedTheme}
+                diffRenderMode={diffRenderMode}
+                diffWordWrap={diffWordWrap}
+                selectedFilePath={selectedFilePath}
+                onOpenFile={openDiffFileInEditor}
+                virtualized={true}
+                className="diff-render-surface"
+                defaultExpandMode={
+                  shouldDefaultCollapseDiffFiles(diffComplexity) ? "selected-only" : "all"
+                }
+                confirmExpandAll={diffComplexity !== "normal"}
+              />
             ) : (
               <div className="h-full overflow-auto p-2">
                 <div className="space-y-2">

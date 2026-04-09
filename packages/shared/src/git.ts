@@ -13,8 +13,8 @@ export function isForgeTemporaryWorktreeBranch(branch: string): boolean {
 }
 
 /**
- * Sanitize an arbitrary string into a valid, lowercase git branch fragment.
- * Strips quotes, collapses separators, limits to 64 chars.
+ * Normalize arbitrary input into a valid lowercase git branch fragment.
+ * Strips quotes, collapses separators, and caps the result at 64 chars.
  */
 export function sanitizeBranchFragment(raw: string): string {
   const normalized = raw
@@ -75,7 +75,7 @@ export function resolveAutoFeatureBranchName(
 }
 
 /**
- * Strip the remote prefix from a remote ref such as `origin/feature/demo`.
+ * Drop the leading remote name from refs such as `origin/feature/demo`.
  */
 export function deriveLocalBranchNameFromRemoteRef(branchName: string): string {
   const firstSeparatorIndex = branchName.indexOf("/");
@@ -106,7 +106,7 @@ function deriveLocalBranchNameCandidatesFromRemoteRef(
 }
 
 /**
- * Hide `origin/*` remote refs when a matching local branch already exists.
+ * Filter `origin/*` remote refs when an equivalent local branch already exists.
  */
 export function dedupeRemoteBranchesWithLocalMatches(
   branches: ReadonlyArray<GitBranch>,

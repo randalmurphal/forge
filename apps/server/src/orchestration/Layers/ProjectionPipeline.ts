@@ -2109,7 +2109,11 @@ const makeOrchestrationProjectionPipeline = Effect.fn("makeOrchestrationProjecti
       "applyAgentDiffsProjection",
     )(function* (event, _attachmentSideEffects) {
       switch (event.type) {
-        case "thread.agent-diff-upserted":
+        case "thread.agent-diff-upserted": {
+          const existingAgentDiff = yield* projectionAgentDiffRepository.getByTurnId({
+            threadId: event.payload.threadId,
+            turnId: event.payload.turnId,
+          });
           yield* projectionAgentDiffRepository.upsert({
             threadId: event.payload.threadId,
             turnId: event.payload.turnId,
@@ -2117,9 +2121,32 @@ const makeOrchestrationProjectionPipeline = Effect.fn("makeOrchestrationProjecti
             files: event.payload.files,
             source: event.payload.source,
             coverage: event.payload.coverage,
+            assistantMessageId:
+              event.payload.assistantMessageId ??
+              Option.getOrUndefined(existingAgentDiff)?.assistantMessageId ??
+              null,
             completedAt: event.payload.completedAt,
           });
           return;
+        }
+
+        case "thread.message-sent": {
+          if (event.payload.role !== "assistant" || event.payload.turnId === null) {
+            return;
+          }
+          const existingAgentDiff = yield* projectionAgentDiffRepository.getByTurnId({
+            threadId: event.payload.threadId,
+            turnId: event.payload.turnId,
+          });
+          if (Option.isNone(existingAgentDiff)) {
+            return;
+          }
+          yield* projectionAgentDiffRepository.upsert({
+            ...existingAgentDiff.value,
+            assistantMessageId: event.payload.messageId,
+          });
+          return;
+        }
 
         case "thread.reverted": {
           const existingTurns = yield* projectionTurnRepository.listByThreadId({
