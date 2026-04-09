@@ -15,6 +15,8 @@ export {
   BootstrapFailedRequestResolution,
   CorrectionNeededRequestPayload,
   CorrectionNeededRequestResolution,
+  DesignOptionRequestPayload,
+  DesignOptionRequestResolution,
   GateRequestPayload,
   GateRequestResolution,
   InteractiveRequest,

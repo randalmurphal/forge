@@ -97,6 +97,29 @@ export interface Project {
   scripts: ProjectScript[];
 }
 
+export interface DesignArtifact {
+  artifactId: string;
+  title: string;
+  description: string | null;
+  artifactPath: string;
+  renderedAt: string;
+}
+
+export interface DesignOption {
+  id: string;
+  title: string;
+  description: string;
+  artifactId: string;
+  artifactPath: string;
+}
+
+export interface DesignPendingOptions {
+  requestId: string;
+  prompt: string;
+  options: DesignOption[];
+  chosenOptionId: string | null;
+}
+
 export interface Thread {
   id: ThreadId;
   codexThreadId: string | null;
@@ -126,6 +149,8 @@ export interface Thread {
   spawnMode?: ThreadSpawnMode;
   spawnBranch?: string | null;
   spawnWorktreePath?: string | null;
+  designArtifacts: DesignArtifact[];
+  designPendingOptions: DesignPendingOptions | null;
   agentDiffSummaries?: TurnDiffSummary[];
   turnDiffSummaries: TurnDiffSummary[];
   activities: OrchestrationThreadActivity[];

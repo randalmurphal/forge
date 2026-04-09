@@ -54,6 +54,7 @@ import { ProviderCommandReactorLive } from "../src/orchestration/Layers/Provider
 import { ProviderRuntimeIngestionLive } from "../src/orchestration/Layers/ProviderRuntimeIngestion.ts";
 import { BootstrapReactor } from "../src/orchestration/Services/BootstrapReactor.ts";
 import { ChannelReactor } from "../src/orchestration/Services/ChannelReactor.ts";
+import { DesignModeReactor } from "../src/orchestration/Services/DesignModeReactor.ts";
 import { DiscussionReactor } from "../src/orchestration/Services/DiscussionReactor.ts";
 import {
   OrchestrationEngineService,
@@ -316,11 +317,18 @@ export const makeOrchestrationIntegrationHarness = (
       generateBranchName: () => Effect.succeed({ branch: "update" }),
       generateThreadTitle: () => Effect.succeed({ title: "New thread" }),
     } as unknown as TextGenerationShape);
+    const designModeReactorLayer = Layer.succeed(DesignModeReactor, {
+      start: () => Effect.void,
+      setupDesignMode: () => {},
+      teardownDesignMode: () => {},
+      drain: Effect.void,
+    });
     const providerCommandReactorLayer = ProviderCommandReactorLive.pipe(
       Layer.provideMerge(runtimeServicesLayer),
       Layer.provideMerge(gitCoreLayer),
       Layer.provideMerge(textGenerationLayer),
       Layer.provideMerge(serverSettingsLayer),
+      Layer.provideMerge(designModeReactorLayer),
     );
     const checkpointReactorLayer = CheckpointReactorLive.pipe(
       Layer.provideMerge(runtimeServicesLayer),
@@ -361,6 +369,7 @@ export const makeOrchestrationIntegrationHarness = (
           drain: Effect.void,
         }),
       ),
+      Layer.provideMerge(designModeReactorLayer),
     );
     const layer = Layer.empty.pipe(
       Layer.provideMerge(runtimeServicesLayer),

@@ -22,7 +22,7 @@ import {
   type CodexAppServerSendTurnInput,
 } from "../../codexAppServerManager.ts";
 import { ServerConfig } from "../../config.ts";
-import { registerPendingMcpServer } from "../../discussion/pendingMcpServers.ts";
+import { registerPendingMcpServer } from "../pendingMcpServers.ts";
 import { ServerSettingsService } from "../../serverSettings.ts";
 import { ProviderAdapterValidationError } from "../Errors.ts";
 import { CodexAdapter } from "../Services/CodexAdapter.ts";

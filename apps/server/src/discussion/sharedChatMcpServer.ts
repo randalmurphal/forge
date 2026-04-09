@@ -1,16 +1,8 @@
-import { existsSync } from "node:fs";
-import { resolve } from "node:path";
-
 import { createSdkMcpServer, tool } from "@anthropic-ai/claude-agent-sdk";
 import { z } from "zod/v4";
 
-type McpTextResult = {
-  content: Array<{
-    type: "text";
-    text: string;
-  }>;
-  readonly isError?: boolean;
-};
+import { resolveForgeCliCommand } from "../mcp/cliEntrypoint.ts";
+import { catchToErrorResult, textResult } from "../mcp/mcpHelpers.ts";
 
 export interface SharedChatMcpServerInput {
   readonly serverName?: string;
@@ -22,68 +14,6 @@ export interface SharedChatMcpServerInput {
 
 const DEFAULT_SERVER_NAME = "forge-shared-chat";
 const SHARED_CHAT_MCP_SUBCOMMAND = "shared-chat-mcp";
-
-function resolveForgeCliEntrypoint(): string {
-  const currentEntrypoint = process.argv[1];
-  if (currentEntrypoint && existsSync(currentEntrypoint)) {
-    return currentEntrypoint;
-  }
-
-  const candidates = [
-    resolve(import.meta.dirname, "../bin.ts"),
-    resolve(import.meta.dirname, "../bin.mjs"),
-    resolve(import.meta.dirname, "../bin.js"),
-  ];
-
-  for (const candidate of candidates) {
-    if (existsSync(candidate)) {
-      return candidate;
-    }
-  }
-
-  throw new Error("Could not resolve the Forge CLI entrypoint for shared chat MCP.");
-}
-
-function resolveForgeCliCommand(): {
-  readonly command: string;
-  readonly args: readonly [string, string];
-} {
-  return {
-    command: process.execPath,
-    args: [resolveForgeCliEntrypoint(), SHARED_CHAT_MCP_SUBCOMMAND],
-  };
-}
-
-function toTextResult(input: {
-  readonly content: string;
-  readonly success: boolean;
-}): McpTextResult {
-  return {
-    ...(input.success ? {} : { isError: true }),
-    content: [
-      {
-        type: "text",
-        text: input.content,
-      },
-    ],
-  };
-}
-
-function toErrorTextResult(cause: unknown): McpTextResult {
-  const message =
-    cause instanceof Error && cause.message.length > 0
-      ? cause.message
-      : "Shared chat MCP tool failed.";
-  return {
-    isError: true,
-    content: [
-      {
-        type: "text",
-        text: message,
-      },
-    ],
-  };
-}
 
 export function makeSharedChatMcpServer(input: SharedChatMcpServerInput) {
   return createSdkMcpServer({
@@ -98,9 +28,9 @@ export function makeSharedChatMcpServer(input: SharedChatMcpServerInput) {
         },
         async (args) => {
           try {
-            return toTextResult(await input.onPostMessage(args));
+            return textResult(await input.onPostMessage(args));
           } catch (cause) {
-            return toErrorTextResult(cause);
+            return catchToErrorResult(cause, "Shared chat MCP tool failed.");
           }
         },
       ),
@@ -115,7 +45,7 @@ export function makeSharedChatCodexMcpServerConfig(input: {
   readonly serverName?: string;
 }) {
   const serverName = input.serverName ?? DEFAULT_SERVER_NAME;
-  const command = resolveForgeCliCommand();
+  const command = resolveForgeCliCommand(SHARED_CHAT_MCP_SUBCOMMAND);
 
   return {
     command: command.command,

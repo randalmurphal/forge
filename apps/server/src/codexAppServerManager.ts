@@ -348,7 +348,7 @@ export function normalizeCodexModelSlug(
 }
 
 function buildCodexCollaborationMode(input: {
-  readonly interactionMode?: "default" | "plan";
+  readonly interactionMode?: ProviderInteractionMode;
   readonly model?: string;
   readonly effort?: string;
 }):
@@ -361,7 +361,7 @@ function buildCodexCollaborationMode(input: {
       };
     }
   | undefined {
-  if (input.interactionMode === undefined) {
+  if (input.interactionMode === undefined || input.interactionMode === "design") {
     return undefined;
   }
   const model = normalizeCodexModelSlug(input.model) ?? "gpt-5.3-codex";

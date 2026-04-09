@@ -5,6 +5,7 @@ import {
   ChannelMessageId,
   CheckpointRef,
   CommandId,
+  DesignArtifactId,
   EventId,
   InteractiveRequestId,
   IsoDateTime,
@@ -61,7 +62,7 @@ export type RuntimeMode = typeof RuntimeMode.Type;
 export const DEFAULT_RUNTIME_MODE: RuntimeMode = "full-access";
 export const ThreadSpawnMode = Schema.Literals(["local", "worktree"]);
 export type ThreadSpawnMode = typeof ThreadSpawnMode.Type;
-export const ProviderInteractionMode = Schema.Literals(["default", "plan"]);
+export const ProviderInteractionMode = Schema.Literals(["default", "plan", "design"]);
 export type ProviderInteractionMode = typeof ProviderInteractionMode.Type;
 export const DEFAULT_PROVIDER_INTERACTION_MODE: ProviderInteractionMode = "default";
 export const ProviderRequestKind = Schema.Literals(["command", "file-read", "file-change"]);
@@ -1122,6 +1123,49 @@ export const RequestMarkStaleCommand = Schema.Struct({
 });
 export type RequestMarkStaleCommand = typeof RequestMarkStaleCommand.Type;
 
+export const DesignOptionSchema = Schema.Struct({
+  id: TrimmedNonEmptyString,
+  title: TrimmedNonEmptyString,
+  description: Schema.String,
+  artifactId: DesignArtifactId,
+  artifactPath: Schema.String,
+});
+export type DesignOptionSchema = typeof DesignOptionSchema.Type;
+
+export const ThreadDesignArtifactRenderedCommand = Schema.Struct({
+  type: Schema.Literal("thread.design.artifact-rendered"),
+  commandId: CommandId,
+  threadId: ThreadId,
+  artifactId: DesignArtifactId,
+  title: TrimmedNonEmptyString,
+  description: Schema.NullOr(Schema.String),
+  artifactPath: Schema.String,
+  createdAt: IsoDateTime,
+});
+export type ThreadDesignArtifactRenderedCommand = typeof ThreadDesignArtifactRenderedCommand.Type;
+
+export const ThreadDesignOptionsPresentedCommand = Schema.Struct({
+  type: Schema.Literal("thread.design.options-presented"),
+  commandId: CommandId,
+  threadId: ThreadId,
+  requestId: InteractiveRequestId,
+  prompt: Schema.String,
+  options: Schema.Array(DesignOptionSchema),
+  createdAt: IsoDateTime,
+});
+export type ThreadDesignOptionsPresentedCommand = typeof ThreadDesignOptionsPresentedCommand.Type;
+
+export const ThreadDesignOptionChosenCommand = Schema.Struct({
+  type: Schema.Literal("thread.design.option-chosen"),
+  commandId: CommandId,
+  threadId: ThreadId,
+  requestId: InteractiveRequestId,
+  chosenOptionId: TrimmedNonEmptyString,
+  chosenTitle: TrimmedNonEmptyString,
+  createdAt: IsoDateTime,
+});
+export type ThreadDesignOptionChosenCommand = typeof ThreadDesignOptionChosenCommand.Type;
+
 const DispatchableClientOrchestrationCommand = Schema.Union([
   ProjectCreateCommand,
   ProjectMetaUpdateCommand,
@@ -1314,6 +1358,9 @@ const ForgeInternalOrchestrationCommand = Schema.Union([
   ChannelCloseCommand,
   RequestOpenCommand,
   RequestMarkStaleCommand,
+  ThreadDesignArtifactRenderedCommand,
+  ThreadDesignOptionsPresentedCommand,
+  ThreadDesignOptionChosenCommand,
 ]);
 
 export const ForgeCommand = Schema.Union([
@@ -1888,6 +1935,9 @@ export const ForgeEventType = Schema.Union([
     "request.opened",
     "request.resolved",
     "request.stale",
+    "thread.design.artifact-rendered",
+    "thread.design.options-presented",
+    "thread.design.option-chosen",
   ]),
 ]);
 export type ForgeEventType = typeof ForgeEventType.Type;
@@ -2131,6 +2181,34 @@ export const InteractiveRequestStalePayload = Schema.Struct({
 });
 export type InteractiveRequestStalePayload = typeof InteractiveRequestStalePayload.Type;
 
+export const ThreadDesignArtifactRenderedPayload = Schema.Struct({
+  threadId: ThreadId,
+  artifactId: DesignArtifactId,
+  title: TrimmedNonEmptyString,
+  description: Schema.NullOr(Schema.String),
+  artifactPath: Schema.String,
+  renderedAt: IsoDateTime,
+});
+export type ThreadDesignArtifactRenderedPayload = typeof ThreadDesignArtifactRenderedPayload.Type;
+
+export const ThreadDesignOptionsPresentedPayload = Schema.Struct({
+  threadId: ThreadId,
+  requestId: InteractiveRequestId,
+  prompt: Schema.String,
+  options: Schema.Array(DesignOptionSchema),
+  presentedAt: IsoDateTime,
+});
+export type ThreadDesignOptionsPresentedPayload = typeof ThreadDesignOptionsPresentedPayload.Type;
+
+export const ThreadDesignOptionChosenPayload = Schema.Struct({
+  threadId: ThreadId,
+  requestId: InteractiveRequestId,
+  chosenOptionId: TrimmedNonEmptyString,
+  chosenTitle: TrimmedNonEmptyString,
+  chosenAt: IsoDateTime,
+});
+export type ThreadDesignOptionChosenPayload = typeof ThreadDesignOptionChosenPayload.Type;
+
 const ForgeEventBaseFields = {
   sequence: NonNegativeInt,
   eventId: EventId,
@@ -2369,6 +2447,21 @@ export const ForgeEvent = Schema.Union([
     ...ForgeEventBaseFields,
     type: Schema.Literal("request.stale"),
     payload: InteractiveRequestStalePayload,
+  }),
+  Schema.Struct({
+    ...ForgeEventBaseFields,
+    type: Schema.Literal("thread.design.artifact-rendered"),
+    payload: ThreadDesignArtifactRenderedPayload,
+  }),
+  Schema.Struct({
+    ...ForgeEventBaseFields,
+    type: Schema.Literal("thread.design.options-presented"),
+    payload: ThreadDesignOptionsPresentedPayload,
+  }),
+  Schema.Struct({
+    ...ForgeEventBaseFields,
+    type: Schema.Literal("thread.design.option-chosen"),
+    payload: ThreadDesignOptionChosenPayload,
   }),
 ]);
 export type ForgeEvent = typeof ForgeEvent.Type;

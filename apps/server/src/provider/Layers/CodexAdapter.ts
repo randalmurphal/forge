@@ -39,7 +39,7 @@ import {
 } from "../../codexAppServerManager.ts";
 import { resolveAttachmentPath } from "../../attachmentStore.ts";
 import { ServerConfig } from "../../config.ts";
-import { getPendingMcpServer } from "../../discussion/pendingMcpServers.ts";
+import { getPendingMcpServer } from "../pendingMcpServers.ts";
 import { ServerSettingsService } from "../../serverSettings.ts";
 import { type EventNdjsonLogger, makeEventNdjsonLogger } from "./EventNdjsonLogger.ts";
 

@@ -12,6 +12,7 @@ import { Effect, Schema } from "effect";
 import * as SqlClient from "effect/unstable/sql/SqlClient";
 import { z } from "zod/v4";
 
+import { catchToErrorResult, stringifyResult, type McpTextResult } from "../../mcp/mcpHelpers.ts";
 import { OrchestrationEngineService } from "../../orchestration/Services/OrchestrationEngine.ts";
 import { ChannelServiceChannelNotFoundError } from "../Errors.ts";
 import { ChannelService } from "../Services/ChannelService.ts";
@@ -19,14 +20,6 @@ import { ChannelService } from "../Services/ChannelService.ts";
 const TOOL_CALL_PROVIDER = "claudeAgent";
 const DEFAULT_SERVER_NAME = "forge-channels";
 const decodePositiveInt = Schema.decodeSync(PositiveInt);
-
-type McpTextResult = {
-  content: Array<{
-    type: "text";
-    text: string;
-  }>;
-  readonly isError?: boolean;
-};
 
 export interface McpChannelServerInput {
   readonly channelId: ChannelId;
@@ -48,40 +41,6 @@ export interface McpChannelServerRuntime {
 
 function nowIso(): string {
   return new Date().toISOString();
-}
-
-function stringifyResult(payload: unknown): McpTextResult {
-  return {
-    content: [
-      {
-        type: "text",
-        text: JSON.stringify(payload),
-      },
-    ],
-  };
-}
-
-function errorResult(message: string): McpTextResult {
-  return {
-    isError: true,
-    content: [
-      {
-        type: "text",
-        text: message,
-      },
-    ],
-  };
-}
-
-function toMessage(cause: unknown, fallback: string): string {
-  if (cause instanceof Error && cause.message.length > 0) {
-    return cause.message;
-  }
-  return fallback;
-}
-
-function toJsonTextResult(cause: unknown): McpTextResult {
-  return errorResult(toMessage(cause, "Channel MCP tool failed."));
 }
 
 function idempotencyKey(
@@ -279,7 +238,7 @@ export const makeChannelMcpToolHandlers = Effect.fn("makeChannelMcpToolHandlers"
           });
         });
       } catch (cause) {
-        return toJsonTextResult(cause);
+        return catchToErrorResult(cause, "Channel MCP tool failed.");
       }
     },
 
@@ -315,7 +274,7 @@ export const makeChannelMcpToolHandlers = Effect.fn("makeChannelMcpToolHandlers"
           },
         );
       } catch (cause) {
-        return toJsonTextResult(cause);
+        return catchToErrorResult(cause, "Channel MCP tool failed.");
       }
     },
 
@@ -356,7 +315,7 @@ export const makeChannelMcpToolHandlers = Effect.fn("makeChannelMcpToolHandlers"
           },
         );
       } catch (cause) {
-        return toJsonTextResult(cause);
+        return catchToErrorResult(cause, "Channel MCP tool failed.");
       }
     },
   };

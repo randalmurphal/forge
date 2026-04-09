@@ -15,6 +15,7 @@ export const InteractiveRequestType = Schema.Literals([
   "gate",
   "bootstrap-failed",
   "correction-needed",
+  "design-option",
 ]);
 export type InteractiveRequestType = typeof InteractiveRequestType.Type;
 
@@ -96,12 +97,33 @@ export const CorrectionNeededRequestResolution = Schema.Struct({
 });
 export type CorrectionNeededRequestResolution = typeof CorrectionNeededRequestResolution.Type;
 
+export const DesignOptionRequestPayload = Schema.Struct({
+  type: Schema.Literal("design-option"),
+  prompt: Schema.String,
+  options: Schema.Array(
+    Schema.Struct({
+      id: TrimmedNonEmptyString,
+      title: TrimmedNonEmptyString,
+      description: Schema.String,
+      artifactId: TrimmedNonEmptyString,
+      artifactPath: Schema.String,
+    }),
+  ),
+});
+export type DesignOptionRequestPayload = typeof DesignOptionRequestPayload.Type;
+
+export const DesignOptionRequestResolution = Schema.Struct({
+  chosenOptionId: TrimmedNonEmptyString,
+});
+export type DesignOptionRequestResolution = typeof DesignOptionRequestResolution.Type;
+
 export const InteractiveRequestPayload = Schema.Union([
   ApprovalRequestPayload,
   UserInputRequestPayload,
   GateRequestPayload,
   BootstrapFailedRequestPayload,
   CorrectionNeededRequestPayload,
+  DesignOptionRequestPayload,
 ]);
 export type InteractiveRequestPayload = typeof InteractiveRequestPayload.Type;
 
@@ -111,6 +133,7 @@ export const InteractiveRequestResolution = Schema.Union([
   GateRequestResolution,
   BootstrapFailedRequestResolution,
   CorrectionNeededRequestResolution,
+  DesignOptionRequestResolution,
 ]);
 export type InteractiveRequestResolution = typeof InteractiveRequestResolution.Type;
 

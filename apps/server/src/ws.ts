@@ -14,6 +14,7 @@ import {
   OrchestrationGetFullThreadDiffError,
   OrchestrationGetSnapshotError,
   OrchestrationGetTurnDiffError,
+  CommandId,
   ORCHESTRATION_WS_METHODS,
   ProjectSearchEntriesError,
   ProjectWriteFileError,
@@ -26,6 +27,7 @@ import {
   WS_METHODS,
   WsRpcGroup,
 } from "@forgetools/contracts";
+import { randomUUID } from "node:crypto";
 import { clamp } from "effect/Number";
 import { HttpRouter, HttpServerRequest, HttpServerResponse } from "effect/unstable/http";
 import { RpcSerialization, RpcServer } from "effect/unstable/rpc";
@@ -999,6 +1001,31 @@ const WsRpcLayer = WsRpcGroup.toLayer(
         observeRpcEffect(WS_METHODS.sessionGetChildren, loadChildren(sessionId), {
           "rpc.aggregate": "session",
         }),
+      [WS_METHODS.requestResolve]: (input) =>
+        observeRpcEffect(
+          WS_METHODS.requestResolve,
+          startup
+            .enqueueCommand(
+              orchestrationEngine.dispatch({
+                type: "request.resolve",
+                commandId: CommandId.makeUnsafe(`cmd:${randomUUID()}`),
+                requestId: input.requestId,
+                resolvedWith: input.resolvedWith,
+                createdAt: new Date().toISOString(),
+              } as any),
+            )
+            .pipe(
+              Effect.mapError((cause) =>
+                Schema.is(OrchestrationDispatchCommandError)(cause)
+                  ? cause
+                  : new OrchestrationDispatchCommandError({
+                      message: "Failed to resolve interactive request",
+                      cause,
+                    }),
+              ),
+            ),
+          { "rpc.aggregate": "request" },
+        ),
       [WS_METHODS.channelGetMessages]: ({ channelId, afterSequence, limit }) =>
         observeRpcEffect(
           WS_METHODS.channelGetMessages,

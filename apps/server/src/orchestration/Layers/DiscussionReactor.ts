@@ -14,8 +14,8 @@ import { resolveThreadSpawnWorkspace } from "@forgetools/shared/threadWorkspace"
 import { Cause, Effect, Layer, Option, Stream } from "effect";
 
 import { ServerConfig } from "../../config.ts";
-import { registerPendingMcpServer } from "../../discussion/pendingMcpServers.ts";
-import { registerPendingSystemPrompt } from "../../discussion/pendingSystemPrompt.ts";
+import { registerPendingMcpServer } from "../../provider/pendingMcpServers.ts";
+import { registerPendingSystemPrompt } from "../../provider/pendingSystemPrompt.ts";
 import {
   registerSharedChatBridge,
   SHARED_CHAT_BRIDGE_ROUTE,

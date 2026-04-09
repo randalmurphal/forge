@@ -67,7 +67,7 @@ import {
   getPendingMcpServer,
   type PendingMcpServerConfig,
   registerPendingMcpServer,
-} from "../../discussion/pendingMcpServers.ts";
+} from "../pendingMcpServers.ts";
 import { buildClaudeToolResultDiffFragment } from "../ClaudeTurnDiff.ts";
 import { ServerSettingsService } from "../../serverSettings.ts";
 import { getClaudeModelCapabilities } from "./ClaudeProvider.ts";

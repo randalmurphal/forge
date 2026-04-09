@@ -4,6 +4,7 @@ import {
   EventId,
   type ModelSelection,
   type OrchestrationEvent,
+  type ProviderInteractionMode,
   ProviderKind,
   type OrchestrationSession,
   ThreadId,
@@ -20,13 +21,15 @@ import {
 } from "@forgetools/shared/git";
 
 import { resolveThreadWorkspaceCwd } from "../../checkpointing/Utils.ts";
-import { getPendingSystemPrompt } from "../../discussion/pendingSystemPrompt.ts";
+import { ServerConfig } from "../../config.ts";
+import { getPendingSystemPrompt } from "../../provider/pendingSystemPrompt.ts";
 import { GitCore } from "../../git/Services/GitCore.ts";
 import { increment, orchestrationEventsProcessedTotal } from "../../observability/Metrics.ts";
 import { ProviderAdapterRequestError, ProviderServiceError } from "../../provider/Errors.ts";
 import { TextGeneration } from "../../git/Services/TextGeneration.ts";
 import { ProviderService } from "../../provider/Services/ProviderService.ts";
 import { OrchestrationEngineService } from "../Services/OrchestrationEngine.ts";
+import { DesignModeReactor } from "../Services/DesignModeReactor.ts";
 import {
   ProviderCommandReactor,
   type ProviderCommandReactorShape,
@@ -146,6 +149,8 @@ const make = Effect.gen(function* () {
   const git = yield* GitCore;
   const textGeneration = yield* TextGeneration;
   const serverSettingsService = yield* ServerSettingsService;
+  const designModeReactor = yield* DesignModeReactor;
+  const serverConfig = yield* ServerConfig;
   const handledTurnStartKeys = yield* Cache.make<string, true>({
     capacity: HANDLED_TURN_START_KEY_MAX,
     timeToLive: HANDLED_TURN_START_KEY_TTL,
@@ -359,7 +364,7 @@ const make = Effect.gen(function* () {
     readonly messageText: string;
     readonly attachments?: ReadonlyArray<ChatAttachment>;
     readonly modelSelection?: ModelSelection;
-    readonly interactionMode?: "default" | "plan";
+    readonly interactionMode?: ProviderInteractionMode;
     readonly createdAt: string;
   }) {
     const thread = yield* resolveThread(input.threadId);
@@ -564,6 +569,16 @@ const make = Effect.gen(function* () {
           ...generationInput,
         }).pipe(Effect.forkScoped);
       }
+    }
+
+    if (event.payload.interactionMode === "design") {
+      const effectiveProvider =
+        event.payload.modelSelection?.provider ?? thread.modelSelection.provider;
+      designModeReactor.setupDesignMode({
+        threadId: event.payload.threadId,
+        provider: effectiveProvider === "codex" ? "codex" : "claudeAgent",
+        artifactsBaseDir: serverConfig.artifactsDir,
+      });
     }
 
     yield* sendTurnForThread({

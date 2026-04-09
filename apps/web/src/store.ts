@@ -35,7 +35,13 @@ import {
   derivePendingApprovals,
   derivePendingUserInputs,
 } from "./session-logic";
-import { type ChatMessage, type Project, type SidebarThreadSummary, type Thread } from "./types";
+import {
+  type ChatMessage,
+  type DesignArtifact,
+  type Project,
+  type SidebarThreadSummary,
+  type Thread,
+} from "./types";
 
 // ── State ────────────────────────────────────────────────────────────
 
@@ -234,6 +240,8 @@ function mapThread(thread: OrchestrationThread): Thread {
     worktreePath: thread.worktreePath,
     spawnBranch: spawnWorkspace.branch,
     spawnWorktreePath: spawnWorkspace.worktreePath,
+    designArtifacts: [],
+    designPendingOptions: null,
     agentDiffSummaries: (thread.agentDiffs ?? []).map(mapAgentDiffSummary),
     turnDiffSummaries: thread.checkpoints.map(mapTurnDiffSummary),
     activities: thread.activities.map((activity) => ({ ...activity })),
@@ -1536,6 +1544,53 @@ export function applyOrchestrationEvent(state: AppState, event: ForgeEvent): App
         return {
           ...thread,
           activities,
+        };
+      });
+    }
+
+    case "thread.design.artifact-rendered": {
+      return updateThreadState(state, event.payload.threadId, (thread) => {
+        const artifact: DesignArtifact = {
+          artifactId: event.payload.artifactId,
+          title: event.payload.title,
+          description: event.payload.description ?? null,
+          artifactPath: event.payload.artifactPath,
+          renderedAt: event.payload.renderedAt,
+        };
+        return {
+          ...thread,
+          designArtifacts: [...thread.designArtifacts, artifact],
+        };
+      });
+    }
+
+    case "thread.design.options-presented": {
+      return updateThreadState(state, event.payload.threadId, (thread) => ({
+        ...thread,
+        designPendingOptions: {
+          requestId: event.payload.requestId,
+          prompt: event.payload.prompt,
+          options: event.payload.options.map((opt) => ({
+            id: opt.id,
+            title: opt.title,
+            description: opt.description,
+            artifactId: opt.artifactId,
+            artifactPath: opt.artifactPath,
+          })),
+          chosenOptionId: null,
+        },
+      }));
+    }
+
+    case "thread.design.option-chosen": {
+      return updateThreadState(state, event.payload.threadId, (thread) => {
+        if (!thread.designPendingOptions) return thread;
+        return {
+          ...thread,
+          designPendingOptions: {
+            ...thread.designPendingOptions,
+            chosenOptionId: event.payload.chosenOptionId,
+          },
         };
       });
     }

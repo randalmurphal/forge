@@ -4,6 +4,8 @@ import { FetchHttpClient, HttpRouter, HttpServer } from "effect/unstable/http";
 import { ServerConfig } from "./config";
 import {
   attachmentsRouteLayer,
+  designArtifactRouteLayer,
+  designBridgeRouteLayer,
   projectFaviconRouteLayer,
   sharedChatBridgeRouteLayer,
   staticAndDevRouteLayer,
@@ -56,6 +58,7 @@ import { ProviderCommandReactorLive } from "./orchestration/Layers/ProviderComma
 import { CheckpointReactorLive } from "./orchestration/Layers/CheckpointReactor";
 import { BootstrapReactorLive } from "./orchestration/Layers/BootstrapReactor";
 import { ChannelReactorLive } from "./orchestration/Layers/ChannelReactor";
+import { DesignModeReactorLive } from "./design/DesignModeReactor";
 import { DiscussionReactorLive } from "./orchestration/Layers/DiscussionReactor";
 import { WorkflowReactorLive } from "./orchestration/Layers/WorkflowReactor";
 import { ProviderRegistryLive } from "./provider/Layers/ProviderRegistry";
@@ -257,12 +260,18 @@ const ProviderRuntimeIngestionRuntimeLive = ProviderRuntimeIngestionLive.pipe(
   Layer.provide(ServerSettingsLive),
 );
 
+const DesignModeReactorRuntimeLive = DesignModeReactorLive.pipe(
+  Layer.provide(OrchestrationRuntimeLive),
+  Layer.provide(ProjectionRepositoriesRuntimeLive),
+);
+
 const ProviderCommandReactorRuntimeLive = ProviderCommandReactorLive.pipe(
   Layer.provide(OrchestrationRuntimeLive),
   Layer.provide(ProviderLayerLive),
   Layer.provide(GitCoreLive),
   Layer.provide(RoutingTextGenerationRuntimeLive),
   Layer.provide(ServerSettingsLive),
+  Layer.provide(DesignModeReactorRuntimeLive),
 );
 
 const CheckpointReactorRuntimeLive = CheckpointReactorLive.pipe(
@@ -324,6 +333,7 @@ const DiscussionReactorRuntimeLive = DiscussionReactorLive.pipe(
 const OrchestrationReactorRuntimeLive = OrchestrationReactorLive.pipe(
   Layer.provide(ProviderRuntimeIngestionRuntimeLive),
   Layer.provide(DiscussionReactorRuntimeLive),
+  Layer.provide(DesignModeReactorRuntimeLive),
   Layer.provide(ProviderCommandReactorRuntimeLive),
   Layer.provide(CheckpointReactorRuntimeLive),
   Layer.provide(BootstrapReactorRuntimeLive),
@@ -398,6 +408,8 @@ const DaemonRuntimeEnvironmentLive = DaemonLayerLive.pipe(
 
 export const makeRoutesLayer = Layer.mergeAll(
   attachmentsRouteLayer,
+  designArtifactRouteLayer,
+  designBridgeRouteLayer,
   projectFaviconRouteLayer,
   sharedChatBridgeRouteLayer,
   staticAndDevRouteLayer,

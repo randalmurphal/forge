@@ -381,6 +381,8 @@ function interactiveRequestResolutionMatchesType(
       return "action" in resolution;
     case "correction-needed":
       return "correction" in resolution && !("decision" in resolution);
+    case "design-option":
+      return "chosenOptionId" in resolution;
   }
 }
 

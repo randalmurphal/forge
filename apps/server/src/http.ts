@@ -9,6 +9,13 @@ import {
 } from "./attachmentPaths";
 import { resolveAttachmentPathById } from "./attachmentStore";
 import { ServerConfig } from "./config";
+import { getArtifactPath } from "./design/artifactStorage";
+import {
+  hasDesignBridge,
+  invokeDesignBridge,
+  DESIGN_BRIDGE_ROUTE,
+  type DesignBridgeAction,
+} from "./design/designBridge";
 import {
   hasSharedChatBridge,
   invokeSharedChatBridge,
@@ -170,6 +177,97 @@ export const sharedChatBridgeRouteLayer = HttpRouter.add(
     return HttpServerResponse.jsonUnsafe(result, {
       status: result.success ? 200 : 500,
     });
+  }),
+);
+
+const DESIGN_ARTIFACT_ROUTE_PREFIX = "/api/internal/design/artifacts";
+
+export const designArtifactRouteLayer = HttpRouter.add(
+  "GET",
+  `${DESIGN_ARTIFACT_ROUTE_PREFIX}/*`,
+  Effect.gen(function* () {
+    const request = yield* HttpServerRequest.HttpServerRequest;
+    const url = HttpServerRequest.toURL(request);
+    if (Option.isNone(url)) {
+      return HttpServerResponse.text("Bad Request", { status: 400 });
+    }
+
+    const config = yield* ServerConfig;
+    const rawPath = url.value.pathname.slice(DESIGN_ARTIFACT_ROUTE_PREFIX.length);
+    // Expect /<threadId>/<artifactId>.html
+    const match = rawPath.match(/^\/([^/]+)\/([^/]+)\.html$/);
+    if (!match || !match[1] || !match[2]) {
+      return HttpServerResponse.text("Invalid artifact path", { status: 400 });
+    }
+
+    const threadId = match[1];
+    const artifactId = match[2];
+
+    // Reject path traversal
+    if (threadId.includes("..") || artifactId.includes("..")) {
+      return HttpServerResponse.text("Invalid artifact path", { status: 400 });
+    }
+
+    const filePath = getArtifactPath(config.artifactsDir, threadId, artifactId);
+    if (!filePath) {
+      return HttpServerResponse.text("Not Found", { status: 404 });
+    }
+
+    return yield* HttpServerResponse.file(filePath, {
+      status: 200,
+      contentType: "text/html; charset=utf-8",
+    }).pipe(
+      Effect.catch(() =>
+        Effect.succeed(HttpServerResponse.text("Internal Server Error", { status: 500 })),
+      ),
+    );
+  }),
+);
+
+const DesignBridgeRequest = Schema.Struct({
+  token: Schema.String,
+  action: Schema.Record(Schema.String, Schema.Unknown),
+});
+
+class DesignBridgeHttpError extends Error {
+  readonly _tag = "DesignBridgeHttpError";
+}
+
+export const designBridgeRouteLayer = HttpRouter.add(
+  "POST",
+  DESIGN_BRIDGE_ROUTE,
+  Effect.gen(function* () {
+    const httpRequest = yield* HttpServerRequest.HttpServerRequest;
+    const config = yield* ServerConfig;
+    const request = yield* HttpServerRequest.schemaBodyJson(DesignBridgeRequest);
+
+    if (config.authToken) {
+      const authorizationHeader = httpRequest.headers.authorization;
+      if (authorizationHeader !== `Bearer ${config.authToken}`) {
+        return HttpServerResponse.text("Unauthorized design bridge request", { status: 401 });
+      }
+    }
+
+    if (!hasDesignBridge(request.token)) {
+      return HttpServerResponse.jsonUnsafe(
+        { result: "Design bridge token was not found.", error: true },
+        { status: 404 },
+      );
+    }
+
+    const result = yield* Effect.tryPromise({
+      try: () =>
+        invokeDesignBridge({
+          token: request.token,
+          action: request.action as DesignBridgeAction,
+        }),
+      catch: (cause) =>
+        new DesignBridgeHttpError(
+          cause instanceof Error ? cause.message : `Design bridge failed: ${String(cause)}.`,
+        ),
+    }).pipe(Effect.catch((error) => Effect.succeed(JSON.stringify({ error: error.message }))));
+
+    return HttpServerResponse.jsonUnsafe({ result }, { status: 200 });
   }),
 );
 

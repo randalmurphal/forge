@@ -240,6 +240,8 @@ const makeThread = (input?: {
   branch: null,
   worktreePath: null,
   childThreadIds: input?.childThreadIds ?? [],
+  designArtifacts: [],
+  designPendingOptions: null,
   turnDiffSummaries: [],
   activities: [],
 });
@@ -422,6 +424,8 @@ describe("hasServerAcknowledgedLocalDispatch", () => {
       latestTurn: previousLatestTurn,
       branch: null,
       worktreePath: null,
+      designArtifacts: [],
+      designPendingOptions: null,
       turnDiffSummaries: [],
       activities: [],
     });
@@ -458,6 +462,8 @@ describe("hasServerAcknowledgedLocalDispatch", () => {
       latestTurn: previousLatestTurn,
       branch: null,
       worktreePath: null,
+      designArtifacts: [],
+      designPendingOptions: null,
       turnDiffSummaries: [],
       activities: [],
     });
@@ -503,6 +509,8 @@ describe("hasServerAcknowledgedLocalDispatch", () => {
       latestTurn: previousLatestTurn,
       branch: null,
       worktreePath: null,
+      designArtifacts: [],
+      designPendingOptions: null,
       turnDiffSummaries: [],
       activities: [],
     });

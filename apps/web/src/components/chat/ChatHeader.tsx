@@ -1,6 +1,7 @@
 import {
   type EditorId,
   type ProjectScript,
+  type ProviderInteractionMode,
   type ResolvedKeybindingsConfig,
   type ThreadId,
 } from "@forgetools/contracts";
@@ -17,6 +18,7 @@ import { OpenInPicker } from "./OpenInPicker";
 interface ChatHeaderProps {
   activeThreadId: ThreadId;
   activeThreadTitle: string;
+  interactionMode: ProviderInteractionMode;
   activeProjectName: string | undefined;
   isGitRepo: boolean;
   openInCwd: string | null;
@@ -41,6 +43,7 @@ interface ChatHeaderProps {
 export const ChatHeader = memo(function ChatHeader({
   activeThreadId,
   activeThreadTitle,
+  interactionMode,
   activeProjectName,
   isGitRepo,
   openInCwd,
@@ -71,6 +74,16 @@ export const ChatHeader = memo(function ChatHeader({
         >
           {activeThreadTitle}
         </h2>
+        {interactionMode === "plan" && (
+          <Badge variant="secondary" className="shrink-0 text-[10px]">
+            Plan
+          </Badge>
+        )}
+        {interactionMode === "design" && (
+          <Badge variant="secondary" className="shrink-0 text-[10px]">
+            Design
+          </Badge>
+        )}
         {activeProjectName && (
           <Badge variant="outline" className="min-w-0 shrink overflow-hidden">
             <span className="min-w-0 truncate">{activeProjectName}</span>

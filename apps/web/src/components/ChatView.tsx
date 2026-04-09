@@ -102,6 +102,7 @@ import {
   ListTodoIcon,
   LockIcon,
   LockOpenIcon,
+  PaletteIcon,
   XIcon,
 } from "lucide-react";
 import { Button } from "./ui/button";
@@ -1612,6 +1613,13 @@ export default function ChatView({ threadId }: ChatViewProps) {
           label: "/default",
           description: "Switch this thread back to normal chat mode",
         },
+        {
+          id: "slash:design",
+          type: "slash-command",
+          command: "design",
+          label: "/design",
+          description: "Switch this thread into design mode",
+        },
       ] satisfies ReadonlyArray<Extract<ComposerCommandItem, { type: "slash-command" }>>;
       const query = composerTrigger.query.trim().toLowerCase();
       if (!query) {
@@ -2152,7 +2160,9 @@ export default function ChatView({ threadId }: ChatViewProps) {
     ],
   );
   const toggleInteractionMode = useCallback(() => {
-    handleInteractionModeChange(interactionMode === "plan" ? "default" : "plan");
+    const next =
+      interactionMode === "default" ? "plan" : interactionMode === "plan" ? "design" : "default";
+    handleInteractionModeChange(next);
   }, [handleInteractionModeChange, interactionMode]);
   const toggleRuntimeMode = useCallback(() => {
     void handleRuntimeModeChange(
@@ -3924,7 +3934,9 @@ export default function ChatView({ threadId }: ChatViewProps) {
           }
           return;
         }
-        void handleInteractionModeChange(item.command === "plan" ? "plan" : "default");
+        void handleInteractionModeChange(
+          item.command === "plan" ? "plan" : item.command === "design" ? "design" : "default",
+        );
         const applied = applyPromptReplacement(trigger.rangeStart, trigger.rangeEnd, "", {
           expectedText: snapshot.value.slice(trigger.rangeStart, trigger.rangeEnd),
         });
@@ -4125,6 +4137,7 @@ export default function ChatView({ threadId }: ChatViewProps) {
         <ChatHeader
           activeThreadId={activeThread.id}
           activeThreadTitle={activeThread.title}
+          interactionMode={interactionMode}
           activeProjectName={activeProject?.name}
           isGitRepo={isGitRepo}
           openInCwd={gitCwd}
@@ -4486,7 +4499,7 @@ export default function ChatView({ threadId }: ChatViewProps) {
                             planSidebarOpen={planSidebarOpen}
                             runtimeMode={runtimeMode}
                             traitsMenuContent={providerTraitsMenuContent}
-                            onToggleInteractionMode={toggleInteractionMode}
+                            onInteractionModeChange={handleInteractionModeChange}
                             onTogglePlanSidebar={togglePlanSidebar}
                             onToggleRuntimeMode={toggleRuntimeMode}
                           />
@@ -4515,13 +4528,19 @@ export default function ChatView({ threadId }: ChatViewProps) {
                               onClick={toggleInteractionMode}
                               title={
                                 interactionMode === "plan"
-                                  ? "Plan mode — click to return to normal chat mode"
-                                  : "Default mode — click to enter plan mode"
+                                  ? "Plan mode — click to switch to design mode"
+                                  : interactionMode === "design"
+                                    ? "Design mode — click to switch to chat mode"
+                                    : "Chat mode — click to switch to plan mode"
                               }
                             >
-                              <BotIcon />
+                              {interactionMode === "design" ? <PaletteIcon /> : <BotIcon />}
                               <span className="sr-only sm:not-sr-only">
-                                {interactionMode === "plan" ? "Plan" : "Chat"}
+                                {interactionMode === "plan"
+                                  ? "Plan"
+                                  : interactionMode === "design"
+                                    ? "Design"
+                                    : "Chat"}
                               </span>
                             </Button>
 

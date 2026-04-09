@@ -59,6 +59,8 @@ function attentionBody(payload: InteractiveRequestPayload): string {
       return "Bootstrap failed and needs a decision.";
     case "correction-needed":
       return "The session requested a correction.";
+    case "design-option":
+      return "Design options are ready for review.";
   }
 }
 

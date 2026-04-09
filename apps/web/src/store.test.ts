@@ -41,6 +41,8 @@ function makeThread(overrides: Partial<Thread> = {}): Thread {
     childThreadIds: [],
     session: null,
     messages: [],
+    designArtifacts: [],
+    designPendingOptions: null,
     turnDiffSummaries: [],
     activities: [],
     proposedPlans: [],

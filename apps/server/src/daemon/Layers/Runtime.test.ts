@@ -36,6 +36,7 @@ const makeServerConfig = (): ServerConfigShape => ({
   settingsPath: "/tmp/forge-daemon-runtime/settings.json",
   worktreesDir: "/tmp/forge-daemon-runtime/worktrees",
   attachmentsDir: "/tmp/forge-daemon-runtime/attachments",
+  artifactsDir: "/tmp/forge-daemon-runtime/artifacts",
   logsDir: "/tmp/forge-daemon-runtime/logs",
   serverLogPath: "/tmp/forge-daemon-runtime/logs/server.log",
   serverTracePath: "/tmp/forge-daemon-runtime/logs/server.trace.ndjson",

@@ -83,6 +83,13 @@ function commandToAggregateRef(command: OrchestrationCommand | ForgeCommand): {
         aggregateKind: "request",
         aggregateId: command.requestId,
       };
+    case "thread.design.artifact-rendered":
+    case "thread.design.options-presented":
+    case "thread.design.option-chosen":
+      return {
+        aggregateKind: "thread",
+        aggregateId: command.threadId,
+      };
     default:
       return {
         aggregateKind: "thread",

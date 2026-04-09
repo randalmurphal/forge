@@ -143,6 +143,8 @@ function makeWorkflowContainerThread(overrides: Partial<Thread> = {}): Thread {
     pendingSourceProposedPlan: undefined,
     branch: null,
     worktreePath: null,
+    designArtifacts: [],
+    designPendingOptions: null,
     turnDiffSummaries: [],
     activities: [],
     ...overrides,

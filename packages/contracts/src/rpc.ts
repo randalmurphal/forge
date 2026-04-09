@@ -1019,4 +1019,5 @@ export const WsRpcGroup = RpcGroup.make(
   WsForgeDiscussionCreateRpc,
   WsForgeDiscussionUpdateRpc,
   WsForgeDiscussionDeleteRpc,
+  WsForgeRequestResolveRpc,
 );

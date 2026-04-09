@@ -23,6 +23,7 @@ export interface ServerDerivedPaths {
   readonly settingsPath: string;
   readonly worktreesDir: string;
   readonly attachmentsDir: string;
+  readonly artifactsDir: string;
   readonly logsDir: string;
   readonly serverLogPath: string;
   readonly serverTracePath: string;
@@ -67,6 +68,7 @@ export const deriveServerPaths = Effect.fn(function* (
   const stateDir = devUrl !== undefined ? join(baseDir, "dev") : baseDir;
   const dbPath = join(stateDir, "forge.db");
   const attachmentsDir = join(stateDir, "attachments");
+  const artifactsDir = join(stateDir, "artifacts");
   const logsDir = join(stateDir, "logs");
   const providerLogsDir = join(logsDir, "sessions");
   return {
@@ -76,6 +78,7 @@ export const deriveServerPaths = Effect.fn(function* (
     settingsPath: join(stateDir, "settings.json"),
     worktreesDir: join(baseDir, "worktrees"),
     attachmentsDir,
+    artifactsDir,
     logsDir,
     serverLogPath: join(logsDir, "server.log"),
     serverTracePath: join(logsDir, "server.trace.ndjson"),
@@ -97,6 +100,7 @@ export const ensureServerDirectories = Effect.fn(function* (derivedPaths: Server
       fs.makeDirectory(derivedPaths.providerLogsDir, { recursive: true }),
       fs.makeDirectory(derivedPaths.terminalLogsDir, { recursive: true }),
       fs.makeDirectory(derivedPaths.attachmentsDir, { recursive: true }),
+      fs.makeDirectory(derivedPaths.artifactsDir, { recursive: true }),
       fs.makeDirectory(derivedPaths.worktreesDir, { recursive: true }),
       fs.makeDirectory(path.dirname(derivedPaths.keybindingsConfigPath), { recursive: true }),
       fs.makeDirectory(path.dirname(derivedPaths.settingsPath), { recursive: true }),

@@ -116,6 +116,9 @@ export interface WsRpcClient {
       correction?: string;
     }) => Promise<unknown>;
   };
+  readonly request: {
+    readonly resolve: RpcUnaryMethod<typeof WS_METHODS.requestResolve>;
+  };
   readonly channel: {
     readonly getMessages: RpcUnaryMethod<typeof WS_METHODS.channelGetMessages>;
     readonly getChannel: RpcUnaryMethod<typeof WS_METHODS.channelGetChannel>;
@@ -285,6 +288,9 @@ export function createWsRpcClient(transport = new WsTransport()): WsRpcClient {
         transport.request((client) => (client as any)[WS_METHODS.gateApprove](input)),
       reject: (input) =>
         transport.request((client) => (client as any)[WS_METHODS.gateReject](input)),
+    },
+    request: {
+      resolve: (input) => transport.request((client) => client[WS_METHODS.requestResolve](input)),
     },
     channel: {
       getMessages: (input) =>

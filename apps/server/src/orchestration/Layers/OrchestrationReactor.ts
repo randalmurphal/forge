@@ -7,6 +7,7 @@ import {
 import { BootstrapReactor } from "../Services/BootstrapReactor.ts";
 import { ChannelReactor } from "../Services/ChannelReactor.ts";
 import { CheckpointReactor } from "../Services/CheckpointReactor.ts";
+import { DesignModeReactor } from "../Services/DesignModeReactor.ts";
 import { DiscussionReactor } from "../Services/DiscussionReactor.ts";
 import { ProviderCommandReactor } from "../Services/ProviderCommandReactor.ts";
 import { ProviderRuntimeIngestionService } from "../Services/ProviderRuntimeIngestion.ts";
@@ -20,12 +21,14 @@ export const makeOrchestrationReactor = Effect.gen(function* () {
   const bootstrapReactor = yield* BootstrapReactor;
   const workflowReactor = yield* WorkflowReactor;
   const channelReactor = yield* ChannelReactor;
+  const designModeReactor = yield* DesignModeReactor;
 
   const start: OrchestrationReactorShape["start"] = Effect.fn("start")(function* () {
     yield* providerRuntimeIngestion.start();
     // DiscussionReactor must start before ProviderCommandReactor so it can
     // intercept turn-start-requested events for discussion container threads.
     yield* discussionReactor.start();
+    yield* designModeReactor.start();
     yield* providerCommandReactor.start();
     yield* checkpointReactor.start();
     yield* bootstrapReactor.start();

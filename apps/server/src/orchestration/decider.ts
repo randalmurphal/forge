@@ -78,12 +78,22 @@ type InteractiveRequestCommand = Extract<
     type: "request.open" | "request.resolve" | "request.mark-stale";
   }
 >;
+type DesignCommand = Extract<
+  ForgeCommand,
+  {
+    type:
+      | "thread.design.artifact-rendered"
+      | "thread.design.options-presented"
+      | "thread.design.option-chosen";
+  }
+>;
 
 export type DecidableOrchestrationCommand =
   | OrchestrationCommand
   | WorkflowThreadCommand
   | ChannelCommand
-  | InteractiveRequestCommand;
+  | InteractiveRequestCommand
+  | DesignCommand;
 type DistributiveOmit<T, K extends PropertyKey> = T extends unknown ? Omit<T, K> : never;
 export type DecidedOrchestrationEvent = DistributiveOmit<ForgeEvent, "sequence">;
 
@@ -1697,6 +1707,79 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
           requestId: command.requestId,
           reason: command.reason,
           staleAt: command.createdAt,
+        },
+      };
+    }
+
+    case "thread.design.artifact-rendered": {
+      yield* requireThreadNotArchived({
+        readModel,
+        command,
+        threadId: command.threadId,
+      });
+      return {
+        ...withEventBase({
+          aggregateKind: "thread",
+          aggregateId: command.threadId,
+          occurredAt: command.createdAt,
+          commandId: command.commandId,
+        }),
+        type: "thread.design.artifact-rendered",
+        payload: {
+          threadId: command.threadId,
+          artifactId: command.artifactId,
+          title: command.title,
+          description: command.description,
+          artifactPath: command.artifactPath,
+          renderedAt: command.createdAt,
+        },
+      };
+    }
+
+    case "thread.design.options-presented": {
+      yield* requireThreadNotArchived({
+        readModel,
+        command,
+        threadId: command.threadId,
+      });
+      return {
+        ...withEventBase({
+          aggregateKind: "thread",
+          aggregateId: command.threadId,
+          occurredAt: command.createdAt,
+          commandId: command.commandId,
+        }),
+        type: "thread.design.options-presented",
+        payload: {
+          threadId: command.threadId,
+          requestId: command.requestId,
+          prompt: command.prompt,
+          options: command.options,
+          presentedAt: command.createdAt,
+        },
+      };
+    }
+
+    case "thread.design.option-chosen": {
+      yield* requireThreadNotArchived({
+        readModel,
+        command,
+        threadId: command.threadId,
+      });
+      return {
+        ...withEventBase({
+          aggregateKind: "thread",
+          aggregateId: command.threadId,
+          occurredAt: command.createdAt,
+          commandId: command.commandId,
+        }),
+        type: "thread.design.option-chosen",
+        payload: {
+          threadId: command.threadId,
+          requestId: command.requestId,
+          chosenOptionId: command.chosenOptionId,
+          chosenTitle: command.chosenTitle,
+          chosenAt: command.createdAt,
         },
       };
     }

@@ -36,6 +36,7 @@ import {
   waitForDaemonReady,
   waitForDaemonStopped,
 } from "./daemon/cliClient";
+import { runDesignMcpProcess } from "./design/designMcpProcess";
 import { runSharedChatMcpProcess } from "./discussion/sharedChatMcpProcess";
 
 const PortSchema = Schema.Int.check(Schema.isBetween({ minimum: 1, maximum: 65535 }));
@@ -1150,6 +1151,11 @@ const sharedChatMcpCommand = Command.make("shared-chat-mcp").pipe(
   Command.withHandler(() => Effect.promise(() => runSharedChatMcpProcess())),
 );
 
+const designMcpCommand = Command.make("design-mcp").pipe(
+  Command.withDescription("Internal stdio MCP server for design mode."),
+  Command.withHandler(() => Effect.promise(() => runDesignMcpProcess())),
+);
+
 export const cli = rootCommand.pipe(
   Command.withSubcommands([
     listCommand,
@@ -1171,5 +1177,6 @@ export const cli = rootCommand.pipe(
     cleanupCommand,
     daemonCommand,
     sharedChatMcpCommand,
+    designMcpCommand,
   ]),
 );
