@@ -59,6 +59,10 @@ export interface WorkLogEntry {
   searchResultCount?: number | undefined;
   filePath?: string | undefined;
   activityKind?: string | undefined;
+  agentDescription?: string | undefined;
+  agentType?: string | undefined;
+  agentModel?: string | undefined;
+  agentPrompt?: string | undefined;
   childThreadAttribution?:
     | {
         taskId: string;
@@ -650,6 +654,10 @@ interface ToolEnrichments {
   searchPattern?: string;
   searchResultCount?: number;
   filePath?: string;
+  agentDescription?: string;
+  agentType?: string;
+  agentModel?: string;
+  agentPrompt?: string;
 }
 
 function extractToolEnrichments(payload: Record<string, unknown> | null): ToolEnrichments {
@@ -766,6 +774,27 @@ function extractToolEnrichments(payload: Record<string, unknown> | null): ToolEn
     }
   }
 
+  // Agent/subagent tool call enrichments
+  // Claude shape: data.input has { description, subagent_type, model, prompt }
+  // Codex shape: data.item has { description, prompt } (no subagent_type or model)
+  const agentDescription =
+    asTrimmedString(claudeInput?.description) ?? asTrimmedString(codexItem?.description);
+  if (agentDescription) {
+    enrichments.agentDescription = agentDescription;
+  }
+  const agentType = asTrimmedString(claudeInput?.subagent_type);
+  if (agentType) {
+    enrichments.agentType = agentType;
+  }
+  const agentModel = asTrimmedString(claudeInput?.model);
+  if (agentModel) {
+    enrichments.agentModel = agentModel;
+  }
+  const agentPrompt = asTrimmedString(claudeInput?.prompt) ?? asTrimmedString(codexItem?.prompt);
+  if (agentPrompt) {
+    enrichments.agentPrompt = agentPrompt;
+  }
+
   return enrichments;
 }
 
@@ -832,6 +861,10 @@ function toDerivedWorkLogEntry(activity: OrchestrationThreadActivity): DerivedWo
   if (enrichments.searchResultCount !== undefined)
     entry.searchResultCount = enrichments.searchResultCount;
   if (enrichments.filePath) entry.filePath = enrichments.filePath;
+  if (enrichments.agentDescription) entry.agentDescription = enrichments.agentDescription;
+  if (enrichments.agentType) entry.agentType = enrichments.agentType;
+  if (enrichments.agentModel) entry.agentModel = enrichments.agentModel;
+  if (enrichments.agentPrompt) entry.agentPrompt = enrichments.agentPrompt;
 
   // Extract child thread attribution for subagent grouping
   const childThreadAttribution = extractChildThreadAttribution(payload);

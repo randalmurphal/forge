@@ -1293,6 +1293,105 @@ describe("deriveWorkLogEntries", () => {
     expect(entries).toHaveLength(1);
     expect(entries[0]?.id).toBe("a-complete-same-timestamp");
   });
+
+  it("extracts agent enrichments from Claude-shaped payload", () => {
+    const activities: OrchestrationThreadActivity[] = [
+      makeActivity({
+        id: "agent-claude",
+        kind: "tool.completed",
+        summary: "Subagent task",
+        payload: {
+          itemType: "collab_agent_tool_call",
+          title: "Subagent task",
+          toolName: "Agent",
+          detail:
+            'Agent: {"description":"Find edge cases","subagent_type":"Reviewer","model":"opus","prompt":"Review the auth module"}',
+          data: {
+            toolName: "Agent",
+            input: {
+              description: "Find edge cases",
+              subagent_type: "Reviewer",
+              model: "opus",
+              prompt: "Review the auth module for security issues",
+            },
+          },
+        },
+      }),
+    ];
+
+    const [entry] = deriveWorkLogEntries(activities, undefined);
+    expect(entry).toMatchObject({
+      itemType: "collab_agent_tool_call",
+      toolName: "Agent",
+      agentDescription: "Find edge cases",
+      agentType: "Reviewer",
+      agentModel: "opus",
+      agentPrompt: "Review the auth module for security issues",
+    });
+  });
+
+  it("extracts agent enrichments from Codex-shaped payload", () => {
+    const activities: OrchestrationThreadActivity[] = [
+      makeActivity({
+        id: "agent-codex",
+        kind: "tool.completed",
+        summary: "Subagent task",
+        payload: {
+          itemType: "collab_agent_tool_call",
+          title: "Subagent task",
+          toolName: "collabAgentToolCall",
+          detail: "Refactor the auth module",
+          data: {
+            item: {
+              type: "collabAgentToolCall",
+              id: "call_collab_1",
+              receiverThreadIds: ["child_thread_1"],
+              description: "Refactor the auth module",
+              prompt: "Write unit tests for the parser module",
+            },
+          },
+        },
+      }),
+    ];
+
+    const [entry] = deriveWorkLogEntries(activities, undefined);
+    expect(entry).toMatchObject({
+      itemType: "collab_agent_tool_call",
+      toolName: "collabAgentToolCall",
+      agentDescription: "Refactor the auth module",
+      agentPrompt: "Write unit tests for the parser module",
+    });
+    // Codex does not provide subagent_type or model
+    expect(entry?.agentType).toBeUndefined();
+    expect(entry?.agentModel).toBeUndefined();
+  });
+
+  it("falls back gracefully when agent enrichment fields are absent", () => {
+    const activities: OrchestrationThreadActivity[] = [
+      makeActivity({
+        id: "agent-minimal",
+        kind: "tool.completed",
+        summary: "Subagent task",
+        payload: {
+          itemType: "collab_agent_tool_call",
+          title: "Subagent task",
+          toolName: "Task",
+          detail: "Task: some detail",
+          data: {
+            toolName: "Task",
+            input: {},
+          },
+        },
+      }),
+    ];
+
+    const [entry] = deriveWorkLogEntries(activities, undefined);
+    expect(entry?.itemType).toBe("collab_agent_tool_call");
+    expect(entry?.agentDescription).toBeUndefined();
+    expect(entry?.agentType).toBeUndefined();
+    expect(entry?.agentModel).toBeUndefined();
+    expect(entry?.agentPrompt).toBeUndefined();
+  });
 });
 
 describe("deriveTimelineEntries", () => {

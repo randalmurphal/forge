@@ -43,6 +43,7 @@ import {
   BotIcon,
   BoxIcon,
   CheckIcon,
+  ChevronRightIcon,
   CircleAlertIcon,
   EyeIcon,
   FolderSearchIcon,
@@ -898,8 +899,14 @@ function workEntryPreview(workEntry: TimelineWorkEntry): string | null {
     return workEntry.detail ?? null;
   }
 
-  // Subagent: extract description from JSON detail if present
+  // Subagent: use structured fields, falling back to JSON parsing
   if (workEntry.itemType === "collab_agent_tool_call") {
+    if (workEntry.agentDescription) return workEntry.agentDescription;
+    if (workEntry.agentPrompt) {
+      return workEntry.agentPrompt.length > 120
+        ? `${workEntry.agentPrompt.slice(0, 117)}...`
+        : workEntry.agentPrompt;
+    }
     return extractSubagentPreview(workEntry.detail) ?? null;
   }
 
@@ -969,7 +976,26 @@ function capitalizePhrase(value: string): string {
   return `${trimmed.charAt(0).toUpperCase()}${trimmed.slice(1)}`;
 }
 
+/** Map raw tool names to a clean display label for agent tool calls. */
+function normalizeAgentToolName(toolName: string | undefined): string {
+  if (!toolName) return "Agent";
+  const lower = toolName.toLowerCase();
+  // Codex sends "collabAgentToolCall" — normalize to "Agent"
+  if (lower.includes("collab")) return "Agent";
+  // Claude sends "Agent", "Task", "dispatch_agent", etc. — capitalize
+  return capitalizePhrase(toolName);
+}
+
 function toolWorkEntryHeading(workEntry: TimelineWorkEntry): string {
+  // For agent/subagent tool calls, show a clean name with optional type/model metadata
+  if (workEntry.itemType === "collab_agent_tool_call") {
+    const name = normalizeAgentToolName(workEntry.toolName);
+    const parts: string[] = [];
+    if (workEntry.agentType) parts.push(workEntry.agentType);
+    if (workEntry.agentModel) parts.push(workEntry.agentModel);
+    return parts.length > 0 ? `${name} (${parts.join(", ")})` : name;
+  }
+
   // For MCP tools, show server:tool format
   if (workEntry.itemType === "mcp_tool_call" && workEntry.mcpServer && workEntry.mcpTool) {
     return `${workEntry.mcpServer}:${workEntry.mcpTool}`;
@@ -1083,6 +1109,12 @@ const SimpleWorkEntryRow = memo(function SimpleWorkEntryRow(props: {
   resolvedTheme: "light" | "dark";
 }) {
   const { workEntry, expandedInlineDiff, onToggleInlineDiff, resolvedTheme } = props;
+
+  // Agent tool calls get a specialized row with collapsible prompt
+  if (workEntry.itemType === "collab_agent_tool_call") {
+    return <AgentWorkEntryRow workEntry={workEntry} />;
+  }
+
   const iconConfig = workToneIcon(workEntry.tone);
   const EntryIcon = workEntryIcon(workEntry);
   const heading = toolWorkEntryHeading(workEntry);
@@ -1161,6 +1193,93 @@ const SimpleWorkEntryRow = memo(function SimpleWorkEntryRow(props: {
           resolvedTheme={resolvedTheme}
         />
       ) : null}
+    </div>
+  );
+});
+
+const AgentWorkEntryRow = memo(function AgentWorkEntryRow(props: { workEntry: TimelineWorkEntry }) {
+  const { workEntry } = props;
+  const [isExpanded, setIsExpanded] = useState(false);
+  const iconConfig = workToneIcon(workEntry.tone);
+  const heading = toolWorkEntryHeading(workEntry);
+  const preview = workEntryPreview(workEntry);
+  const hasPrompt = Boolean(workEntry.agentPrompt);
+
+  const durationLabel =
+    workEntry.durationMs !== undefined ? formatDuration(workEntry.durationMs) : null;
+
+  const handleToggle = useCallback(() => {
+    if (hasPrompt) setIsExpanded((prev) => !prev);
+  }, [hasPrompt]);
+
+  return (
+    <div className="rounded-lg px-1 py-1">
+      <div
+        role={hasPrompt ? "button" : undefined}
+        tabIndex={hasPrompt ? 0 : undefined}
+        onClick={handleToggle}
+        onKeyDown={
+          hasPrompt
+            ? (e) => {
+                if (e.key === "Enter" || e.key === " ") {
+                  e.preventDefault();
+                  handleToggle();
+                }
+              }
+            : undefined
+        }
+        className={cn(
+          "flex items-center gap-2 transition-[opacity,translate] duration-200",
+          hasPrompt && "cursor-pointer rounded-md hover:bg-muted/30",
+        )}
+      >
+        {hasPrompt ? (
+          <ChevronRightIcon
+            className={cn(
+              "size-3 shrink-0 text-muted-foreground/50 transition-transform duration-150",
+              isExpanded && "rotate-90",
+            )}
+          />
+        ) : (
+          <span className="w-3 shrink-0" />
+        )}
+        <span
+          className={cn("flex size-5 shrink-0 items-center justify-center", iconConfig.className)}
+        >
+          <BoxIcon className="size-3" />
+        </span>
+        <div className="min-w-0 flex-1 overflow-hidden">
+          <p
+            className={cn("truncate text-[11px] leading-5", workToneClass(workEntry.tone))}
+            title={preview ? `${heading} – ${preview}` : heading}
+          >
+            <span className="text-foreground/80">{heading}</span>
+            {preview && (
+              <span className="text-muted-foreground/55">
+                {" – "}
+                {preview}
+              </span>
+            )}
+          </p>
+        </div>
+        <div className="flex shrink-0 items-center gap-1.5">
+          {durationLabel && (
+            <span className="text-[9px] tabular-nums text-muted-foreground/40">
+              {durationLabel}
+            </span>
+          )}
+        </div>
+      </div>
+      {isExpanded && workEntry.agentPrompt && (
+        <div className="ml-8 mt-1.5 rounded-lg border border-border/30 bg-background/30 px-3 py-2">
+          <p className="mb-1 text-[9px] uppercase tracking-[0.16em] text-muted-foreground/55">
+            Prompt
+          </p>
+          <p className="whitespace-pre-wrap text-[11px] leading-relaxed text-foreground/70">
+            {workEntry.agentPrompt}
+          </p>
+        </div>
+      )}
     </div>
   );
 });
