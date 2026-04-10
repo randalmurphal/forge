@@ -1,10 +1,11 @@
 import { FileDiff, Virtualizer } from "@pierre/diffs/react";
 import type { FileDiffMetadata } from "@pierre/diffs/react";
-import { ChevronDownIcon, ChevronRightIcon, ExternalLinkIcon } from "lucide-react";
+import { ExternalLinkIcon, SquarePenIcon } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 
 import { cn } from "~/lib/utils";
 import {
+  buildCompactDiffPreviewFromFiles,
   buildFileDiffRenderKey,
   DIFF_RENDER_UNSAFE_CSS,
   resolveDiffThemeName,
@@ -12,6 +13,10 @@ import {
   summarizeFileDiff,
 } from "~/lib/diffRendering";
 
+import { CompactDiffCard } from "./diff/CompactDiffCard";
+import { CompactDiffEntryRow } from "./diff/CompactDiffEntryRow";
+import { CompactDiffHeader } from "./diff/CompactDiffHeader";
+import { CompactDiffPreview } from "./diff/CompactDiffPreview";
 import { Button } from "./ui/button";
 
 type DiffRenderMode = "stacked" | "split";
@@ -44,15 +49,6 @@ function buildExpandedState(
   return state;
 }
 
-function FileSummaryLabel(props: { additions: number; deletions: number }) {
-  return (
-    <>
-      <span className="text-emerald-500/85">+{props.additions}</span>
-      <span className="text-red-500/80">-{props.deletions}</span>
-    </>
-  );
-}
-
 function CollapsibleFileDiffRow(props: {
   fileDiff: FileDiffMetadata;
   expanded: boolean;
@@ -64,75 +60,70 @@ function CollapsibleFileDiffRow(props: {
 }) {
   const filePath = resolveFileDiffPath(props.fileDiff);
   const stats = summarizeFileDiff(props.fileDiff);
-  const hasRename = props.fileDiff.prevName && props.fileDiff.prevName !== props.fileDiff.name;
+  const previewContent = useMemo(
+    () => buildCompactDiffPreviewFromFiles([props.fileDiff]),
+    [props.fileDiff],
+  );
+  const showExpandBar = props.expanded || previewContent?.hasOverflow === true;
+  const openFileAction = props.onOpenFile ? (
+    <Button
+      type="button"
+      size="icon-xs"
+      variant="ghost"
+      className="rounded-md border border-border/45 bg-background/24 text-muted-foreground/60 hover:bg-background/40 hover:text-foreground/80"
+      onClick={() => props.onOpenFile?.(filePath)}
+      aria-label={`Open ${filePath} in editor`}
+      title="Open in editor"
+    >
+      <ExternalLinkIcon className="size-3.5" />
+    </Button>
+  ) : null;
 
   return (
-    <section
-      data-diff-file-path={filePath}
-      className="overflow-hidden rounded-md border border-border/65 bg-card/55"
-    >
-      <div className="flex items-center gap-2 border-b border-border/50 px-2 py-1.5">
-        <Button
-          type="button"
-          size="icon-xs"
-          variant="ghost"
-          aria-expanded={props.expanded}
-          aria-label={`${props.expanded ? "Collapse" : "Expand"} ${filePath}`}
-          onClick={props.onToggle}
-        >
-          {props.expanded ? <ChevronDownIcon /> : <ChevronRightIcon />}
-        </Button>
-        <button
-          type="button"
-          className="min-w-0 flex-1 text-left"
-          onClick={props.onToggle}
-          aria-expanded={props.expanded}
-        >
-          <div className="flex min-w-0 items-center gap-2">
-            <span className="truncate font-mono text-[11px] text-foreground/90" title={filePath}>
-              {filePath}
-            </span>
-            {hasRename ? (
-              <span className="shrink-0 rounded border border-border/60 bg-background/70 px-1.5 py-0.5 text-[10px] text-muted-foreground/70">
-                rename
-              </span>
-            ) : null}
-          </div>
-          <div className="mt-0.5 flex items-center gap-2 text-[10px] text-muted-foreground/70">
-            <FileSummaryLabel additions={stats.additions} deletions={stats.deletions} />
-            <span className="capitalize">{props.fileDiff.type.replaceAll("-", " ")}</span>
-          </div>
-        </button>
-        {props.onOpenFile ? (
-          <Button
-            type="button"
-            size="xs"
-            variant="ghost"
-            className="shrink-0"
-            onClick={() => props.onOpenFile?.(filePath)}
-            aria-label={`Open ${filePath} in editor`}
-            title="Open in editor"
-          >
-            <ExternalLinkIcon className="size-3.5" />
-          </Button>
-        ) : null}
-      </div>
-      {props.expanded ? (
-        <div className="p-1.5">
-          <FileDiff
-            fileDiff={props.fileDiff}
-            options={{
-              diffStyle: props.diffRenderMode === "split" ? "split" : "unified",
-              lineDiffType: "none",
-              overflow: props.diffWordWrap ? "wrap" : "scroll",
-              disableFileHeader: true,
-              theme: resolveDiffThemeName(props.resolvedTheme),
-              themeType: props.resolvedTheme,
-              unsafeCSS: DIFF_RENDER_UNSAFE_CSS,
-            }}
+    <section data-diff-file-path={filePath} className="rounded-lg">
+      <CompactDiffEntryRow
+        icon={SquarePenIcon}
+        label="FileChange"
+        path={filePath}
+        onClick={props.onToggle}
+      />
+      <CompactDiffCard
+        header={
+          <CompactDiffHeader
+            label="File changes"
+            fileCount={1}
+            additions={stats.additions}
+            deletions={stats.deletions}
+            actions={openFileAction}
           />
-        </div>
-      ) : null}
+        }
+        expanded={props.expanded}
+        showExpandBar={showExpandBar}
+        onToggleExpand={props.onToggle}
+      >
+        {props.expanded ? (
+          <div className="px-2 pb-2">
+            <FileDiff
+              fileDiff={props.fileDiff}
+              options={{
+                diffStyle: props.diffRenderMode === "split" ? "split" : "unified",
+                lineDiffType: "none",
+                overflow: props.diffWordWrap ? "wrap" : "scroll",
+                disableFileHeader: true,
+                theme: resolveDiffThemeName(props.resolvedTheme),
+                themeType: props.resolvedTheme,
+                unsafeCSS: DIFF_RENDER_UNSAFE_CSS,
+              }}
+            />
+          </div>
+        ) : (
+          <CompactDiffPreview
+            content={previewContent}
+            expanded={false}
+            emptyLabel="No preview available for this file."
+          />
+        )}
+      </CompactDiffCard>
     </section>
   );
 }

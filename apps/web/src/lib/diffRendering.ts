@@ -8,6 +8,34 @@ export const DIFF_THEME_NAMES = {
 
 export type DiffThemeName = (typeof DIFF_THEME_NAMES)[keyof typeof DIFF_THEME_NAMES];
 export type DiffComplexity = "normal" | "large" | "huge";
+export type CompactDiffPreviewLineKind = "hunk" | "context" | "addition" | "deletion";
+
+export interface CompactDiffPreviewLine {
+  key: string;
+  kind: CompactDiffPreviewLineKind;
+  text: string;
+}
+
+export interface CompactDiffPreviewModel {
+  kind: "parsed";
+  lines: CompactDiffPreviewLine[];
+  visibleLines: CompactDiffPreviewLine[];
+  hiddenLineCount: number;
+  hasOverflow: boolean;
+}
+
+export interface CompactRawDiffPreviewModel {
+  kind: "raw";
+  reason: string;
+  lines: string[];
+  visibleLines: string[];
+  hiddenLineCount: number;
+  hasOverflow: boolean;
+}
+
+export type CompactDiffPreviewContent = CompactDiffPreviewModel | CompactRawDiffPreviewModel;
+
+export const COMPACT_DIFF_PREVIEW_MAX_VISIBLE_LINES = 8;
 
 export interface DiffSizeStats {
   files: number;
@@ -231,4 +259,127 @@ export function shouldDeferDiffRendering(complexity: DiffComplexity): boolean {
 
 export function getDiffLoadingLabel(baseLabel: string, complexity: DiffComplexity): string {
   return complexity === "normal" ? baseLabel : `${baseLabel} This is a chonker, be patient.`;
+}
+
+function trimDiffLine(value: string | undefined): string {
+  return (value ?? "").replace(/\r?\n$/, "");
+}
+
+function finalizeCompactDiffPreviewLines(
+  lines: ReadonlyArray<CompactDiffPreviewLine>,
+  maxVisibleLines = COMPACT_DIFF_PREVIEW_MAX_VISIBLE_LINES,
+): CompactDiffPreviewModel | null {
+  if (lines.length === 0) {
+    return null;
+  }
+
+  const visibleLines = lines.slice(0, maxVisibleLines);
+  return {
+    kind: "parsed",
+    lines: [...lines],
+    visibleLines,
+    hiddenLineCount: Math.max(0, lines.length - visibleLines.length),
+    hasOverflow: lines.length > visibleLines.length,
+  };
+}
+
+function finalizeCompactRawDiffPreviewLines(
+  lines: ReadonlyArray<string>,
+  reason: string,
+  maxVisibleLines = COMPACT_DIFF_PREVIEW_MAX_VISIBLE_LINES,
+): CompactRawDiffPreviewModel | null {
+  if (lines.length === 0) {
+    return null;
+  }
+
+  const visibleLines = lines.slice(0, maxVisibleLines);
+  return {
+    kind: "raw",
+    reason,
+    lines: [...lines],
+    visibleLines,
+    hiddenLineCount: Math.max(0, lines.length - visibleLines.length),
+    hasOverflow: lines.length > visibleLines.length,
+  };
+}
+
+export function buildCompactDiffPreviewFromFiles(
+  files: ReadonlyArray<FileDiffMetadata>,
+  maxVisibleLines = COMPACT_DIFF_PREVIEW_MAX_VISIBLE_LINES,
+): CompactDiffPreviewModel | null {
+  const lines: CompactDiffPreviewLine[] = [];
+
+  for (const file of files) {
+    for (const [hunkIndex, hunk] of file.hunks.entries()) {
+      lines.push({
+        key: `${buildFileDiffRenderKey(file)}:hunk:${hunkIndex}`,
+        kind: "hunk",
+        text: trimDiffLine(hunk.hunkSpecs),
+      });
+
+      let additionIndex = hunk.additionLineIndex;
+      let deletionIndex = hunk.deletionLineIndex;
+
+      for (const [segmentIndex, segment] of hunk.hunkContent.entries()) {
+        if (segment.type === "context") {
+          for (let offset = 0; offset < segment.lines; offset += 1) {
+            lines.push({
+              key: `${buildFileDiffRenderKey(file)}:ctx:${hunkIndex}:${segmentIndex}:${offset}`,
+              kind: "context",
+              text: trimDiffLine(
+                file.additionLines[additionIndex + offset] ??
+                  file.deletionLines[deletionIndex + offset],
+              ),
+            });
+          }
+
+          additionIndex += segment.lines;
+          deletionIndex += segment.lines;
+          continue;
+        }
+
+        for (let offset = 0; offset < segment.deletions; offset += 1) {
+          lines.push({
+            key: `${buildFileDiffRenderKey(file)}:del:${hunkIndex}:${segmentIndex}:${offset}`,
+            kind: "deletion",
+            text: trimDiffLine(file.deletionLines[deletionIndex + offset]),
+          });
+        }
+
+        for (let offset = 0; offset < segment.additions; offset += 1) {
+          lines.push({
+            key: `${buildFileDiffRenderKey(file)}:add:${hunkIndex}:${segmentIndex}:${offset}`,
+            kind: "addition",
+            text: trimDiffLine(file.additionLines[additionIndex + offset]),
+          });
+        }
+
+        deletionIndex += segment.deletions;
+        additionIndex += segment.additions;
+      }
+    }
+  }
+
+  return finalizeCompactDiffPreviewLines(lines, maxVisibleLines);
+}
+
+export function getCompactDiffPreviewContent(
+  patch: string | undefined,
+  cacheScope = "diff-panel",
+  maxVisibleLines = COMPACT_DIFF_PREVIEW_MAX_VISIBLE_LINES,
+): CompactDiffPreviewContent | null {
+  const renderablePatch = getRenderablePatch(patch, cacheScope);
+  if (!renderablePatch) {
+    return null;
+  }
+
+  if (renderablePatch.kind === "files") {
+    return buildCompactDiffPreviewFromFiles(renderablePatch.files, maxVisibleLines);
+  }
+
+  return finalizeCompactRawDiffPreviewLines(
+    renderablePatch.text.split("\n"),
+    renderablePatch.reason,
+    maxVisibleLines,
+  );
 }

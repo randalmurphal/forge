@@ -1,5 +1,7 @@
 import { MessageId } from "@forgetools/contracts";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { renderToStaticMarkup } from "react-dom/server";
+import { type ReactElement } from "react";
 import { beforeAll, describe, expect, it, vi } from "vitest";
 
 vi.mock("../ChatMarkdown", () => ({
@@ -46,10 +48,22 @@ beforeAll(() => {
   });
 });
 
+function renderTimeline(ui: ReactElement) {
+  const queryClient = new QueryClient({
+    defaultOptions: {
+      queries: {
+        retry: false,
+      },
+    },
+  });
+
+  return renderToStaticMarkup(<QueryClientProvider client={queryClient}>{ui}</QueryClientProvider>);
+}
+
 describe("MessagesTimeline", () => {
   it("renders inline terminal labels with the composer chip UI", async () => {
     const { MessagesTimeline } = await import("./MessagesTimeline");
-    const markup = renderToStaticMarkup(
+    const markup = renderTimeline(
       <MessagesTimeline
         threadId={null}
         hasMessages
@@ -104,7 +118,7 @@ describe("MessagesTimeline", () => {
 
   it("renders grouped operation entries inline in chat history", async () => {
     const { MessagesTimeline } = await import("./MessagesTimeline");
-    const markup = renderToStaticMarkup(
+    const markup = renderTimeline(
       <MessagesTimeline
         threadId={null}
         hasMessages
@@ -149,7 +163,7 @@ describe("MessagesTimeline", () => {
 
   it("renders commands as standalone timeline rows instead of grouped operations", async () => {
     const { MessagesTimeline } = await import("./MessagesTimeline");
-    const markup = renderToStaticMarkup(
+    const markup = renderTimeline(
       <MessagesTimeline
         threadId={null}
         hasMessages
@@ -198,7 +212,7 @@ describe("MessagesTimeline", () => {
   it("renders collapsed tool and turn diff blocks inline in chat history", async () => {
     const { MessagesTimeline } = await import("./MessagesTimeline");
     const assistantMessageId = MessageId.makeUnsafe("assistant-1");
-    const markup = renderToStaticMarkup(
+    const markup = renderTimeline(
       <MessagesTimeline
         threadId={null}
         hasMessages
@@ -216,6 +230,7 @@ describe("MessagesTimeline", () => {
               createdAt: "2026-03-17T19:12:28.000Z",
               label: "File change",
               tone: "tool",
+              itemType: "file_change",
               changedFiles: ["src/app.ts"],
               inlineDiff: {
                 id: "tool-1",
@@ -277,9 +292,86 @@ describe("MessagesTimeline", () => {
     );
 
     expect(markup).toContain("Tool changes");
-    expect(markup).toContain("Summary only");
+    expect(markup).toContain("Patch unavailable for this tool call.");
+    expect(markup).not.toContain("Summary only");
     expect(markup).toContain("Turn changes");
-    expect(markup).toContain("Expand");
-    expect(markup).toContain("Copy markdown");
+    expect(markup).toContain("Open in diff panel");
+    expect(markup).not.toContain("Open in diff panel</button>");
+    expect(markup).not.toContain("Expand");
+  });
+
+  it("renders a chevron expand bar for long exact-patch tool diffs", async () => {
+    const { MessagesTimeline } = await import("./MessagesTimeline");
+    const longPatch = [
+      "diff --git a/src/app.ts b/src/app.ts",
+      "--- a/src/app.ts",
+      "+++ b/src/app.ts",
+      "@@ -1,2 +1,10 @@",
+      " const alpha = 1;",
+      "-const beta = 2;",
+      "+const beta = 3;",
+      "+const gamma = 4;",
+      "+const delta = 5;",
+      "+const epsilon = 6;",
+      "+const zeta = 7;",
+      "+const eta = 8;",
+      "+const theta = 9;",
+      "+const iota = 10;",
+    ].join("\n");
+
+    const markup = renderTimeline(
+      <MessagesTimeline
+        threadId={null}
+        hasMessages
+        isWorking={false}
+        activeTurnInProgress={false}
+        activeTurnStartedAt={null}
+        scrollContainer={null}
+        timelineEntries={[
+          {
+            id: "work-entry",
+            kind: "work",
+            createdAt: "2026-03-17T19:12:28.000Z",
+            entry: {
+              id: "tool-2",
+              createdAt: "2026-03-17T19:12:28.000Z",
+              label: "File change",
+              tone: "tool",
+              itemType: "file_change",
+              changedFiles: ["src/app.ts"],
+              inlineDiff: {
+                id: "tool-2",
+                activityId: "tool-2",
+                title: "Edit file",
+                availability: "exact_patch",
+                files: [{ path: "src/app.ts", additions: 8, deletions: 1 }],
+                additions: 8,
+                deletions: 1,
+                unifiedDiff: longPatch,
+              },
+            },
+          },
+        ]}
+        completionDividerBeforeEntryId={null}
+        completionSummary={null}
+        turnDiffSummaryByAssistantMessageId={new Map()}
+        nowIso="2026-03-17T19:12:31.000Z"
+        expandedWorkGroups={{}}
+        onToggleWorkGroup={() => {}}
+        onOpenTurnDiff={() => {}}
+        revertTurnCountByUserMessageId={new Map()}
+        onRevertUserMessage={() => {}}
+        isRevertingCheckpoint={false}
+        onImageExpand={() => {}}
+        markdownCwd={undefined}
+        resolvedTheme="light"
+        timestampFormat="locale"
+        workspaceRoot={undefined}
+      />,
+    );
+
+    expect(markup).toContain("FileChange");
+    expect(markup).toContain("Tool changes");
+    expect(markup).toContain('data-compact-diff-expand-bar="true"');
   });
 });
