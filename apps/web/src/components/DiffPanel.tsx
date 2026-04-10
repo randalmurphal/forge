@@ -31,7 +31,6 @@ import {
   getDiffLoadingLabel,
   getRenderablePatch,
   resolveFileDiffPath,
-  shouldDefaultCollapseDiffFiles,
   shouldDeferDiffRendering,
   summarizeDiffFileSummaries,
   summarizeFileDiff,
@@ -40,10 +39,10 @@ import { useTurnDiffSummaries } from "../hooks/useTurnDiffSummaries";
 import { useStore } from "../store";
 import { useSettings } from "../hooks/useSettings";
 import { formatShortTimestamp } from "../timestampFormat";
-import { DiffPanelLoadingState, DiffPanelShell, type DiffPanelMode } from "./DiffPanelShell";
+import { DiffPanelShell, type DiffPanelMode } from "./DiffPanelShell";
 import { ToggleGroup, Toggle } from "./ui/toggle-group";
 import { Button } from "./ui/button";
-import { CollapsibleFileDiffList } from "./CollapsibleFileDiffList";
+import { DiffPanelBody, DiffPanelNoticeCard } from "./DiffPanelBody";
 import { resolveSelectedAgentCoverage, shouldShowWorkspaceFallback } from "./DiffPanel.logic";
 
 type DiffRenderMode = "stacked" | "split";
@@ -608,127 +607,67 @@ export default function DiffPanel({ mode = "inline" }: DiffPanelProps) {
   return (
     <DiffPanelShell mode={mode} header={headerRow}>
       {!activeThread ? (
-        <div className="flex flex-1 items-center justify-center px-5 text-center text-xs text-muted-foreground/70">
-          Select a thread to inspect diffs.
+        <div className="flex flex-1 items-center justify-center p-3">
+          <DiffPanelNoticeCard
+            title="Diff panel"
+            description="Select a thread to inspect diffs."
+            className="max-w-md"
+          />
         </div>
       ) : !isGitRepo ? (
-        <div className="flex flex-1 items-center justify-center px-5 text-center text-xs text-muted-foreground/70">
-          Diffs are unavailable because this project is not a git repository.
+        <div className="flex flex-1 items-center justify-center p-3">
+          <DiffPanelNoticeCard
+            title="Diffs unavailable"
+            description="This project is not a git repository."
+            className="max-w-md"
+          />
         </div>
       ) : diffMode === "agent" && orderedAgentDiffSummaries.length === 0 ? (
-        <div className="flex flex-1 items-center justify-center px-5 text-center text-xs text-muted-foreground/70">
-          No agent-attributed diffs are available yet.
+        <div className="flex flex-1 items-center justify-center p-3">
+          <DiffPanelNoticeCard
+            title="No agent diffs"
+            description="No agent-attributed diffs are available yet."
+            className="max-w-md"
+          />
         </div>
       ) : (
-        <>
-          <div
-            ref={patchViewportRef}
-            className="diff-panel-viewport min-h-0 min-w-0 flex-1 overflow-hidden"
-          >
-            {showWorkspaceFallback && (
-              <div className="px-3 pt-2">
-                <p className="mb-2 text-[11px] text-muted-foreground/75">
-                  Agent attribution is unavailable for this turn. Showing workspace changes during
-                  the turn instead.
-                </p>
-              </div>
-            )}
-            {patchError && !renderablePatch && (
-              <div className="px-3">
-                <p className="mb-2 text-[11px] text-red-500/80">{patchError}</p>
-              </div>
-            )}
-            {!renderablePatch ? (
-              showDeferredRenderCard ? (
-                <div className="flex h-full items-center justify-center px-4 py-3">
-                  <div className="w-full max-w-sm rounded-lg border border-border/70 bg-card/50 p-4">
-                    <p className="text-sm font-medium text-foreground/90">This diff is huge.</p>
-                    <p className="mt-1 text-[11px] text-muted-foreground/70">
-                      Rich rendering is deferred to keep the UI responsive.
-                    </p>
-                    {viewDiffTotals ? (
-                      <div className="mt-3">
-                        <DiffTotalsLabel {...viewDiffTotals} />
-                      </div>
-                    ) : null}
-                    <div className="mt-4 flex gap-2">
-                      <Button
-                        size="sm"
-                        variant="outline"
-                        onClick={() => setDeferredDiffRenderKey(activeDiffIdentity)}
-                      >
-                        Render diff
-                      </Button>
-                      {diffMode === "workspace" && !shouldUseLiveWorkspaceRefresh ? (
-                        <Button
-                          size="sm"
-                          variant="ghost"
-                          onClick={() => void workspaceDiffQuery.refetch()}
-                        >
-                          Refresh
-                        </Button>
-                      ) : null}
-                    </div>
-                  </div>
-                </div>
-              ) : isLoadingPatch ? (
-                <DiffPanelLoadingState
-                  label={getDiffLoadingLabel(
-                    diffMode === "workspace"
-                      ? "Loading workspace diff..."
-                      : showWorkspaceFallback
-                        ? "Loading workspace fallback diff..."
-                        : "Loading agent diff...",
-                    diffComplexity,
-                  )}
-                />
-              ) : (
-                <div className="flex h-full items-center justify-center px-3 py-2 text-xs text-muted-foreground/70">
-                  <p>
-                    {isWholeThreadNetDiffUnavailable
-                      ? "No net diff available for this agent yet."
-                      : hasNoNetChanges
-                        ? diffMode === "workspace"
-                          ? "Working tree is clean."
-                          : "No net changes in this selection."
-                        : "No patch available for this selection."}
-                  </p>
-                </div>
-              )
-            ) : renderablePatch.kind === "files" ? (
-              <CollapsibleFileDiffList
-                files={renderableFiles}
-                resolvedTheme={resolvedTheme}
-                diffRenderMode={diffRenderMode}
-                diffWordWrap={diffWordWrap}
-                selectedFilePath={selectedFilePath}
-                onOpenFile={openDiffFileInEditor}
-                virtualized={true}
-                className="diff-render-surface"
-                defaultExpandMode={
-                  shouldDefaultCollapseDiffFiles(diffComplexity) ? "selected-only" : "all"
-                }
-                confirmExpandAll={diffComplexity !== "normal"}
-              />
-            ) : (
-              <div className="h-full overflow-auto p-2">
-                <div className="space-y-2">
-                  <p className="text-[11px] text-muted-foreground/75">{renderablePatch.reason}</p>
-                  <pre
-                    className={cn(
-                      "max-h-[72vh] rounded-md border border-border/70 bg-background/70 p-3 font-mono text-[11px] leading-relaxed text-muted-foreground/90",
-                      diffWordWrap
-                        ? "overflow-auto whitespace-pre-wrap wrap-break-word"
-                        : "overflow-auto",
-                    )}
-                  >
-                    {renderablePatch.text}
-                  </pre>
-                </div>
-              </div>
-            )}
-          </div>
-        </>
+        <DiffPanelBody
+          patchViewportRef={patchViewportRef}
+          diffSurfaceLabel={
+            diffMode === "workspace"
+              ? "Workspace changes"
+              : selectedTurn
+                ? "Turn changes"
+                : "Agent changes"
+          }
+          diffMode={diffMode}
+          renderablePatch={renderablePatch}
+          renderableFiles={renderableFiles}
+          resolvedTheme={resolvedTheme}
+          diffRenderMode={diffRenderMode}
+          diffWordWrap={diffWordWrap}
+          selectedFilePath={selectedFilePath}
+          onOpenFile={openDiffFileInEditor}
+          showWorkspaceFallback={showWorkspaceFallback}
+          showDeferredRenderCard={showDeferredRenderCard}
+          onRenderDeferred={() => setDeferredDiffRenderKey(activeDiffIdentity)}
+          canRefreshWorkspace={diffMode === "workspace" && !shouldUseLiveWorkspaceRefresh}
+          onRefreshWorkspace={() => void workspaceDiffQuery.refetch()}
+          isLoadingPatch={isLoadingPatch}
+          loadingLabel={getDiffLoadingLabel(
+            diffMode === "workspace"
+              ? "Loading workspace diff..."
+              : showWorkspaceFallback
+                ? "Loading workspace fallback diff..."
+                : "Loading agent diff...",
+            diffComplexity,
+          )}
+          patchError={patchError}
+          hasNoNetChanges={hasNoNetChanges}
+          isWholeThreadNetDiffUnavailable={isWholeThreadNetDiffUnavailable}
+          viewDiffTotals={viewDiffTotals}
+          confirmExpandAll={diffComplexity !== "normal"}
+        />
       )}
     </DiffPanelShell>
   );

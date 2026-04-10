@@ -33,6 +33,7 @@
     "start:desktop": "turbo run start --filter=@forgetools/desktop",
     "start:marketing": "turbo run preview --filter=@forgetools/marketing",
     "start:mock-update-server": "bun run scripts/mock-update-server.ts",
+    "setup:bin": "bun run scripts/setup-bin.ts",
     "build": "turbo run build",
     "build:marketing": "turbo run build --filter=@forgetools/marketing",
     "build:desktop": "turbo run build --filter=@forgetools/desktop --filter=@forgetools/server",

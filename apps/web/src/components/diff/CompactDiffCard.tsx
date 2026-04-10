@@ -4,7 +4,7 @@ import { type ReactNode } from "react";
 import { cn } from "~/lib/utils";
 
 interface CompactDiffCardProps {
-  header: ReactNode;
+  header?: ReactNode;
   children: ReactNode;
   className?: string;
   expanded?: boolean | undefined;
@@ -22,7 +22,7 @@ export function CompactDiffCard(props: CompactDiffCardProps) {
         props.className,
       )}
     >
-      {props.header}
+      {props.header ? props.header : null}
       {props.children}
       {props.showExpandBar ? (
         <button

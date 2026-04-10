@@ -11,7 +11,11 @@ vi.mock("@pierre/diffs/react", () => ({
 
 import { CollapsibleFileDiffList } from "./CollapsibleFileDiffList";
 
-function makeFileDiff() {
+function makeFileDiff(changeLines = 8) {
+  const additions = Array.from(
+    { length: changeLines },
+    (_, index) => `const line${index + 1} = ${index + 1};\n`,
+  );
   return {
     name: "src/example.ts",
     type: "change" as const,
@@ -35,49 +39,39 @@ function makeFileDiff() {
           },
           {
             type: "change" as const,
-            additions: 8,
+            additions: changeLines,
             deletions: 1,
             additionLineIndex: 1,
             deletionLineIndex: 1,
           },
         ],
-        hunkSpecs: "@@ -1,2 +1,10 @@\n",
+        hunkSpecs: `@@ -1,2 +1,${changeLines + 2} @@\n`,
         splitLineStart: 0,
-        splitLineCount: 9,
+        splitLineCount: changeLines + 1,
         unifiedLineStart: 0,
-        unifiedLineCount: 10,
+        unifiedLineCount: changeLines + 2,
         noEOFCRAdditions: false,
         noEOFCRDeletions: false,
       },
     ],
-    splitLineCount: 9,
-    unifiedLineCount: 10,
+    splitLineCount: changeLines + 1,
+    unifiedLineCount: changeLines + 2,
     isPartial: true,
     deletionLines: ["const alpha = 1;\n", "const beta = 2;\n"],
-    additionLines: [
-      "const alpha = 1;\n",
-      "const beta = 3;\n",
-      "const gamma = 4;\n",
-      "const delta = 5;\n",
-      "const epsilon = 6;\n",
-      "const zeta = 7;\n",
-      "const eta = 8;\n",
-      "const theta = 9;\n",
-      "const iota = 10;\n",
-    ],
+    additionLines: ["const alpha = 1;\n", ...additions],
     cacheKey: "diff-file-1",
   };
 }
 
 describe("CollapsibleFileDiffList", () => {
-  it("renders compact artifact-style collapsed file cards", () => {
+  it("renders compact artifact-style collapsed file cards without preview code", () => {
     const markup = renderToStaticMarkup(
       <CollapsibleFileDiffList
         files={[makeFileDiff()]}
         resolvedTheme="dark"
         diffRenderMode="stacked"
         diffWordWrap={false}
-        defaultExpandMode="selected-only"
+        defaultExpandMode="none"
         onOpenFile={() => {}}
       />,
     );
@@ -87,9 +81,10 @@ describe("CollapsibleFileDiffList", () => {
     expect(markup).toContain("src/example.ts");
     expect(markup).toContain("Open src/example.ts in editor");
     expect(markup).toContain('data-compact-diff-expand-bar="true"');
+    expect(markup).not.toContain("@@ -1,2");
   });
 
-  it("keeps split mode wired through when a file card is expanded", () => {
+  it("renders the updated split view inside the same card shell", () => {
     const markup = renderToStaticMarkup(
       <CollapsibleFileDiffList
         files={[makeFileDiff()]}
@@ -100,6 +95,20 @@ describe("CollapsibleFileDiffList", () => {
       />,
     );
 
-    expect(markup).toContain('data-file-diff-style="split"');
+    expect(markup).toContain('data-compact-diff-split="true"');
+  });
+
+  it("uses a fixed-height scroll container when expanded content is long", () => {
+    const markup = renderToStaticMarkup(
+      <CollapsibleFileDiffList
+        files={[makeFileDiff(24)]}
+        resolvedTheme="light"
+        diffRenderMode="stacked"
+        diffWordWrap={false}
+        defaultExpandMode="all"
+      />,
+    );
+
+    expect(markup).toContain('data-compact-diff-scrollable="true"');
   });
 });

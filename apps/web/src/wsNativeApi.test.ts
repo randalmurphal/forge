@@ -136,7 +136,7 @@ function makeDesktopBridge(overrides: Partial<DesktopBridge> = {}): DesktopBridg
     },
     onUpdateState: () => () => undefined,
     getWslDistros: async () => [],
-    checkWslForge: async () => undefined,
+    checkWslForge: async () => ({}),
     getConnectionConfig: async () => null,
     testConnection: async () => ({ success: false, error: "not implemented in test" }),
     saveConnection: async () => undefined,

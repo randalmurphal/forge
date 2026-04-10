@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import {
   COMPACT_DIFF_PREVIEW_MAX_VISIBLE_LINES,
   DIFF_RENDER_UNSAFE_CSS,
+  buildCompactDiffPreviewContent,
   buildCompactDiffPreviewFromFiles,
   buildPatchCacheKey,
   classifyDiffComplexity,
@@ -223,6 +224,20 @@ describe("compact diff previews", () => {
         " trailing text without file headers",
       ],
       hasOverflow: false,
+    });
+  });
+
+  it("builds preview content directly from a raw renderable patch", () => {
+    const preview = buildCompactDiffPreviewContent({
+      kind: "raw",
+      text: ["@@ -1 +1 @@", "-old", "+new"].join("\n"),
+      reason: "Failed to parse patch. Showing raw patch.",
+    });
+
+    expect(preview).toMatchObject({
+      kind: "raw",
+      reason: "Failed to parse patch. Showing raw patch.",
+      visibleLines: ["@@ -1 +1 @@", "-old", "+new"],
     });
   });
 });

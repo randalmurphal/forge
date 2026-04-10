@@ -60,7 +60,7 @@ import { syncShellEnvironment } from "./syncShellEnvironment";
 import {
   isWslAvailable,
   listDistros,
-  findForgeBinary,
+  checkWslForgeBinary,
   resolveWslHome,
   toWslUncPath,
   windowsToWslPath,
@@ -1128,10 +1128,16 @@ async function ensureDaemonReady(): Promise<void> {
 
 async function connectViaWsl(config: ConnectionConfig): Promise<void> {
   const distro = config.wslDistro;
-  const forgePath = config.wslForgePath;
-  if (!distro || !forgePath) {
+  const configuredForgePath = config.wslForgePath;
+  if (!distro || !configuredForgePath) {
     throw new Error("WSL connection config missing distro or forge path");
   }
+
+  const forgeCheck = await checkWslForgeBinary(distro);
+  if (forgeCheck.error) {
+    throw new Error(forgeCheck.error);
+  }
+  const forgePath = forgeCheck.path ?? configuredForgePath;
 
   updateDaemonStatus(DAEMON_STATUS_STARTING, `WSL: ${distro}`);
   writeDesktopLogHeader(`connecting via WSL distro=${distro} forgePath=${forgePath}`);
@@ -1417,8 +1423,10 @@ function registerIpcHandlers(): void {
 
   ipcMain.removeHandler(WSL_CHECK_FORGE_CHANNEL);
   ipcMain.handle(WSL_CHECK_FORGE_CHANNEL, async (_event, distro: unknown) => {
-    if (typeof distro !== "string" || distro.length === 0) return undefined;
-    return findForgeBinary(distro);
+    if (typeof distro !== "string" || distro.length === 0) {
+      return { error: "WSL distro is required." };
+    }
+    return checkWslForgeBinary(distro);
   });
 
   // WSL editor support
@@ -1532,6 +1540,7 @@ function registerIpcHandlers(): void {
     } catch (error) {
       updateDaemonStatus(DAEMON_STATUS_ERROR, formatErrorMessage(error));
       writeDesktopLogHeader(`connection-save reconnect failed: ${formatErrorMessage(error)}`);
+      throw error;
     } finally {
       reconnectInProgress = false;
     }

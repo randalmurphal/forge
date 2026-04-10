@@ -1,4 +1,4 @@
-import { execFileSync, execFile } from "node:child_process";
+import { execFile, execFileSync } from "node:child_process";
 import { existsSync } from "node:fs";
 import { join } from "node:path";
 
@@ -9,7 +9,29 @@ export interface WslDistro {
   readonly version: number;
 }
 
+export interface WslForgeCheckResult {
+  readonly path?: string;
+  readonly error?: string;
+}
+
 const WSL_EXEC_TIMEOUT_MS = 10_000;
+
+type ExecFileCallback = (
+  error: Error | null,
+  stdout: string | Buffer,
+  stderr: string | Buffer,
+) => void;
+
+type ExecFileLike = (
+  file: string,
+  args: ReadonlyArray<string>,
+  options: {
+    readonly windowsHide: boolean;
+    readonly timeout: number;
+    readonly encoding: BufferEncoding;
+  },
+  callback: ExecFileCallback,
+) => void;
 
 function resolveWslExePath(): string {
   const systemRoot = process.env.SystemRoot ?? "C:\\Windows";
@@ -149,25 +171,74 @@ export function resolveWslHome(distro: string): Promise<string> {
   });
 }
 
-/**
- * Check if the forge binary exists in a distro.
- * Runs: wsl.exe -d <distro> -- bash -lc 'which forge'
- * Returns the path if found, undefined if the command fails.
- */
-export function findForgeBinary(distro: string): Promise<string | undefined> {
-  return new Promise<string | undefined>((resolve) => {
-    execFile(
+function trimExecOutput(output: string | Buffer): string {
+  return String(output).trim();
+}
+
+function normalizeForgeCheckError(
+  error: Error | null,
+  stdout: string | Buffer,
+  stderr: string | Buffer,
+  path: string,
+): string {
+  const firstLine = [trimExecOutput(stderr), trimExecOutput(stdout), error?.message]
+    .filter((value): value is string => typeof value === "string" && value.length > 0)
+    .flatMap((value) => value.split(/\r?\n/))
+    .map((line) => line.trim())
+    .find((line) => line.length > 0);
+
+  if (!firstLine) {
+    return `Forge was found at ${path}, but it failed to start in WSL.`;
+  }
+
+  return `Forge was found at ${path}, but it failed to start in WSL: ${firstLine}`;
+}
+
+export function checkWslForgeBinary(
+  distro: string,
+  execFileImpl: ExecFileLike = execFile,
+): Promise<WslForgeCheckResult> {
+  return new Promise<WslForgeCheckResult>((resolve) => {
+    execFileImpl(
       "wsl.exe",
-      ["-d", distro, "--", "bash", "-lc", "which forge"],
+      ["-d", distro, "--", "bash", "-lc", "command -v forge"],
       { windowsHide: true, timeout: WSL_EXEC_TIMEOUT_MS, encoding: "utf8" },
-      (error, stdout) => {
-        if (error) {
-          resolve(undefined);
+      (resolveError, resolveStdout) => {
+        if (resolveError) {
+          resolve({
+            error: `Forge server not found in ${distro}. Install it inside WSL and try again.`,
+          });
           return;
         }
 
-        const path = stdout.trim();
-        resolve(path.length > 0 ? path : undefined);
+        const path = trimExecOutput(resolveStdout);
+        if (path.length === 0) {
+          resolve({
+            error: `Forge server not found in ${distro}. Install it inside WSL and try again.`,
+          });
+          return;
+        }
+
+        execFileImpl(
+          "wsl.exe",
+          ["-d", distro, "--", path, "--help"],
+          { windowsHide: true, timeout: WSL_EXEC_TIMEOUT_MS, encoding: "utf8" },
+          (validationError, validationStdout, validationStderr) => {
+            if (validationError) {
+              resolve({
+                error: normalizeForgeCheckError(
+                  validationError,
+                  validationStdout,
+                  validationStderr,
+                  path,
+                ),
+              });
+              return;
+            }
+
+            resolve({ path });
+          },
+        );
       },
     );
   });

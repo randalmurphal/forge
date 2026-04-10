@@ -1,6 +1,6 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 
-import { parseDistroOutput, toWslUncPath, windowsToWslPath } from "./wsl";
+import { checkWslForgeBinary, parseDistroOutput, toWslUncPath, windowsToWslPath } from "./wsl";
 
 // ---------------------------------------------------------------------------
 // toWslUncPath — pure function, no mocks needed
@@ -230,5 +230,52 @@ describe("parseDistroOutput", () => {
 
     const result = parseDistroOutput(output);
     expect(result[0]!.state).toBe("Installing");
+  });
+});
+
+describe("checkWslForgeBinary", () => {
+  it("returns the forge path when the binary is runnable", async () => {
+    const execFile = vi
+      .fn()
+      .mockImplementationOnce((_file, _args, _options, callback) => {
+        callback(null, "/home/user/.local/bin/forge\n", "");
+      })
+      .mockImplementationOnce((_file, _args, _options, callback) => {
+        callback(null, "", "");
+      });
+
+    await expect(checkWslForgeBinary("Ubuntu", execFile)).resolves.toEqual({
+      path: "/home/user/.local/bin/forge",
+    });
+  });
+
+  it("returns a helpful error when forge is missing", async () => {
+    const execFile = vi.fn().mockImplementation((_file, _args, _options, callback) => {
+      callback(new Error("not found"), "", "");
+    });
+
+    await expect(checkWslForgeBinary("Ubuntu", execFile)).resolves.toEqual({
+      error: "Forge server not found in Ubuntu. Install it inside WSL and try again.",
+    });
+  });
+
+  it("returns the startup error when forge exists but cannot run", async () => {
+    const execFile = vi
+      .fn()
+      .mockImplementationOnce((_file, _args, _options, callback) => {
+        callback(null, "/home/user/.local/bin/forge\n", "");
+      })
+      .mockImplementationOnce((_file, _args, _options, callback) => {
+        callback(
+          new Error("failed"),
+          "",
+          "Error [ERR_MODULE_NOT_FOUND]: Cannot find package '@effect/platform-node'\n",
+        );
+      });
+
+    await expect(checkWslForgeBinary("Ubuntu", execFile)).resolves.toEqual({
+      error:
+        "Forge was found at /home/user/.local/bin/forge, but it failed to start in WSL: Error [ERR_MODULE_NOT_FOUND]: Cannot find package '@effect/platform-node'",
+    });
   });
 });

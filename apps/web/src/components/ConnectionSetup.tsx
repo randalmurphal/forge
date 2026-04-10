@@ -169,13 +169,14 @@ function WslSection() {
 
     bridge
       .checkWslForge(selectedDistro)
-      .then((path) => {
+      .then((result) => {
         if (cancelled) return;
-        if (path) {
-          setForgePath(path);
+        if (result.path) {
+          setForgePath(result.path);
         } else {
           setForgeError(
-            `Forge server not found in ${selectedDistro}. Install it inside WSL and try again.`,
+            result.error ??
+              `Forge server not found in ${selectedDistro}. Install it inside WSL and try again.`,
           );
         }
       })
@@ -285,7 +286,11 @@ function WslSection() {
         </div>
       )}
 
-      <Button size="sm" disabled={!forgePath || connecting} onClick={handleConnect}>
+      <Button
+        size="sm"
+        disabled={!forgePath || connecting || forgeError !== null}
+        onClick={handleConnect}
+      >
         {connecting ? (
           <>
             <LoaderIcon className="size-4 animate-spin" />

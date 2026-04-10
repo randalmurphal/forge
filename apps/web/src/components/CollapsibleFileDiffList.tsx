@@ -1,4 +1,4 @@
-import { FileDiff, Virtualizer } from "@pierre/diffs/react";
+import { Virtualizer } from "@pierre/diffs/react";
 import type { FileDiffMetadata } from "@pierre/diffs/react";
 import { ExternalLinkIcon, SquarePenIcon } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
@@ -7,8 +7,6 @@ import { cn } from "~/lib/utils";
 import {
   buildCompactDiffPreviewFromFiles,
   buildFileDiffRenderKey,
-  DIFF_RENDER_UNSAFE_CSS,
-  resolveDiffThemeName,
   resolveFileDiffPath,
   summarizeFileDiff,
 } from "~/lib/diffRendering";
@@ -30,19 +28,23 @@ interface CollapsibleFileDiffListProps {
   onOpenFile?: (filePath: string) => void;
   virtualized?: boolean;
   className?: string;
-  defaultExpandMode?: "all" | "selected-only";
+  defaultExpandMode?: "all" | "selected-only" | "none";
   confirmExpandAll?: boolean;
 }
 
 function buildExpandedState(
   files: ReadonlyArray<{ key: string; path: string }>,
   selectedFilePath?: string | null,
-  defaultExpandMode: "all" | "selected-only" = "all",
+  defaultExpandMode: "all" | "selected-only" | "none" = "none",
 ) {
   const state: Record<string, boolean> = {};
   for (const file of files) {
     state[file.key] = defaultExpandMode === "all";
-    if (selectedFilePath && file.path === selectedFilePath) {
+    if (
+      defaultExpandMode === "selected-only" &&
+      selectedFilePath &&
+      file.path === selectedFilePath
+    ) {
       state[file.key] = true;
     }
   }
@@ -54,7 +56,6 @@ function CollapsibleFileDiffRow(props: {
   expanded: boolean;
   diffRenderMode: DiffRenderMode;
   diffWordWrap: boolean;
-  resolvedTheme: "light" | "dark";
   onToggle: () => void;
   onOpenFile?: (filePath: string) => void;
 }) {
@@ -64,7 +65,7 @@ function CollapsibleFileDiffRow(props: {
     () => buildCompactDiffPreviewFromFiles([props.fileDiff]),
     [props.fileDiff],
   );
-  const showExpandBar = props.expanded || previewContent?.hasOverflow === true;
+  const showExpandBar = previewContent !== null;
   const openFileAction = props.onOpenFile ? (
     <Button
       type="button"
@@ -102,24 +103,21 @@ function CollapsibleFileDiffRow(props: {
         onToggleExpand={props.onToggle}
       >
         {props.expanded ? (
-          <div className="px-2 pb-2">
-            <FileDiff
-              fileDiff={props.fileDiff}
-              options={{
-                diffStyle: props.diffRenderMode === "split" ? "split" : "unified",
-                lineDiffType: "none",
-                overflow: props.diffWordWrap ? "wrap" : "scroll",
-                disableFileHeader: true,
-                theme: resolveDiffThemeName(props.resolvedTheme),
-                themeType: props.resolvedTheme,
-                unsafeCSS: DIFF_RENDER_UNSAFE_CSS,
-              }}
-            />
-          </div>
+          <CompactDiffPreview
+            content={previewContent}
+            expanded={true}
+            collapsedBehavior="hidden"
+            renderMode={props.diffRenderMode}
+            wordWrap={props.diffWordWrap}
+            emptyLabel="No preview available for this file."
+          />
         ) : (
           <CompactDiffPreview
             content={previewContent}
             expanded={false}
+            collapsedBehavior="hidden"
+            renderMode={props.diffRenderMode}
+            wordWrap={props.diffWordWrap}
             emptyLabel="No preview available for this file."
           />
         )}
@@ -129,7 +127,7 @@ function CollapsibleFileDiffRow(props: {
 }
 
 export function CollapsibleFileDiffList(props: CollapsibleFileDiffListProps) {
-  const { files, selectedFilePath, defaultExpandMode = "all" } = props;
+  const { files, selectedFilePath, defaultExpandMode = "none" } = props;
   const fileEntries = useMemo(
     () =>
       files.map((file) => ({
@@ -155,10 +153,11 @@ export function CollapsibleFileDiffList(props: CollapsibleFileDiffListProps) {
 
   useEffect(() => {
     if (!selectedFileKey) return;
+    if (defaultExpandMode !== "selected-only") return;
     setExpandedByFileKey((current) =>
       current[selectedFileKey] ? current : { ...current, [selectedFileKey]: true },
     );
-  }, [selectedFileKey]);
+  }, [defaultExpandMode, selectedFileKey]);
 
   const allExpanded =
     files.length > 0 && files.every((file) => expandedByFileKey[buildFileDiffRenderKey(file)]);
@@ -211,7 +210,6 @@ export function CollapsibleFileDiffList(props: CollapsibleFileDiffListProps) {
           expanded={expandedByFileKey[fileKey] ?? true}
           diffRenderMode={props.diffRenderMode}
           diffWordWrap={props.diffWordWrap}
-          resolvedTheme={props.resolvedTheme}
           onToggle={() =>
             setExpandedByFileKey((current) => ({
               ...current,

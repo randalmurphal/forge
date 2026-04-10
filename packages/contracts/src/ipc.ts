@@ -116,6 +116,11 @@ export interface WslDistroInfo {
   readonly version: number;
 }
 
+export interface WslForgeCheckResult {
+  readonly path?: string;
+  readonly error?: string;
+}
+
 export interface ConnectionConfig {
   readonly mode: "local" | "wsl" | "external";
   readonly wslDistro?: string;
@@ -154,7 +159,7 @@ export interface DesktopBridge {
   clearConnection: () => Promise<void>;
   // WSL integration
   getWslDistros: () => Promise<WslDistroInfo[]>;
-  checkWslForge: (distro: string) => Promise<string | undefined>;
+  checkWslForge: (distro: string) => Promise<WslForgeCheckResult>;
   // WSL editor support
   openInEditor: (target: string, editor: EditorId) => Promise<boolean>;
   getAvailableEditors: () => Promise<EditorId[] | null>;
