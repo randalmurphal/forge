@@ -35,3 +35,7 @@ export async function invokeSharedChatBridge(input: {
 
   return await handler({ message: input.message });
 }
+
+export function removeSharedChatBridge(token: string): void {
+  sharedChatBridgeHandlers.delete(token);
+}

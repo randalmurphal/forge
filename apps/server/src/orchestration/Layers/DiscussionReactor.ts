@@ -17,6 +17,7 @@ import { ServerConfig } from "../../config.ts";
 import { registerPendingMcpServer } from "../../provider/pendingMcpServers.ts";
 import { registerPendingSystemPrompt } from "../../provider/pendingSystemPrompt.ts";
 import {
+  removeSharedChatBridge,
   registerSharedChatBridge,
   SHARED_CHAT_BRIDGE_ROUTE,
 } from "../../discussion/sharedChatBridge.ts";
@@ -30,7 +31,7 @@ import { DiscussionReactor, type DiscussionReactorShape } from "../Services/Disc
 
 type DiscussionReactorEvent = Extract<
   ForgeEvent,
-  { type: "thread.turn-start-requested" | "thread.summary-requested" }
+  { type: "thread.turn-start-requested" | "thread.summary-requested" | "thread.completed" }
 >;
 
 type SharedChatParticipant = {
@@ -106,6 +107,7 @@ export const makeDiscussionReactor = Effect.gen(function* () {
   const services = yield* Effect.services();
   const runPromise = Effect.runPromiseWith(services);
   const serverBaseUrl = resolveLocalServerBaseUrl(serverConfig);
+  const bridgeTokensByChildThread = new Map<ThreadId, string>();
 
   const resolveThread = Effect.fn("DiscussionReactor.resolveThread")(function* (
     threadId: ThreadId,
@@ -303,7 +305,11 @@ export const makeDiscussionReactor = Effect.gen(function* () {
       );
 
     const mcpServerName = `forge-shared-chat-${input.childThreadId}`;
-    const bridgeToken = registerSharedChatBridge(postMessage);
+    let bridgeToken = bridgeTokensByChildThread.get(input.childThreadId);
+    if (bridgeToken === undefined) {
+      bridgeToken = registerSharedChatBridge(postMessage);
+      bridgeTokensByChildThread.set(input.childThreadId, bridgeToken);
+    }
     registerPendingMcpServer(input.childThreadId, {
       config:
         input.provider === "claudeAgent"
@@ -324,6 +330,15 @@ export const makeDiscussionReactor = Effect.gen(function* () {
               }),
             },
     });
+  };
+
+  const teardownSharedChatTool = (threadId: ThreadId) => {
+    const bridgeToken = bridgeTokensByChildThread.get(threadId);
+    if (bridgeToken === undefined) {
+      return;
+    }
+    removeSharedChatBridge(bridgeToken);
+    bridgeTokensByChildThread.delete(threadId);
   };
 
   const resolveWorkspaceRoot = Effect.fn("DiscussionReactor.resolveWorkspaceRoot")(function* (
@@ -530,10 +545,26 @@ export const makeDiscussionReactor = Effect.gen(function* () {
     });
   });
 
+  const processThreadCompleted = Effect.fn("DiscussionReactor.processThreadCompleted")(
+    (event: Extract<DiscussionReactorEvent, { type: "thread.completed" }>) =>
+      Effect.gen(function* () {
+        teardownSharedChatTool(event.payload.threadId);
+        const completedThread = yield* resolveThread(event.payload.threadId);
+        if (!completedThread || completedThread.childThreadIds.length === 0) {
+          return;
+        }
+        for (const childThreadId of completedThread.childThreadIds) {
+          teardownSharedChatTool(childThreadId);
+        }
+      }),
+  );
+
   const processEventSafely = (event: DiscussionReactorEvent) =>
     (event.type === "thread.summary-requested"
       ? processSummaryRequested(event)
-      : processTurnStartRequested(event)
+      : event.type === "thread.completed"
+        ? processThreadCompleted(event)
+        : processTurnStartRequested(event)
     ).pipe(
       Effect.catchCause((cause) => {
         if (Cause.hasInterruptsOnly(cause)) {
@@ -553,7 +584,9 @@ export const makeDiscussionReactor = Effect.gen(function* () {
       Stream.filter(
         orchestrationEngine.streamDomainEvents as unknown as Stream.Stream<ForgeEvent>,
         (event) =>
-          event.type === "thread.turn-start-requested" || event.type === "thread.summary-requested",
+          event.type === "thread.turn-start-requested" ||
+          event.type === "thread.summary-requested" ||
+          event.type === "thread.completed",
       ).pipe(Stream.map((event) => event as DiscussionReactorEvent)),
       worker.enqueue,
     ).pipe(Effect.forkScoped, Effect.asVoid);

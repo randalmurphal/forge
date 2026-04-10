@@ -20,6 +20,34 @@ function toBridgeError(cause: unknown): Error {
   return cause instanceof Error ? cause : new Error(String(cause));
 }
 
+function bridgePathFromUrl(bridgeUrl: string): string {
+  try {
+    return new URL(bridgeUrl).pathname;
+  } catch {
+    return bridgeUrl;
+  }
+}
+
+export async function describeDesignBridgeHttpError(
+  response: Response,
+  bridgeUrl: string,
+): Promise<string> {
+  const payload = (await response.json().catch(() => null)) as {
+    result?: string;
+    error?: string | boolean;
+  } | null;
+  const detail =
+    typeof payload?.error === "string"
+      ? payload.error
+      : typeof payload?.result === "string"
+        ? payload.result
+        : null;
+  const bridgePath = bridgePathFromUrl(bridgeUrl);
+  return detail
+    ? `Design bridge returned HTTP ${response.status} for ${bridgePath}: ${detail}`
+    : `Design bridge returned HTTP ${response.status} for ${bridgePath}.`;
+}
+
 async function callDesignBridge(input: {
   readonly bridgeUrl: string;
   readonly bridgeToken: string;
@@ -41,7 +69,7 @@ async function callDesignBridge(input: {
   });
 
   if (!response.ok) {
-    throw new Error(`Design bridge returned HTTP ${response.status}.`);
+    throw new Error(await describeDesignBridgeHttpError(response, input.bridgeUrl));
   }
 
   const payload = (await response.json().catch(() => null)) as { result?: string } | null;

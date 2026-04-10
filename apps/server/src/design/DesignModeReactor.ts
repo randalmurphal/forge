@@ -23,7 +23,7 @@ import {
 } from "../orchestration/Services/DesignModeReactor.ts";
 import { ProjectionInteractiveRequestRepository } from "../persistence/Services/ProjectionInteractiveRequests.ts";
 
-type DesignReactorEvent = Extract<ForgeEvent, { type: "request.resolved" }>;
+type DesignReactorEvent = Extract<ForgeEvent, { type: "request.resolved" | "thread.completed" }>;
 
 interface PendingDesignChoice {
   readonly resolve: (value: { readonly chosen: string; readonly title: string }) => void;
@@ -171,23 +171,21 @@ export const makeDesignModeReactor = Effect.gen(function* () {
     };
 
     const mcpServerName = `forge-design-${threadId}`;
-    // Clean up any previous bridge for this thread before registering a new one
-    const previousToken = bridgeTokensByThread.get(threadId);
-    if (previousToken !== undefined) {
-      removeDesignBridge(previousToken);
+    let bridgeToken = bridgeTokensByThread.get(threadId);
+    if (bridgeToken === undefined) {
+      bridgeToken = registerDesignBridge(async (action) => {
+        if (action.action === "render_design") {
+          const result = await onRenderDesign(action);
+          return JSON.stringify(result);
+        }
+        if (action.action === "present_options") {
+          const result = await onPresentOptions(action);
+          return JSON.stringify(result);
+        }
+        throw new Error(`Unknown design bridge action: ${(action as { action: string }).action}`);
+      });
+      bridgeTokensByThread.set(threadId, bridgeToken);
     }
-    const bridgeToken = registerDesignBridge(async (action) => {
-      if (action.action === "render_design") {
-        const result = await onRenderDesign(action);
-        return JSON.stringify(result);
-      }
-      if (action.action === "present_options") {
-        const result = await onPresentOptions(action);
-        return JSON.stringify(result);
-      }
-      throw new Error(`Unknown design bridge action: ${(action as { action: string }).action}`);
-    });
-    bridgeTokensByThread.set(threadId, bridgeToken);
 
     registerPendingMcpServer(threadId, {
       config:
@@ -210,6 +208,21 @@ export const makeDesignModeReactor = Effect.gen(function* () {
               }),
             },
     });
+  };
+
+  const teardownDesignMode: DesignModeReactorShape["teardownDesignMode"] = (threadId) => {
+    const token = bridgeTokensByThread.get(threadId);
+    if (token !== undefined) {
+      removeDesignBridge(token);
+      bridgeTokensByThread.delete(threadId);
+    }
+
+    for (const [requestId, pending] of pendingDesignChoices) {
+      if (requestId.includes(threadId)) {
+        pending.reject(new Error("Design mode session ended."));
+        pendingDesignChoices.delete(requestId);
+      }
+    }
   };
 
   const processRequestResolved = Effect.fn("DesignModeReactor.processRequestResolved")(function* (
@@ -266,8 +279,18 @@ export const makeDesignModeReactor = Effect.gen(function* () {
     });
   });
 
+  const processThreadCompleted = Effect.fn("DesignModeReactor.processThreadCompleted")(
+    (event: Extract<DesignReactorEvent, { type: "thread.completed" }>) =>
+      Effect.sync(() => {
+        teardownDesignMode(event.payload.threadId);
+      }),
+  );
+
   const processEventSafely = (event: DesignReactorEvent) =>
-    processRequestResolved(event).pipe(
+    (event.type === "thread.completed"
+      ? processThreadCompleted(event)
+      : processRequestResolved(event)
+    ).pipe(
       Effect.catchCause((cause) => {
         if (Cause.hasInterruptsOnly(cause)) {
           return Effect.void;
@@ -285,26 +308,10 @@ export const makeDesignModeReactor = Effect.gen(function* () {
     Stream.runForEach(
       Stream.filter(
         orchestrationEngine.streamDomainEvents as unknown as Stream.Stream<ForgeEvent>,
-        (event) => event.type === "request.resolved",
+        (event) => event.type === "request.resolved" || event.type === "thread.completed",
       ).pipe(Stream.map((event) => event as DesignReactorEvent)),
       worker.enqueue,
     ).pipe(Effect.forkScoped, Effect.asVoid);
-
-  const teardownDesignMode: DesignModeReactorShape["teardownDesignMode"] = (threadId) => {
-    const token = bridgeTokensByThread.get(threadId);
-    if (token !== undefined) {
-      removeDesignBridge(token);
-      bridgeTokensByThread.delete(threadId);
-    }
-
-    // Reject any pending design choices for this thread and clean up
-    for (const [requestId, pending] of pendingDesignChoices) {
-      if (requestId.includes(threadId)) {
-        pending.reject(new Error("Design mode session ended."));
-        pendingDesignChoices.delete(requestId);
-      }
-    }
-  };
 
   return {
     start,

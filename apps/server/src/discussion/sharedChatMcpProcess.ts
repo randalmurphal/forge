@@ -25,6 +25,26 @@ function toBridgeError(cause: unknown): Error {
   return cause instanceof Error ? cause : new Error(String(cause));
 }
 
+function bridgePathFromUrl(bridgeUrl: string): string {
+  try {
+    return new URL(bridgeUrl).pathname;
+  } catch {
+    return bridgeUrl;
+  }
+}
+
+export async function describeSharedChatBridgeHttpError(
+  response: Response,
+  bridgeUrl: string,
+): Promise<string> {
+  const payload = (await response.json().catch(() => null)) as SharedChatBridgeResponse | null;
+  const bridgePath = bridgePathFromUrl(bridgeUrl);
+  if (payload && typeof payload.content === "string") {
+    return `Shared chat bridge returned HTTP ${response.status} for ${bridgePath}: ${payload.content}`;
+  }
+  return `Shared chat bridge returned HTTP ${response.status} for ${bridgePath}.`;
+}
+
 async function postToSharedChat(input: {
   readonly bridgeUrl: string;
   readonly bridgeToken: string;
@@ -50,7 +70,7 @@ async function postToSharedChat(input: {
     return payload;
   }
 
-  throw new Error(`Shared chat bridge returned HTTP ${response.status}.`);
+  throw new Error(await describeSharedChatBridgeHttpError(response, input.bridgeUrl));
 }
 
 export async function runSharedChatMcpProcess(): Promise<void> {

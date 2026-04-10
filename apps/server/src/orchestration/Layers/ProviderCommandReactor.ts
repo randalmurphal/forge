@@ -266,12 +266,12 @@ const make = Effect.gen(function* () {
         .listSessions()
         .pipe(Effect.map((sessions) => sessions.find((session) => session.threadId === threadId)));
 
-    const pendingSystemPrompt = getPendingSystemPrompt(threadId);
     const startProviderSession = (input?: {
       readonly resumeCursor?: unknown;
       readonly provider?: ProviderKind;
-    }) =>
-      providerService.startSession(threadId, {
+    }) => {
+      const pendingSystemPrompt = getPendingSystemPrompt(threadId);
+      return providerService.startSession(threadId, {
         threadId,
         ...(preferredProvider ? { provider: preferredProvider } : {}),
         ...(effectiveCwd ? { cwd: effectiveCwd } : {}),
@@ -280,6 +280,7 @@ const make = Effect.gen(function* () {
         runtimeMode: desiredRuntimeMode,
         ...(pendingSystemPrompt !== undefined ? { systemPrompt: pendingSystemPrompt } : {}),
       });
+    };
 
     const bindSessionToThread = (session: ProviderSession) =>
       setThreadSession({

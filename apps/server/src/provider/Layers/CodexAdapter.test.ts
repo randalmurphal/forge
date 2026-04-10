@@ -249,6 +249,55 @@ validationLayer("CodexAdapterLive validation", (it) => {
       });
     }),
   );
+
+  it.effect("preserves pending MCP discussion config across repeated session starts", () =>
+    Effect.gen(function* () {
+      validationManager.startSessionImpl.mockClear();
+      const threadId = asThreadId("thread-with-persistent-mcp");
+      const expectedConfig = {
+        "forge-shared-chat-thread-with-persistent-mcp": {
+          command: process.execPath,
+          args: [process.argv[1] ?? "apps/server/src/bin.ts", "shared-chat-mcp"],
+        },
+      };
+
+      registerPendingMcpServer(threadId, {
+        config: expectedConfig,
+      });
+
+      const adapter = yield* CodexAdapter;
+
+      yield* adapter.startSession({
+        provider: "codex",
+        threadId,
+        runtimeMode: "approval-required",
+      });
+      yield* adapter.startSession({
+        provider: "codex",
+        threadId,
+        runtimeMode: "approval-required",
+      });
+
+      assert.deepStrictEqual(validationManager.startSessionImpl.mock.calls[0]?.[0], {
+        provider: "codex",
+        threadId,
+        binaryPath: "codex",
+        runtimeMode: "approval-required",
+        configOverrides: {
+          mcp_servers: expectedConfig,
+        },
+      });
+      assert.deepStrictEqual(validationManager.startSessionImpl.mock.calls[1]?.[0], {
+        provider: "codex",
+        threadId,
+        binaryPath: "codex",
+        runtimeMode: "approval-required",
+        configOverrides: {
+          mcp_servers: expectedConfig,
+        },
+      });
+    }),
+  );
 });
 
 const sessionErrorManager = new FakeCodexManager();
