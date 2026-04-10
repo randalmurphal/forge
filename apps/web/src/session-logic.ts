@@ -68,6 +68,8 @@ export interface WorkLogEntry {
         taskId: string;
         label?: string | undefined;
         childProviderThreadId: string;
+        agentType?: string | undefined;
+        agentModel?: string | undefined;
       }
     | undefined;
 }
@@ -561,6 +563,8 @@ export interface SubagentGroup {
   status: "running" | "completed" | "failed";
   startedAt: string;
   completedAt?: string | undefined;
+  agentType?: string | undefined;
+  agentModel?: string | undefined;
 }
 
 export function groupSubagentEntries(workEntries: ReadonlyArray<WorkLogEntry>): {
@@ -576,6 +580,8 @@ export function groupSubagentEntries(workEntries: ReadonlyArray<WorkLogEntry>): 
       startedAt: string;
       completedAt?: string;
       status: SubagentGroup["status"];
+      agentType?: string | undefined;
+      agentModel?: string | undefined;
     }
   >();
 
@@ -593,6 +599,8 @@ export function groupSubagentEntries(workEntries: ReadonlyArray<WorkLogEntry>): 
         label: entry.childThreadAttribution?.label ?? undefined,
         startedAt: entry.createdAt,
         status: "running",
+        agentType: entry.childThreadAttribution?.agentType,
+        agentModel: entry.childThreadAttribution?.agentModel,
       };
       groupsByTaskId.set(taskId, group);
     }
@@ -626,6 +634,8 @@ export function groupSubagentEntries(workEntries: ReadonlyArray<WorkLogEntry>): 
       status: group.status,
       startedAt: group.startedAt,
       completedAt: group.completedAt,
+      agentType: group.agentType,
+      agentModel: group.agentModel,
     });
   }
 
@@ -1228,7 +1238,15 @@ function extractChildThreadAttribution(
     typeof record.childProviderThreadId === "string" ? record.childProviderThreadId : undefined;
   if (!taskId || !childProviderThreadId) return undefined;
   const label = typeof record.label === "string" ? record.label : undefined;
-  return { taskId, childProviderThreadId, label };
+  const agentType =
+    typeof record.agentType === "string" && record.agentType.length > 0
+      ? record.agentType
+      : undefined;
+  const agentModel =
+    typeof record.agentModel === "string" && record.agentModel.length > 0
+      ? record.agentModel
+      : undefined;
+  return { taskId, childProviderThreadId, label, agentType, agentModel };
 }
 
 function normalizeStatValue(value: unknown): number | undefined {

@@ -416,4 +416,102 @@ describe("groupSubagentEntries", () => {
     // The label guard `!group.label` prevents later labels from overwriting
     expect(result.subagentGroups[0]!.label).toBe("First label");
   });
+
+  it("propagates agentType and agentModel from first entry's childThreadAttribution", () => {
+    const entries = [
+      makeEntry({
+        id: "w1",
+        childThreadAttribution: {
+          taskId: "task-typed",
+          childProviderThreadId: "t",
+          agentType: "Reviewer",
+          agentModel: "opus",
+        },
+      }),
+      makeEntry({
+        id: "w2",
+        childThreadAttribution: {
+          taskId: "task-typed",
+          childProviderThreadId: "t",
+        },
+      }),
+    ];
+
+    const result = groupSubagentEntries(entries);
+    const group = result.subagentGroups[0]!;
+
+    expect(group.agentType).toBe("Reviewer");
+    expect(group.agentModel).toBe("opus");
+  });
+
+  it("defaults agentType and agentModel to undefined when attribution lacks them", () => {
+    const entries = [
+      makeEntry({
+        id: "w1",
+        childThreadAttribution: {
+          taskId: "task-no-type",
+          childProviderThreadId: "t",
+        },
+      }),
+    ];
+
+    const result = groupSubagentEntries(entries);
+    const group = result.subagentGroups[0]!;
+
+    expect(group.agentType).toBeUndefined();
+    expect(group.agentModel).toBeUndefined();
+  });
+
+  it("running groups are separate from completed in the returned array", () => {
+    const entries = [
+      makeEntry({
+        id: "started-a",
+        activityKind: "task.started",
+        createdAt: "2026-04-01T01:00:00.000Z",
+        detail: "Completed task",
+        childThreadAttribution: {
+          taskId: "task-done",
+          childProviderThreadId: "t1",
+        },
+      }),
+      makeEntry({
+        id: "completed-a",
+        activityKind: "task.completed",
+        createdAt: "2026-04-01T01:05:00.000Z",
+        tone: "info",
+        childThreadAttribution: {
+          taskId: "task-done",
+          childProviderThreadId: "t1",
+        },
+      }),
+      makeEntry({
+        id: "started-b",
+        activityKind: "task.started",
+        createdAt: "2026-04-01T01:00:00.000Z",
+        detail: "Running task",
+        childThreadAttribution: {
+          taskId: "task-running",
+          childProviderThreadId: "t2",
+        },
+      }),
+      makeEntry({
+        id: "work-b",
+        createdAt: "2026-04-01T01:01:00.000Z",
+        childThreadAttribution: {
+          taskId: "task-running",
+          childProviderThreadId: "t2",
+        },
+      }),
+    ];
+
+    const result = groupSubagentEntries(entries);
+
+    expect(result.subagentGroups).toHaveLength(2);
+
+    const completedGroup = result.subagentGroups.find((g) => g.taskId === "task-done")!;
+    const runningGroup = result.subagentGroups.find((g) => g.taskId === "task-running")!;
+
+    expect(completedGroup.status).toBe("completed");
+    expect(runningGroup.status).toBe("running");
+  });
 });

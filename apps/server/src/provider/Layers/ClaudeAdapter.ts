@@ -155,6 +155,8 @@ interface ToolInFlight {
 interface ActiveSubagentTool {
   readonly toolUseId: string;
   readonly label: string | undefined;
+  readonly agentType: string | undefined;
+  readonly agentModel: string | undefined;
 }
 
 interface ClaudeSessionContext {
@@ -323,6 +325,8 @@ function buildChildThreadAttribution(
     childProviderThreadId: parentToolUseId,
     taskId: parent.toolUseId,
     label: parent.label,
+    ...(parent.agentType ? { agentType: parent.agentType } : {}),
+    ...(parent.agentModel ? { agentModel: parent.agentModel } : {}),
   };
 }
 
@@ -1864,7 +1868,15 @@ const makeClaudeAdapter = Effect.fn("makeClaudeAdapter")(function* (
             : typeof toolInput.prompt === "string"
               ? toolInput.prompt.slice(0, 120)
               : undefined;
-        context.activeSubagentTools.set(itemId, { toolUseId: itemId, label: agentLabel });
+        const agentType =
+          typeof toolInput.subagent_type === "string" ? toolInput.subagent_type : undefined;
+        const agentModel = typeof toolInput.model === "string" ? toolInput.model : undefined;
+        context.activeSubagentTools.set(itemId, {
+          toolUseId: itemId,
+          label: agentLabel,
+          agentType,
+          agentModel,
+        });
       }
 
       const itemStartedAttribution = buildChildThreadAttribution(context, parentToolUseId);

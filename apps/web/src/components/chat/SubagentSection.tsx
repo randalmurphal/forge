@@ -15,16 +15,18 @@ interface SubagentSectionProps {
   expandedTaskId: string | null;
   onToggle: (taskId: string) => void;
   renderWorkEntry: (entry: WorkLogEntry) => ReactNode;
+  nowIso: string;
+  sectionLabel?: string | undefined;
 }
 
 export const SubagentSection = memo(function SubagentSection(props: SubagentSectionProps) {
-  const { groups, expandedTaskId, onToggle, renderWorkEntry } = props;
+  const { groups, expandedTaskId, onToggle, renderWorkEntry, nowIso, sectionLabel } = props;
 
   return (
     <div className="rounded-xl border border-border/45 bg-card/25 px-2 py-1.5">
       <div className="mb-1.5 px-0.5">
         <p className="text-[9px] uppercase tracking-[0.16em] text-muted-foreground/55">
-          Subagents ({groups.length})
+          {sectionLabel ?? `Subagents (${groups.length})`}
         </p>
       </div>
       <div className="space-y-1">
@@ -35,6 +37,7 @@ export const SubagentSection = memo(function SubagentSection(props: SubagentSect
             isExpanded={expandedTaskId === group.taskId}
             onToggle={onToggle}
             renderWorkEntry={renderWorkEntry}
+            nowIso={nowIso}
           />
         ))}
       </div>
@@ -47,8 +50,9 @@ const SubagentGroupRow = memo(function SubagentGroupRow(props: {
   isExpanded: boolean;
   onToggle: (taskId: string) => void;
   renderWorkEntry: (entry: WorkLogEntry) => ReactNode;
+  nowIso: string;
 }) {
-  const { group, isExpanded, onToggle, renderWorkEntry } = props;
+  const { group, isExpanded, onToggle, renderWorkEntry, nowIso } = props;
 
   const handleToggle = useCallback(() => {
     onToggle(group.taskId);
@@ -57,9 +61,19 @@ const SubagentGroupRow = memo(function SubagentGroupRow(props: {
   const StatusIcon = statusIcon(group.status);
   const statusColor = statusColorClass(group.status);
 
-  const durationMs = group.completedAt
+  const maxDurationRef = useRef(0);
+
+  const rawDurationMs = group.completedAt
     ? new Date(group.completedAt).getTime() - new Date(group.startedAt).getTime()
-    : undefined;
+    : group.status === "running"
+      ? new Date(nowIso).getTime() - new Date(group.startedAt).getTime()
+      : undefined;
+
+  if (rawDurationMs !== undefined && rawDurationMs > maxDurationRef.current) {
+    maxDurationRef.current = rawDurationMs;
+  }
+  const durationMs =
+    rawDurationMs !== undefined ? Math.max(rawDurationMs, maxDurationRef.current) : undefined;
 
   return (
     <div className="rounded-lg border border-border/30 bg-background/30">
@@ -80,7 +94,21 @@ const SubagentGroupRow = memo(function SubagentGroupRow(props: {
           <BoxIcon className="size-3" />
         </span>
         <span className="min-w-0 flex-1 truncate text-[11px] text-foreground/80">
-          {group.label}
+          {group.agentType || group.agentModel ? (
+            <>
+              <span className="font-medium">
+                {[group.agentType, group.agentModel].filter(Boolean).join(", ")}
+              </span>
+              {group.label ? (
+                <span className="text-muted-foreground/60">
+                  {" — "}
+                  {group.label}
+                </span>
+              ) : null}
+            </>
+          ) : (
+            group.label
+          )}
         </span>
         <div className="flex shrink-0 items-center gap-1.5">
           <span className={cn("flex items-center gap-0.5 text-[9px]", statusColor)}>
