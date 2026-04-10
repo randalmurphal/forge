@@ -4,6 +4,8 @@ import type {
   ProviderKind,
 } from "@forgetools/contracts";
 
+import { classifyToolDiffPaths } from "./toolDiffPaths.ts";
+
 function asRecord(value: unknown): Record<string, unknown> | null {
   return value && typeof value === "object" ? (value as Record<string, unknown>) : null;
 }
@@ -76,6 +78,52 @@ function mergeFileChanges(
     });
   }
   return [...byPath.values()];
+}
+
+function normalizeWorkspacePath(
+  filePath: string,
+  workspaceRoot?: string,
+  preserveRawWhenOutOfRepo = true,
+): string | undefined {
+  const trimmed = filePath.trim();
+  if (trimmed.length === 0) {
+    return undefined;
+  }
+
+  if (!workspaceRoot) {
+    return trimmed;
+  }
+
+  const classified = classifyToolDiffPaths({
+    workspaceRoot,
+    filePaths: [trimmed],
+    ...(process.env.WSL_DISTRO_NAME ? { wslDistroName: process.env.WSL_DISTRO_NAME } : {}),
+  });
+  const normalized = classified.repoRelativePaths[0];
+  if (normalized) {
+    return normalized;
+  }
+
+  return preserveRawWhenOutOfRepo ? trimmed : undefined;
+}
+
+function normalizeFileChangeSummaryPaths(
+  files: ReadonlyArray<OrchestrationDiffFileChange>,
+  workspaceRoot?: string,
+  preserveRawWhenOutOfRepo = true,
+): OrchestrationDiffFileChange[] {
+  const normalized: OrchestrationDiffFileChange[] = [];
+  for (const file of files) {
+    const path = normalizeWorkspacePath(file.path, workspaceRoot, preserveRawWhenOutOfRepo);
+    if (!path) {
+      continue;
+    }
+    normalized.push({
+      ...file,
+      path,
+    });
+  }
+  return mergeFileChanges([], normalized);
 }
 
 function summarizeFiles(files: ReadonlyArray<OrchestrationDiffFileChange>): {
@@ -412,9 +460,21 @@ function normalizeCodexChangePaths(record: Record<string, unknown>): {
   };
 }
 
-function buildCodexPatchFromRecord(record: Record<string, unknown>): string | undefined {
+function buildCodexPatchFromRecord(
+  record: Record<string, unknown>,
+  workspaceRoot?: string,
+): string | undefined {
   const kind = inferFileChangeKindFromRecord(record);
-  const { oldPath, newPath, summaryPath } = normalizeCodexChangePaths(record);
+  const normalizedPaths = normalizeCodexChangePaths(record);
+  const oldPath = normalizedPaths.oldPath
+    ? normalizeWorkspacePath(normalizedPaths.oldPath, workspaceRoot, false)
+    : undefined;
+  const newPath = normalizedPaths.newPath
+    ? normalizeWorkspacePath(normalizedPaths.newPath, workspaceRoot, false)
+    : undefined;
+  const summaryPath = normalizedPaths.summaryPath
+    ? normalizeWorkspacePath(normalizedPaths.summaryPath, workspaceRoot, false)
+    : undefined;
   const rawPatch =
     normalizePatchText(record.unifiedDiff) ??
     normalizePatchText(record.unified_diff) ??
@@ -477,9 +537,12 @@ function extractCodexChangeRecords(payloadData: unknown): ReadonlyArray<Record<s
     .filter((entry): entry is Record<string, unknown> => entry !== null);
 }
 
-function buildCodexStructuredToolUnifiedDiff(payloadData: unknown): string | undefined {
+function buildCodexStructuredToolUnifiedDiff(
+  payloadData: unknown,
+  workspaceRoot?: string,
+): string | undefined {
   const fragments = extractCodexChangeRecords(payloadData)
-    .map((record) => buildCodexPatchFromRecord(record))
+    .map((record) => buildCodexPatchFromRecord(record, workspaceRoot))
     .filter((patch): patch is string => typeof patch === "string" && patch.trim().length > 0);
   return fragments.length > 0 ? fragments.join("\n\n") : undefined;
 }
@@ -541,16 +604,60 @@ function parseUnifiedDiffFiles(patch: string): OrchestrationDiffFileChange[] {
   }));
 }
 
+function normalizeExactPatchFiles(
+  patch: string | undefined,
+  workspaceRoot?: string,
+): {
+  readonly exactPatch?: string;
+  readonly patchFiles: OrchestrationDiffFileChange[];
+} {
+  if (!patch) {
+    return {
+      patchFiles: [],
+    };
+  }
+
+  const rawPatchFiles = parseUnifiedDiffFiles(patch);
+  const patchFiles = normalizeFileChangeSummaryPaths(rawPatchFiles, workspaceRoot, false);
+
+  if (workspaceRoot && (rawPatchFiles.length === 0 || patchFiles.length !== rawPatchFiles.length)) {
+    return {
+      patchFiles: [],
+    };
+  }
+
+  return {
+    exactPatch: patch,
+    patchFiles,
+  };
+}
+
+function exactPatchCoversSummaryFiles(
+  summaryFiles: ReadonlyArray<OrchestrationDiffFileChange>,
+  patchFiles: ReadonlyArray<OrchestrationDiffFileChange>,
+): boolean {
+  if (summaryFiles.length === 0) {
+    return patchFiles.length > 0;
+  }
+
+  const patchPaths = new Set(patchFiles.map((file) => file.path));
+  return summaryFiles.every((file) => patchPaths.has(file.path));
+}
+
 function buildCodexToolInlineDiffArtifact(
   payloadData: unknown,
+  workspaceRoot?: string,
 ): OrchestrationToolInlineDiff | undefined {
-  const payloadFiles = extractChangedFileSummaries(payloadData);
+  const rawPayloadFiles = extractChangedFileSummaries(payloadData);
+  const payloadFiles = normalizeFileChangeSummaryPaths(rawPayloadFiles, workspaceRoot);
   const fallbackPaths = payloadFiles.map((file) => file.path);
-  const exactPatch =
-    buildCodexStructuredToolUnifiedDiff(payloadData) ??
+  const candidateExactPatch =
+    buildCodexStructuredToolUnifiedDiff(payloadData, workspaceRoot) ??
     normalizeUnifiedDiffCandidate(extractDirectUnifiedDiffCandidate(payloadData), fallbackPaths);
-  const patchFiles = exactPatch ? parseUnifiedDiffFiles(exactPatch) : [];
+  const { exactPatch, patchFiles } = normalizeExactPatchFiles(candidateExactPatch, workspaceRoot);
   const files = mergeFileChanges(payloadFiles, patchFiles);
+  const canUseExactPatch =
+    exactPatch !== undefined && exactPatchCoversSummaryFiles(payloadFiles, patchFiles);
 
   if (files.length === 0 && exactPatch === undefined) {
     return undefined;
@@ -558,9 +665,9 @@ function buildCodexToolInlineDiffArtifact(
 
   const fileStats = summarizeFiles(files);
   return {
-    availability: exactPatch ? "exact_patch" : "summary_only",
+    availability: canUseExactPatch ? "exact_patch" : "summary_only",
     files,
-    ...(exactPatch ? { unifiedDiff: exactPatch } : {}),
+    ...(canUseExactPatch ? { unifiedDiff: exactPatch } : {}),
     ...(fileStats.additions !== undefined ? { additions: fileStats.additions } : {}),
     ...(fileStats.deletions !== undefined ? { deletions: fileStats.deletions } : {}),
   };
@@ -568,15 +675,19 @@ function buildCodexToolInlineDiffArtifact(
 
 function buildClaudeToolInlineDiffArtifact(
   payloadData: unknown,
+  workspaceRoot?: string,
 ): OrchestrationToolInlineDiff | undefined {
-  const payloadFiles = extractChangedFileSummaries(payloadData);
+  const rawPayloadFiles = extractChangedFileSummaries(payloadData);
+  const payloadFiles = normalizeFileChangeSummaryPaths(rawPayloadFiles, workspaceRoot);
   const fallbackPaths = payloadFiles.map((file) => file.path);
-  const exactPatch = normalizeUnifiedDiffCandidate(
+  const candidateExactPatch = normalizeUnifiedDiffCandidate(
     extractDirectUnifiedDiffCandidate(payloadData),
     fallbackPaths,
   );
-  const patchFiles = exactPatch ? parseUnifiedDiffFiles(exactPatch) : [];
+  const { exactPatch, patchFiles } = normalizeExactPatchFiles(candidateExactPatch, workspaceRoot);
   const files = mergeFileChanges(payloadFiles, patchFiles);
+  const canUseExactPatch =
+    exactPatch !== undefined && exactPatchCoversSummaryFiles(payloadFiles, patchFiles);
 
   if (files.length === 0 && exactPatch === undefined) {
     return undefined;
@@ -584,9 +695,9 @@ function buildClaudeToolInlineDiffArtifact(
 
   const fileStats = summarizeFiles(files);
   return {
-    availability: exactPatch ? "exact_patch" : "summary_only",
+    availability: canUseExactPatch ? "exact_patch" : "summary_only",
     files,
-    ...(exactPatch ? { unifiedDiff: exactPatch } : {}),
+    ...(canUseExactPatch ? { unifiedDiff: exactPatch } : {}),
     ...(fileStats.additions !== undefined ? { additions: fileStats.additions } : {}),
     ...(fileStats.deletions !== undefined ? { deletions: fileStats.deletions } : {}),
   };
@@ -595,8 +706,9 @@ function buildClaudeToolInlineDiffArtifact(
 export function buildToolInlineDiffArtifact(input: {
   readonly provider: ProviderKind;
   readonly payloadData: unknown;
+  readonly workspaceRoot?: string;
 }): OrchestrationToolInlineDiff | undefined {
   return input.provider === "codex"
-    ? buildCodexToolInlineDiffArtifact(input.payloadData)
-    : buildClaudeToolInlineDiffArtifact(input.payloadData);
+    ? buildCodexToolInlineDiffArtifact(input.payloadData, input.workspaceRoot)
+    : buildClaudeToolInlineDiffArtifact(input.payloadData, input.workspaceRoot);
 }

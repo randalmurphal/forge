@@ -171,6 +171,23 @@ type ProviderRuntimeTestProposedPlan = ProviderRuntimeTestThread["proposedPlans"
 type ProviderRuntimeTestActivity = ProviderRuntimeTestThread["activities"][number];
 type ProviderRuntimeTestCheckpoint = ProviderRuntimeTestThread["checkpoints"][number];
 
+function activityPayload(
+  activity: ProviderRuntimeTestActivity | undefined,
+): Record<string, unknown> | undefined {
+  return activity?.payload && typeof activity.payload === "object"
+    ? (activity.payload as Record<string, unknown>)
+    : undefined;
+}
+
+function activityInlineDiff(
+  activity: ProviderRuntimeTestActivity | undefined,
+): Record<string, unknown> | undefined {
+  const payload = activityPayload(activity);
+  return payload?.inlineDiff && typeof payload.inlineDiff === "object"
+    ? (payload.inlineDiff as Record<string, unknown>)
+    : undefined;
+}
+
 describe("ProviderRuntimeIngestion", () => {
   let runtime: ManagedRuntime.ManagedRuntime<
     OrchestrationEngineService | ProviderRuntimeIngestionService | CheckpointStore,
@@ -2118,6 +2135,748 @@ describe("ProviderRuntimeIngestion", () => {
         ],
       }),
     ]);
+  });
+
+  it("attaches an exact inline diff to successful rm command rows", async () => {
+    const harness = await createHarness();
+    const now = new Date().toISOString();
+    fs.mkdirSync(path.join(harness.workspaceRoot, "src"), { recursive: true });
+    fs.writeFileSync(
+      path.join(harness.workspaceRoot, "src/remove.ts"),
+      "export const removed = true;\n",
+    );
+
+    harness.emit({
+      type: "item.started",
+      eventId: asEventId("evt-command-rm-started"),
+      provider: "codex",
+      createdAt: now,
+      threadId: asThreadId("thread-1"),
+      turnId: asTurnId("turn-command-rm"),
+      itemId: asItemId("item-command-rm"),
+      payload: {
+        itemType: "command_execution",
+        status: "in_progress",
+        title: "Run command",
+        data: {
+          item: {
+            command: "/usr/bin/zsh -lc 'rm src/remove.ts'",
+          },
+        },
+      },
+    });
+
+    harness.emit({
+      type: "item.completed",
+      eventId: asEventId("evt-command-rm-completed"),
+      provider: "codex",
+      createdAt: new Date().toISOString(),
+      threadId: asThreadId("thread-1"),
+      turnId: asTurnId("turn-command-rm"),
+      itemId: asItemId("item-command-rm"),
+      payload: {
+        itemType: "command_execution",
+        title: "Run command",
+        data: {
+          item: {
+            command: "/usr/bin/zsh -lc 'rm src/remove.ts'",
+            exitCode: 0,
+          },
+        },
+      },
+    });
+
+    const thread = await waitForThread(harness.engine, (entry) => {
+      const activity = entry.activities.find(
+        (candidate: ProviderRuntimeTestActivity) => candidate.id === "evt-command-rm-completed",
+      );
+      return activityInlineDiff(activity)?.availability === "exact_patch";
+    });
+
+    const activity = thread.activities.find(
+      (candidate: ProviderRuntimeTestActivity) => candidate.id === "evt-command-rm-completed",
+    );
+    const payload = activityPayload(activity);
+    const inlineDiff = activityInlineDiff(activity);
+
+    expect(payload?.itemType).toBe("command_execution");
+    expect(inlineDiff).toMatchObject({
+      availability: "exact_patch",
+      files: [{ path: "src/remove.ts", kind: "deleted", deletions: 1 }],
+      deletions: 1,
+    });
+    expect(String(inlineDiff?.unifiedDiff)).toContain("deleted file mode 100644");
+  });
+
+  it("attaches an exact inline diff to successful mv command rows", async () => {
+    const harness = await createHarness();
+    const now = new Date().toISOString();
+    fs.mkdirSync(path.join(harness.workspaceRoot, "src"), { recursive: true });
+    fs.writeFileSync(
+      path.join(harness.workspaceRoot, "src/old.ts"),
+      "export const oldName = true;\n",
+    );
+
+    harness.emit({
+      type: "item.started",
+      eventId: asEventId("evt-command-mv-started"),
+      provider: "codex",
+      createdAt: now,
+      threadId: asThreadId("thread-1"),
+      turnId: asTurnId("turn-command-mv"),
+      itemId: asItemId("item-command-mv"),
+      payload: {
+        itemType: "command_execution",
+        status: "in_progress",
+        title: "Run command",
+        data: {
+          item: {
+            command: "mv src/old.ts src/new.ts",
+          },
+        },
+      },
+    });
+
+    harness.emit({
+      type: "item.completed",
+      eventId: asEventId("evt-command-mv-completed"),
+      provider: "codex",
+      createdAt: new Date().toISOString(),
+      threadId: asThreadId("thread-1"),
+      turnId: asTurnId("turn-command-mv"),
+      itemId: asItemId("item-command-mv"),
+      payload: {
+        itemType: "command_execution",
+        title: "Run command",
+        data: {
+          item: {
+            command: "mv src/old.ts src/new.ts",
+            exitCode: 0,
+          },
+        },
+      },
+    });
+
+    const thread = await waitForThread(harness.engine, (entry) => {
+      const activity = entry.activities.find(
+        (candidate: ProviderRuntimeTestActivity) => candidate.id === "evt-command-mv-completed",
+      );
+      return activityInlineDiff(activity)?.availability === "exact_patch";
+    });
+
+    const activity = thread.activities.find(
+      (candidate: ProviderRuntimeTestActivity) => candidate.id === "evt-command-mv-completed",
+    );
+    const inlineDiff = activityInlineDiff(activity);
+
+    expect(inlineDiff).toMatchObject({
+      availability: "exact_patch",
+      files: [{ path: "src/new.ts", kind: "renamed" }],
+    });
+    expect(String(inlineDiff?.unifiedDiff)).toContain("rename from src/old.ts");
+    expect(String(inlineDiff?.unifiedDiff)).toContain("rename to src/new.ts");
+  });
+
+  it("attaches a multi-file exact inline diff to supported command chains", async () => {
+    const harness = await createHarness();
+    const now = new Date().toISOString();
+    fs.mkdirSync(path.join(harness.workspaceRoot, "src"), { recursive: true });
+    fs.writeFileSync(
+      path.join(harness.workspaceRoot, "src/old.ts"),
+      "export const oldName = true;\n",
+    );
+    fs.writeFileSync(
+      path.join(harness.workspaceRoot, "src/remove.ts"),
+      "export const removeMe = true;\n",
+    );
+
+    harness.emit({
+      type: "item.started",
+      eventId: asEventId("evt-command-chain-started"),
+      provider: "codex",
+      createdAt: now,
+      threadId: asThreadId("thread-1"),
+      turnId: asTurnId("turn-command-chain"),
+      itemId: asItemId("item-command-chain"),
+      payload: {
+        itemType: "command_execution",
+        status: "in_progress",
+        title: "Run command chain",
+        data: {
+          item: {
+            command: "/usr/bin/zsh -lc 'mv src/old.ts src/new.ts && rm src/remove.ts'",
+          },
+        },
+      },
+    });
+
+    harness.emit({
+      type: "item.completed",
+      eventId: asEventId("evt-command-chain-completed"),
+      provider: "codex",
+      createdAt: new Date().toISOString(),
+      threadId: asThreadId("thread-1"),
+      turnId: asTurnId("turn-command-chain"),
+      itemId: asItemId("item-command-chain"),
+      payload: {
+        itemType: "command_execution",
+        title: "Run command chain",
+        data: {
+          item: {
+            command: "/usr/bin/zsh -lc 'mv src/old.ts src/new.ts && rm src/remove.ts'",
+            exitCode: 0,
+          },
+        },
+      },
+    });
+
+    const thread = await waitForThread(harness.engine, (entry) => {
+      const activity = entry.activities.find(
+        (candidate: ProviderRuntimeTestActivity) => candidate.id === "evt-command-chain-completed",
+      );
+      return activityInlineDiff(activity)?.availability === "exact_patch";
+    });
+
+    const activity = thread.activities.find(
+      (candidate: ProviderRuntimeTestActivity) => candidate.id === "evt-command-chain-completed",
+    );
+    const inlineDiff = activityInlineDiff(activity);
+
+    expect(inlineDiff?.files).toEqual([
+      { path: "src/new.ts", kind: "renamed" },
+      { path: "src/remove.ts", kind: "deleted", deletions: 1 },
+    ]);
+    expect(String(inlineDiff?.unifiedDiff)).toContain("rename from src/old.ts");
+    expect(String(inlineDiff?.unifiedDiff)).toContain("deleted file mode 100644");
+  });
+
+  it("supports array-form commands with quoted paths", async () => {
+    const harness = await createHarness();
+    const now = new Date().toISOString();
+    fs.mkdirSync(path.join(harness.workspaceRoot, "src"), { recursive: true });
+    fs.writeFileSync(
+      path.join(harness.workspaceRoot, "src/old name.ts"),
+      "export const oldName = true;\n",
+    );
+
+    harness.emit({
+      type: "item.started",
+      eventId: asEventId("evt-command-array-started"),
+      provider: "codex",
+      createdAt: now,
+      threadId: asThreadId("thread-1"),
+      turnId: asTurnId("turn-command-array"),
+      itemId: asItemId("item-command-array"),
+      payload: {
+        itemType: "command_execution",
+        status: "in_progress",
+        title: "Run array command",
+        data: {
+          item: {
+            command: ["mv", "src/old name.ts", "src/new name.ts"],
+          },
+        },
+      },
+    });
+
+    harness.emit({
+      type: "item.completed",
+      eventId: asEventId("evt-command-array-completed"),
+      provider: "codex",
+      createdAt: new Date().toISOString(),
+      threadId: asThreadId("thread-1"),
+      turnId: asTurnId("turn-command-array"),
+      itemId: asItemId("item-command-array"),
+      payload: {
+        itemType: "command_execution",
+        title: "Run array command",
+        data: {
+          item: {
+            command: ["mv", "src/old name.ts", "src/new name.ts"],
+            exitCode: 0,
+          },
+        },
+      },
+    });
+
+    const thread = await waitForThread(harness.engine, (entry) => {
+      const activity = entry.activities.find(
+        (candidate: ProviderRuntimeTestActivity) => candidate.id === "evt-command-array-completed",
+      );
+      return activityInlineDiff(activity)?.availability === "exact_patch";
+    });
+
+    expect(
+      activityInlineDiff(
+        thread.activities.find(
+          (candidate: ProviderRuntimeTestActivity) =>
+            candidate.id === "evt-command-array-completed",
+        ),
+      ),
+    ).toMatchObject({
+      availability: "exact_patch",
+      files: [{ path: "src/new name.ts", kind: "renamed" }],
+    });
+  });
+
+  it("keeps dependent command chains as plain command rows without inline diffs", async () => {
+    const harness = await createHarness();
+    const now = new Date().toISOString();
+    fs.mkdirSync(path.join(harness.workspaceRoot, "src"), { recursive: true });
+    fs.writeFileSync(
+      path.join(harness.workspaceRoot, "src/old.ts"),
+      "export const oldName = true;\n",
+    );
+
+    harness.emit({
+      type: "item.started",
+      eventId: asEventId("evt-command-dependent-started"),
+      provider: "codex",
+      createdAt: now,
+      threadId: asThreadId("thread-1"),
+      turnId: asTurnId("turn-command-dependent"),
+      itemId: asItemId("item-command-dependent"),
+      payload: {
+        itemType: "command_execution",
+        status: "in_progress",
+        title: "Run dependent command chain",
+        data: {
+          item: {
+            command: "mv src/old.ts src/new.ts && rm src/new.ts",
+          },
+        },
+      },
+    });
+
+    harness.emit({
+      type: "item.completed",
+      eventId: asEventId("evt-command-dependent-completed"),
+      provider: "codex",
+      createdAt: new Date().toISOString(),
+      threadId: asThreadId("thread-1"),
+      turnId: asTurnId("turn-command-dependent"),
+      itemId: asItemId("item-command-dependent"),
+      payload: {
+        itemType: "command_execution",
+        title: "Run dependent command chain",
+        data: {
+          item: {
+            command: "mv src/old.ts src/new.ts && rm src/new.ts",
+            exitCode: 0,
+          },
+        },
+      },
+    });
+
+    const thread = await waitForThread(harness.engine, (entry) =>
+      entry.activities.some(
+        (candidate: ProviderRuntimeTestActivity) =>
+          candidate.id === "evt-command-dependent-completed",
+      ),
+    );
+
+    expect(
+      activityInlineDiff(
+        thread.activities.find(
+          (candidate: ProviderRuntimeTestActivity) =>
+            candidate.id === "evt-command-dependent-completed",
+        ),
+      ),
+    ).toBeUndefined();
+  });
+
+  it("keeps unsupported or failed commands as plain command rows without inline diffs", async () => {
+    const harness = await createHarness();
+    const now = new Date().toISOString();
+    fs.mkdirSync(path.join(harness.workspaceRoot, "src"), { recursive: true });
+    fs.writeFileSync(
+      path.join(harness.workspaceRoot, "src/remove.ts"),
+      "export const removeMe = true;\n",
+    );
+
+    harness.emit({
+      type: "item.started",
+      eventId: asEventId("evt-command-unsupported-started"),
+      provider: "codex",
+      createdAt: now,
+      threadId: asThreadId("thread-1"),
+      turnId: asTurnId("turn-command-unsupported"),
+      itemId: asItemId("item-command-unsupported"),
+      payload: {
+        itemType: "command_execution",
+        status: "in_progress",
+        title: "Run unsupported command",
+        data: {
+          item: {
+            command: "rm src/remove.ts | cat",
+          },
+        },
+      },
+    });
+
+    harness.emit({
+      type: "item.completed",
+      eventId: asEventId("evt-command-unsupported-completed"),
+      provider: "codex",
+      createdAt: new Date().toISOString(),
+      threadId: asThreadId("thread-1"),
+      turnId: asTurnId("turn-command-unsupported"),
+      itemId: asItemId("item-command-unsupported"),
+      payload: {
+        itemType: "command_execution",
+        title: "Run unsupported command",
+        data: {
+          item: {
+            command: "rm src/remove.ts | cat",
+            exitCode: 0,
+          },
+        },
+      },
+    });
+
+    harness.emit({
+      type: "item.started",
+      eventId: asEventId("evt-command-failed-started"),
+      provider: "codex",
+      createdAt: new Date().toISOString(),
+      threadId: asThreadId("thread-1"),
+      turnId: asTurnId("turn-command-failed"),
+      itemId: asItemId("item-command-failed"),
+      payload: {
+        itemType: "command_execution",
+        status: "in_progress",
+        title: "Run failed command",
+        data: {
+          item: {
+            command: "rm src/remove.ts",
+          },
+        },
+      },
+    });
+
+    harness.emit({
+      type: "item.completed",
+      eventId: asEventId("evt-command-failed-completed"),
+      provider: "codex",
+      createdAt: new Date().toISOString(),
+      threadId: asThreadId("thread-1"),
+      turnId: asTurnId("turn-command-failed"),
+      itemId: asItemId("item-command-failed"),
+      payload: {
+        itemType: "command_execution",
+        title: "Run failed command",
+        data: {
+          item: {
+            command: "rm src/remove.ts",
+            exitCode: 1,
+          },
+        },
+      },
+    });
+
+    const thread = await waitForThread(harness.engine, (entry) =>
+      entry.activities.some(
+        (activity: ProviderRuntimeTestActivity) =>
+          activity.id === "evt-command-unsupported-completed" ||
+          activity.id === "evt-command-failed-completed",
+      ),
+    );
+
+    expect(
+      activityInlineDiff(
+        thread.activities.find(
+          (candidate: ProviderRuntimeTestActivity) =>
+            candidate.id === "evt-command-unsupported-completed",
+        ),
+      ),
+    ).toBeUndefined();
+    expect(
+      activityInlineDiff(
+        thread.activities.find(
+          (candidate: ProviderRuntimeTestActivity) =>
+            candidate.id === "evt-command-failed-completed",
+        ),
+      ),
+    ).toBeUndefined();
+  });
+
+  it("keeps directory and overwrite mutations as plain command rows without inline diffs", async () => {
+    const harness = await createHarness();
+    const now = new Date().toISOString();
+    fs.mkdirSync(path.join(harness.workspaceRoot, "src", "existing-dir"), { recursive: true });
+    fs.writeFileSync(
+      path.join(harness.workspaceRoot, "src", "old.ts"),
+      "export const oldName = true;\n",
+    );
+    fs.writeFileSync(
+      path.join(harness.workspaceRoot, "src", "existing.ts"),
+      "export const existing = true;\n",
+    );
+
+    harness.emit({
+      type: "item.started",
+      eventId: asEventId("evt-command-dir-started"),
+      provider: "codex",
+      createdAt: now,
+      threadId: asThreadId("thread-1"),
+      turnId: asTurnId("turn-command-dir"),
+      itemId: asItemId("item-command-dir"),
+      payload: {
+        itemType: "command_execution",
+        status: "in_progress",
+        title: "Run directory command",
+        data: {
+          item: {
+            command: "rm src/existing-dir",
+          },
+        },
+      },
+    });
+
+    harness.emit({
+      type: "item.completed",
+      eventId: asEventId("evt-command-dir-completed"),
+      provider: "codex",
+      createdAt: new Date().toISOString(),
+      threadId: asThreadId("thread-1"),
+      turnId: asTurnId("turn-command-dir"),
+      itemId: asItemId("item-command-dir"),
+      payload: {
+        itemType: "command_execution",
+        title: "Run directory command",
+        data: {
+          item: {
+            command: "rm src/existing-dir",
+            exitCode: 0,
+          },
+        },
+      },
+    });
+
+    harness.emit({
+      type: "item.started",
+      eventId: asEventId("evt-command-overwrite-started"),
+      provider: "codex",
+      createdAt: new Date().toISOString(),
+      threadId: asThreadId("thread-1"),
+      turnId: asTurnId("turn-command-overwrite"),
+      itemId: asItemId("item-command-overwrite"),
+      payload: {
+        itemType: "command_execution",
+        status: "in_progress",
+        title: "Run overwrite command",
+        data: {
+          item: {
+            command: "mv src/old.ts src/existing.ts",
+          },
+        },
+      },
+    });
+
+    harness.emit({
+      type: "item.completed",
+      eventId: asEventId("evt-command-overwrite-completed"),
+      provider: "codex",
+      createdAt: new Date().toISOString(),
+      threadId: asThreadId("thread-1"),
+      turnId: asTurnId("turn-command-overwrite"),
+      itemId: asItemId("item-command-overwrite"),
+      payload: {
+        itemType: "command_execution",
+        title: "Run overwrite command",
+        data: {
+          item: {
+            command: "mv src/old.ts src/existing.ts",
+            exitCode: 0,
+          },
+        },
+      },
+    });
+
+    harness.emit({
+      type: "item.started",
+      eventId: asEventId("evt-command-dir-target-started"),
+      provider: "codex",
+      createdAt: new Date().toISOString(),
+      threadId: asThreadId("thread-1"),
+      turnId: asTurnId("turn-command-dir-target"),
+      itemId: asItemId("item-command-dir-target"),
+      payload: {
+        itemType: "command_execution",
+        status: "in_progress",
+        title: "Run directory target command",
+        data: {
+          item: {
+            command: "mv src/old.ts src/existing-dir/",
+          },
+        },
+      },
+    });
+
+    harness.emit({
+      type: "item.completed",
+      eventId: asEventId("evt-command-dir-target-completed"),
+      provider: "codex",
+      createdAt: new Date().toISOString(),
+      threadId: asThreadId("thread-1"),
+      turnId: asTurnId("turn-command-dir-target"),
+      itemId: asItemId("item-command-dir-target"),
+      payload: {
+        itemType: "command_execution",
+        title: "Run directory target command",
+        data: {
+          item: {
+            command: "mv src/old.ts src/existing-dir/",
+            exitCode: 0,
+          },
+        },
+      },
+    });
+
+    const thread = await waitForThread(harness.engine, (entry) =>
+      entry.activities.some(
+        (activity: ProviderRuntimeTestActivity) =>
+          activity.id === "evt-command-dir-completed" ||
+          activity.id === "evt-command-overwrite-completed" ||
+          activity.id === "evt-command-dir-target-completed",
+      ),
+    );
+
+    expect(
+      activityInlineDiff(
+        thread.activities.find(
+          (candidate: ProviderRuntimeTestActivity) => candidate.id === "evt-command-dir-completed",
+        ),
+      ),
+    ).toBeUndefined();
+    expect(
+      activityInlineDiff(
+        thread.activities.find(
+          (candidate: ProviderRuntimeTestActivity) =>
+            candidate.id === "evt-command-overwrite-completed",
+        ),
+      ),
+    ).toBeUndefined();
+    expect(
+      activityInlineDiff(
+        thread.activities.find(
+          (candidate: ProviderRuntimeTestActivity) =>
+            candidate.id === "evt-command-dir-target-completed",
+        ),
+      ),
+    ).toBeUndefined();
+  });
+
+  it("keeps directory delete and rename commands as plain command rows without inline diffs", async () => {
+    const harness = await createHarness();
+    const now = new Date().toISOString();
+    fs.mkdirSync(path.join(harness.workspaceRoot, "src/remove-dir"), { recursive: true });
+    fs.mkdirSync(path.join(harness.workspaceRoot, "src/old-dir"), { recursive: true });
+
+    harness.emit({
+      type: "item.started",
+      eventId: asEventId("evt-command-dir-rm-started"),
+      provider: "codex",
+      createdAt: now,
+      threadId: asThreadId("thread-1"),
+      turnId: asTurnId("turn-command-dir"),
+      itemId: asItemId("item-command-dir-rm"),
+      payload: {
+        itemType: "command_execution",
+        status: "in_progress",
+        title: "Run directory delete",
+        data: {
+          item: {
+            command: "rm -f src/remove-dir",
+          },
+        },
+      },
+    });
+
+    harness.emit({
+      type: "item.completed",
+      eventId: asEventId("evt-command-dir-rm-completed"),
+      provider: "codex",
+      createdAt: new Date().toISOString(),
+      threadId: asThreadId("thread-1"),
+      turnId: asTurnId("turn-command-dir"),
+      itemId: asItemId("item-command-dir-rm"),
+      payload: {
+        itemType: "command_execution",
+        title: "Run directory delete",
+        data: {
+          item: {
+            command: "rm -f src/remove-dir",
+            exitCode: 0,
+          },
+        },
+      },
+    });
+
+    harness.emit({
+      type: "item.started",
+      eventId: asEventId("evt-command-dir-mv-started"),
+      provider: "codex",
+      createdAt: new Date().toISOString(),
+      threadId: asThreadId("thread-1"),
+      turnId: asTurnId("turn-command-dir"),
+      itemId: asItemId("item-command-dir-mv"),
+      payload: {
+        itemType: "command_execution",
+        status: "in_progress",
+        title: "Run directory rename",
+        data: {
+          item: {
+            command: "mv src/old-dir src/new-dir",
+          },
+        },
+      },
+    });
+
+    harness.emit({
+      type: "item.completed",
+      eventId: asEventId("evt-command-dir-mv-completed"),
+      provider: "codex",
+      createdAt: new Date().toISOString(),
+      threadId: asThreadId("thread-1"),
+      turnId: asTurnId("turn-command-dir"),
+      itemId: asItemId("item-command-dir-mv"),
+      payload: {
+        itemType: "command_execution",
+        title: "Run directory rename",
+        data: {
+          item: {
+            command: "mv src/old-dir src/new-dir",
+            exitCode: 0,
+          },
+        },
+      },
+    });
+
+    const thread = await waitForThread(harness.engine, (entry) =>
+      entry.activities.some(
+        (activity: ProviderRuntimeTestActivity) =>
+          activity.id === "evt-command-dir-rm-completed" ||
+          activity.id === "evt-command-dir-mv-completed",
+      ),
+    );
+
+    expect(
+      activityInlineDiff(
+        thread.activities.find(
+          (candidate: ProviderRuntimeTestActivity) =>
+            candidate.id === "evt-command-dir-rm-completed",
+        ),
+      ),
+    ).toBeUndefined();
+    expect(
+      activityInlineDiff(
+        thread.activities.find(
+          (candidate: ProviderRuntimeTestActivity) =>
+            candidate.id === "evt-command-dir-mv-completed",
+        ),
+      ),
+    ).toBeUndefined();
   });
 
   it("accumulates touched repo files across file-change events in the same turn", async () => {

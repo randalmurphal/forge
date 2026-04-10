@@ -869,7 +869,7 @@ function toDerivedWorkLogEntry(activity: OrchestrationThreadActivity): DerivedWo
   }
   const inlineDiff =
     (activity.kind === "tool.updated" || activity.kind === "tool.completed") &&
-    itemType === "file_change"
+    (itemType === "file_change" || itemType === "command_execution")
       ? extractPersistedToolInlineDiffSummary({
           activityId: activity.id,
           turnId: activity.turnId ?? undefined,

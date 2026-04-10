@@ -1,3 +1,6 @@
+import { promises as nodeFs } from "node:fs";
+import path from "node:path";
+
 import {
   ApprovalRequestId,
   type AssistantDeliveryMode,
@@ -38,6 +41,11 @@ import {
 import { ServerSettingsService } from "../../serverSettings.ts";
 import { buildToolInlineDiffArtifact } from "../toolDiffArtifacts.ts";
 import { classifyToolDiffPaths, filterUnifiedDiffByPaths } from "../toolDiffPaths.ts";
+import {
+  buildCommandExecutionInlineDiffArtifact,
+  parseSupportedShellMutationCommand,
+  type CapturedShellMutationOperation,
+} from "../commandInlineDiffArtifacts.ts";
 
 const providerTurnKey = (threadId: ThreadId, turnId: TurnId) => `${threadId}:${turnId}`;
 const providerCommandId = (event: ProviderRuntimeEvent, tag: string): CommandId =>
@@ -66,6 +74,16 @@ type RuntimeIngestionInput =
       source: "domain";
       event: TurnStartRequestedDomainEvent;
     };
+
+type PendingCommandInlineDiff = {
+  readonly threadId: ThreadId;
+  readonly turnId?: TurnId;
+  readonly itemId: string;
+  readonly normalizedCommand: string;
+  readonly inlineDiff: OrchestrationToolInlineDiff;
+};
+
+const pendingCommandInlineDiffKey = (threadId: ThreadId, itemId: string) => `${threadId}:${itemId}`;
 
 function toTurnId(value: TurnId | string | undefined): TurnId | undefined {
   return value === undefined ? undefined : TurnId.makeUnsafe(String(value));
@@ -156,6 +174,86 @@ function mapUnifiedDiffToCheckpointFiles(diff: string) {
 
 function asRecord(value: unknown): Record<string, unknown> | undefined {
   return value && typeof value === "object" ? (value as Record<string, unknown>) : undefined;
+}
+
+function asTrimmedString(value: unknown): string | undefined {
+  return typeof value === "string" && value.trim().length > 0 ? value.trim() : undefined;
+}
+
+function quoteShellArgument(value: string): string {
+  return /^[A-Za-z0-9_./:@%+=,-]+$/.test(value) ? value : `'${value.replaceAll("'", `'"'"'`)}'`;
+}
+
+function normalizeCommandValue(value: unknown): string | undefined {
+  if (typeof value === "string" && value.trim().length > 0) {
+    return value.trim();
+  }
+  if (!Array.isArray(value)) {
+    return undefined;
+  }
+  const parts = value
+    .map((entry) => asTrimmedString(entry))
+    .filter((entry): entry is string => entry !== undefined);
+  return parts.length > 0 ? parts.map((entry) => quoteShellArgument(entry)).join(" ") : undefined;
+}
+
+function extractRuntimeToolCommand(data: unknown): string | undefined {
+  const payload = asRecord(data);
+  const item = asRecord(payload?.item);
+  const itemResult = asRecord(item?.result);
+  const itemInput = asRecord(item?.input);
+  const candidates = [
+    normalizeCommandValue(item?.command),
+    normalizeCommandValue(itemInput?.command),
+    normalizeCommandValue(itemResult?.command),
+    normalizeCommandValue(payload?.command),
+  ];
+  return candidates.find((candidate) => candidate !== undefined);
+}
+
+function extractRuntimeCommandExitCode(data: unknown): number | undefined {
+  const payload = asRecord(data);
+  const item = asRecord(payload?.item);
+  const itemResult = asRecord(item?.result);
+  const candidates = [
+    item?.exitCode,
+    payload?.exitCode,
+    itemResult?.exitCode,
+    itemResult?.exit_code,
+  ];
+  for (const candidate of candidates) {
+    if (typeof candidate === "number" && Number.isInteger(candidate)) {
+      return candidate;
+    }
+  }
+  return undefined;
+}
+
+function hasDependentShellMutationPaths(
+  operations: ReadonlyArray<
+    | {
+        readonly kind: "delete";
+        readonly path: string;
+      }
+    | {
+        readonly kind: "rename";
+        readonly oldPath: string;
+        readonly newPath: string;
+      }
+  >,
+): boolean {
+  const touchedPaths = new Set<string>();
+  for (const operation of operations) {
+    const paths =
+      operation.kind === "delete" ? [operation.path] : [operation.oldPath, operation.newPath];
+    if (paths.some((entry) => touchedPaths.has(entry))) {
+      return true;
+    }
+    for (const entry of paths) {
+      touchedPaths.add(entry);
+    }
+  }
+  return false;
 }
 
 function summarizeInlineDiffFiles(files: ReadonlyArray<OrchestrationDiffFileChange>): {
@@ -529,6 +627,9 @@ function extractChildThreadAttribution(eventPayload: unknown): Record<string, un
 
 function runtimeEventToActivities(
   event: ProviderRuntimeEvent,
+  options?: {
+    readonly inlineDiff?: OrchestrationToolInlineDiff;
+  },
 ): ReadonlyArray<OrchestrationThreadActivity> {
   const maybeSequence = (() => {
     const eventWithSequence = event as ProviderRuntimeEvent & { sessionSequence?: number };
@@ -857,13 +958,6 @@ function runtimeEventToActivities(
       if (!isToolLifecycleItemType(event.payload.itemType)) {
         return [];
       }
-      const inlineDiff =
-        event.payload.itemType === "file_change"
-          ? buildToolInlineDiffArtifact({
-              provider: event.provider,
-              payloadData: event.payload.data,
-            })
-          : undefined;
       const itemUpdatedToolName = (event.payload as Record<string, unknown>).toolName;
       const itemUpdatedChildAttr = extractChildThreadAttribution(event.payload);
       return [
@@ -879,7 +973,7 @@ function runtimeEventToActivities(
             ...(event.payload.status ? { status: event.payload.status } : {}),
             ...(event.payload.detail ? { detail: truncateDetail(event.payload.detail) } : {}),
             ...(event.payload.data !== undefined ? { data: event.payload.data } : {}),
-            ...(inlineDiff ? { inlineDiff } : {}),
+            ...(options?.inlineDiff ? { inlineDiff: options.inlineDiff } : {}),
             ...(typeof itemUpdatedToolName === "string" ? { toolName: itemUpdatedToolName } : {}),
             ...(itemUpdatedChildAttr ? { childThreadAttribution: itemUpdatedChildAttr } : {}),
           },
@@ -893,13 +987,6 @@ function runtimeEventToActivities(
       if (!isToolLifecycleItemType(event.payload.itemType)) {
         return [];
       }
-      const inlineDiff =
-        event.payload.itemType === "file_change"
-          ? buildToolInlineDiffArtifact({
-              provider: event.provider,
-              payloadData: event.payload.data,
-            })
-          : undefined;
       const itemCompletedToolName = (event.payload as Record<string, unknown>).toolName;
       const itemCompletedChildAttr = extractChildThreadAttribution(event.payload);
       return [
@@ -914,7 +1001,7 @@ function runtimeEventToActivities(
             ...(event.itemId ? { itemId: event.itemId } : {}),
             ...(event.payload.detail ? { detail: truncateDetail(event.payload.detail) } : {}),
             ...(event.payload.data !== undefined ? { data: event.payload.data } : {}),
-            ...(inlineDiff ? { inlineDiff } : {}),
+            ...(options?.inlineDiff ? { inlineDiff: options.inlineDiff } : {}),
             ...(typeof itemCompletedToolName === "string"
               ? { toolName: itemCompletedToolName }
               : {}),
@@ -985,6 +1072,8 @@ const make = Effect.fn("make")(function* () {
     lookup: () => Effect.succeed({ text: "", createdAt: "" }),
   });
 
+  const pendingCommandInlineDiffs = new Map<string, PendingCommandInlineDiff>();
+
   const isGitRepoForThread = Effect.fn("isGitRepoForThread")(function* (threadId: ThreadId) {
     const readModel = yield* orchestrationEngine.getReadModel();
     const thread = readModel.threads.find((entry) => entry.id === threadId);
@@ -1016,6 +1105,146 @@ const make = Effect.fn("make")(function* () {
     const sessionCwd = sessions.find((entry) => entry.threadId === threadId)?.cwd;
     return sessionCwd ?? resolveThreadWorkspaceCwd({ thread, projects: readModel.projects });
   });
+
+  const captureCommandInlineDiffAtStart = Effect.fn("captureCommandInlineDiffAtStart")(function* (
+    event: Extract<ProviderRuntimeEvent, { type: "item.started" }>,
+  ) {
+    const turnId = toTurnId(event.turnId);
+    if (!event.itemId || event.payload.itemType !== "command_execution") {
+      return undefined;
+    }
+
+    const workspaceCwd = yield* resolveWorkspaceCwdForThread(event.threadId);
+    if (!workspaceCwd) {
+      return undefined;
+    }
+
+    const command = extractRuntimeToolCommand(event.payload.data);
+    if (!command) {
+      pendingCommandInlineDiffs.delete(pendingCommandInlineDiffKey(event.threadId, event.itemId));
+      return undefined;
+    }
+
+    const parsed = parseSupportedShellMutationCommand({
+      command,
+      workspaceRoot: workspaceCwd,
+      ...(process.env.WSL_DISTRO_NAME ? { wslDistroName: process.env.WSL_DISTRO_NAME } : {}),
+    });
+    if (!parsed) {
+      pendingCommandInlineDiffs.delete(pendingCommandInlineDiffKey(event.threadId, event.itemId));
+      return undefined;
+    }
+
+    if (hasDependentShellMutationPaths(parsed.operations)) {
+      pendingCommandInlineDiffs.delete(pendingCommandInlineDiffKey(event.threadId, event.itemId));
+      return undefined;
+    }
+
+    const capturedOperations: CapturedShellMutationOperation[] = [];
+    for (const operation of parsed.operations) {
+      if (operation.kind === "delete") {
+        const absolutePath = path.join(workspaceCwd, operation.path);
+        const stat = yield* Effect.tryPromise(() => nodeFs.lstat(absolutePath)).pipe(
+          Effect.catch(() => Effect.void),
+        );
+        if (stat?.isDirectory()) {
+          pendingCommandInlineDiffs.delete(
+            pendingCommandInlineDiffKey(event.threadId, event.itemId),
+          );
+          return undefined;
+        }
+        const originalContent =
+          stat && stat.isFile()
+            ? yield* Effect.tryPromise(() => nodeFs.readFile(absolutePath, "utf8")).pipe(
+                Effect.catch(() => Effect.void),
+              )
+            : undefined;
+        capturedOperations.push({
+          kind: "delete",
+          path: operation.path,
+          ...(originalContent !== undefined ? { originalContent } : {}),
+        });
+        continue;
+      }
+
+      const absoluteOldPath = path.join(workspaceCwd, operation.oldPath);
+      const absoluteNewPath = path.join(workspaceCwd, operation.newPath);
+      const sourceStat = yield* Effect.tryPromise(() => nodeFs.lstat(absoluteOldPath)).pipe(
+        Effect.catch(() => Effect.void),
+      );
+      if (sourceStat?.isDirectory()) {
+        pendingCommandInlineDiffs.delete(pendingCommandInlineDiffKey(event.threadId, event.itemId));
+        return undefined;
+      }
+      const destinationStat = yield* Effect.tryPromise(() => nodeFs.lstat(absoluteNewPath)).pipe(
+        Effect.catch(() => Effect.void),
+      );
+      if (destinationStat !== undefined) {
+        pendingCommandInlineDiffs.delete(pendingCommandInlineDiffKey(event.threadId, event.itemId));
+        return undefined;
+      }
+      const sourceIsFile = sourceStat?.isFile() ?? false;
+      capturedOperations.push(
+        sourceIsFile
+          ? {
+              kind: "rename",
+              oldPath: operation.oldPath,
+              newPath: operation.newPath,
+            }
+          : {
+              kind: "rename",
+              oldPath: operation.oldPath,
+              newPath: operation.newPath,
+              exact: false,
+            },
+      );
+    }
+
+    const inlineDiff = buildCommandExecutionInlineDiffArtifact({
+      operations: capturedOperations,
+    });
+    if (!inlineDiff) {
+      pendingCommandInlineDiffs.delete(pendingCommandInlineDiffKey(event.threadId, event.itemId));
+      return undefined;
+    }
+
+    pendingCommandInlineDiffs.set(pendingCommandInlineDiffKey(event.threadId, event.itemId), {
+      threadId: event.threadId,
+      ...(turnId ? { turnId } : {}),
+      itemId: event.itemId,
+      normalizedCommand: parsed.normalizedCommand,
+      inlineDiff,
+    });
+
+    return inlineDiff;
+  });
+
+  const takePendingCommandInlineDiff = (
+    threadId: ThreadId,
+    itemId: string | undefined,
+  ): OrchestrationToolInlineDiff | undefined => {
+    if (!itemId) {
+      return undefined;
+    }
+    const key = pendingCommandInlineDiffKey(threadId, itemId);
+    const pending = pendingCommandInlineDiffs.get(key);
+    pendingCommandInlineDiffs.delete(key);
+    return pending?.inlineDiff;
+  };
+
+  const clearPendingCommandInlineDiffsForTurn = (
+    threadId: ThreadId,
+    turnId: TurnId | undefined,
+  ): void => {
+    if (!turnId) {
+      return;
+    }
+    for (const [key, pending] of pendingCommandInlineDiffs.entries()) {
+      if (pending.threadId === threadId && sameId(pending.turnId, turnId)) {
+        pendingCommandInlineDiffs.delete(key);
+      }
+    }
+  };
 
   const refreshTurnAgentDiffFromToolArtifact = Effect.fn("refreshTurnAgentDiffFromToolArtifact")(
     function* (input: {
@@ -1491,6 +1720,11 @@ const make = Effect.fn("make")(function* () {
           : Effect.void,
       { concurrency: 1 },
     ).pipe(Effect.asVoid);
+    for (const [key, pending] of pendingCommandInlineDiffs.entries()) {
+      if (pending.threadId === threadId) {
+        pendingCommandInlineDiffs.delete(key);
+      }
+    }
   });
 
   const getSourceProposedPlanReferenceForPendingTurnStart = Effect.fn(
@@ -1831,6 +2065,7 @@ const make = Effect.fn("make")(function* () {
           turnId,
           updatedAt: now,
         });
+        clearPendingCommandInlineDiffsForTurn(thread.id, turnId);
       }
     }
 
@@ -1976,25 +2211,46 @@ const make = Effect.fn("make")(function* () {
       }
     }
 
+    let itemInlineDiff: OrchestrationToolInlineDiff | undefined;
+
+    if (event.type === "item.started" && event.payload.itemType === "command_execution") {
+      yield* captureCommandInlineDiffAtStart(event);
+    }
+
     if (
       (event.type === "item.updated" || event.type === "item.completed") &&
       event.payload.itemType === "file_change"
     ) {
-      const inlineDiff = buildToolInlineDiffArtifact({
+      const workspaceCwd = yield* resolveWorkspaceCwdForThread(thread.id);
+      itemInlineDiff = buildToolInlineDiffArtifact({
         provider: event.provider,
         payloadData: event.payload.data,
+        ...(workspaceCwd ? { workspaceRoot: workspaceCwd } : {}),
       });
-      if (inlineDiff) {
-        yield* refreshTurnAgentDiffFromToolArtifact({
-          event,
-          thread,
-          inlineDiff,
-        });
+    }
+
+    if (event.type === "item.completed" && event.payload.itemType === "command_execution") {
+      const exitCode = extractRuntimeCommandExitCode(event.payload.data);
+      itemInlineDiff =
+        exitCode === 0 ? takePendingCommandInlineDiff(thread.id, event.itemId) : undefined;
+      if (exitCode !== 0) {
+        takePendingCommandInlineDiff(thread.id, event.itemId);
       }
     }
 
+    if (itemInlineDiff) {
+      yield* refreshTurnAgentDiffFromToolArtifact({
+        event,
+        thread,
+        inlineDiff: itemInlineDiff,
+      });
+    }
+
     const turnId = toTurnId(event.turnId);
-    let activities = runtimeEventToActivities(event);
+    let activities = runtimeEventToActivities(
+      event,
+      itemInlineDiff ? { inlineDiff: itemInlineDiff } : undefined,
+    );
 
     if (event.provider === "codex" && turnId) {
       const workspaceCwd = yield* resolveWorkspaceCwdForThread(thread.id);

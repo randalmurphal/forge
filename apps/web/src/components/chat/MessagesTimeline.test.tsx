@@ -291,7 +291,7 @@ describe("MessagesTimeline", () => {
       />,
     );
 
-    expect(markup).toContain("Tool changes");
+    expect(markup).toContain("File changes");
     expect(markup).toContain("Patch unavailable for this tool call.");
     expect(markup).not.toContain("Summary only");
     expect(markup).toContain("Turn changes");
@@ -371,7 +371,64 @@ describe("MessagesTimeline", () => {
     );
 
     expect(markup).toContain("FileChange");
-    expect(markup).toContain("Tool changes");
+    expect(markup).toContain("File changes");
     expect(markup).toContain('data-compact-diff-expand-bar="true"');
+  });
+
+  it("renders command inline diffs with a Command changes header", async () => {
+    const { MessagesTimeline } = await import("./MessagesTimeline");
+
+    const markup = renderTimeline(
+      <MessagesTimeline
+        threadId={null}
+        hasMessages
+        isWorking={false}
+        activeTurnInProgress={false}
+        activeTurnStartedAt={null}
+        scrollContainer={null}
+        timelineEntries={[
+          {
+            id: "work-entry",
+            kind: "work",
+            createdAt: "2026-03-17T19:12:28.000Z",
+            entry: {
+              id: "command-1",
+              createdAt: "2026-03-17T19:12:28.000Z",
+              label: "Command execution",
+              tone: "tool",
+              itemType: "command_execution",
+              command: "mv src/old.ts src/new.ts",
+              inlineDiff: {
+                id: "command-1",
+                activityId: "command-1",
+                title: "Run command",
+                availability: "summary_only",
+                files: [{ path: "src/new.ts", kind: "renamed" }],
+              },
+            },
+          },
+        ]}
+        completionDividerBeforeEntryId={null}
+        completionSummary={null}
+        turnDiffSummaryByAssistantMessageId={new Map()}
+        nowIso="2026-03-17T19:12:31.000Z"
+        expandedWorkGroups={{}}
+        onToggleWorkGroup={() => {}}
+        onOpenTurnDiff={() => {}}
+        revertTurnCountByUserMessageId={new Map()}
+        onRevertUserMessage={() => {}}
+        isRevertingCheckpoint={false}
+        onImageExpand={() => {}}
+        markdownCwd={undefined}
+        resolvedTheme="light"
+        timestampFormat="locale"
+        workspaceRoot={undefined}
+      />,
+    );
+
+    expect(markup).toContain("Command");
+    expect(markup).toContain("Command changes");
+    expect(markup).not.toContain("Tool changes");
+    expect(markup).toContain("Patch unavailable for this tool call.");
   });
 });

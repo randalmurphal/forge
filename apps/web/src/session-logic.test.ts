@@ -910,6 +910,67 @@ describe("deriveWorkLogEntries", () => {
     expect(entry?.inlineDiff).toBeUndefined();
   });
 
+  it("reads persisted exact inline diffs for command rows", () => {
+    const activities: OrchestrationThreadActivity[] = [
+      makeActivity({
+        id: "command-with-inline-diff",
+        kind: "tool.completed",
+        summary: "Command execution",
+        payload: {
+          itemType: "command_execution",
+          title: "Run command",
+          inlineDiff: {
+            availability: "exact_patch",
+            files: [{ path: "src/remove.ts", kind: "deleted", deletions: 1 }],
+            deletions: 1,
+            unifiedDiff: [
+              "diff --git a/src/remove.ts b/src/remove.ts",
+              "deleted file mode 100644",
+              "--- a/src/remove.ts",
+              "+++ /dev/null",
+              "@@ -1,1 +0,0 @@",
+              "-export const removed = true;",
+            ].join("\n"),
+          },
+        },
+      }),
+    ];
+
+    const [entry] = deriveWorkLogEntries(activities, { scope: "all-turns" });
+    expect(entry?.itemType).toBe("command_execution");
+    expect(entry?.changedFiles).toEqual(["src/remove.ts"]);
+    expect(entry?.inlineDiff).toMatchObject({
+      availability: "exact_patch",
+      files: [{ path: "src/remove.ts", kind: "deleted", deletions: 1 }],
+      deletions: 1,
+    });
+  });
+
+  it("reads summary-only persisted inline diffs for command rows", () => {
+    const activities: OrchestrationThreadActivity[] = [
+      makeActivity({
+        id: "command-summary-only-diff",
+        kind: "tool.completed",
+        summary: "Command execution",
+        payload: {
+          itemType: "command_execution",
+          title: "Run command",
+          inlineDiff: {
+            availability: "summary_only",
+            files: [{ path: "src/new.ts", kind: "renamed" }],
+          },
+        },
+      }),
+    ];
+
+    const [entry] = deriveWorkLogEntries(activities, { scope: "all-turns" });
+    expect(entry?.inlineDiff).toMatchObject({
+      availability: "summary_only",
+      files: [{ path: "src/new.ts", kind: "renamed" }],
+    });
+    expect(entry?.changedFiles).toEqual(["src/new.ts"]);
+  });
+
   it("reads summary-only persisted artifacts without attempting client-side patch reconstruction", () => {
     const activities: OrchestrationThreadActivity[] = [
       makeActivity({
@@ -1047,6 +1108,60 @@ describe("deriveWorkLogEntries", () => {
       inlineDiff: {
         availability: "exact_patch",
         files: [{ path: "apps/web/src/session-logic.ts" }],
+      },
+    });
+  });
+
+  it("preserves an exact command patch when the completion row only has summary metadata", () => {
+    const activities: OrchestrationThreadActivity[] = [
+      makeActivity({
+        id: "command-updated",
+        createdAt: "2026-02-23T00:00:01.000Z",
+        turnId: "turn-1",
+        kind: "tool.updated",
+        summary: "Command execution",
+        payload: {
+          itemType: "command_execution",
+          itemId: "command-tool-a",
+          title: "Run command",
+          inlineDiff: {
+            availability: "exact_patch",
+            files: [{ path: "src/new.ts", kind: "renamed" }],
+            unifiedDiff: [
+              "diff --git a/src/old.ts b/src/new.ts",
+              "rename from src/old.ts",
+              "rename to src/new.ts",
+              "--- a/src/old.ts",
+              "+++ b/src/new.ts",
+            ].join("\n"),
+          },
+        },
+      }),
+      makeActivity({
+        id: "command-completed",
+        createdAt: "2026-02-23T00:00:02.000Z",
+        turnId: "turn-1",
+        kind: "tool.completed",
+        summary: "Command completed",
+        payload: {
+          itemType: "command_execution",
+          itemId: "command-tool-a",
+          title: "Run command",
+          inlineDiff: {
+            availability: "summary_only",
+            files: [{ path: "src/new.ts", kind: "renamed" }],
+          },
+        },
+      }),
+    ];
+
+    const entries = deriveWorkLogEntries(activities, { scope: "all-turns" });
+    expect(entries).toHaveLength(1);
+    expect(entries[0]).toMatchObject({
+      id: "command-completed",
+      inlineDiff: {
+        availability: "exact_patch",
+        files: [{ path: "src/new.ts", kind: "renamed" }],
       },
     });
   });

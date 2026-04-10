@@ -1206,6 +1206,7 @@ const SimpleWorkEntryRow = memo(function SimpleWorkEntryRow(props: {
       </div>
       {toolInlineDiff ? (
         <InlineToolDiffBlock
+          label={workEntry.itemType === "command_execution" ? "Command changes" : "Tool changes"}
           inlineDiff={toolInlineDiff}
           expanded={isToolDiffExpanded}
           onToggle={() => onToggleInlineDiff("tool", workEntry.id)}
@@ -1234,6 +1235,7 @@ const FileChangeWorkEntryRow = memo(function FileChangeWorkEntryRow(props: {
     <div className="rounded-lg px-1 py-1">
       <CompactDiffEntryRow icon={SquarePenIcon} label="FileChange" path={filePath} />
       <InlineToolDiffBlock
+        label="File changes"
         inlineDiff={workEntry.inlineDiff!}
         expanded={isToolDiffExpanded}
         onToggle={() => onToggleInlineDiff("tool", workEntry.id)}
@@ -1330,11 +1332,12 @@ const AgentWorkEntryRow = memo(function AgentWorkEntryRow(props: { workEntry: Ti
 });
 
 const InlineToolDiffBlock = memo(function InlineToolDiffBlock(props: {
+  label: string;
   inlineDiff: ToolInlineDiffSummary;
   expanded: boolean;
   onToggle: () => void;
 }) {
-  const { inlineDiff, expanded, onToggle } = props;
+  const { label, inlineDiff, expanded, onToggle } = props;
   const previewContent = useMemo(
     () =>
       inlineDiff.availability === "exact_patch"
@@ -1350,7 +1353,7 @@ const InlineToolDiffBlock = memo(function InlineToolDiffBlock(props: {
       <CompactDiffCard
         header={
           <CompactDiffHeader
-            label="Tool changes"
+            label={label}
             fileCount={inlineDiff.files.length}
             additions={inlineDiff.additions}
             deletions={inlineDiff.deletions}

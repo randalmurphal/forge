@@ -317,6 +317,235 @@ describe("buildToolInlineDiffArtifact", () => {
     expect(artifact?.unifiedDiff).toContain("rename to apps/server/src/rename-only-after.ts");
   });
 
+  it("normalizes absolute Codex paths into repo-relative exact patches", () => {
+    const artifact = buildToolInlineDiffArtifact({
+      provider: "codex",
+      payloadData: {
+        item: {
+          changes: [
+            {
+              path: "/repo/apps/server/src/example.ts",
+              kind: { type: "update", move_path: null },
+              diff: ["@@ -1 +1,2 @@", " export const value = 1;", "+export const next = 2;"].join(
+                "\n",
+              ),
+            },
+          ],
+        },
+      },
+      workspaceRoot: "/repo",
+    });
+
+    expect(artifact).toMatchObject({
+      availability: "exact_patch",
+      files: [{ path: "apps/server/src/example.ts", kind: "modified", additions: 1, deletions: 0 }],
+      additions: 1,
+      deletions: 0,
+    });
+    expect(artifact?.unifiedDiff).toContain(
+      "diff --git a/apps/server/src/example.ts b/apps/server/src/example.ts",
+    );
+    expect(artifact?.unifiedDiff).not.toContain("/repo/apps/server/src/example.ts");
+  });
+
+  it("downgrades out-of-repo exact patches to summary-only when workspace normalization fails", () => {
+    const artifact = buildToolInlineDiffArtifact({
+      provider: "codex",
+      payloadData: {
+        item: {
+          changes: [
+            {
+              path: "C:\\Users\\rmurphy\\Desktop\\notes.txt",
+              kind: { type: "update", move_path: null },
+              diff: [
+                "diff --git a/C:\\Users\\rmurphy\\Desktop\\notes.txt b/C:\\Users\\rmurphy\\Desktop\\notes.txt",
+                "--- a/C:\\Users\\rmurphy\\Desktop\\notes.txt",
+                "+++ b/C:\\Users\\rmurphy\\Desktop\\notes.txt",
+                "@@ -1 +1,2 @@",
+                " hello",
+                "+outside",
+              ].join("\n"),
+            },
+          ],
+        },
+      },
+      workspaceRoot: "/repo",
+    });
+
+    expect(artifact).toEqual({
+      availability: "summary_only",
+      files: [{ path: "C:\\Users\\rmurphy\\Desktop\\notes.txt", kind: "modified" }],
+    });
+  });
+
+  it("downgrades out-of-repo Claude exact patches to summary-only when workspace normalization fails", () => {
+    const artifact = buildToolInlineDiffArtifact({
+      provider: "claudeAgent",
+      payloadData: {
+        unifiedDiff: [
+          "diff --git a/C:\\Users\\rmurphy\\Desktop\\notes.txt b/C:\\Users\\rmurphy\\Desktop\\notes.txt",
+          "--- a/C:\\Users\\rmurphy\\Desktop\\notes.txt",
+          "+++ b/C:\\Users\\rmurphy\\Desktop\\notes.txt",
+          "@@ -1 +1,2 @@",
+          " hello",
+          "+outside",
+        ].join("\n"),
+        toolUseResult: {
+          filePath: "C:\\Users\\rmurphy\\Desktop\\notes.txt",
+          type: "update",
+        },
+      },
+      workspaceRoot: "/repo",
+    });
+
+    expect(artifact).toEqual({
+      availability: "summary_only",
+      files: [{ path: "C:\\Users\\rmurphy\\Desktop\\notes.txt" }],
+    });
+  });
+
+  it("normalizes absolute multi-file Codex paths for add and update records", () => {
+    const artifact = buildToolInlineDiffArtifact({
+      provider: "codex",
+      payloadData: {
+        item: {
+          changes: [
+            {
+              path: "/repo/apps/server/src/created.ts",
+              kind: { type: "add" },
+              diff: "export const created = true;\n",
+            },
+            {
+              path: "/repo/apps/server/src/example.ts",
+              kind: { type: "update", move_path: null },
+              diff: ["@@ -1 +1,2 @@", " export const value = 1;", "+export const next = 2;"].join(
+                "\n",
+              ),
+            },
+          ],
+        },
+      },
+      workspaceRoot: "/repo",
+    });
+
+    expect(artifact?.availability).toBe("exact_patch");
+    expect(artifact?.files.map((file) => file.path).toSorted()).toEqual([
+      "apps/server/src/created.ts",
+      "apps/server/src/example.ts",
+    ]);
+    expect(artifact?.unifiedDiff).toContain("diff --git a/apps/server/src/created.ts");
+    expect(artifact?.unifiedDiff).toContain("diff --git a/apps/server/src/example.ts");
+    expect(artifact?.unifiedDiff).not.toContain("/repo/apps/server/src/");
+  });
+
+  it("deduplicates absolute Claude Edit metadata against a relative exact patch", () => {
+    const artifact = buildToolInlineDiffArtifact({
+      provider: "claudeAgent",
+      payloadData: {
+        unifiedDiff: [
+          "diff --git a/apps/server/src/example.ts b/apps/server/src/example.ts",
+          "--- a/apps/server/src/example.ts",
+          "+++ b/apps/server/src/example.ts",
+          "@@ -1 +1,2 @@",
+          " export const value = 1;",
+          "+export const next = 2;",
+        ].join("\n"),
+        toolUseResult: {
+          filePath: "/repo/apps/server/src/example.ts",
+          oldString: "export const value = 1;\n",
+          newString: "export const value = 1;\nexport const next = 2;\n",
+          originalFile: "export const value = 1;\n",
+          structuredPatch: [
+            {
+              oldStart: 1,
+              oldLines: 1,
+              newStart: 1,
+              newLines: 2,
+              lines: [" export const value = 1;", "+export const next = 2;"],
+            },
+          ],
+        },
+      },
+      workspaceRoot: "/repo",
+    });
+
+    expect(artifact).toMatchObject({
+      availability: "exact_patch",
+      files: [{ path: "apps/server/src/example.ts", additions: 1, deletions: 0 }],
+      additions: 1,
+      deletions: 0,
+    });
+    expect(artifact?.files).toHaveLength(1);
+  });
+
+  it("normalizes absolute Claude Write update and create metadata", () => {
+    const updateArtifact = buildToolInlineDiffArtifact({
+      provider: "claudeAgent",
+      payloadData: {
+        unifiedDiff: [
+          "diff --git a/apps/server/src/example.ts b/apps/server/src/example.ts",
+          "--- a/apps/server/src/example.ts",
+          "+++ b/apps/server/src/example.ts",
+          "@@ -1,2 +1,2 @@",
+          "-export const value = 1;",
+          "-export const next = 2;",
+          "+export const value = 10;",
+          "+export const next = 20;",
+        ].join("\n"),
+        toolUseResult: {
+          type: "update",
+          filePath: "/repo/apps/server/src/example.ts",
+          content: "export const value = 10;\nexport const next = 20;\n",
+          originalFile: "export const value = 1;\nexport const next = 2;\n",
+          structuredPatch: [
+            {
+              oldStart: 1,
+              oldLines: 2,
+              newStart: 1,
+              newLines: 2,
+              lines: [
+                "-export const value = 1;",
+                "-export const next = 2;",
+                "+export const value = 10;",
+                "+export const next = 20;",
+              ],
+            },
+          ],
+        },
+      },
+      workspaceRoot: "/repo",
+    });
+
+    const createArtifact = buildToolInlineDiffArtifact({
+      provider: "claudeAgent",
+      payloadData: {
+        unifiedDiff: [
+          "diff --git a/apps/server/src/created.ts b/apps/server/src/created.ts",
+          "new file mode 100644",
+          "--- /dev/null",
+          "+++ b/apps/server/src/created.ts",
+          "@@ -0,0 +1,1 @@",
+          "+export const created = true;",
+        ].join("\n"),
+        toolUseResult: {
+          type: "create",
+          filePath: "/repo/apps/server/src/created.ts",
+          content: "export const created = true;",
+          structuredPatch: [],
+          originalFile: null,
+        },
+      },
+      workspaceRoot: "/repo",
+    });
+
+    expect(updateArtifact?.files).toEqual([
+      { path: "apps/server/src/example.ts", additions: 2, deletions: 2 },
+    ]);
+    expect(createArtifact?.files).toEqual([
+      { path: "apps/server/src/created.ts", additions: 1, deletions: 0 },
+    ]);
+  });
+
   it("returns undefined when there is no renderable file metadata", () => {
     expect(
       buildToolInlineDiffArtifact({
