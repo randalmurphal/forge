@@ -17,10 +17,16 @@ import { Cache, Cause, Duration, Effect, Layer, Option, Stream } from "effect";
 import { makeDrainableWorker } from "@forgetools/shared/DrainableWorker";
 
 import { parseTurnDiffFilesFromUnifiedDiff } from "../../checkpointing/Diffs.ts";
+import { CheckpointStore } from "../../checkpointing/Services/CheckpointStore.ts";
 import { ProviderService } from "../../provider/Services/ProviderService.ts";
+import { ProjectionAgentDiffRepositoryLive } from "../../persistence/Layers/ProjectionAgentDiffs.ts";
+import { ProjectionAgentDiffRepository } from "../../persistence/Services/ProjectionAgentDiffs.ts";
 import { ProjectionTurnRepository } from "../../persistence/Services/ProjectionTurns.ts";
 import { ProjectionTurnRepositoryLive } from "../../persistence/Layers/ProjectionTurns.ts";
-import { resolveThreadWorkspaceCwd } from "../../checkpointing/Utils.ts";
+import {
+  checkpointRefForThreadTurn,
+  resolveThreadWorkspaceCwd,
+} from "../../checkpointing/Utils.ts";
 import { isGitRepository } from "../../git/Utils.ts";
 import { OrchestrationEngineService } from "../Services/OrchestrationEngine.ts";
 import {
@@ -29,6 +35,7 @@ import {
 } from "../Services/ProviderRuntimeIngestion.ts";
 import { ServerSettingsService } from "../../serverSettings.ts";
 import { buildToolInlineDiffArtifact } from "../toolDiffArtifacts.ts";
+import { classifyToolDiffPaths, filterUnifiedDiffByPaths } from "../toolDiffPaths.ts";
 
 const providerTurnKey = (threadId: ThreadId, turnId: TurnId) => `${threadId}:${turnId}`;
 const providerCommandId = (event: ProviderRuntimeEvent, tag: string): CommandId =>
@@ -132,6 +139,17 @@ function mergeDiffFilesByPath(
   }
 
   return Array.from(merged.values()).toSorted((left, right) => left.path.localeCompare(right.path));
+}
+
+function mapUnifiedDiffToCheckpointFiles(diff: string) {
+  return mergeDiffFilesByPath(
+    parseTurnDiffFilesFromUnifiedDiff(diff).map((file) => ({
+      path: file.path,
+      kind: "modified",
+      additions: file.additions,
+      deletions: file.deletions,
+    })),
+  );
 }
 
 function buildContextWindowActivityPayload(
@@ -635,6 +653,8 @@ function runtimeEventToActivities(
 const make = Effect.fn("make")(function* () {
   const orchestrationEngine = yield* OrchestrationEngineService;
   const providerService = yield* ProviderService;
+  const checkpointStore = yield* CheckpointStore;
+  const projectionAgentDiffRepository = yield* ProjectionAgentDiffRepository;
   const projectionTurnRepository = yield* ProjectionTurnRepository;
   const serverSettingsService = yield* ServerSettingsService;
 
@@ -671,6 +691,178 @@ const make = Effect.fn("make")(function* () {
     }
     return isGitRepository(workspaceCwd);
   });
+
+  const resolveWorkspaceCwdForThread = Effect.fn("resolveWorkspaceCwdForThread")(function* (
+    threadId: ThreadId,
+  ) {
+    const [readModel, sessions] = yield* Effect.all([
+      orchestrationEngine.getReadModel(),
+      providerService.listSessions(),
+    ]);
+    const thread = readModel.threads.find((entry) => entry.id === threadId);
+    if (!thread) {
+      return undefined;
+    }
+
+    const sessionCwd = sessions.find((entry) => entry.threadId === threadId)?.cwd;
+    return sessionCwd ?? resolveThreadWorkspaceCwd({ thread, projects: readModel.projects });
+  });
+
+  const refreshTurnAgentDiffFromToolArtifact = Effect.fn("refreshTurnAgentDiffFromToolArtifact")(
+    function* (input: {
+      readonly event: ProviderRuntimeEvent;
+      readonly thread: {
+        readonly id: ThreadId;
+        readonly checkpoints: ReadonlyArray<{
+          readonly turnId: TurnId;
+          readonly checkpointTurnCount: number;
+        }>;
+      };
+      readonly inlineDiff: NonNullable<ReturnType<typeof buildToolInlineDiffArtifact>>;
+    }) {
+      const turnId = toTurnId(input.event.turnId);
+      if (!turnId) {
+        return;
+      }
+
+      const workspaceCwd = yield* resolveWorkspaceCwdForThread(input.thread.id);
+      if (!workspaceCwd) {
+        return;
+      }
+
+      const currentRepoFiles = input.inlineDiff.files.flatMap((file) => {
+        const repoRelativePath = classifyToolDiffPaths({
+          workspaceRoot: workspaceCwd,
+          filePaths: [file.path],
+          ...(process.env.WSL_DISTRO_NAME ? { wslDistroName: process.env.WSL_DISTRO_NAME } : {}),
+        }).repoRelativePaths[0];
+
+        return repoRelativePath
+          ? [
+              {
+                path: repoRelativePath,
+                kind: file.kind ?? "modified",
+                additions: file.additions ?? 0,
+                deletions: file.deletions ?? 0,
+              },
+            ]
+          : [];
+      });
+      const currentToolPaths = currentRepoFiles.map((file) => file.path);
+
+      const existingDiffOption = yield* projectionAgentDiffRepository
+        .getByTurnId({
+          threadId: input.thread.id,
+          turnId,
+        })
+        .pipe(Effect.catch(() => Effect.succeed(Option.none())));
+
+      const existingRepoPaths = Option.match(existingDiffOption, {
+        onNone: () => [] as string[],
+        onSome: (row) =>
+          row.source === "derived_tool_results"
+            ? classifyToolDiffPaths({
+                workspaceRoot: workspaceCwd,
+                filePaths: row.files.map((file) => file.path),
+                ...(process.env.WSL_DISTRO_NAME
+                  ? { wslDistroName: process.env.WSL_DISTRO_NAME }
+                  : {}),
+              }).repoRelativePaths
+            : [],
+      });
+      const mergedRepoPaths = [...new Set([...existingRepoPaths, ...currentToolPaths])].toSorted();
+      if (mergedRepoPaths.length === 0) {
+        return;
+      }
+
+      const assistantMessageIds = yield* getAssistantMessageIdsForTurn(input.thread.id, turnId);
+      const assistantMessageId =
+        [...assistantMessageIds].at(-1) ??
+        Option.match(existingDiffOption, {
+          onNone: () => undefined,
+          onSome: (row) => row.assistantMessageId ?? undefined,
+        });
+
+      const currentTurnCheckpoint = input.thread.checkpoints
+        .filter((checkpoint) => sameId(checkpoint.turnId, turnId))
+        .toSorted((left, right) => right.checkpointTurnCount - left.checkpointTurnCount)[0];
+      const baselineTurnCount = currentTurnCheckpoint
+        ? Math.max(0, currentTurnCheckpoint.checkpointTurnCount - 1)
+        : input.thread.checkpoints.reduce(
+            (maxTurnCount, checkpoint) => Math.max(maxTurnCount, checkpoint.checkpointTurnCount),
+            0,
+          );
+      const baselineCheckpointRef = checkpointRefForThreadTurn(input.thread.id, baselineTurnCount);
+      const baselineExists = yield* checkpointStore
+        .hasCheckpointRef({
+          cwd: workspaceCwd,
+          checkpointRef: baselineCheckpointRef,
+        })
+        .pipe(Effect.catch(() => Effect.succeed(false)));
+
+      const partialFiles = mergeDiffFilesByPath([
+        ...Option.match(existingDiffOption, {
+          onNone: () => [],
+          onSome: (row) => (row.source === "derived_tool_results" ? row.files : []),
+        }),
+        ...currentRepoFiles,
+      ]).filter((file) => mergedRepoPaths.includes(file.path));
+
+      if (baselineExists) {
+        const recomputedDiff = yield* checkpointStore
+          .diffCheckpointToWorkspace({
+            cwd: workspaceCwd,
+            checkpointRef: baselineCheckpointRef,
+            paths: mergedRepoPaths,
+          })
+          .pipe(Effect.catch(() => Effect.succeed<string | null>(null)));
+
+        if (recomputedDiff !== null) {
+          yield* orchestrationEngine.dispatch({
+            type: "thread.agent-diff.upsert",
+            commandId: providerCommandId(input.event, "thread-agent-diff-upsert-tool"),
+            threadId: input.thread.id,
+            turnId,
+            diff: recomputedDiff,
+            files: mapUnifiedDiffToCheckpointFiles(recomputedDiff),
+            source: "derived_tool_results",
+            coverage: "complete",
+            ...(assistantMessageId ? { assistantMessageId } : {}),
+            completedAt: input.event.createdAt,
+            createdAt: input.event.createdAt,
+          });
+          return;
+        }
+      }
+
+      const filteredInlinePatch = filterUnifiedDiffByPaths({
+        diff: input.inlineDiff.unifiedDiff,
+        allowedPaths: currentToolPaths,
+        workspaceRoot: workspaceCwd,
+        ...(process.env.WSL_DISTRO_NAME ? { wslDistroName: process.env.WSL_DISTRO_NAME } : {}),
+      });
+      const fallbackDiff =
+        filteredInlinePatch ??
+        Option.match(existingDiffOption, {
+          onNone: () => undefined,
+          onSome: (row) => (row.source === "derived_tool_results" ? row.diff : undefined),
+        });
+
+      yield* orchestrationEngine.dispatch({
+        type: "thread.agent-diff.upsert",
+        commandId: providerCommandId(input.event, "thread-agent-diff-upsert-tool-partial"),
+        threadId: input.thread.id,
+        turnId,
+        diff: fallbackDiff ?? "",
+        files: partialFiles,
+        source: "derived_tool_results",
+        coverage: "partial",
+        ...(assistantMessageId ? { assistantMessageId } : {}),
+        completedAt: input.event.createdAt,
+        createdAt: input.event.createdAt,
+      });
+    },
+  );
 
   const rememberAssistantMessageId = (threadId: ThreadId, turnId: TurnId, messageId: MessageId) =>
     Cache.getOption(turnMessageIdsByTurnKey, providerTurnKey(threadId, turnId)).pipe(
@@ -1311,31 +1503,72 @@ const make = Effect.fn("make")(function* () {
     if (event.type === "turn.diff.updated") {
       const turnId = toTurnId(event.turnId);
       if (turnId) {
-        const assistantMessageIds = yield* getAssistantMessageIdsForTurn(thread.id, turnId);
-        const assistantMessageId = [...assistantMessageIds].at(-1);
-        const files = mergeDiffFilesByPath(
-          parseTurnDiffFilesFromUnifiedDiff(event.payload.unifiedDiff).map((file) => ({
-            path: file.path,
-            kind: "modified",
-            additions: file.additions,
-            deletions: file.deletions,
-          })),
-        );
-        yield* orchestrationEngine.dispatch({
-          type: "thread.agent-diff.upsert",
-          commandId: providerCommandId(event, "thread-agent-diff-upsert"),
-          threadId: thread.id,
-          turnId,
-          diff: event.payload.unifiedDiff,
-          files,
-          source:
-            event.payload.source ??
-            (event.provider === "codex" ? "native_turn_diff" : "derived_tool_results"),
-          coverage: event.payload.coverage ?? "complete",
-          ...(assistantMessageId ? { assistantMessageId } : {}),
-          completedAt: now,
-          createdAt: now,
-        });
+        const existingAgentDiff = yield* projectionAgentDiffRepository
+          .getByTurnId({
+            threadId: thread.id,
+            turnId,
+          })
+          .pipe(Effect.catch(() => Effect.succeed(Option.none())));
+
+        const incomingSource =
+          event.payload.source ??
+          (event.provider === "codex" ? "native_turn_diff" : "derived_tool_results");
+
+        if (
+          Option.isSome(existingAgentDiff) &&
+          existingAgentDiff.value.source === "derived_tool_results" &&
+          incomingSource === "native_turn_diff"
+        ) {
+          const workspaceCwd = yield* resolveWorkspaceCwdForThread(thread.id);
+          const scopedPaths = existingAgentDiff.value.files.map((file) => file.path);
+          if (workspaceCwd && scopedPaths.length > 0) {
+            const filteredDiff =
+              filterUnifiedDiffByPaths({
+                diff: event.payload.unifiedDiff,
+                allowedPaths: scopedPaths,
+                workspaceRoot: workspaceCwd,
+                ...(process.env.WSL_DISTRO_NAME
+                  ? { wslDistroName: process.env.WSL_DISTRO_NAME }
+                  : {}),
+              }) ?? "";
+            const assistantMessageIds = yield* getAssistantMessageIdsForTurn(thread.id, turnId);
+            const assistantMessageId =
+              [...assistantMessageIds].at(-1) ??
+              existingAgentDiff.value.assistantMessageId ??
+              undefined;
+
+            yield* orchestrationEngine.dispatch({
+              type: "thread.agent-diff.upsert",
+              commandId: providerCommandId(event, "thread-agent-diff-upsert-native-filtered"),
+              threadId: thread.id,
+              turnId,
+              diff: filteredDiff,
+              files: mapUnifiedDiffToCheckpointFiles(filteredDiff),
+              source: "derived_tool_results",
+              coverage: event.payload.coverage ?? "complete",
+              ...(assistantMessageId ? { assistantMessageId } : {}),
+              completedAt: now,
+              createdAt: now,
+            });
+          }
+        } else {
+          const assistantMessageIds = yield* getAssistantMessageIdsForTurn(thread.id, turnId);
+          const assistantMessageId = [...assistantMessageIds].at(-1);
+          const files = mapUnifiedDiffToCheckpointFiles(event.payload.unifiedDiff);
+          yield* orchestrationEngine.dispatch({
+            type: "thread.agent-diff.upsert",
+            commandId: providerCommandId(event, "thread-agent-diff-upsert"),
+            threadId: thread.id,
+            turnId,
+            diff: event.payload.unifiedDiff,
+            files,
+            source: incomingSource,
+            coverage: event.payload.coverage ?? "complete",
+            ...(assistantMessageId ? { assistantMessageId } : {}),
+            completedAt: now,
+            createdAt: now,
+          });
+        }
       }
 
       if (turnId && event.provider === "codex" && (yield* isGitRepoForThread(thread.id))) {
@@ -1367,6 +1600,20 @@ const make = Effect.fn("make")(function* () {
             createdAt: now,
           });
         }
+      }
+    }
+
+    if (
+      (event.type === "item.updated" || event.type === "item.completed") &&
+      event.payload.itemType === "file_change"
+    ) {
+      const inlineDiff = buildToolInlineDiffArtifact(event.payload.data);
+      if (inlineDiff) {
+        yield* refreshTurnAgentDiffFromToolArtifact({
+          event,
+          thread,
+          inlineDiff,
+        });
       }
     }
 
@@ -1429,4 +1676,7 @@ const make = Effect.fn("make")(function* () {
 export const ProviderRuntimeIngestionLive = Layer.effect(
   ProviderRuntimeIngestionService,
   make(),
-).pipe(Layer.provide(ProjectionTurnRepositoryLive));
+).pipe(
+  Layer.provideMerge(ProjectionTurnRepositoryLive),
+  Layer.provideMerge(ProjectionAgentDiffRepositoryLive),
+);

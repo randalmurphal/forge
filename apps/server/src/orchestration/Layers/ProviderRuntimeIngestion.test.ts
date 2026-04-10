@@ -1,6 +1,7 @@
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
+import { execFileSync } from "node:child_process";
 
 import type {
   OrchestrationReadModel,
@@ -41,6 +42,10 @@ import { ProviderRuntimeIngestionService } from "../Services/ProviderRuntimeInge
 import { ServerConfig } from "../../config.ts";
 import { ServerSettingsService } from "../../serverSettings.ts";
 import * as NodeServices from "@effect/platform-node/NodeServices";
+import { CheckpointStoreLive } from "../../checkpointing/Layers/CheckpointStore.ts";
+import { CheckpointStore } from "../../checkpointing/Services/CheckpointStore.ts";
+import { checkpointRefForThreadTurn } from "../../checkpointing/Utils.ts";
+import { GitCoreLive } from "../../git/Layers/GitCore.ts";
 
 function makeTestServerSettingsLayer(overrides: Partial<ServerSettings> = {}) {
   return ServerSettingsService.layerTest(overrides);
@@ -167,7 +172,7 @@ type ProviderRuntimeTestCheckpoint = ProviderRuntimeTestThread["checkpoints"][nu
 
 describe("ProviderRuntimeIngestion", () => {
   let runtime: ManagedRuntime.ManagedRuntime<
-    OrchestrationEngineService | ProviderRuntimeIngestionService,
+    OrchestrationEngineService | ProviderRuntimeIngestionService | CheckpointStore,
     unknown
   > | null = null;
   let scope: Scope.Closeable | null = null;
@@ -197,6 +202,11 @@ describe("ProviderRuntimeIngestion", () => {
     const workspaceRoot = makeTempDir("forge-provider-project-");
     fs.mkdirSync(path.join(workspaceRoot, ".git"));
     const provider = createProviderServiceHarness();
+    const gitCoreLayer = GitCoreLive.pipe(
+      Layer.provide(ServerConfig.layerTest(process.cwd(), process.cwd())),
+      Layer.provide(NodeServices.layer),
+    );
+    const checkpointStoreLayer = CheckpointStoreLive.pipe(Layer.provide(gitCoreLayer));
     const orchestrationLayer = OrchestrationEngineLive.pipe(
       Layer.provide(OrchestrationProjectionSnapshotQueryLive),
       Layer.provide(OrchestrationProjectionPipelineLive),
@@ -210,11 +220,14 @@ describe("ProviderRuntimeIngestion", () => {
       Layer.provideMerge(Layer.succeed(ProviderService, provider.service)),
       Layer.provideMerge(makeTestServerSettingsLayer(options?.serverSettings)),
       Layer.provideMerge(ServerConfig.layerTest(process.cwd(), process.cwd())),
+      Layer.provideMerge(checkpointStoreLayer),
+      Layer.provideMerge(gitCoreLayer),
       Layer.provideMerge(NodeServices.layer),
     );
     runtime = ManagedRuntime.make(layer);
     const engine = await runtime.runPromise(Effect.service(OrchestrationEngineService));
     const ingestion = await runtime.runPromise(Effect.service(ProviderRuntimeIngestionService));
+    const checkpointStore = await runtime.runPromise(Effect.service(CheckpointStore));
     scope = await Effect.runPromise(Scope.make("sequential"));
     await Effect.runPromise(ingestion.start().pipe(Scope.provide(scope)));
     const drain = () => Effect.runPromise(ingestion.drain);
@@ -280,6 +293,8 @@ describe("ProviderRuntimeIngestion", () => {
 
     return {
       engine,
+      checkpointStore,
+      workspaceRoot,
       emit: provider.emit,
       setProviderSession: provider.setSession,
       drain,
@@ -2090,6 +2105,380 @@ describe("ProviderRuntimeIngestion", () => {
     expect(inlineDiff?.unifiedDiff).toContain(
       "diff --git a/apps/web/src/session-logic.ts b/apps/web/src/session-logic.ts",
     );
+    expect(thread.agentDiffs).toEqual([
+      expect.objectContaining({
+        turnId: "turn-file-change",
+        source: "derived_tool_results",
+        coverage: "partial",
+        files: [
+          expect.objectContaining({
+            path: "apps/web/src/session-logic.ts",
+          }),
+        ],
+      }),
+    ]);
+  });
+
+  it("accumulates touched repo files across file-change events in the same turn", async () => {
+    const harness = await createHarness();
+    const now = new Date().toISOString();
+
+    harness.emit({
+      type: "item.updated",
+      eventId: asEventId("evt-file-change-a"),
+      provider: "codex",
+      createdAt: now,
+      threadId: asThreadId("thread-1"),
+      turnId: asTurnId("turn-file-change-merge"),
+      itemId: asItemId("item-file-change-a"),
+      payload: {
+        itemType: "file_change",
+        status: "in_progress",
+        title: "Edit first file",
+        data: {
+          item: {
+            changes: [
+              {
+                path: "apps/web/src/session-logic.ts",
+                kind: "modified",
+                diff: ["@@ -1 +1,2 @@", " export const value = 1;", "+export const next = 2;"].join(
+                  "\n",
+                ),
+              },
+            ],
+          },
+        },
+      },
+    });
+
+    harness.emit({
+      type: "item.completed",
+      eventId: asEventId("evt-file-change-b"),
+      provider: "codex",
+      createdAt: new Date().toISOString(),
+      threadId: asThreadId("thread-1"),
+      turnId: asTurnId("turn-file-change-merge"),
+      itemId: asItemId("item-file-change-b"),
+      payload: {
+        itemType: "file_change",
+        title: "Edit second file",
+        data: {
+          item: {
+            changes: [
+              {
+                path: "apps/server/src/orchestration/projector.ts",
+                kind: "modified",
+                diff: ["@@ -1 +1,2 @@", " export const value = 1;", "+export const next = 2;"].join(
+                  "\n",
+                ),
+              },
+            ],
+          },
+        },
+      },
+    });
+
+    const thread = await waitForThread(
+      harness.engine,
+      (entry) =>
+        entry.agentDiffs?.find((diff) => diff.turnId === "turn-file-change-merge")?.files.length ===
+        2,
+    );
+
+    const agentDiff = thread.agentDiffs?.find((entry) => entry.turnId === "turn-file-change-merge");
+    expect(agentDiff?.source).toBe("derived_tool_results");
+    expect(agentDiff?.coverage).toBe("partial");
+    expect(agentDiff?.files.map((file) => file.path).toSorted()).toEqual([
+      "apps/server/src/orchestration/projector.ts",
+      "apps/web/src/session-logic.ts",
+    ]);
+  });
+
+  it("uses the pre-turn baseline even when codex already reserved the current turn count", async () => {
+    const harness = await createHarness();
+    const baselineRef = checkpointRefForThreadTurn(asThreadId("thread-1"), 0);
+    const seededAt = new Date().toISOString();
+
+    execFileSync("git", ["init"], { cwd: harness.workspaceRoot });
+    fs.writeFileSync(path.join(harness.workspaceRoot, "tracked.ts"), "export const value = 1;\n");
+    await Effect.runPromise(
+      harness.checkpointStore.captureCheckpoint({
+        cwd: harness.workspaceRoot,
+        checkpointRef: baselineRef,
+      }),
+    );
+    fs.writeFileSync(path.join(harness.workspaceRoot, "tracked.ts"), "export const value = 2;\n");
+
+    await Effect.runPromise(
+      harness.engine.dispatch({
+        type: "thread.turn.diff.complete",
+        commandId: CommandId.makeUnsafe("cmd-placeholder-turn-count"),
+        threadId: asThreadId("thread-1"),
+        turnId: asTurnId("turn-placeholder-baseline"),
+        completedAt: seededAt,
+        checkpointRef: checkpointRefForThreadTurn(asThreadId("thread-1"), 1),
+        status: "missing",
+        files: [],
+        assistantMessageId: MessageId.makeUnsafe("assistant:turn-placeholder-baseline"),
+        checkpointTurnCount: 1,
+        createdAt: seededAt,
+      }),
+    );
+
+    harness.emit({
+      type: "item.updated",
+      eventId: asEventId("evt-placeholder-baseline"),
+      provider: "codex",
+      createdAt: new Date().toISOString(),
+      threadId: asThreadId("thread-1"),
+      turnId: asTurnId("turn-placeholder-baseline"),
+      itemId: asItemId("item-placeholder-baseline"),
+      payload: {
+        itemType: "file_change",
+        status: "in_progress",
+        title: "Edit tracked file",
+        data: {
+          item: {
+            changes: [
+              {
+                path: "tracked.ts",
+                kind: "modified",
+                diff: ["@@ -1 +1 @@", "-export const value = 1;", "+export const value = 2;"].join(
+                  "\n",
+                ),
+              },
+            ],
+          },
+        },
+      },
+    });
+
+    const thread = await waitForThread(
+      harness.engine,
+      (entry) =>
+        entry.agentDiffs?.find((diff) => diff.turnId === "turn-placeholder-baseline")?.coverage ===
+        "complete",
+    );
+
+    const agentDiff = thread.agentDiffs?.find(
+      (entry) => entry.turnId === "turn-placeholder-baseline",
+    );
+    expect(agentDiff?.files.map((file) => file.path)).toEqual(["tracked.ts"]);
+  });
+
+  it("keeps out-of-repo paths inline but excludes them from persisted turn agent diffs", async () => {
+    const harness = await createHarness();
+    const now = new Date().toISOString();
+
+    harness.emit({
+      type: "item.updated",
+      eventId: asEventId("evt-file-change-outside"),
+      provider: "codex",
+      createdAt: now,
+      threadId: asThreadId("thread-1"),
+      turnId: asTurnId("turn-file-change-outside"),
+      itemId: asItemId("item-file-change-outside"),
+      payload: {
+        itemType: "file_change",
+        status: "in_progress",
+        title: "Mixed file change",
+        data: {
+          item: {
+            changes: [
+              {
+                path: "apps/web/src/session-logic.ts",
+                kind: "modified",
+                diff: ["@@ -1 +1,2 @@", " export const value = 1;", "+export const next = 2;"].join(
+                  "\n",
+                ),
+              },
+              {
+                path: "C:\\Users\\rmurphy\\Desktop\\notes.txt",
+                kind: "modified",
+                diff: ["@@ -1 +1,2 @@", " hello", "+outside"].join("\n"),
+              },
+            ],
+          },
+        },
+      },
+    });
+
+    const thread = await waitForThread(
+      harness.engine,
+      (entry) =>
+        entry.activities.some(
+          (activity: ProviderRuntimeTestActivity) => activity.id === "evt-file-change-outside",
+        ) &&
+        (entry.agentDiffs?.some((diff) => diff.turnId === "turn-file-change-outside") ?? false),
+    );
+
+    const toolUpdate = thread.activities.find(
+      (activity: ProviderRuntimeTestActivity) => activity.id === "evt-file-change-outside",
+    );
+    const payload =
+      toolUpdate?.payload && typeof toolUpdate.payload === "object"
+        ? (toolUpdate.payload as Record<string, unknown>)
+        : undefined;
+    const inlineDiff =
+      payload?.inlineDiff && typeof payload.inlineDiff === "object"
+        ? (payload.inlineDiff as Record<string, unknown>)
+        : undefined;
+    const inlineFiles = Array.isArray(inlineDiff?.files)
+      ? (inlineDiff!.files as Array<{ path?: unknown }>)
+      : [];
+
+    expect(inlineFiles.map((file) => file.path)).toContain(
+      "C:\\Users\\rmurphy\\Desktop\\notes.txt",
+    );
+
+    const agentDiff = thread.agentDiffs?.find(
+      (entry) => entry.turnId === "turn-file-change-outside",
+    );
+    expect(agentDiff?.files.map((file) => file.path)).toEqual(["apps/web/src/session-logic.ts"]);
+  });
+
+  it("filters codex native turn diffs down to the existing tool-scoped files", async () => {
+    const harness = await createHarness();
+    const now = new Date().toISOString();
+
+    harness.emit({
+      type: "item.updated",
+      eventId: asEventId("evt-file-change-before-native"),
+      provider: "codex",
+      createdAt: now,
+      threadId: asThreadId("thread-1"),
+      turnId: asTurnId("turn-native-overwrite"),
+      itemId: asItemId("item-file-change-before-native"),
+      payload: {
+        itemType: "file_change",
+        status: "in_progress",
+        title: "File change",
+        data: {
+          item: {
+            changes: [
+              {
+                path: "apps/web/src/session-logic.ts",
+                kind: "modified",
+                diff: ["@@ -1 +1,2 @@", " export const value = 1;", "+export const next = 2;"].join(
+                  "\n",
+                ),
+              },
+            ],
+          },
+        },
+      },
+    });
+
+    await waitForThread(
+      harness.engine,
+      (entry) => entry.agentDiffs?.some((diff) => diff.turnId === "turn-native-overwrite") ?? false,
+    );
+
+    harness.emit({
+      type: "turn.diff.updated",
+      eventId: asEventId("evt-native-overwrite-attempt"),
+      provider: "codex",
+      createdAt: new Date().toISOString(),
+      threadId: asThreadId("thread-1"),
+      turnId: asTurnId("turn-native-overwrite"),
+      itemId: asItemId("item-native-overwrite"),
+      payload: {
+        unifiedDiff: [
+          "diff --git a/apps/web/src/session-logic.ts b/apps/web/src/session-logic.ts",
+          "--- a/apps/web/src/session-logic.ts",
+          "+++ b/apps/web/src/session-logic.ts",
+          "@@ -1 +1,2 @@",
+          " export const value = 1;",
+          "+export const next = 2;",
+          "",
+          "diff --git a/apps/server/src/extra.ts b/apps/server/src/extra.ts",
+          "--- a/apps/server/src/extra.ts",
+          "+++ b/apps/server/src/extra.ts",
+          "@@ -0,0 +1 @@",
+          "+widened",
+        ].join("\n"),
+      },
+    });
+
+    const thread = await waitForThread(
+      harness.engine,
+      (entry) =>
+        entry.agentDiffs?.find((diff) => diff.turnId === "turn-native-overwrite")?.coverage ===
+        "complete",
+    );
+
+    const agentDiff = thread.agentDiffs?.find((entry) => entry.turnId === "turn-native-overwrite");
+    expect(agentDiff?.source).toBe("derived_tool_results");
+    expect(agentDiff?.coverage).toBe("complete");
+    expect(agentDiff?.files.map((file) => file.path)).toEqual(["apps/web/src/session-logic.ts"]);
+    expect(agentDiff?.files).toHaveLength(1);
+    expect(
+      agentDiff?.files.find((file) => file.path === "apps/server/src/extra.ts"),
+    ).toBeUndefined();
+  });
+
+  it("accepts later claude tool-derived turn diffs as refinements of the same turn", async () => {
+    const harness = await createHarness();
+    const now = new Date().toISOString();
+
+    harness.emit({
+      type: "item.updated",
+      eventId: asEventId("evt-claude-file-change"),
+      provider: "claudeAgent",
+      createdAt: now,
+      threadId: asThreadId("thread-1"),
+      turnId: asTurnId("turn-claude-refine"),
+      itemId: asItemId("item-claude-file-change"),
+      payload: {
+        itemType: "file_change",
+        status: "in_progress",
+        title: "File change",
+        data: {
+          item: {
+            changes: [{ path: "apps/web/src/session-logic.ts", kind: "modified" }],
+          },
+        },
+      },
+    });
+
+    await waitForThread(
+      harness.engine,
+      (entry) =>
+        entry.agentDiffs?.find((diff) => diff.turnId === "turn-claude-refine")?.coverage ===
+        "partial",
+    );
+
+    harness.emit({
+      type: "turn.diff.updated",
+      eventId: asEventId("evt-claude-turn-diff"),
+      provider: "claudeAgent",
+      createdAt: new Date().toISOString(),
+      threadId: asThreadId("thread-1"),
+      turnId: asTurnId("turn-claude-refine"),
+      payload: {
+        unifiedDiff: [
+          "diff --git a/apps/web/src/session-logic.ts b/apps/web/src/session-logic.ts",
+          "--- a/apps/web/src/session-logic.ts",
+          "+++ b/apps/web/src/session-logic.ts",
+          "@@ -1 +1,2 @@",
+          " export const value = 1;",
+          "+export const next = 2;",
+        ].join("\n"),
+        source: "derived_tool_results",
+        coverage: "complete",
+      },
+    });
+
+    const thread = await waitForThread(
+      harness.engine,
+      (entry) =>
+        entry.agentDiffs?.find((diff) => diff.turnId === "turn-claude-refine")?.coverage ===
+        "complete",
+    );
+
+    const agentDiff = thread.agentDiffs?.find((entry) => entry.turnId === "turn-claude-refine");
+    expect(agentDiff?.source).toBe("derived_tool_results");
+    expect(agentDiff?.files.map((file) => file.path)).toEqual(["apps/web/src/session-logic.ts"]);
   });
 
   it("projects context window updates into normalized thread activities", async () => {

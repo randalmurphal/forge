@@ -119,4 +119,42 @@ it.layer(TestLayer)("CheckpointStoreLive", (it) => {
       }),
     );
   });
+
+  describe("diffCheckpointToWorkspace", () => {
+    it.effect("returns a scoped working tree diff for tracked, deleted, and untracked files", () =>
+      Effect.gen(function* () {
+        const tmp = yield* makeTmpDir();
+        yield* initRepoWithCommit(tmp);
+        const checkpointStore = yield* CheckpointStore;
+        const threadId = ThreadId.makeUnsafe("thread-checkpoint-workspace");
+        const checkpointRef = checkpointRefForThreadTurn(threadId, 0);
+
+        yield* writeTextFile(path.join(tmp, "tracked-delete.txt"), "delete me\n");
+        yield* writeTextFile(path.join(tmp, "ignored.txt"), "keep baseline\n");
+        yield* git(tmp, ["add", "."]);
+        yield* git(tmp, ["commit", "-m", "seed tracked files"]);
+        yield* checkpointStore.captureCheckpoint({
+          cwd: tmp,
+          checkpointRef,
+        });
+
+        yield* writeTextFile(path.join(tmp, "README.md"), "# changed\n");
+        yield* writeTextFile(path.join(tmp, "untracked.txt"), "brand new\n");
+        yield* writeTextFile(path.join(tmp, "ignored.txt"), "should stay out\n");
+        const fileSystem = yield* FileSystem.FileSystem;
+        yield* fileSystem.remove(path.join(tmp, "tracked-delete.txt"));
+
+        const diff = yield* checkpointStore.diffCheckpointToWorkspace({
+          cwd: tmp,
+          checkpointRef,
+          paths: ["README.md", "tracked-delete.txt", "untracked.txt"],
+        });
+
+        expect(diff).toContain("diff --git a/README.md b/README.md");
+        expect(diff).toContain("diff --git a/tracked-delete.txt b/tracked-delete.txt");
+        expect(diff).toContain("diff --git a/untracked.txt b/untracked.txt");
+        expect(diff).not.toContain("ignored.txt");
+      }),
+    );
+  });
 });

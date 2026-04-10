@@ -73,6 +73,7 @@ describe("CheckpointDiffQueryLive", () => {
           diffCheckpointsCalls.push({ fromCheckpointRef, toCheckpointRef, cwd });
           return "diff patch";
         }),
+      diffCheckpointToWorkspace: () => Effect.succeed("diff patch"),
       deleteCheckpointRefs: () => Effect.void,
     };
 
@@ -127,6 +128,7 @@ describe("CheckpointDiffQueryLive", () => {
       hasCheckpointRef: () => Effect.succeed(true),
       restoreCheckpoint: () => Effect.succeed(true),
       diffCheckpoints: () => Effect.succeed(""),
+      diffCheckpointToWorkspace: () => Effect.succeed(""),
       deleteCheckpointRefs: () => Effect.void,
     };
 

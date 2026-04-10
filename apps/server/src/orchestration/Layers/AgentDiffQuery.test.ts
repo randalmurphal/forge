@@ -133,6 +133,7 @@ describe("AgentDiffQueryLive", () => {
       hasCheckpointRef: () => Effect.succeed(true),
       restoreCheckpoint: () => Effect.succeed(true),
       diffCheckpoints: () => Effect.succeed(diff),
+      diffCheckpointToWorkspace: () => Effect.succeed(diff),
       deleteCheckpointRefs: () => Effect.void,
     };
 
@@ -236,6 +237,7 @@ describe("AgentDiffQueryLive", () => {
       hasCheckpointRef: () => Effect.succeed(false),
       restoreCheckpoint: () => Effect.succeed(true),
       diffCheckpoints: () => Effect.succeed(""),
+      diffCheckpointToWorkspace: () => Effect.succeed(""),
       deleteCheckpointRefs: () => Effect.void,
     };
 

@@ -263,6 +263,7 @@ const ProviderRuntimeIngestionRuntimeLive = ProviderRuntimeIngestionLive.pipe(
   Layer.provide(OrchestrationRuntimeLive),
   Layer.provide(ProviderLayerLive),
   Layer.provide(ServerSettingsLive),
+  Layer.provide(CheckpointStoreRuntimeLive),
 );
 
 const DesignModeReactorRuntimeLive = DesignModeReactorLive.pipe(

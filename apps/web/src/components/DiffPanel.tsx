@@ -43,6 +43,7 @@ import { DiffPanelLoadingState, DiffPanelShell, type DiffPanelMode } from "./Dif
 import { ToggleGroup, Toggle } from "./ui/toggle-group";
 import { Button } from "./ui/button";
 import { CollapsibleFileDiffList } from "./CollapsibleFileDiffList";
+import { resolveSelectedAgentCoverage, shouldShowWorkspaceFallback } from "./DiffPanel.logic";
 
 type DiffRenderMode = "stacked" | "split";
 interface DiffPanelProps {
@@ -144,16 +145,21 @@ export default function DiffPanel({ mode = "inline" }: DiffPanelProps) {
     }),
   );
   const selectedAgentCoverage = selectedTurn
-    ? (activeAgentDiffQuery.data?.coverage ?? "unavailable")
+    ? (resolveSelectedAgentCoverage({
+        queriedCoverage: activeAgentDiffQuery.data?.coverage,
+        summaryCoverage: selectedTurn.coverage,
+      }) ?? "unavailable")
     : undefined;
   // Only single-turn agent diffs fall back to checkpoint/workspace snapshots.
   // Whole-thread mode keeps the agent-composed view so we do not splice together
   // incompatible sources from different turns.
-  const showWorkspaceFallback =
-    diffMode === "agent" &&
-    !!selectedTurn &&
-    selectedAgentCoverage === "unavailable" &&
-    !!selectedCheckpointRange;
+  const showWorkspaceFallback = shouldShowWorkspaceFallback({
+    diffMode,
+    hasSelectedTurn: !!selectedTurn,
+    selectedAgentCoverage,
+    hasSelectedCheckpointRange: !!selectedCheckpointRange,
+    hasFetchedAgentDiff: activeAgentDiffQuery.isFetched,
+  });
   const selectedTurnCheckpointDiffQuery = useQuery(
     checkpointDiffQueryOptions({
       threadId: activeThreadId,

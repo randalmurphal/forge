@@ -9,6 +9,7 @@
  *
  * @module CheckpointStoreLive
  */
+import path from "node:path";
 import { randomUUID } from "node:crypto";
 
 import { Effect, Layer, FileSystem, Path } from "effect";
@@ -18,6 +19,33 @@ import { GitCommandError } from "@forgetools/contracts";
 import { GitCore } from "../../git/Services/GitCore.ts";
 import { CheckpointStore, type CheckpointStoreShape } from "../Services/CheckpointStore.ts";
 import { CheckpointRef } from "@forgetools/contracts";
+
+function normalizeRelativeGitPath(value: string): string | null {
+  const trimmed = value.trim().replaceAll("\\", "/");
+  if (trimmed.length === 0) {
+    return null;
+  }
+
+  const normalized = path.posix.normalize(trimmed).replace(/^\.\/+/, "");
+  if (
+    normalized.length === 0 ||
+    normalized === "." ||
+    normalized === ".." ||
+    normalized.startsWith("../") ||
+    path.posix.isAbsolute(normalized)
+  ) {
+    return null;
+  }
+
+  return normalized;
+}
+
+function splitNullSeparatedPaths(value: string): string[] {
+  return value
+    .split("\0")
+    .map((entry) => entry.trim())
+    .filter((entry) => entry.length > 0);
+}
 
 const makeCheckpointStore = Effect.gen(function* () {
   const fs = yield* FileSystem.FileSystem;
@@ -251,6 +279,95 @@ const makeCheckpointStore = Effect.gen(function* () {
     },
   );
 
+  const diffCheckpointToWorkspace: CheckpointStoreShape["diffCheckpointToWorkspace"] = Effect.fn(
+    "diffCheckpointToWorkspace",
+  )(function* (input) {
+    const operation = "CheckpointStore.diffCheckpointToWorkspace";
+    const checkpointCommitOid = yield* resolveCheckpointCommit(input.cwd, input.checkpointRef);
+
+    if (!checkpointCommitOid) {
+      return yield* new GitCommandError({
+        operation,
+        command: "git diff",
+        cwd: input.cwd,
+        detail: "Checkpoint ref is unavailable for diff operation.",
+      });
+    }
+
+    const relativePaths = [
+      ...new Set(input.paths.map(normalizeRelativeGitPath).filter(Boolean)),
+    ].toSorted() as string[];
+    if (relativePaths.length === 0) {
+      return "";
+    }
+
+    const trackedDiffResult = yield* git.execute({
+      operation,
+      cwd: input.cwd,
+      args: [
+        "diff",
+        "--patch",
+        "--minimal",
+        "--no-color",
+        checkpointCommitOid,
+        "--",
+        ...relativePaths,
+      ],
+    });
+
+    const untrackedPathsResult = yield* git.execute({
+      operation,
+      cwd: input.cwd,
+      args: ["ls-files", "--others", "--exclude-standard", "-z", "--", ...relativePaths],
+      allowNonZeroExit: true,
+    });
+    const untrackedPaths =
+      untrackedPathsResult.code === 0 ? splitNullSeparatedPaths(untrackedPathsResult.stdout) : [];
+
+    const untrackedDiffs = yield* Effect.forEach(
+      untrackedPaths,
+      (relativePath) =>
+        git
+          .execute({
+            operation,
+            cwd: input.cwd,
+            args: [
+              "diff",
+              "--no-index",
+              "--patch",
+              "--minimal",
+              "--no-color",
+              "--",
+              "/dev/null",
+              relativePath,
+            ],
+            allowNonZeroExit: true,
+          })
+          .pipe(
+            Effect.flatMap((result) =>
+              result.code === 0 || result.code === 1
+                ? Effect.succeed(result.stdout.trim())
+                : Effect.fail(
+                    new GitCommandError({
+                      operation,
+                      command: "git diff --no-index",
+                      cwd: input.cwd,
+                      detail:
+                        result.stderr.trim().length > 0
+                          ? result.stderr.trim()
+                          : `git diff for untracked file '${relativePath}' failed`,
+                    }),
+                  ),
+            ),
+          ),
+      { concurrency: 4 },
+    );
+
+    return [trackedDiffResult.stdout.trim(), ...untrackedDiffs]
+      .filter((chunk) => chunk.length > 0)
+      .join("\n\n");
+  });
+
   const deleteCheckpointRefs: CheckpointStoreShape["deleteCheckpointRefs"] = Effect.fn(
     "deleteCheckpointRefs",
   )(function* (input) {
@@ -275,6 +392,7 @@ const makeCheckpointStore = Effect.gen(function* () {
     hasCheckpointRef,
     restoreCheckpoint,
     diffCheckpoints,
+    diffCheckpointToWorkspace,
     deleteCheckpointRefs,
   } satisfies CheckpointStoreShape;
 });
