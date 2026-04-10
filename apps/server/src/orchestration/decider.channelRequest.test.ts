@@ -48,6 +48,7 @@ const makeThread = (threadId: string, projectId: string): OrchestrationThread =>
   role: null,
   childThreadIds: [],
   bootstrapStatus: null,
+  forkedFromThreadId: null,
   messages: [],
   proposedPlans: [],
   activities: [],

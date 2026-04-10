@@ -344,6 +344,7 @@ export const OrchestrationThread = Schema.Struct({
   discussionId: Schema.NullOr(TrimmedNonEmptyString).pipe(Schema.withDecodingDefault(() => null)),
   discussionRoleModels: Schema.optional(Schema.Record(Schema.String, ModelSelection)),
   role: Schema.NullOr(TrimmedNonEmptyString).pipe(Schema.withDecodingDefault(() => null)),
+  forkedFromThreadId: Schema.NullOr(ThreadId).pipe(Schema.withDecodingDefault(() => null)),
   childThreadIds: Schema.Array(ThreadId).pipe(Schema.withDecodingDefault(() => [])),
   bootstrapStatus: Schema.NullOr(TrimmedNonEmptyString).pipe(
     Schema.withDecodingDefault(() => null),
@@ -626,6 +627,13 @@ const ThreadDeleteCommand = Schema.Struct({
   type: Schema.Literal("thread.delete"),
   commandId: CommandId,
   threadId: ThreadId,
+});
+
+const ThreadForkCommand = Schema.Struct({
+  type: Schema.Literal("thread.fork"),
+  commandId: CommandId,
+  sourceThreadId: ThreadId,
+  newThreadId: ThreadId,
 });
 
 const ThreadArchiveCommand = Schema.Struct({
@@ -1172,6 +1180,7 @@ const DispatchableClientOrchestrationCommand = Schema.Union([
   ProjectDeleteCommand,
   ThreadCreateCommand,
   ThreadDeleteCommand,
+  ThreadForkCommand,
   ThreadArchiveCommand,
   ThreadUnarchiveCommand,
   ThreadMetaUpdateCommand,
@@ -1194,6 +1203,7 @@ export const ClientOrchestrationCommand = Schema.Union([
   ProjectDeleteCommand,
   ThreadCreateCommand,
   ThreadDeleteCommand,
+  ThreadForkCommand,
   ThreadArchiveCommand,
   ThreadUnarchiveCommand,
   ThreadMetaUpdateCommand,
@@ -1400,6 +1410,7 @@ export const OrchestrationEventType = Schema.Literals([
   "thread.turn-diff-completed",
   "thread.agent-diff-upserted",
   "thread.activity-appended",
+  "thread.forked",
 ]);
 export type OrchestrationEventType = typeof OrchestrationEventType.Type;
 
@@ -1449,6 +1460,7 @@ export const ThreadCreatedPayload = Schema.Struct({
   discussionId: Schema.NullOr(TrimmedNonEmptyString).pipe(Schema.withDecodingDefault(() => null)),
   discussionRoleModels: Schema.optional(Schema.Record(Schema.String, ModelSelection)),
   parentThreadId: Schema.NullOr(ThreadId).pipe(Schema.withDecodingDefault(() => null)),
+  forkedFromThreadId: Schema.NullOr(ThreadId).pipe(Schema.withDecodingDefault(() => null)),
   role: Schema.NullOr(TrimmedNonEmptyString).pipe(Schema.withDecodingDefault(() => null)),
   createdAt: IsoDateTime,
   updatedAt: IsoDateTime,
@@ -1745,6 +1757,14 @@ export const ThreadActivityAppendedPayload = Schema.Struct({
   activity: OrchestrationThreadActivity,
 });
 
+export const ThreadForkedPayload = Schema.Struct({
+  threadId: ThreadId,
+  sourceThreadId: ThreadId,
+  projectId: ProjectId,
+  createdAt: IsoDateTime,
+});
+export type ThreadForkedPayload = typeof ThreadForkedPayload.Type;
+
 export const OrchestrationEventMetadata = Schema.Struct({
   providerTurnId: Schema.optional(TrimmedNonEmptyString),
   providerItemId: Schema.optional(ProviderItemId),
@@ -1886,6 +1906,11 @@ export const OrchestrationEvent = Schema.Union([
     ...EventBaseFields,
     type: Schema.Literal("thread.activity-appended"),
     payload: ThreadActivityAppendedPayload,
+  }),
+  Schema.Struct({
+    ...EventBaseFields,
+    type: Schema.Literal("thread.forked"),
+    payload: ThreadForkedPayload,
   }),
 ]);
 export type OrchestrationEvent = typeof OrchestrationEvent.Type;

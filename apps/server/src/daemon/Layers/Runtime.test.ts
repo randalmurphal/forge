@@ -128,6 +128,7 @@ describe("DaemonRuntimeLive", () => {
         listSessions,
         getCapabilities: () => Effect.die("unused"),
         rollbackConversation: () => Effect.die("unused"),
+        forkThread: () => Effect.die("unused"),
         streamEvents: Stream.empty,
       }),
       Layer.succeed(SocketTransport, {
@@ -233,6 +234,7 @@ describe("DaemonRuntimeLive", () => {
                     listSessions: () => Effect.succeed([]),
                     getCapabilities: () => Effect.die("unused"),
                     rollbackConversation: () => Effect.die("unused"),
+                    forkThread: () => Effect.die("unused"),
                     streamEvents: Stream.empty,
                   }),
                   Layer.succeed(SocketTransport, {

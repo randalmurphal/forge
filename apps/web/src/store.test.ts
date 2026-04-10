@@ -27,6 +27,7 @@ function makeThread(overrides: Partial<Thread> = {}): Thread {
     codexThreadId: null,
     projectId: ProjectId.makeUnsafe("project-1"),
     parentThreadId: null,
+    forkedFromThreadId: null,
     phaseRunId: null,
     title: "Thread",
     modelSelection: {
@@ -160,6 +161,7 @@ function makeReadModelThread(overrides: Partial<OrchestrationReadModel["threads"
     role: null,
     childThreadIds: [],
     bootstrapStatus: null,
+    forkedFromThreadId: null,
     messages: [],
     activities: [],
     proposedPlans: [],
@@ -637,6 +639,7 @@ describe("incremental orchestration updates", () => {
         workflowId: null,
         discussionId: null,
         parentThreadId: null,
+        forkedFromThreadId: null,
         role: null,
         createdAt: "2026-02-27T00:00:01.000Z",
         updatedAt: "2026-02-27T00:00:01.000Z",

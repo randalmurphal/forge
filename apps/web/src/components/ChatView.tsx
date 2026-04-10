@@ -875,6 +875,14 @@ export default function ChatView({ threadId }: ChatViewProps) {
   );
   const activeThread = serverThread ?? localDraftThread;
   const childThreads = useThreadsByIds(activeThread?.childThreadIds);
+  const forkedFromThread = useThreadById(activeThread?.forkedFromThreadId);
+  const onNavigateToForkedSource = useMemo(() => {
+    if (!forkedFromThread) return null;
+    const targetId = forkedFromThread.id;
+    return () => {
+      void navigate({ to: "/$threadId", params: { threadId: targetId } });
+    };
+  }, [forkedFromThread, navigate]);
   const selectedDraftIsDiscussion = draftThread?.discussionId != null;
   const isDiscussionContainerThread =
     activeThread !== undefined &&
@@ -4166,6 +4174,9 @@ export default function ChatView({ threadId }: ChatViewProps) {
           activeThreadId={activeThread.id}
           activeThreadTitle={activeThread.title}
           interactionMode={interactionMode}
+          forkedFromThreadId={activeThread.forkedFromThreadId}
+          forkedFromThreadTitle={forkedFromThread?.title ?? null}
+          onNavigateToForkedSource={onNavigateToForkedSource}
           activeProjectName={activeProject?.name}
           isGitRepo={isGitRepo}
           openInCwd={gitCwd}

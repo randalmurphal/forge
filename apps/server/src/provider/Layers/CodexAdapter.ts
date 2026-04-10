@@ -1607,6 +1607,16 @@ const makeCodexAdapter = Effect.fn("makeCodexAdapter")(function* (
       catch: (cause) => toRequestError(threadId, "item/tool/requestUserInput", cause),
     });
 
+  const forkThread: CodexAdapterShape["forkThread"] = (input) =>
+    Effect.tryPromise({
+      try: () => manager.forkThread(input.sourceThreadId, input.newThreadId),
+      catch: (cause) => toRequestError(input.sourceThreadId, "thread/fork", cause),
+    }).pipe(
+      Effect.map((result) => ({
+        resumeCursor: { threadId: result.codexThreadId },
+      })),
+    );
+
   const stopSession: CodexAdapterShape["stopSession"] = (threadId) =>
     Effect.sync(() => {
       manager.stopSession(threadId);
@@ -1675,6 +1685,7 @@ const makeCodexAdapter = Effect.fn("makeCodexAdapter")(function* (
     interruptTurn,
     readThread,
     rollbackThread,
+    forkThread,
     respondToRequest,
     respondToUserInput,
     stopSession,

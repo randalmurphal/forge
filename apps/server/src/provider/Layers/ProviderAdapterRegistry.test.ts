@@ -25,6 +25,7 @@ const fakeCodexAdapter: CodexAdapterShape = {
   readThread: vi.fn(),
   rollbackThread: vi.fn(),
   stopAll: vi.fn(),
+  forkThread: vi.fn(),
   registerDynamicTools: vi.fn(),
   streamEvents: Stream.empty,
 };
@@ -43,6 +44,7 @@ const fakeClaudeAdapter: ClaudeAdapterShape = {
   readThread: vi.fn(),
   rollbackThread: vi.fn(),
   stopAll: vi.fn(),
+  forkThread: vi.fn(),
   registerMcpServer: vi.fn(),
   streamEvents: Stream.empty,
 };

@@ -31,6 +31,7 @@ import {
   requireThread,
   requireThreadArchived,
   requireThreadAbsent,
+  requireThreadHasMessages,
   requireThreadNotArchived,
   requireThreadWithoutActivePhase,
   requireThreadsInSameProject,
@@ -266,10 +267,82 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
               ? command.parentThreadId
               : null,
           role: "role" in command && command.role !== undefined ? command.role : null,
+          forkedFromThreadId: null,
           createdAt: command.createdAt,
           updatedAt: command.createdAt,
         },
       };
+    }
+
+    case "thread.fork": {
+      const sourceThread = yield* requireThread({
+        readModel,
+        command,
+        threadId: command.sourceThreadId,
+      });
+      yield* requireThreadHasMessages({
+        readModel,
+        command,
+        threadId: command.sourceThreadId,
+      });
+      yield* requireThreadAbsent({
+        readModel,
+        command,
+        threadId: command.newThreadId,
+      });
+      yield* requireProject({
+        readModel,
+        command,
+        projectId: sourceThread.projectId,
+      });
+      const occurredAt = nowIso();
+      const createdEvent: DecidedOrchestrationEvent = {
+        ...withEventBase({
+          aggregateKind: "thread",
+          aggregateId: command.newThreadId,
+          occurredAt,
+          commandId: command.commandId,
+        }),
+        type: "thread.created",
+        payload: {
+          threadId: command.newThreadId,
+          projectId: sourceThread.projectId,
+          title: `${sourceThread.title} (fork)`,
+          modelSelection: sourceThread.modelSelection,
+          runtimeMode: sourceThread.runtimeMode,
+          interactionMode: sourceThread.interactionMode,
+          branch: sourceThread.branch,
+          worktreePath: sourceThread.worktreePath,
+          spawnMode:
+            sourceThread.spawnMode ?? (sourceThread.worktreePath !== null ? "worktree" : "local"),
+          spawnBranch: sourceThread.branch,
+          spawnWorktreePath: sourceThread.worktreePath,
+          parentThreadId: null,
+          forkedFromThreadId: command.sourceThreadId,
+          workflowId: null,
+          discussionId: null,
+          role: null,
+          createdAt: occurredAt,
+          updatedAt: occurredAt,
+        },
+      };
+      const forkedEvent: DecidedOrchestrationEvent = {
+        ...withEventBase({
+          aggregateKind: "thread",
+          aggregateId: command.newThreadId,
+          occurredAt,
+          commandId: command.commandId,
+        }),
+        causationEventId: createdEvent.eventId,
+        type: "thread.forked",
+        payload: {
+          threadId: command.newThreadId,
+          sourceThreadId: command.sourceThreadId,
+          projectId: sourceThread.projectId,
+          createdAt: occurredAt,
+        },
+      };
+      return [createdEvent, forkedEvent];
     }
 
     case "thread.delete": {

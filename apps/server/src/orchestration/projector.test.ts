@@ -148,6 +148,7 @@ describe("orchestration projector", () => {
         archivedAt: null,
         deletedAt: null,
         parentThreadId: null,
+        forkedFromThreadId: null,
         phaseRunId: null,
         workflowId: null,
         currentPhaseId: null,

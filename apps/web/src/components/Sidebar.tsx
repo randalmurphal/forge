@@ -51,7 +51,7 @@ export default function Sidebar() {
   const appSettings = useSettings();
   const { updateSettings } = useUpdateSettings();
   const { activeDraftThread, activeThread, handleNewThread } = useHandleNewThread();
-  const { archiveThread, deleteThread } = useThreadActions();
+  const { archiveThread, deleteThread, forkThread } = useThreadActions();
   const routeThreadId = useParams({
     strict: false,
     select: (params) => (params.threadId ? ThreadId.makeUnsafe(params.threadId) : null),
@@ -122,6 +122,7 @@ export default function Sidebar() {
     navigate,
     archiveThread,
     deleteThread,
+    forkThread,
     handleNewThread,
     routeThreadId,
     routeTerminalOpen,

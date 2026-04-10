@@ -487,6 +487,7 @@ export const makeTestProviderAdapterHarness = (options?: MakeTestProviderAdapter
       hasSession,
       readThread,
       rollbackThread,
+      forkThread: () => Effect.die("forkThread not supported in test adapter"),
       stopAll,
       streamEvents: Stream.fromQueue(runtimeEvents),
     };

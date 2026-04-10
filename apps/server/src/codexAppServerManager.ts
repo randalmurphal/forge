@@ -844,6 +844,35 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
     return this.parseThreadSnapshot("thread/rollback", response);
   }
 
+  async forkThread(
+    sourceThreadId: ThreadId,
+    _newThreadId: ThreadId,
+  ): Promise<{ codexThreadId: string }> {
+    const context = this.requireSession(sourceThreadId);
+    const providerThreadId = readResumeThreadId({
+      threadId: context.session.threadId,
+      runtimeMode: context.session.runtimeMode,
+      resumeCursor: context.session.resumeCursor,
+    });
+    if (!providerThreadId) {
+      throw new Error("Session is missing a provider resume thread id.");
+    }
+
+    const response = await this.sendRequest(context, "thread/fork", {
+      threadId: providerThreadId,
+    });
+
+    const responseRecord = this.readObject(response);
+    const forkedThreadId =
+      this.readString(this.readObject(responseRecord, "thread"), "id") ??
+      this.readString(responseRecord, "threadId");
+    if (!forkedThreadId) {
+      throw new Error("thread/fork response did not include a thread id.");
+    }
+
+    return { codexThreadId: forkedThreadId };
+  }
+
   async respondToRequest(
     threadId: ThreadId,
     requestId: ApprovalRequestId,

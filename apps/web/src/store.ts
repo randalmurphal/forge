@@ -16,6 +16,7 @@ import {
   SessionTurnStartedPayload,
   ThreadArchivedPayload,
   ThreadCreatedPayload,
+  ThreadForkedPayload,
   ThreadMessageSentPayload,
   ThreadId,
   type TurnId,
@@ -43,6 +44,7 @@ import {
   type SidebarThreadSummary,
   type Thread,
 } from "./types";
+import { newMessageId } from "./lib/utils";
 
 // ── State ────────────────────────────────────────────────────────────
 
@@ -68,6 +70,7 @@ const MAX_THREAD_ACTIVITIES = 500;
 const EMPTY_THREAD_IDS: ThreadId[] = [];
 const EMPTY_THREADS: Thread[] = [];
 const isThreadCreatedPayload = Schema.is(ThreadCreatedPayload);
+const isThreadForkedPayload = Schema.is(ThreadForkedPayload);
 const isThreadArchivedPayload = Schema.is(ThreadArchivedPayload);
 const isSessionArchivedPayload = Schema.is(SessionArchivedPayload);
 const isThreadMessageSentPayload = Schema.is(ThreadMessageSentPayload);
@@ -218,6 +221,7 @@ function mapThread(thread: OrchestrationThread): Thread {
     codexThreadId: null,
     projectId: thread.projectId,
     parentThreadId: thread.parentThreadId ?? null,
+    forkedFromThreadId: thread.forkedFromThreadId ?? null,
     phaseRunId: thread.phaseRunId ?? null,
     title: thread.title,
     modelSelection: normalizeModelSelection(thread.modelSelection),
@@ -904,6 +908,7 @@ export function applyOrchestrationEvent(state: AppState, event: ForgeEvent): App
         role,
         childThreadIds,
         bootstrapStatus: null,
+        forkedFromThreadId: payload.forkedFromThreadId ?? null,
         messages: [],
         proposedPlans: [],
         activities: [],
@@ -1596,6 +1601,35 @@ export function applyOrchestrationEvent(state: AppState, event: ForgeEvent): App
           },
         };
       });
+    }
+
+    case "thread.forked": {
+      if (!isThreadForkedPayload(event.payload)) {
+        return state;
+      }
+      const { threadId: forkThreadId, sourceThreadId } = event.payload;
+      const sourceThread = state.threads.find((t) => t.id === sourceThreadId);
+      const forkThread = state.threads.find((t) => t.id === forkThreadId);
+      if (!sourceThread || !forkThread) {
+        return state;
+      }
+      // oxlint-disable-next-line no-map-spread -- immutable state; copy-on-write required
+      const copiedMessages: ChatMessage[] = sourceThread.messages.map((m) => ({
+        ...m,
+        id: newMessageId(),
+      }));
+      const updatedFork: Thread = {
+        ...forkThread,
+        forkedFromThreadId: sourceThreadId,
+        messages: copiedMessages,
+      };
+      const threads = state.threads.map((t) => (t.id === forkThreadId ? updatedFork : t));
+      const nextSummary = buildSidebarThreadSummary(updatedFork);
+      const previousSummary = state.sidebarThreadsById[forkThreadId];
+      const sidebarThreadsById = sidebarThreadSummariesEqual(previousSummary, nextSummary)
+        ? state.sidebarThreadsById
+        : { ...state.sidebarThreadsById, [forkThreadId]: nextSummary };
+      return { ...state, threads, sidebarThreadsById };
     }
 
     case "thread.bootstrap-started":

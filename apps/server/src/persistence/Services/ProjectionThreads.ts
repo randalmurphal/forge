@@ -45,6 +45,7 @@ export const ProjectionThread = Schema.Struct({
   archivedAt: Schema.NullOr(IsoDateTime),
   deletedAt: Schema.NullOr(IsoDateTime),
   parentThreadId: Schema.NullOr(ThreadId),
+  forkedFromThreadId: Schema.NullOr(ThreadId),
   phaseRunId: Schema.NullOr(PhaseRunId),
   workflowId: Schema.NullOr(WorkflowId),
   workflowSnapshot: Schema.NullOr(WorkflowDefinition),

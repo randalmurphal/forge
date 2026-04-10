@@ -115,6 +115,16 @@ export interface ProviderAdapterShape<TError> {
   ) => Effect.Effect<ProviderThreadSnapshot, TError>;
 
   /**
+   * Fork a provider thread, creating a new provider-side thread from the
+   * source thread's conversation state. Returns a resume cursor that can
+   * be used to start a session on the forked thread.
+   */
+  readonly forkThread: (input: {
+    readonly sourceThreadId: ThreadId;
+    readonly newThreadId: ThreadId;
+  }) => Effect.Effect<{ readonly resumeCursor: unknown }, TError>;
+
+  /**
    * Stop all sessions owned by this adapter.
    */
   readonly stopAll: () => Effect.Effect<void, TError>;

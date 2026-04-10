@@ -536,6 +536,10 @@ const makeOrchestrationProjectionPipeline = Effect.fn("makeOrchestrationProjecti
             archivedAt: null,
             deletedAt: null,
             parentThreadId: event.payload.parentThreadId ?? null,
+            forkedFromThreadId:
+              "forkedFromThreadId" in event.payload
+                ? (event.payload.forkedFromThreadId ?? null)
+                : null,
             phaseRunId: null,
             workflowId: event.payload.workflowId ?? null,
             workflowSnapshot: null,

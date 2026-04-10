@@ -52,6 +52,7 @@ export function useSidebarInteractions(input: {
     threadId: ThreadId,
     options?: { deletedThreadIds?: ReadonlySet<ThreadId> },
   ) => Promise<void>;
+  forkThread: (sourceThreadId: ThreadId) => Promise<void>;
   handleNewThread: (
     projectId: ProjectId,
     input: {
@@ -90,6 +91,7 @@ export function useSidebarInteractions(input: {
     confirmThreadDelete,
     defaultThreadEnvMode,
     deleteThread,
+    forkThread,
     getDraftThreadByProjectId,
     handleNewThread,
     keybindings,
@@ -395,8 +397,10 @@ export function useSidebarInteractions(input: {
       const threadWorkspacePath =
         thread.worktreePath ?? projectCwdById.get(thread.projectId) ?? null;
       const isChildThread = thread.parentThreadId != null;
+      const hasTurns = thread.latestTurn != null;
       const menuItems = [
         { id: "rename", label: "Rename thread" },
+        ...(hasTurns ? [{ id: "fork", label: "Fork thread" }] : []),
         { id: "mark-unread", label: "Mark unread" },
         { id: "copy-path", label: "Copy Path" },
         { id: "copy-thread-id", label: "Copy Thread ID" },
@@ -408,6 +412,11 @@ export function useSidebarInteractions(input: {
         setRenamingThreadId(threadId);
         setRenamingTitle(thread.title);
         renamingCommittedRef.current = false;
+        return;
+      }
+
+      if (clicked === "fork") {
+        await forkThread(threadId);
         return;
       }
 
@@ -450,6 +459,7 @@ export function useSidebarInteractions(input: {
       copyPathToClipboard,
       copyThreadIdToClipboard,
       deleteThread,
+      forkThread,
       markThreadUnread,
       projectCwdById,
       sidebarThreadsById,

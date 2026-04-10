@@ -181,9 +181,9 @@ const ProviderLayerLive = Layer.unwrap(
       canonicalEventLogger ? { canonicalEventLogger } : undefined,
     ).pipe(
       Layer.provide(adapterRegistryLayer),
-      Layer.provide(providerSessionDirectoryLayer),
       Layer.provide(AnalyticsServiceLayerLive),
       Layer.provide(ServerSettingsLive),
+      Layer.provideMerge(providerSessionDirectoryLayer),
     );
   }),
 );

@@ -19,6 +19,9 @@ interface ChatHeaderProps {
   activeThreadId: ThreadId;
   activeThreadTitle: string;
   interactionMode: ProviderInteractionMode;
+  forkedFromThreadId: ThreadId | null;
+  forkedFromThreadTitle: string | null;
+  onNavigateToForkedSource: (() => void) | null;
   activeProjectName: string | undefined;
   isGitRepo: boolean;
   openInCwd: string | null;
@@ -46,6 +49,9 @@ export const ChatHeader = memo(function ChatHeader({
   activeThreadId,
   activeThreadTitle,
   interactionMode,
+  forkedFromThreadId,
+  forkedFromThreadTitle,
+  onNavigateToForkedSource,
   activeProjectName,
   isGitRepo,
   openInCwd,
@@ -96,6 +102,15 @@ export const ChatHeader = memo(function ChatHeader({
         {activeProjectName && !isGitRepo && (
           <Badge variant="outline" className="shrink-0 text-[10px] text-amber-700">
             No Git
+          </Badge>
+        )}
+        {forkedFromThreadId && forkedFromThreadTitle && (
+          <Badge
+            variant="outline"
+            className="min-w-0 shrink cursor-pointer overflow-hidden text-[10px]"
+            onClick={onNavigateToForkedSource ?? undefined}
+          >
+            <span className="min-w-0 truncate">Forked from: {forkedFromThreadTitle}</span>
           </Badge>
         )}
       </div>

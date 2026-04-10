@@ -90,6 +90,7 @@ projectionRepositoriesLayer("Projection repositories", (it) => {
         archivedAt: null,
         deletedAt: null,
         parentThreadId: null,
+        forkedFromThreadId: null,
         phaseRunId: null,
         workflowId: null,
         workflowSnapshot: null,

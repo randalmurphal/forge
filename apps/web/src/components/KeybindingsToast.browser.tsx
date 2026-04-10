@@ -122,6 +122,7 @@ function createMinimalSnapshot(): OrchestrationReadModel {
         role: null,
         childThreadIds: [],
         bootstrapStatus: null,
+        forkedFromThreadId: null,
         messages: [
           {
             id: "msg-1" as MessageId,

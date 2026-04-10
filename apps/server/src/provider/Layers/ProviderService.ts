@@ -657,6 +657,22 @@ const makeProviderService = Effect.fn("makeProviderService")(function* (
   const getCapabilities: ProviderServiceShape["getCapabilities"] = (provider) =>
     registry.getByProvider(provider).pipe(Effect.map((adapter) => adapter.capabilities));
 
+  const forkThread: ProviderServiceShape["forkThread"] = Effect.fn("forkThread")(function* (input) {
+    const bindingOption = yield* directory.getBinding(input.sourceThreadId);
+    const binding = Option.getOrUndefined(bindingOption);
+    if (!binding) {
+      return yield* toValidationError(
+        "ProviderService.forkThread",
+        `Cannot fork thread '${input.sourceThreadId}' because no persisted provider binding exists.`,
+      );
+    }
+    const adapter = yield* registry.getByProvider(binding.provider);
+    return yield* adapter.forkThread({
+      sourceThreadId: input.sourceThreadId,
+      newThreadId: input.newThreadId,
+    });
+  });
+
   const rollbackConversation: ProviderServiceShape["rollbackConversation"] = Effect.fn(
     "rollbackConversation",
   )(function* (rawInput) {
@@ -747,6 +763,7 @@ const makeProviderService = Effect.fn("makeProviderService")(function* (
     stopSession,
     listSessions,
     getCapabilities,
+    forkThread,
     rollbackConversation,
     // Each access creates a fresh PubSub subscription so that multiple
     // consumers (ProviderRuntimeIngestion, CheckpointReactor, etc.) each

@@ -16,6 +16,7 @@ import {
   ChannelId,
   ChannelMessageId,
   LinkId,
+  MessageId,
   OrchestrationAgentDiffSummary,
   OrchestrationCheckpointSummary,
   OrchestrationMessage,
@@ -65,6 +66,7 @@ import {
   ThreadDependencyAddedPayload,
   ThreadDependencyRemovedPayload,
   ThreadDeletedPayload,
+  ThreadForkedPayload,
   ThreadInteractionModeSetPayload,
   ThreadLinkAddedPayload,
   ThreadLinkRemovedPayload,
@@ -497,6 +499,8 @@ export function projectEvent(
               : {}),
             role: "role" in payload ? (payload.role ?? null) : null,
             childThreadIds: [],
+            forkedFromThreadId:
+              "forkedFromThreadId" in payload ? (payload.forkedFromThreadId ?? null) : null,
             bootstrapStatus: null,
             messages: [],
             proposedPlans: [],
@@ -1214,6 +1218,33 @@ export function projectEvent(
             threads: updateThread(nextBase.threads, payload.threadId, {
               activities,
               updatedAt: event.occurredAt,
+            }),
+          };
+        }),
+      );
+
+    case "thread.forked":
+      return decodeForEvent(ThreadForkedPayload, event.payload, event.type, "payload").pipe(
+        Effect.map((payload) => {
+          const sourceThread = nextBase.threads.find(
+            (entry) => entry.id === payload.sourceThreadId,
+          ) as ProjectedThread | undefined;
+          const forkThread = nextBase.threads.find((entry) => entry.id === payload.threadId) as
+            | ProjectedThread
+            | undefined;
+          if (!sourceThread || !forkThread) {
+            return nextBase;
+          }
+          const copiedMessages: ReadonlyArray<OrchestrationMessage> = sourceThread.messages.map(
+            (message) => ({
+              ...message,
+              id: MessageId.makeUnsafe(crypto.randomUUID()),
+            }),
+          );
+          return {
+            ...nextBase,
+            threads: updateThread(nextBase.threads, payload.threadId, {
+              messages: copiedMessages,
             }),
           };
         }),

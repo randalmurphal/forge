@@ -8,6 +8,7 @@
  */
 import {
   type CanUseTool,
+  forkSession,
   query,
   type Options as ClaudeQueryOptions,
   type PermissionMode,
@@ -3270,6 +3271,32 @@ const makeClaudeAdapter = Effect.fn("makeClaudeAdapter")(function* (
     yield* Deferred.succeed(pending.answers, answers);
   });
 
+  const forkThread: ClaudeAdapterShape["forkThread"] = Effect.fn("forkThread")(function* (input) {
+    const context = sessions.get(input.sourceThreadId);
+    if (!context) {
+      return yield* new ProviderAdapterSessionNotFoundError({
+        provider: PROVIDER,
+        threadId: input.sourceThreadId,
+      });
+    }
+    const sourceSessionId = context.resumeSessionId;
+    if (!sourceSessionId) {
+      return yield* new ProviderAdapterRequestError({
+        provider: PROVIDER,
+        method: "forkThread",
+        detail: `Source thread '${input.sourceThreadId}' has no resume session id to fork from.`,
+      });
+    }
+
+    const result = yield* Effect.tryPromise({
+      try: () => forkSession(sourceSessionId),
+      catch: (cause) => toRequestError(input.sourceThreadId, "forkSession", cause),
+    });
+    return {
+      resumeCursor: { resume: result.sessionId },
+    };
+  });
+
   const stopSession: ClaudeAdapterShape["stopSession"] = Effect.fn("stopSession")(
     function* (threadId) {
       const context = yield* requireSession(threadId);
@@ -3319,6 +3346,7 @@ const makeClaudeAdapter = Effect.fn("makeClaudeAdapter")(function* (
     interruptTurn,
     readThread,
     rollbackThread,
+    forkThread,
     respondToRequest,
     respondToUserInput,
     stopSession,

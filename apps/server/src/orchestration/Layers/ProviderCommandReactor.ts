@@ -28,6 +28,7 @@ import { increment, orchestrationEventsProcessedTotal } from "../../observabilit
 import { ProviderAdapterRequestError, ProviderServiceError } from "../../provider/Errors.ts";
 import { TextGeneration } from "../../git/Services/TextGeneration.ts";
 import { ProviderService } from "../../provider/Services/ProviderService.ts";
+import { ProviderSessionDirectory } from "../../provider/Services/ProviderSessionDirectory.ts";
 import { OrchestrationEngineService } from "../Services/OrchestrationEngine.ts";
 import { DesignModeReactor } from "../Services/DesignModeReactor.ts";
 import {
@@ -45,7 +46,8 @@ type ProviderIntentEvent = Extract<
       | "thread.turn-interrupt-requested"
       | "thread.approval-response-requested"
       | "thread.user-input-response-requested"
-      | "thread.session-stop-requested";
+      | "thread.session-stop-requested"
+      | "thread.forked";
   }
 >;
 
@@ -149,6 +151,7 @@ function buildGeneratedWorktreeBranchName(
 const make = Effect.gen(function* () {
   const orchestrationEngine = yield* OrchestrationEngineService;
   const providerService = yield* ProviderService;
+  const providerSessionDirectory = yield* ProviderSessionDirectory;
   const git = yield* GitCore;
   const textGeneration = yield* TextGeneration;
   const serverSettingsService = yield* ServerSettingsService;
@@ -758,6 +761,45 @@ const make = Effect.gen(function* () {
     });
   });
 
+  const processForkRequested = Effect.fn("processForkRequested")(function* (
+    event: Extract<ProviderIntentEvent, { type: "thread.forked" }>,
+  ) {
+    const sourceThreadId = event.payload.sourceThreadId;
+    const newThreadId = event.payload.threadId;
+
+    const sourceThread = (yield* orchestrationEngine.getReadModel()).threads.find(
+      (t) => t.id === sourceThreadId,
+    );
+    const sourceProvider = Schema.is(ProviderKind)(sourceThread?.session?.providerName)
+      ? sourceThread.session.providerName
+      : undefined;
+    if (!sourceProvider) {
+      yield* Effect.logInfo(
+        "provider command reactor skipping fork — source thread has no active provider session",
+        { sourceThreadId, newThreadId },
+      );
+      return;
+    }
+
+    yield* Effect.gen(function* () {
+      const result = yield* providerService.forkThread({ sourceThreadId, newThreadId });
+      yield* providerSessionDirectory.upsert({
+        threadId: newThreadId,
+        provider: sourceProvider,
+        resumeCursor: result.resumeCursor,
+        status: "stopped",
+      });
+    }).pipe(
+      Effect.catchCause((cause) =>
+        Effect.logWarning("provider command reactor failed to fork provider thread", {
+          sourceThreadId,
+          newThreadId,
+          cause: Cause.pretty(cause),
+        }),
+      ),
+    );
+  });
+
   const processDomainEvent = Effect.fn("processDomainEvent")(function* (
     event: ProviderIntentEvent,
   ) {
@@ -798,6 +840,9 @@ const make = Effect.gen(function* () {
       case "thread.session-stop-requested":
         yield* processSessionStopRequested(event);
         return;
+      case "thread.forked":
+        yield* processForkRequested(event);
+        return;
     }
   });
 
@@ -824,7 +869,8 @@ const make = Effect.gen(function* () {
         event.type === "thread.turn-interrupt-requested" ||
         event.type === "thread.approval-response-requested" ||
         event.type === "thread.user-input-response-requested" ||
-        event.type === "thread.session-stop-requested"
+        event.type === "thread.session-stop-requested" ||
+        event.type === "thread.forked"
       ) {
         return yield* worker.enqueue(event);
       }

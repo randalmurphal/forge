@@ -754,6 +754,7 @@ function makeThread(overrides: Partial<Thread> = {}): Thread {
     id: ThreadId.makeUnsafe("thread-1"),
     codexThreadId: null,
     projectId: ProjectId.makeUnsafe("project-1"),
+    forkedFromThreadId: null,
     title: "Thread",
     modelSelection: {
       provider: "codex",

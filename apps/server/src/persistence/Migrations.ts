@@ -45,6 +45,7 @@ import Migration0029 from "./Migrations/029_ProjectionThreadSpawnWorkspace.ts";
 import Migration0030 from "./Migrations/030_ProjectionThreadSpawnMode.ts";
 import Migration0031 from "./Migrations/031_ProjectionAgentDiffs.ts";
 import Migration0032 from "./Migrations/032_ProjectionAgentDiffAssistantMessageId.ts";
+import Migration0033 from "./Migrations/033_ProjectionThreadsForkedFrom.ts";
 
 /**
  * Migration loader with all migrations defined inline.
@@ -89,6 +90,7 @@ export const migrationEntries = [
   [30, "ProjectionThreadSpawnMode", Migration0030],
   [31, "ProjectionAgentDiffs", Migration0031],
   [32, "ProjectionAgentDiffAssistantMessageId", Migration0032],
+  [33, "ProjectionThreadsForkedFrom", Migration0033],
 ] as const;
 
 export const makeMigrationLoader = (throughId?: number) =>

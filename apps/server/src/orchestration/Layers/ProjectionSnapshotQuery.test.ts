@@ -304,6 +304,7 @@ projectionSnapshotLayer("ProjectionSnapshotQuery", (it) => {
           role: null,
           childThreadIds: [],
           bootstrapStatus: null,
+          forkedFromThreadId: null,
           messages: [
             {
               id: asMessageId("message-1"),

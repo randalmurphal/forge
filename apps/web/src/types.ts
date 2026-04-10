@@ -125,6 +125,7 @@ export interface Thread {
   codexThreadId: string | null;
   projectId: ProjectId;
   parentThreadId?: ThreadId | null;
+  forkedFromThreadId: ThreadId | null;
   phaseRunId?: PhaseRunId | null;
   title: string;
   modelSelection: ModelSelection;

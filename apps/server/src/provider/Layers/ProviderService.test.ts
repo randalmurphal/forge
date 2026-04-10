@@ -191,6 +191,10 @@ function makeFakeCodexAdapter(provider: ProviderKind = "codex") {
     readThread,
     rollbackThread,
     stopAll,
+    forkThread: vi.fn(
+      (): Effect.Effect<{ resumeCursor: unknown }, ProviderAdapterError> =>
+        Effect.succeed({ resumeCursor: null }),
+    ),
     streamEvents: Stream.fromPubSub(runtimeEventPubSub),
   };
 

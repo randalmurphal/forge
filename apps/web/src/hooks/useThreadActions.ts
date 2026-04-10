@@ -7,7 +7,7 @@ import { getFallbackThreadIdAfterDelete } from "../components/Sidebar.logic";
 import { useComposerDraftStore } from "../composerDraftStore";
 import { useHandleNewThread } from "./useHandleNewThread";
 import { gitRemoveWorktreeMutationOptions } from "../lib/gitReactQuery";
-import { newCommandId } from "../lib/utils";
+import { newCommandId, newThreadId } from "../lib/utils";
 import { readNativeApi } from "../nativeApi";
 import { useStore } from "../store";
 import { useTerminalStateStore } from "../terminalStateStore";
@@ -188,6 +188,29 @@ export function useThreadActions() {
     ],
   );
 
+  const forkThread = useCallback(
+    async (sourceThreadId: ThreadId) => {
+      const api = readNativeApi();
+      if (!api) return;
+      const sourceThread = useStore.getState().threads.find((t) => t.id === sourceThreadId);
+      if (!sourceThread) return;
+
+      const forkId = newThreadId();
+      await api.orchestration.dispatchCommand({
+        type: "thread.fork",
+        commandId: newCommandId(),
+        sourceThreadId,
+        newThreadId: forkId,
+      });
+
+      await navigate({
+        to: "/$threadId",
+        params: { threadId: forkId },
+      });
+    },
+    [navigate],
+  );
+
   const confirmAndDeleteThread = useCallback(
     async (threadId: ThreadId) => {
       const api = readNativeApi();
@@ -217,5 +240,6 @@ export function useThreadActions() {
     unarchiveThread,
     deleteThread,
     confirmAndDeleteThread,
+    forkThread,
   };
 }

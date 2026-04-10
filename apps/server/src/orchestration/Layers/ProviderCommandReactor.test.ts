@@ -13,7 +13,7 @@ import {
   ThreadId,
   TurnId,
 } from "@forgetools/contracts";
-import { Effect, Exit, Layer, ManagedRuntime, PubSub, Scope, Stream } from "effect";
+import { Effect, Exit, Layer, ManagedRuntime, Option, PubSub, Scope, Stream } from "effect";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { deriveServerPaths, ServerConfig } from "../../config.ts";
@@ -26,6 +26,7 @@ import {
   ProviderService,
   type ProviderServiceShape,
 } from "../../provider/Services/ProviderService.ts";
+import { ProviderSessionDirectory } from "../../provider/Services/ProviderSessionDirectory.ts";
 import { GitCore, type GitCoreShape } from "../../git/Services/GitCore.ts";
 import { TextGeneration, type TextGenerationShape } from "../../git/Services/TextGeneration.ts";
 import { OrchestrationEngineLive } from "./OrchestrationEngine.ts";
@@ -209,6 +210,7 @@ describe("ProviderCommandReactor", () => {
           sessionModelSwitch: input?.sessionModelSwitch ?? "in-session",
         }),
       rollbackConversation: () => unsupported(),
+      forkThread: () => unsupported(),
       streamEvents: Stream.fromPubSub(runtimeEventPubSub),
     };
 
@@ -240,6 +242,16 @@ describe("ProviderCommandReactor", () => {
         }),
       ),
       Layer.provideMerge(NodeServices.layer),
+      Layer.provideMerge(
+        Layer.succeed(ProviderSessionDirectory, {
+          upsert: () => Effect.void,
+          getProvider: () =>
+            Effect.die(new Error("ProviderSessionDirectory.getProvider not used in test")),
+          getBinding: () => Effect.succeed(Option.none()),
+          remove: () => Effect.void,
+          listThreadIds: () => Effect.succeed([]),
+        }),
+      ),
     );
     const runtime = ManagedRuntime.make(layer);
 

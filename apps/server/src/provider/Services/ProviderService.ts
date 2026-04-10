@@ -100,6 +100,16 @@ export interface ProviderServiceShape {
   }) => Effect.Effect<void, ProviderServiceError>;
 
   /**
+   * Fork a provider thread, creating provider-side fork state for a new thread.
+   * Returns a resume cursor that can be stored in the session directory so that
+   * the forked thread can start a session with the forked provider state.
+   */
+  readonly forkThread: (input: {
+    readonly sourceThreadId: ThreadId;
+    readonly newThreadId: ThreadId;
+  }) => Effect.Effect<{ readonly resumeCursor: unknown }, ProviderServiceError>;
+
+  /**
    * Canonical provider runtime event stream.
    *
    * Fan-out is owned by ProviderService (not by a standalone event-bus service).

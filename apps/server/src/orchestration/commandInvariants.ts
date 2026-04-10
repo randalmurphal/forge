@@ -193,6 +193,25 @@ export function requireThreadWithoutActivePhase(input: {
   );
 }
 
+export function requireThreadHasMessages(input: {
+  readonly readModel: OrchestrationReadModel;
+  readonly command: ForgeCommand;
+  readonly threadId: ThreadId;
+}): Effect.Effect<OrchestrationThread, OrchestrationCommandInvariantError> {
+  return requireThread(input).pipe(
+    Effect.flatMap((thread) =>
+      thread.messages.length > 0
+        ? Effect.succeed(thread)
+        : Effect.fail(
+            invariantError(
+              input.command.type,
+              `Thread '${input.threadId}' has no messages and cannot be forked.`,
+            ),
+          ),
+    ),
+  );
+}
+
 export function requireThreadAbsent(input: {
   readonly readModel: OrchestrationReadModel;
   readonly command: ForgeCommand;

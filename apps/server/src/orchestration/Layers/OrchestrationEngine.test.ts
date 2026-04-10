@@ -137,6 +137,7 @@ describe("OrchestrationEngine", () => {
           role: null,
           childThreadIds: [],
           bootstrapStatus: null,
+          forkedFromThreadId: null,
           messages: [],
           proposedPlans: [],
           activities: [],

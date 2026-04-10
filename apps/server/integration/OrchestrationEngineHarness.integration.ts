@@ -329,6 +329,7 @@ export const makeOrchestrationIntegrationHarness = (
       Layer.provideMerge(textGenerationLayer),
       Layer.provideMerge(serverSettingsLayer),
       Layer.provideMerge(designModeReactorLayer),
+      Layer.provideMerge(providerSessionDirectoryLayer),
     );
     const checkpointReactorLayer = CheckpointReactorLive.pipe(
       Layer.provideMerge(runtimeServicesLayer),

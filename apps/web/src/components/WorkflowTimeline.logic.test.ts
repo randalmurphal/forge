@@ -120,6 +120,7 @@ function makeWorkflowContainerThread(overrides: Partial<Thread> = {}): Thread {
     codexThreadId: null,
     projectId: "project-1" as Thread["projectId"],
     parentThreadId: null,
+    forkedFromThreadId: null,
     phaseRunId: null,
     title: "Workflow",
     modelSelection: {
