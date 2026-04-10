@@ -35,6 +35,7 @@ function makeThread(
     lastSortableActivityAt: null,
     hasPendingApprovals: false,
     hasPendingUserInput: false,
+    hasPendingDesignChoice: false,
     hasActionableProposedPlan: false,
     ...overrides,
     pinnedAt: overrides.pinnedAt ?? null,
@@ -197,7 +198,7 @@ describe("buildSidebarThreadTree", () => {
     expect(tree[0]?.latestActivityAt).toBe(activeChild.lastSortableActivityAt);
   });
 
-  it("propagates deliberation status from running participants to their parent container", () => {
+  it("propagates discussing status from running participants to their parent container", () => {
     const workflowParent = makeThread("workflow-parent", {
       childThreadIds: [ThreadId.makeUnsafe("participant-a"), ThreadId.makeUnsafe("participant-b")],
     });
@@ -230,8 +231,58 @@ describe("buildSidebarThreadTree", () => {
       threads: [workflowParent, participantA, participantB],
     });
 
-    expect(tree[0]?.displayStatus.label).toBe("Deliberating");
+    expect(tree[0]?.displayStatus.label).toBe("Discussing");
     expect(tree[0]?.sortGroup).toBe("running");
+  });
+
+  it("propagates planning status from running plan-mode children", () => {
+    const parent = makeThread("parent", {
+      childThreadIds: [ThreadId.makeUnsafe("child-planning")],
+    });
+    const child = makeThread("child-planning", {
+      parentThreadId: parent.id,
+      interactionMode: "plan",
+      session: {
+        provider: "codex",
+        status: "running",
+        activeTurnId: undefined,
+        createdAt: "2026-04-06T00:00:00.000Z",
+        updatedAt: "2026-04-06T04:00:00.000Z",
+        orchestrationStatus: "running",
+      },
+    });
+
+    const tree = buildSidebarThreadTree({
+      threads: [parent, child],
+    });
+
+    expect(tree[0]?.displayStatus.label).toBe("Planning");
+  });
+
+  it("propagates awaiting input from pending design choice children", () => {
+    const parent = makeThread("parent", {
+      childThreadIds: [ThreadId.makeUnsafe("design-child")],
+    });
+    const child = makeThread("design-child", {
+      parentThreadId: parent.id,
+      interactionMode: "design",
+      hasPendingDesignChoice: true,
+      session: {
+        provider: "codex",
+        status: "running",
+        activeTurnId: undefined,
+        createdAt: "2026-04-06T00:00:00.000Z",
+        updatedAt: "2026-04-06T04:00:00.000Z",
+        orchestrationStatus: "running",
+      },
+    });
+
+    const tree = buildSidebarThreadTree({
+      threads: [parent, child],
+    });
+
+    expect(tree[0]?.displayStatus.label).toBe("Awaiting Input");
+    expect(tree[0]?.sortGroup).toBe("needs-attention");
   });
 });
 

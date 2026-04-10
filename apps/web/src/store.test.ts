@@ -3,6 +3,7 @@ import {
   DEFAULT_MODEL_BY_PROVIDER,
   EventId,
   type ForgeEvent,
+  InteractiveRequestId,
   MessageId,
   ProjectId,
   ThreadId,
@@ -219,6 +220,32 @@ function makeReadModelProject(
   };
 }
 
+function makeDesignPendingRequest(
+  overrides: Partial<OrchestrationReadModel["pendingRequests"][number]> = {},
+): OrchestrationReadModel["pendingRequests"][number] {
+  return {
+    id: InteractiveRequestId.makeUnsafe("design-request-1"),
+    threadId: ThreadId.makeUnsafe("thread-1"),
+    type: "design-option",
+    status: "pending",
+    payload: {
+      type: "design-option",
+      prompt: "Pick a direction",
+      options: [
+        {
+          id: "option-a",
+          title: "Option A",
+          description: "First option",
+          artifactId: "artifact-a",
+          artifactPath: "/tmp/artifact-a.html",
+        },
+      ],
+    },
+    createdAt: "2026-02-27T00:05:00.000Z",
+    ...overrides,
+  };
+}
+
 describe("store read model sync", () => {
   it("marks bootstrap complete after snapshot sync", () => {
     const initialState: AppState = {
@@ -299,6 +326,25 @@ describe("store read model sync", () => {
     );
 
     expect(next.threads[0]?.archivedAt).toBe(archivedAt);
+  });
+
+  it("hydrates pending design options from read model pending requests", () => {
+    const initialState = makeState(makeThread());
+    const readModel = {
+      ...makeReadModel(makeReadModelThread({})),
+      pendingRequests: [makeDesignPendingRequest()],
+    } satisfies OrchestrationReadModel;
+
+    const next = syncServerReadModel(initialState, readModel);
+
+    expect(next.threads[0]?.designPendingOptions).toMatchObject({
+      requestId: InteractiveRequestId.makeUnsafe("design-request-1"),
+      prompt: "Pick a direction",
+      chosenOptionId: null,
+    });
+    expect(next.sidebarThreadsById[ThreadId.makeUnsafe("thread-1")]?.hasPendingDesignChoice).toBe(
+      true,
+    );
   });
 
   it("replaces projects using snapshot order during recovery", () => {
@@ -549,6 +595,123 @@ describe("incremental orchestration updates", () => {
       activeTurnId: undefined,
       updatedAt: "2026-02-27T00:00:03.000Z",
     });
+  });
+
+  it("opens pending design choice state from request.opened events", () => {
+    const threadId = ThreadId.makeUnsafe("thread-1");
+    const state = makeState(
+      makeThread({
+        id: threadId,
+        interactionMode: "design",
+      }),
+    );
+
+    const next = applyOrchestrationEvent(
+      state,
+      makeForgeEvent("request.opened", {
+        requestId: InteractiveRequestId.makeUnsafe("design-request-1"),
+        threadId,
+        childThreadId: null,
+        phaseRunId: null,
+        requestType: "design-option",
+        payload: {
+          type: "design-option",
+          prompt: "Pick a direction",
+          options: [
+            {
+              id: "option-a",
+              title: "Option A",
+              description: "First option",
+              artifactId: "artifact-a",
+              artifactPath: "/tmp/artifact-a.html",
+            },
+          ],
+        },
+        createdAt: "2026-02-27T00:05:00.000Z",
+      }),
+    );
+
+    expect(next.threads[0]?.updatedAt).toBe("2026-02-27T00:05:00.000Z");
+    expect(next.threads[0]?.designPendingOptions?.requestId).toBe(
+      InteractiveRequestId.makeUnsafe("design-request-1"),
+    );
+    expect(next.sidebarThreadsById[threadId]?.hasPendingDesignChoice).toBe(true);
+  });
+
+  it("clears pending design choice state from request.resolved events", () => {
+    const threadId = ThreadId.makeUnsafe("thread-1");
+    const state = makeState(
+      makeThread({
+        id: threadId,
+        interactionMode: "design",
+        updatedAt: "2026-02-27T00:00:00.000Z",
+        designPendingOptions: {
+          requestId: InteractiveRequestId.makeUnsafe("design-request-1"),
+          prompt: "Pick a direction",
+          options: [
+            {
+              id: "option-a",
+              title: "Option A",
+              description: "First option",
+              artifactId: "artifact-a",
+              artifactPath: "/tmp/artifact-a.html",
+            },
+          ],
+          chosenOptionId: null,
+        },
+      }),
+    );
+
+    const next = applyOrchestrationEvent(
+      state,
+      makeForgeEvent("request.resolved", {
+        requestId: InteractiveRequestId.makeUnsafe("design-request-1"),
+        resolvedWith: {
+          chosenOptionId: "option-a",
+        },
+        resolvedAt: "2026-02-27T00:06:00.000Z",
+      }),
+    );
+
+    expect(next.threads[0]?.updatedAt).toBe("2026-02-27T00:06:00.000Z");
+    expect(next.threads[0]?.designPendingOptions).toBeNull();
+  });
+
+  it("clears pending design choice state from request.stale events", () => {
+    const threadId = ThreadId.makeUnsafe("thread-1");
+    const state = makeState(
+      makeThread({
+        id: threadId,
+        interactionMode: "design",
+        updatedAt: "2026-02-27T00:00:00.000Z",
+        designPendingOptions: {
+          requestId: InteractiveRequestId.makeUnsafe("design-request-1"),
+          prompt: "Pick a direction",
+          options: [
+            {
+              id: "option-a",
+              title: "Option A",
+              description: "First option",
+              artifactId: "artifact-a",
+              artifactPath: "/tmp/artifact-a.html",
+            },
+          ],
+          chosenOptionId: null,
+        },
+      }),
+    );
+
+    const next = applyOrchestrationEvent(
+      state,
+      makeForgeEvent("request.stale", {
+        requestId: InteractiveRequestId.makeUnsafe("design-request-1"),
+        reason: "stale",
+        staleAt: "2026-02-27T00:07:00.000Z",
+      }),
+    );
+
+    expect(next.threads[0]?.updatedAt).toBe("2026-02-27T00:07:00.000Z");
+    expect(next.threads[0]?.designPendingOptions).toBeNull();
   });
 
   it("preserves state identity for no-op project and thread deletes", () => {

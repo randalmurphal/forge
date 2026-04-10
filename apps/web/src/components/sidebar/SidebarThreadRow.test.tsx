@@ -57,6 +57,7 @@ function makeThread(
     lastSortableActivityAt: "2026-04-10T00:00:00.000Z",
     hasPendingApprovals: false,
     hasPendingUserInput: false,
+    hasPendingDesignChoice: false,
     hasActionableProposedPlan: false,
     ...overrides,
   };
@@ -72,12 +73,14 @@ function makeTreeNode(
     depth,
     children: [],
     ownStatus: {
+      kind: "paused",
       label: "Paused",
       colorClass: "text-muted-foreground",
       dotClass: "bg-muted-foreground",
       pulse: false,
     },
     displayStatus: {
+      kind: "paused",
       label: "Paused",
       colorClass: "text-muted-foreground",
       dotClass: "bg-muted-foreground",

@@ -1,5 +1,6 @@
 import {
   type ForgeEvent,
+  type InteractiveRequest,
   type OrchestrationAgentDiffSummary,
   type OrchestrationMessage,
   type OrchestrationProposedPlan,
@@ -40,6 +41,7 @@ import {
 import {
   type ChatMessage,
   type DesignArtifact,
+  type DesignPendingOptions,
   type Project,
   type SidebarThreadSummary,
   type Thread,
@@ -214,7 +216,96 @@ function mapAgentDiffSummary(
   };
 }
 
-function mapThread(thread: OrchestrationThread): Thread {
+function toDesignPendingOptions(input: {
+  requestId: string;
+  payload: unknown;
+}): DesignPendingOptions | null {
+  const payload =
+    input.payload && typeof input.payload === "object"
+      ? (input.payload as Record<string, unknown>)
+      : null;
+  if (payload?.type !== "design-option" || typeof payload.prompt !== "string") {
+    return null;
+  }
+
+  const options = Array.isArray(payload.options)
+    ? payload.options
+        .map<DesignPendingOptions["options"][number] | null>((option) => {
+          if (!option || typeof option !== "object") {
+            return null;
+          }
+          const optionRecord = option as Record<string, unknown>;
+          if (
+            typeof optionRecord.id !== "string" ||
+            typeof optionRecord.title !== "string" ||
+            typeof optionRecord.description !== "string" ||
+            typeof optionRecord.artifactId !== "string" ||
+            typeof optionRecord.artifactPath !== "string"
+          ) {
+            return null;
+          }
+          return {
+            id: optionRecord.id,
+            title: optionRecord.title,
+            description: optionRecord.description,
+            artifactId: optionRecord.artifactId,
+            artifactPath: optionRecord.artifactPath,
+          };
+        })
+        .filter((option): option is DesignPendingOptions["options"][number] => option !== null)
+    : [];
+
+  if (options.length === 0) {
+    return null;
+  }
+
+  return {
+    requestId: input.requestId,
+    prompt: payload.prompt,
+    options,
+    chosenOptionId: null,
+  };
+}
+
+function resolvePendingDesignOptions(
+  threadId: Thread["id"],
+  pendingRequests: ReadonlyArray<InteractiveRequest>,
+): DesignPendingOptions | null {
+  let latestPendingRequest: InteractiveRequest | null = null;
+
+  for (const request of pendingRequests) {
+    if (
+      request.threadId !== threadId ||
+      request.type !== "design-option" ||
+      request.status !== "pending"
+    ) {
+      continue;
+    }
+    if (latestPendingRequest === null || request.createdAt > latestPendingRequest.createdAt) {
+      latestPendingRequest = request;
+    }
+  }
+
+  if (latestPendingRequest === null) {
+    return null;
+  }
+
+  return toDesignPendingOptions({
+    requestId: latestPendingRequest.id,
+    payload: latestPendingRequest.payload,
+  });
+}
+
+function hasPendingDesignChoice(thread: Pick<Thread, "designPendingOptions">): boolean {
+  return (
+    thread.designPendingOptions !== null && thread.designPendingOptions.chosenOptionId === null
+  );
+}
+
+function mapThread(
+  thread: OrchestrationThread,
+  pendingRequests: ReadonlyArray<InteractiveRequest>,
+): Thread {
   const spawnWorkspace = resolveThreadSpawnWorkspace(thread);
   return {
     id: thread.id,
@@ -247,7 +338,7 @@ function mapThread(thread: OrchestrationThread): Thread {
     spawnBranch: spawnWorkspace.branch,
     spawnWorktreePath: spawnWorkspace.worktreePath,
     designArtifacts: [],
-    designPendingOptions: null,
+    designPendingOptions: resolvePendingDesignOptions(thread.id, pendingRequests),
     agentDiffSummaries: (thread.agentDiffs ?? []).map(mapAgentDiffSummary),
     turnDiffSummaries: thread.checkpoints.map(mapTurnDiffSummary),
     activities: thread.activities.map((activity) => ({ ...activity })),
@@ -294,7 +385,8 @@ function getLatestUserMessageAt(
  *   is no longer running, since latestTurn.completedAt gets set mid-turn by
  *   intermediate assistant message completions (between tool calls) in both
  *   Codex and Claude providers
- * - Agent needs user attention (pending approvals, pending user input, plan ready)
+ * - Agent needs user attention (pending approvals, pending user input,
+ *   pending design choice, or plan ready)
  *
  * Falls back to updatedAt → createdAt for threads with no qualifying events.
  */
@@ -313,6 +405,7 @@ function getLastSortableActivityAt(thread: Thread): string | null {
   const needsAttention =
     derivePendingApprovals(thread.activities).length > 0 ||
     derivePendingUserInputs(thread.activities).length > 0 ||
+    hasPendingDesignChoice(thread) ||
     hasActionableProposedPlan(
       findLatestProposedPlan(thread.proposedPlans, thread.latestTurn?.turnId ?? null),
     );
@@ -354,6 +447,7 @@ function buildSidebarThreadSummary(thread: Thread): SidebarThreadSummary {
     lastSortableActivityAt: getLastSortableActivityAt(thread),
     hasPendingApprovals: derivePendingApprovals(thread.activities).length > 0,
     hasPendingUserInput: derivePendingUserInputs(thread.activities).length > 0,
+    hasPendingDesignChoice: hasPendingDesignChoice(thread),
     hasActionableProposedPlan: hasActionableProposedPlan(
       findLatestProposedPlan(thread.proposedPlans, thread.latestTurn?.turnId ?? null),
     ),
@@ -396,6 +490,7 @@ function sidebarThreadSummariesEqual(
     left.lastSortableActivityAt === right.lastSortableActivityAt &&
     left.hasPendingApprovals === right.hasPendingApprovals &&
     left.hasPendingUserInput === right.hasPendingUserInput &&
+    left.hasPendingDesignChoice === right.hasPendingDesignChoice &&
     left.hasActionableProposedPlan === right.hasActionableProposedPlan
   );
 }
@@ -776,13 +871,27 @@ function updateThreadState(
   };
 }
 
+function updateThreadByDesignRequestId(
+  state: AppState,
+  requestId: string,
+  updater: (thread: Thread) => Thread,
+): AppState {
+  const thread = state.threads.find((entry) => entry.designPendingOptions?.requestId === requestId);
+  if (!thread) {
+    return state;
+  }
+  return updateThreadState(state, thread.id, updater);
+}
+
 // ── Pure state transition functions ────────────────────────────────────
 
 export function syncServerReadModel(state: AppState, readModel: OrchestrationReadModel): AppState {
   const projects = readModel.projects
     .filter((project) => project.deletedAt === null)
     .map(mapProject);
-  const threads = readModel.threads.filter((thread) => thread.deletedAt === null).map(mapThread);
+  const threads = readModel.threads
+    .filter((thread) => thread.deletedAt === null)
+    .map((thread) => mapThread(thread, readModel.pendingRequests));
   const sidebarThreadsById = buildSidebarThreadsById(threads);
   const threadIdsByProjectId = buildThreadIdsByProjectId(threads);
   return {
@@ -886,40 +995,43 @@ export function applyOrchestrationEvent(state: AppState, event: ForgeEvent): App
         payload.spawnBranch !== undefined ? payload.spawnBranch : payload.branch;
       const spawnWorktreePath: OrchestrationThread["spawnWorktreePath"] =
         payload.spawnWorktreePath !== undefined ? payload.spawnWorktreePath : payload.worktreePath;
-      const nextThread = mapThread({
-        id: payload.threadId,
-        projectId: payload.projectId,
-        title: payload.title,
-        modelSelection: payload.modelSelection,
-        runtimeMode: payload.runtimeMode,
-        interactionMode: payload.interactionMode,
-        branch: payload.branch,
-        worktreePath: payload.worktreePath,
-        spawnMode,
-        latestTurn: null,
-        createdAt: payload.createdAt,
-        updatedAt: payload.updatedAt,
-        pinnedAt: null,
-        archivedAt: null,
-        deletedAt: null,
-        spawnBranch,
-        spawnWorktreePath,
-        parentThreadId,
-        phaseRunId,
-        workflowId,
-        currentPhaseId,
-        discussionId: discussionId,
-        role,
-        childThreadIds,
-        bootstrapStatus: null,
-        forkedFromThreadId: payload.forkedFromThreadId ?? null,
-        messages: [],
-        proposedPlans: [],
-        activities: [],
-        agentDiffs: [],
-        checkpoints: [],
-        session: null,
-      });
+      const nextThread = mapThread(
+        {
+          id: payload.threadId,
+          projectId: payload.projectId,
+          title: payload.title,
+          modelSelection: payload.modelSelection,
+          runtimeMode: payload.runtimeMode,
+          interactionMode: payload.interactionMode,
+          branch: payload.branch,
+          worktreePath: payload.worktreePath,
+          spawnMode,
+          latestTurn: null,
+          createdAt: payload.createdAt,
+          updatedAt: payload.updatedAt,
+          pinnedAt: null,
+          archivedAt: null,
+          deletedAt: null,
+          spawnBranch,
+          spawnWorktreePath,
+          parentThreadId,
+          phaseRunId,
+          workflowId,
+          currentPhaseId,
+          discussionId: discussionId,
+          role,
+          childThreadIds,
+          bootstrapStatus: null,
+          forkedFromThreadId: payload.forkedFromThreadId ?? null,
+          messages: [],
+          proposedPlans: [],
+          activities: [],
+          agentDiffs: [],
+          checkpoints: [],
+          session: null,
+        },
+        [],
+      );
       let threads = existing
         ? state.threads.map((thread) => (thread.id === nextThread.id ? nextThread : thread))
         : [...state.threads, nextThread];
@@ -1572,6 +1684,40 @@ export function applyOrchestrationEvent(state: AppState, event: ForgeEvent): App
           activities,
         };
       });
+    }
+
+    case "request.opened": {
+      if (event.payload.requestType !== "design-option") {
+        return state;
+      }
+      const pendingOptions = toDesignPendingOptions({
+        requestId: event.payload.requestId,
+        payload: event.payload.payload,
+      });
+      if (pendingOptions === null) {
+        return state;
+      }
+      return updateThreadState(state, event.payload.threadId, (thread) => ({
+        ...thread,
+        updatedAt: event.payload.createdAt,
+        designPendingOptions: pendingOptions,
+      }));
+    }
+
+    case "request.resolved": {
+      return updateThreadByDesignRequestId(state, event.payload.requestId, (thread) => ({
+        ...thread,
+        updatedAt: event.payload.resolvedAt,
+        designPendingOptions: null,
+      }));
+    }
+
+    case "request.stale": {
+      return updateThreadByDesignRequestId(state, event.payload.requestId, (thread) => ({
+        ...thread,
+        updatedAt: event.payload.staleAt,
+        designPendingOptions: null,
+      }));
     }
 
     case "thread.design.artifact-rendered": {

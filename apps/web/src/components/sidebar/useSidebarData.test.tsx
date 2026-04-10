@@ -33,6 +33,7 @@ function makeThread(
     lastSortableActivityAt: "2026-04-10T00:00:00.000Z",
     hasPendingApprovals: false,
     hasPendingUserInput: false,
+    hasPendingDesignChoice: false,
     hasActionableProposedPlan: false,
     ...overrides,
   };

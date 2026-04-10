@@ -1,10 +1,14 @@
 import { type ThreadId } from "@forgetools/contracts";
 import type { SidebarThreadSummary } from "../types";
-import { resolveThreadStatusPill, type ThreadStatusPill } from "./Sidebar.logic";
+import {
+  getThreadStatusPriority,
+  getThreadStatusSortGroup,
+  resolveThreadStatusPill,
+  type ThreadStatusPill,
+  type ThreadStatusSortGroup,
+} from "./Sidebar.logic";
 
 export const DEFAULT_SIDEBAR_TREE_MAX_DEPTH = 2;
-
-export type SidebarTreeSortGroup = "needs-attention" | "running" | "paused" | "completed";
 
 export interface SidebarTreeThread extends SidebarThreadSummary {
   lastVisitedAt?: string | undefined;
@@ -16,7 +20,7 @@ export interface SidebarTreeNode {
   children: SidebarTreeNode[];
   ownStatus: ThreadStatusPill;
   displayStatus: ThreadStatusPill;
-  sortGroup: SidebarTreeSortGroup;
+  sortGroup: ThreadStatusSortGroup;
   latestActivityAt: string | null;
 }
 
@@ -25,7 +29,7 @@ export interface SidebarTreeVisibleNode extends SidebarTreeNode {
   isExpandable: boolean;
 }
 
-const SORT_GROUP_PRIORITY: Record<SidebarTreeSortGroup, number> = {
+const SORT_GROUP_PRIORITY: Record<ThreadStatusSortGroup, number> = {
   "needs-attention": 2,
   running: 1,
   paused: 1,
@@ -33,6 +37,7 @@ const SORT_GROUP_PRIORITY: Record<SidebarTreeSortGroup, number> = {
 };
 
 const PAUSED_STATUS_PILL: ThreadStatusPill = {
+  kind: "paused",
   label: "Paused",
   colorClass: "text-[var(--feature-phase-pending)]",
   dotClass: "bg-[var(--feature-phase-pending)]",
@@ -40,6 +45,7 @@ const PAUSED_STATUS_PILL: ThreadStatusPill = {
 };
 
 const COMPLETED_STATUS_PILL: ThreadStatusPill = {
+  kind: "completed",
   label: "Completed",
   colorClass: "text-[var(--success-foreground)]",
   dotClass: "bg-[var(--success)]",
@@ -47,6 +53,7 @@ const COMPLETED_STATUS_PILL: ThreadStatusPill = {
 };
 
 const FAILED_STATUS_PILL: ThreadStatusPill = {
+  kind: "failed",
   label: "Failed",
   colorClass: "text-[var(--destructive-foreground)]",
   dotClass: "bg-[var(--destructive)]",
@@ -93,32 +100,14 @@ function resolveOwnTreeStatus(thread: SidebarTreeThread): ThreadStatusPill {
   return PAUSED_STATUS_PILL;
 }
 
-function resolveSortGroupFromStatus(status: ThreadStatusPill): SidebarTreeSortGroup {
-  switch (status.label) {
-    case "Pending Approval":
-    case "Awaiting Input":
-    case "Plan Ready":
-    case "Failed":
-      return "needs-attention";
-    case "Deliberating":
-    case "Working":
-    case "Connecting":
-      return "running";
-    case "Completed":
-      return "completed";
-    case "Paused":
-      return "paused";
-  }
-}
-
 function compareStatuses(left: ThreadStatusPill, right: ThreadStatusPill): number {
   const byGroupPriority =
-    SORT_GROUP_PRIORITY[resolveSortGroupFromStatus(right)] -
-    SORT_GROUP_PRIORITY[resolveSortGroupFromStatus(left)];
+    SORT_GROUP_PRIORITY[getThreadStatusSortGroup(right)] -
+    SORT_GROUP_PRIORITY[getThreadStatusSortGroup(left)];
   if (byGroupPriority !== 0) {
     return byGroupPriority;
   }
-  return 0;
+  return getThreadStatusPriority(right) - getThreadStatusPriority(left);
 }
 
 function resolveDisplayStatus(
@@ -135,8 +124,8 @@ function resolveDisplayStatus(
     return ownStatus;
   }
 
-  const ownGroup = resolveSortGroupFromStatus(ownStatus);
-  const childGroup = resolveSortGroupFromStatus(childStatus);
+  const ownGroup = getThreadStatusSortGroup(ownStatus);
+  const childGroup = getThreadStatusSortGroup(childStatus);
 
   if (
     SORT_GROUP_PRIORITY[ownGroup] > SORT_GROUP_PRIORITY[childGroup] &&
@@ -206,7 +195,7 @@ export function buildSidebarThreadTree(input: {
       children: childThreads,
       ownStatus,
       displayStatus,
-      sortGroup: resolveSortGroupFromStatus(displayStatus),
+      sortGroup: getThreadStatusSortGroup(displayStatus),
       latestActivityAt,
     };
   };

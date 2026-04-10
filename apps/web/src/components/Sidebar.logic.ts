@@ -11,6 +11,19 @@ import { isLatestTurnSettled } from "../session-logic";
 export const THREAD_SELECTION_SAFE_SELECTOR = "[data-thread-item], [data-thread-selection-safe]";
 export const THREAD_JUMP_HINT_SHOW_DELAY_MS = 100;
 export type SidebarNewThreadEnvMode = "local" | "worktree";
+export type ThreadStatusSortGroup = "needs-attention" | "running" | "paused" | "completed";
+export type ThreadStatusKind =
+  | "pending-approval"
+  | "awaiting-input"
+  | "discussing"
+  | "designing"
+  | "planning"
+  | "working"
+  | "connecting"
+  | "plan-ready"
+  | "paused"
+  | "completed"
+  | "failed";
 type SidebarProject = {
   id: string;
   name: string;
@@ -26,10 +39,13 @@ type SidebarThreadSortInput = Pick<Thread, "createdAt" | "updatedAt"> & {
 export type ThreadTraversalDirection = "previous" | "next";
 
 export interface ThreadStatusPill {
+  kind: ThreadStatusKind;
   label:
     | "Working"
+    | "Planning"
+    | "Designing"
+    | "Discussing"
     | "Connecting"
-    | "Deliberating"
     | "Completed"
     | "Paused"
     | "Pending Approval"
@@ -41,16 +57,105 @@ export interface ThreadStatusPill {
   pulse: boolean;
 }
 
-const THREAD_STATUS_PRIORITY: Record<ThreadStatusPill["label"], number> = {
-  Failed: 6,
-  "Pending Approval": 5,
-  "Awaiting Input": 4,
-  Deliberating: 3,
-  Working: 3,
-  Connecting: 3,
-  "Plan Ready": 2,
-  Paused: 1,
-  Completed: 1,
+const THREAD_STATUS_METADATA: Record<
+  ThreadStatusKind,
+  {
+    label: ThreadStatusPill["label"];
+    colorClass: string;
+    dotClass: string;
+    pulse: boolean;
+    priority: number;
+    sortGroup: ThreadStatusSortGroup;
+  }
+> = {
+  failed: {
+    label: "Failed",
+    colorClass: "text-[var(--destructive-foreground)]",
+    dotClass: "bg-[var(--destructive)]",
+    pulse: false,
+    priority: 100,
+    sortGroup: "needs-attention",
+  },
+  "pending-approval": {
+    label: "Pending Approval",
+    colorClass: "text-[var(--warning-foreground)]",
+    dotClass: "bg-[var(--warning)]",
+    pulse: false,
+    priority: 90,
+    sortGroup: "needs-attention",
+  },
+  "awaiting-input": {
+    label: "Awaiting Input",
+    colorClass: "text-[var(--info-foreground)]",
+    dotClass: "bg-[var(--info)]",
+    pulse: false,
+    priority: 80,
+    sortGroup: "needs-attention",
+  },
+  discussing: {
+    label: "Discussing",
+    colorClass: "text-[var(--feature-phase-running)]",
+    dotClass: "border border-[var(--feature-phase-running)] bg-transparent",
+    pulse: false,
+    priority: 75,
+    sortGroup: "running",
+  },
+  designing: {
+    label: "Designing",
+    colorClass: "text-[var(--success-foreground)]",
+    dotClass: "bg-[var(--success)]",
+    pulse: true,
+    priority: 74,
+    sortGroup: "running",
+  },
+  planning: {
+    label: "Planning",
+    colorClass: "text-[var(--success-foreground)]",
+    dotClass: "bg-[var(--success)]",
+    pulse: true,
+    priority: 73,
+    sortGroup: "running",
+  },
+  working: {
+    label: "Working",
+    colorClass: "text-[var(--success-foreground)]",
+    dotClass: "bg-[var(--success)]",
+    pulse: true,
+    priority: 72,
+    sortGroup: "running",
+  },
+  connecting: {
+    label: "Connecting",
+    colorClass: "text-[var(--feature-phase-running)]",
+    dotClass: "bg-[var(--feature-phase-running)]",
+    pulse: true,
+    priority: 71,
+    sortGroup: "running",
+  },
+  "plan-ready": {
+    label: "Plan Ready",
+    colorClass: "text-[var(--primary)]",
+    dotClass: "bg-[var(--primary)]",
+    pulse: false,
+    priority: 60,
+    sortGroup: "needs-attention",
+  },
+  paused: {
+    label: "Paused",
+    colorClass: "text-[var(--feature-phase-pending)]",
+    dotClass: "bg-[var(--feature-phase-pending)]",
+    pulse: false,
+    priority: 50,
+    sortGroup: "paused",
+  },
+  completed: {
+    label: "Completed",
+    colorClass: "text-[var(--success-foreground)]",
+    dotClass: "bg-[var(--success)]",
+    pulse: false,
+    priority: 40,
+    sortGroup: "completed",
+  },
 };
 
 type ThreadStatusInput = Pick<
@@ -58,6 +163,7 @@ type ThreadStatusInput = Pick<
   | "hasActionableProposedPlan"
   | "hasPendingApprovals"
   | "hasPendingUserInput"
+  | "hasPendingDesignChoice"
   | "interactionMode"
   | "latestTurn"
   | "discussionId"
@@ -329,83 +435,39 @@ export function resolveThreadStatusPill(input: {
   thread: ThreadStatusInput;
 }): ThreadStatusPill | null {
   const { thread } = input;
-  const isDeliberationThread = thread.discussionId != null || thread.role != null;
 
   if (thread.hasPendingApprovals) {
-    return {
-      label: "Pending Approval",
-      colorClass: "text-[var(--warning-foreground)]",
-      dotClass: "bg-[var(--warning)]",
-      pulse: false,
-    };
+    return createThreadStatusPill("pending-approval");
   }
 
-  if (thread.hasPendingUserInput) {
-    return {
-      label: "Awaiting Input",
-      colorClass: "text-[var(--info-foreground)]",
-      dotClass: "bg-[var(--info)]",
-      pulse: false,
-    };
+  if (thread.hasPendingUserInput || thread.hasPendingDesignChoice) {
+    return createThreadStatusPill("awaiting-input");
   }
 
   if (thread.session?.status === "running") {
-    if (isDeliberationThread) {
-      return {
-        label: "Deliberating",
-        colorClass: "text-[var(--feature-phase-running)]",
-        dotClass: "border border-[var(--feature-phase-running)] bg-transparent",
-        pulse: false,
-      };
-    }
-
-    return {
-      label: "Working",
-      colorClass: "text-[var(--success-foreground)]",
-      dotClass: "bg-[var(--success)]",
-      pulse: true,
-    };
+    return createThreadStatusPill(resolveRunningThreadStatusKind(thread));
   }
 
   if (thread.session?.status === "connecting") {
-    return {
-      label: "Connecting",
-      colorClass: "text-[var(--feature-phase-running)]",
-      dotClass: "bg-[var(--feature-phase-running)]",
-      pulse: true,
-    };
+    return createThreadStatusPill("connecting");
   }
 
   if (thread.session?.status === "error") {
-    return {
-      label: "Failed",
-      colorClass: "text-[var(--destructive-foreground)]",
-      dotClass: "bg-[var(--destructive)]",
-      pulse: false,
-    };
+    return createThreadStatusPill("failed");
   }
 
   const hasPlanReadyPrompt =
     !thread.hasPendingUserInput &&
+    !thread.hasPendingDesignChoice &&
     thread.interactionMode === "plan" &&
     isLatestTurnSettled(thread.latestTurn, thread.session) &&
     thread.hasActionableProposedPlan;
   if (hasPlanReadyPrompt) {
-    return {
-      label: "Plan Ready",
-      colorClass: "text-[var(--primary)]",
-      dotClass: "bg-[var(--primary)]",
-      pulse: false,
-    };
+    return createThreadStatusPill("plan-ready");
   }
 
   if (hasUnseenCompletion(thread)) {
-    return {
-      label: "Completed",
-      colorClass: "text-[var(--success-foreground)]",
-      dotClass: "bg-[var(--success)]",
-      pulse: false,
-    };
+    return createThreadStatusPill("completed");
   }
 
   return null;
@@ -420,13 +482,45 @@ export function resolveProjectStatusIndicator(
     if (status === null) continue;
     if (
       highestPriorityStatus === null ||
-      THREAD_STATUS_PRIORITY[status.label] > THREAD_STATUS_PRIORITY[highestPriorityStatus.label]
+      getThreadStatusPriority(status) > getThreadStatusPriority(highestPriorityStatus)
     ) {
       highestPriorityStatus = status;
     }
   }
 
   return highestPriorityStatus;
+}
+
+function createThreadStatusPill(kind: ThreadStatusKind): ThreadStatusPill {
+  const metadata = THREAD_STATUS_METADATA[kind];
+  return {
+    kind,
+    label: metadata.label,
+    colorClass: metadata.colorClass,
+    dotClass: metadata.dotClass,
+    pulse: metadata.pulse,
+  };
+}
+
+function resolveRunningThreadStatusKind(thread: ThreadStatusInput): ThreadStatusKind {
+  if (thread.discussionId != null || thread.role != null) {
+    return "discussing";
+  }
+  if (thread.interactionMode === "design") {
+    return "designing";
+  }
+  if (thread.interactionMode === "plan") {
+    return "planning";
+  }
+  return "working";
+}
+
+export function getThreadStatusPriority(status: ThreadStatusPill): number {
+  return THREAD_STATUS_METADATA[status.kind].priority;
+}
+
+export function getThreadStatusSortGroup(status: ThreadStatusPill): ThreadStatusSortGroup {
+  return THREAD_STATUS_METADATA[status.kind].sortGroup;
 }
 
 export function getVisibleThreadsForProject<T extends Pick<Thread, "id">>(input: {

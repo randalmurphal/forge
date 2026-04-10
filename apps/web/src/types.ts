@@ -185,6 +185,7 @@ export interface SidebarThreadSummary {
   lastSortableActivityAt: string | null;
   hasPendingApprovals: boolean;
   hasPendingUserInput: boolean;
+  hasPendingDesignChoice: boolean;
   hasActionableProposedPlan: boolean;
 }
 

@@ -49,6 +49,7 @@ describe("hasUnseenCompletion", () => {
         hasActionableProposedPlan: false,
         hasPendingApprovals: false,
         hasPendingUserInput: false,
+        hasPendingDesignChoice: false,
         interactionMode: "default",
         latestTurn: makeLatestTurn(),
         lastVisitedAt: "2026-03-09T10:04:00.000Z",
@@ -444,7 +445,8 @@ describe("resolveThreadStatusPill", () => {
     hasActionableProposedPlan: false,
     hasPendingApprovals: false,
     hasPendingUserInput: false,
-    interactionMode: "plan" as const,
+    hasPendingDesignChoice: false,
+    interactionMode: "default" as const,
     latestTurn: null,
     lastVisitedAt: undefined,
     discussionId: null,
@@ -493,31 +495,91 @@ describe("resolveThreadStatusPill", () => {
     });
   });
 
-  it("uses the deliberation status for standalone chat patterns while running", () => {
+  it("uses the planning status for running plan-mode threads", () => {
+    expect(
+      resolveThreadStatusPill({
+        thread: {
+          ...baseThread,
+          interactionMode: "plan",
+        },
+      }),
+    ).toMatchObject({
+      label: "Planning",
+      pulse: true,
+    });
+  });
+
+  it("uses the designing status for running design-mode threads", () => {
+    expect(
+      resolveThreadStatusPill({
+        thread: {
+          ...baseThread,
+          interactionMode: "design",
+        },
+      }),
+    ).toMatchObject({
+      label: "Designing",
+      pulse: true,
+    });
+  });
+
+  it("uses the discussing status for standalone discussion threads while running", () => {
     expect(
       resolveThreadStatusPill({
         thread: {
           ...baseThread,
           discussionId: "interrogate",
+          interactionMode: "design",
         },
       }),
     ).toMatchObject({
-      label: "Deliberating",
+      label: "Discussing",
       pulse: false,
       dotClass: "border border-[var(--feature-phase-running)] bg-transparent",
     });
   });
 
-  it("uses the deliberation status for running multi-agent participant sessions", () => {
+  it("uses the discussing status for running multi-agent participant sessions", () => {
     expect(
       resolveThreadStatusPill({
         thread: {
           ...baseThread,
           role: "advocate",
+          interactionMode: "plan",
         },
       }),
     ).toMatchObject({
-      label: "Deliberating",
+      label: "Discussing",
+      pulse: false,
+    });
+  });
+
+  it("treats pending design choice as awaiting input", () => {
+    expect(
+      resolveThreadStatusPill({
+        thread: {
+          ...baseThread,
+          interactionMode: "design",
+          hasPendingDesignChoice: true,
+        },
+      }),
+    ).toMatchObject({
+      label: "Awaiting Input",
+      pulse: false,
+    });
+  });
+
+  it("keeps pending approval above pending design choice", () => {
+    expect(
+      resolveThreadStatusPill({
+        thread: {
+          ...baseThread,
+          hasPendingApprovals: true,
+          hasPendingDesignChoice: true,
+        },
+      }),
+    ).toMatchObject({
+      label: "Pending Approval",
       pulse: false,
     });
   });
@@ -527,6 +589,7 @@ describe("resolveThreadStatusPill", () => {
       resolveThreadStatusPill({
         thread: {
           ...baseThread,
+          interactionMode: "plan",
           hasActionableProposedPlan: true,
           latestTurn: makeLatestTurn(),
           session: {
@@ -544,6 +607,7 @@ describe("resolveThreadStatusPill", () => {
       resolveThreadStatusPill({
         thread: {
           ...baseThread,
+          interactionMode: "plan",
           latestTurn: makeLatestTurn(),
           session: {
             ...baseThread.session,
@@ -607,19 +671,22 @@ describe("resolveProjectStatusIndicator", () => {
     expect(
       resolveProjectStatusIndicator([
         {
+          kind: "completed",
           label: "Completed",
           colorClass: "text-emerald-600",
           dotClass: "bg-emerald-500",
           pulse: false,
         },
         {
+          kind: "pending-approval",
           label: "Pending Approval",
           colorClass: "text-amber-600",
           dotClass: "bg-amber-500",
           pulse: false,
         },
         {
-          label: "Deliberating",
+          kind: "discussing",
+          label: "Discussing",
           colorClass: "text-sky-600",
           dotClass: "border border-sky-500 bg-transparent",
           pulse: false,
@@ -632,12 +699,14 @@ describe("resolveProjectStatusIndicator", () => {
     expect(
       resolveProjectStatusIndicator([
         {
+          kind: "completed",
           label: "Completed",
           colorClass: "text-emerald-600",
           dotClass: "bg-emerald-500",
           pulse: false,
         },
         {
+          kind: "plan-ready",
           label: "Plan Ready",
           colorClass: "text-violet-600",
           dotClass: "bg-violet-500",
