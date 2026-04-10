@@ -3,6 +3,7 @@ import {
   DEFAULT_SERVER_SETTINGS,
   FORGE_DAEMON_LIFECYCLE_PROTOCOL_VERSION,
   type EditorId,
+  type RateLimitsSnapshot,
   type ServerConfig,
   type ServerConfigStreamEvent,
   type ServerConfigUpdatedPayload,
@@ -93,6 +94,7 @@ export const serverLifecycleCompatibilityIssueAtom =
     "server-lifecycle-compatibility-issue",
     null,
   );
+export const rateLimitsAtom = makeStateAtom<RateLimitsSnapshot | null>("rate-limits", null);
 
 export function getServerConfig(): ServerConfig | null {
   return appAtomRegistry.get(serverConfigAtom);
@@ -171,6 +173,10 @@ export function applyServerConfigEvent(event: ServerConfigStreamEvent): void {
     }
     case "settingsUpdated": {
       applySettingsUpdated(event.payload.settings, event.payload.issues);
+      return;
+    }
+    case "rateLimitsUpdated": {
+      appAtomRegistry.set(rateLimitsAtom, event.payload.rateLimits);
       return;
     }
   }
@@ -383,6 +389,10 @@ export function useServerSettingsPath(): string | null {
 
 export function useServerObservability(): ServerConfig["observability"] | null {
   return useAtomValue(serverConfigAtom, selectObservability);
+}
+
+export function useRateLimits(): RateLimitsSnapshot | null {
+  return useAtomValue(rateLimitsAtom);
 }
 
 export function useServerWelcomeSubscription(

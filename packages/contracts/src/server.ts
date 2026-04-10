@@ -173,11 +173,44 @@ export const ServerConfigStreamSettingsUpdatedEvent = Schema.Struct({
 export type ServerConfigStreamSettingsUpdatedEvent =
   typeof ServerConfigStreamSettingsUpdatedEvent.Type;
 
+// ── Rate-limit schemas ───────────────────────────────────────────────
+
+export const RateLimitWindow = Schema.Struct({
+  usedPercent: Schema.Number,
+  windowDurationMins: Schema.Number,
+  resetsAt: Schema.Number,
+});
+export type RateLimitWindow = typeof RateLimitWindow.Type;
+
+export const RateLimitEntry = Schema.Struct({
+  limitId: TrimmedNonEmptyString,
+  limitName: Schema.NullOr(TrimmedNonEmptyString),
+  primary: Schema.NullOr(RateLimitWindow),
+  secondary: Schema.NullOr(RateLimitWindow),
+});
+export type RateLimitEntry = typeof RateLimitEntry.Type;
+
+export const RateLimitsSnapshot = Schema.Struct({
+  provider: ProviderKind,
+  updatedAt: IsoDateTime,
+  limits: Schema.Array(RateLimitEntry),
+});
+export type RateLimitsSnapshot = typeof RateLimitsSnapshot.Type;
+
+export const ServerConfigStreamRateLimitsUpdatedEvent = Schema.Struct({
+  version: Schema.Literal(1),
+  type: Schema.Literal("rateLimitsUpdated"),
+  payload: Schema.Struct({ rateLimits: RateLimitsSnapshot }),
+});
+export type ServerConfigStreamRateLimitsUpdatedEvent =
+  typeof ServerConfigStreamRateLimitsUpdatedEvent.Type;
+
 export const ServerConfigStreamEvent = Schema.Union([
   ServerConfigStreamSnapshotEvent,
   ServerConfigStreamKeybindingsUpdatedEvent,
   ServerConfigStreamProviderStatusesEvent,
   ServerConfigStreamSettingsUpdatedEvent,
+  ServerConfigStreamRateLimitsUpdatedEvent,
 ]);
 export type ServerConfigStreamEvent = typeof ServerConfigStreamEvent.Type;
 

@@ -26,6 +26,7 @@ import {
   workflowHasDeliberation,
   WS_METHODS,
   WsRpcGroup,
+  type RateLimitsSnapshot,
 } from "@forgetools/contracts";
 import { randomUUID } from "node:crypto";
 import { clamp } from "effect/Number";
@@ -62,6 +63,11 @@ import {
 import { ProjectionThreadSessionRepository } from "./persistence/Services/ProjectionThreadSessions.ts";
 import { ProjectionWorkflowRepository } from "./persistence/Services/ProjectionWorkflows.ts";
 import { ProviderRegistry } from "./provider/Services/ProviderRegistry";
+import { ProviderService } from "./provider/Services/ProviderService.ts";
+import {
+  normalizeCodexRateLimits,
+  mergeClaudeRateLimitEvent,
+} from "./provider/rateLimitNormalizer.ts";
 import { ServerLifecycleEvents } from "./serverLifecycleEvents";
 import { ServerRuntimeStartup } from "./serverRuntimeStartup";
 import { ServerSettingsService } from "./serverSettings";
@@ -591,6 +597,7 @@ const WsRpcLayer = WsRpcGroup.toLayer(
     const git = yield* GitCore;
     const terminalManager = yield* TerminalManager;
     const providerRegistry = yield* ProviderRegistry;
+    const providerService = yield* ProviderService;
     const config = yield* ServerConfig;
     const lifecycleEvents = yield* ServerLifecycleEvents;
     const serverSettings = yield* ServerSettingsService;
@@ -1659,13 +1666,57 @@ const WsRpcLayer = WsRpcGroup.toLayer(
               })),
             );
 
+            const rateLimitsStream = providerService.streamEvents.pipe(
+              Stream.filter(
+                (event): event is typeof event & { type: "account.rate-limits.updated" } =>
+                  event.type === "account.rate-limits.updated",
+              ),
+              Stream.mapAccum(
+                () => new Map<string, RateLimitsSnapshot>(),
+                (acc, event) => {
+                  const prev = acc.get(event.provider) ?? null;
+                  let snapshot: RateLimitsSnapshot | null;
+                  switch (event.provider) {
+                    case "codex":
+                      snapshot = normalizeCodexRateLimits(
+                        event.payload.rateLimits,
+                        event.createdAt,
+                      );
+                      break;
+                    case "claudeAgent":
+                      snapshot = mergeClaudeRateLimitEvent(
+                        event.payload.rateLimits,
+                        prev,
+                        event.createdAt,
+                      );
+                      break;
+                    default:
+                      snapshot = null;
+                      break;
+                  }
+                  if (!snapshot) return [acc, []] as const;
+                  const next = new Map(acc);
+                  next.set(event.provider, snapshot);
+                  return [next, [snapshot]] as const;
+                },
+              ),
+              Stream.map((snapshot) => ({
+                version: 1 as const,
+                type: "rateLimitsUpdated" as const,
+                payload: { rateLimits: snapshot },
+              })),
+            );
+
             return Stream.concat(
               Stream.make({
                 version: 1 as const,
                 type: "snapshot" as const,
                 config: yield* loadServerConfig,
               }),
-              Stream.merge(keybindingsUpdates, Stream.merge(providerStatuses, settingsUpdates)),
+              Stream.merge(
+                keybindingsUpdates,
+                Stream.merge(providerStatuses, Stream.merge(settingsUpdates, rateLimitsStream)),
+              ),
             );
           }),
           { "rpc.aggregate": "server" },

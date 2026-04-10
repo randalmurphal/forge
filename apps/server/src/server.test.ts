@@ -89,6 +89,7 @@ import {
   ProviderRegistry,
   type ProviderRegistryShape,
 } from "./provider/Services/ProviderRegistry.ts";
+import { ProviderService, type ProviderServiceShape } from "./provider/Services/ProviderService.ts";
 import { ServerLifecycleEvents, type ServerLifecycleEventsShape } from "./serverLifecycleEvents.ts";
 import { ServerRuntimeStartup, type ServerRuntimeStartupShape } from "./serverRuntimeStartup.ts";
 import { ServerSettingsService, type ServerSettingsShape } from "./serverSettings.ts";
@@ -184,6 +185,7 @@ const buildAppUnderTest = (options?: {
   layers?: {
     keybindings?: Partial<KeybindingsShape>;
     providerRegistry?: Partial<ProviderRegistryShape>;
+    providerService?: Partial<ProviderServiceShape>;
     serverSettings?: Partial<ServerSettingsShape>;
     open?: Partial<OpenShape>;
     gitCore?: Partial<GitCoreShape>;
@@ -250,6 +252,10 @@ const buildAppUnderTest = (options?: {
         refresh: () => Effect.succeed([]),
         streamChanges: Stream.empty,
         ...options?.layers?.providerRegistry,
+      }),
+      Layer.mock(ProviderService)({
+        streamEvents: Stream.empty,
+        ...options?.layers?.providerService,
       }),
       Layer.mock(ServerSettingsService)({
         start: Effect.void,
