@@ -127,6 +127,7 @@ describe("OrchestrationEngine", () => {
           latestTurn: null,
           createdAt: "2026-03-03T00:00:02.000Z",
           updatedAt: "2026-03-03T00:00:03.000Z",
+          pinnedAt: null,
           archivedAt: null,
           deletedAt: null,
           parentThreadId: null,
@@ -308,6 +309,98 @@ describe("OrchestrationEngine", () => {
       (await system.run(engine.getReadModel())).threads.find(
         (thread) => thread.id === "thread-archive",
       )?.archivedAt,
+    ).toBeNull();
+
+    await system.dispose();
+  });
+
+  it("pins and unpins threads idempotently through orchestration commands", async () => {
+    const system = await createOrchestrationSystem();
+    const { engine } = system;
+    const createdAt = now();
+
+    await system.run(
+      engine.dispatch({
+        type: "project.create",
+        commandId: CommandId.makeUnsafe("cmd-project-pin-create"),
+        projectId: asProjectId("project-pin"),
+        title: "Project Pin",
+        workspaceRoot: "/tmp/project-pin",
+        defaultModelSelection: {
+          provider: "codex",
+          model: "gpt-5-codex",
+        },
+        createdAt,
+      }),
+    );
+    await system.run(
+      engine.dispatch({
+        type: "thread.create",
+        commandId: CommandId.makeUnsafe("cmd-thread-pin-create"),
+        threadId: ThreadId.makeUnsafe("thread-pin"),
+        projectId: asProjectId("project-pin"),
+        title: "Pin me",
+        modelSelection: {
+          provider: "codex",
+          model: "gpt-5-codex",
+        },
+        interactionMode: DEFAULT_PROVIDER_INTERACTION_MODE,
+        runtimeMode: "full-access",
+        branch: null,
+        worktreePath: null,
+        createdAt,
+      }),
+    );
+
+    await system.run(
+      engine.dispatch({
+        type: "thread.pin",
+        commandId: CommandId.makeUnsafe("cmd-thread-pin"),
+        threadId: ThreadId.makeUnsafe("thread-pin"),
+      }),
+    );
+    const pinnedReadModel = await system.run(engine.getReadModel());
+    const pinnedThread = pinnedReadModel.threads.find((thread) => thread.id === "thread-pin");
+    expect(pinnedThread?.pinnedAt).not.toBeNull();
+    const pinnedSequence = pinnedReadModel.snapshotSequence;
+
+    await system.run(
+      engine.dispatch({
+        type: "thread.pin",
+        commandId: CommandId.makeUnsafe("cmd-thread-pin-again"),
+        threadId: ThreadId.makeUnsafe("thread-pin"),
+      }),
+    );
+    const repinnedReadModel = await system.run(engine.getReadModel());
+    expect(repinnedReadModel.snapshotSequence).toBe(pinnedSequence);
+    expect(repinnedReadModel.threads.find((thread) => thread.id === "thread-pin")?.pinnedAt).toBe(
+      pinnedThread?.pinnedAt ?? null,
+    );
+
+    await system.run(
+      engine.dispatch({
+        type: "thread.unpin",
+        commandId: CommandId.makeUnsafe("cmd-thread-unpin"),
+        threadId: ThreadId.makeUnsafe("thread-pin"),
+      }),
+    );
+    const unpinnedReadModel = await system.run(engine.getReadModel());
+    expect(
+      unpinnedReadModel.threads.find((thread) => thread.id === "thread-pin")?.pinnedAt,
+    ).toBeNull();
+    const unpinnedSequence = unpinnedReadModel.snapshotSequence;
+
+    await system.run(
+      engine.dispatch({
+        type: "thread.unpin",
+        commandId: CommandId.makeUnsafe("cmd-thread-unpin-again"),
+        threadId: ThreadId.makeUnsafe("thread-pin"),
+      }),
+    );
+    const reunpinnedReadModel = await system.run(engine.getReadModel());
+    expect(reunpinnedReadModel.snapshotSequence).toBe(unpinnedSequence);
+    expect(
+      reunpinnedReadModel.threads.find((thread) => thread.id === "thread-pin")?.pinnedAt,
     ).toBeNull();
 
     await system.dispose();

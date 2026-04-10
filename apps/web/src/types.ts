@@ -141,6 +141,7 @@ export interface Thread {
   proposedPlans: ProposedPlan[];
   error: string | null;
   createdAt: string;
+  pinnedAt: string | null;
   archivedAt: string | null;
   updatedAt?: string | undefined;
   latestTurn: OrchestrationLatestTurn | null;
@@ -171,6 +172,7 @@ export interface SidebarThreadSummary {
   childThreadIds?: ThreadId[];
   session: ThreadSession | null;
   createdAt: string;
+  pinnedAt: string | null;
   archivedAt: string | null;
   updatedAt?: string | undefined;
   latestTurn: OrchestrationLatestTurn | null;

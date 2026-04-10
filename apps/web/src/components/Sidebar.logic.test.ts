@@ -778,6 +778,7 @@ function makeThread(overrides: Partial<Thread> = {}): Thread {
     turnDiffSummaries: [],
     activities: [],
     ...overrides,
+    pinnedAt: overrides.pinnedAt ?? null,
   };
 }
 

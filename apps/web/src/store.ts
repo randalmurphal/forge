@@ -237,6 +237,7 @@ function mapThread(thread: OrchestrationThread): Thread {
     proposedPlans: thread.proposedPlans.map(mapProposedPlan),
     error: thread.session?.lastError ?? null,
     createdAt: thread.createdAt,
+    pinnedAt: thread.pinnedAt,
     archivedAt: thread.archivedAt,
     updatedAt: thread.updatedAt,
     latestTurn: thread.latestTurn,
@@ -341,6 +342,7 @@ function buildSidebarThreadSummary(thread: Thread): SidebarThreadSummary {
     childThreadIds: [...(thread.childThreadIds ?? [])],
     session: thread.session,
     createdAt: thread.createdAt,
+    pinnedAt: thread.pinnedAt,
     archivedAt: thread.archivedAt,
     updatedAt: thread.updatedAt,
     latestTurn: thread.latestTurn,
@@ -381,6 +383,7 @@ function sidebarThreadSummariesEqual(
     ) &&
     left.session === right.session &&
     left.createdAt === right.createdAt &&
+    left.pinnedAt === right.pinnedAt &&
     left.archivedAt === right.archivedAt &&
     left.updatedAt === right.updatedAt &&
     left.latestTurn === right.latestTurn &&
@@ -896,6 +899,7 @@ export function applyOrchestrationEvent(state: AppState, event: ForgeEvent): App
         latestTurn: null,
         createdAt: payload.createdAt,
         updatedAt: payload.updatedAt,
+        pinnedAt: null,
         archivedAt: null,
         deletedAt: null,
         spawnBranch,
@@ -1004,6 +1008,20 @@ export function applyOrchestrationEvent(state: AppState, event: ForgeEvent): App
         ...thread,
         archivedAt: null,
         updatedAt: event.payload.updatedAt,
+      }));
+    }
+
+    case "thread.pinned": {
+      return updateThreadState(state, event.payload.threadId, (thread) => ({
+        ...thread,
+        pinnedAt: event.payload.pinnedAt,
+      }));
+    }
+
+    case "thread.unpinned": {
+      return updateThreadState(state, event.payload.threadId, (thread) => ({
+        ...thread,
+        pinnedAt: null,
       }));
     }
 

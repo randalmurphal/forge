@@ -29,6 +29,7 @@ import {
   SidebarMenuSub,
   SidebarMenuSubButton,
   SidebarMenuSubItem,
+  SidebarSeparator,
 } from "../ui/sidebar";
 
 const SIDEBAR_LIST_ANIMATION_OPTIONS = {
@@ -145,12 +146,14 @@ export function SidebarProjectItem(props: {
     hasHiddenThreads,
     hiddenThreadStatus,
     orderedProjectThreadIds,
+    pinnedRenderedTreeNodes,
     project,
     projectStatus,
-    renderedTreeNodes,
     showEmptyThreadState,
+    showPinnedSeparator,
     shouldShowThreadPanel,
     isThreadListExpanded,
+    unpinnedRenderedTreeNodes,
   } = props.renderedProject;
 
   const threadRowBindings: SidebarThreadRowBindings = {
@@ -279,9 +282,27 @@ export function SidebarProjectItem(props: {
             </div>
           </SidebarMenuSubItem>
         ) : null}
-        {shouldShowThreadPanel ? (
+        {shouldShowThreadPanel && pinnedRenderedTreeNodes.length > 0 ? (
           <SidebarTree
-            nodes={renderedTreeNodes}
+            nodes={pinnedRenderedTreeNodes}
+            renderNode={(treeNode: SidebarTreeVisibleNode) => (
+              <SidebarThreadRow
+                key={treeNode.thread.id}
+                threadId={treeNode.thread.id}
+                treeNode={treeNode}
+                bindings={threadRowBindings}
+              />
+            )}
+          />
+        ) : null}
+        {shouldShowThreadPanel && showPinnedSeparator ? (
+          <SidebarMenuSubItem className="w-full" data-thread-selection-safe>
+            <SidebarSeparator className="mx-2 my-1 w-auto opacity-50" />
+          </SidebarMenuSubItem>
+        ) : null}
+        {shouldShowThreadPanel && unpinnedRenderedTreeNodes.length > 0 ? (
+          <SidebarTree
+            nodes={unpinnedRenderedTreeNodes}
             renderNode={(treeNode: SidebarTreeVisibleNode) => (
               <SidebarThreadRow
                 key={treeNode.thread.id}

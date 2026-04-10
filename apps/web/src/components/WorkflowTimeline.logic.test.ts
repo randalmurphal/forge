@@ -149,6 +149,7 @@ function makeWorkflowContainerThread(overrides: Partial<Thread> = {}): Thread {
     turnDiffSummaries: [],
     activities: [],
     ...overrides,
+    pinnedAt: overrides.pinnedAt ?? null,
   };
 }
 

@@ -26,7 +26,11 @@ const modelSelection = {
   model: "gpt-5-codex" as const,
 };
 
-const makeThread = (threadId: string, projectId: string): OrchestrationThread => ({
+const makeThread = (
+  threadId: string,
+  projectId: string,
+  overrides: Partial<OrchestrationThread> = {},
+): OrchestrationThread => ({
   id: ThreadId.makeUnsafe(threadId),
   projectId: ProjectId.makeUnsafe(projectId),
   title: `Thread ${threadId}`,
@@ -38,6 +42,7 @@ const makeThread = (threadId: string, projectId: string): OrchestrationThread =>
   latestTurn: null,
   createdAt: now,
   updatedAt: now,
+  pinnedAt: null,
   archivedAt: null,
   deletedAt: null,
   parentThreadId: null,
@@ -54,6 +59,7 @@ const makeThread = (threadId: string, projectId: string): OrchestrationThread =>
   activities: [],
   checkpoints: [],
   session: null,
+  ...overrides,
 });
 
 const makeReadModel = (): OrchestrationReadModel => ({
@@ -179,6 +185,49 @@ function expectEventArray(
 }
 
 describe("decider workflow commands", () => {
+  it("rejects thread.pin for child threads", async () => {
+    await expectInvariant(
+      {
+        type: "thread.pin",
+        commandId: CommandId.makeUnsafe("cmd-pin-child"),
+        threadId: ThreadId.makeUnsafe("thread-2"),
+      },
+      "not a root thread",
+      {
+        ...makeReadModel(),
+        threads: [
+          makeThread("thread-1", "project-a"),
+          makeThread("thread-2", "project-a", {
+            parentThreadId: ThreadId.makeUnsafe("thread-1"),
+          }),
+          makeThread("thread-3", "project-b"),
+        ],
+      },
+    );
+  });
+
+  it("rejects thread.unpin for deleted threads", async () => {
+    await expectInvariant(
+      {
+        type: "thread.unpin",
+        commandId: CommandId.makeUnsafe("cmd-unpin-deleted"),
+        threadId: ThreadId.makeUnsafe("thread-1"),
+      },
+      "is deleted",
+      {
+        ...makeReadModel(),
+        threads: [
+          makeThread("thread-1", "project-a", {
+            deletedAt: now,
+            pinnedAt: now,
+          }),
+          makeThread("thread-2", "project-a"),
+          makeThread("thread-3", "project-b"),
+        ],
+      },
+    );
+  });
+
   const successCases: ReadonlyArray<SuccessCase> = [
     {
       name: "thread.correct emits thread.correction-queued",

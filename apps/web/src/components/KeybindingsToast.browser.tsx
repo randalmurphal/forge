@@ -112,6 +112,7 @@ function createMinimalSnapshot(): OrchestrationReadModel {
         latestTurn: null,
         createdAt: NOW_ISO,
         updatedAt: NOW_ISO,
+        pinnedAt: null,
         archivedAt: null,
         deletedAt: null,
         parentThreadId: null,

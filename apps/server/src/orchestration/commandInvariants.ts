@@ -193,6 +193,44 @@ export function requireThreadWithoutActivePhase(input: {
   );
 }
 
+export function requireThreadNotDeleted(input: {
+  readonly readModel: OrchestrationReadModel;
+  readonly command: ForgeCommand;
+  readonly threadId: ThreadId;
+}): Effect.Effect<OrchestrationThread, OrchestrationCommandInvariantError> {
+  return requireThread(input).pipe(
+    Effect.flatMap((thread) =>
+      thread.deletedAt === null
+        ? Effect.succeed(thread)
+        : Effect.fail(
+            invariantError(
+              input.command.type,
+              `Thread '${input.threadId}' is deleted and cannot handle command '${input.command.type}'.`,
+            ),
+          ),
+    ),
+  );
+}
+
+export function requireRootThread(input: {
+  readonly readModel: OrchestrationReadModel;
+  readonly command: ForgeCommand;
+  readonly threadId: ThreadId;
+}): Effect.Effect<OrchestrationThread, OrchestrationCommandInvariantError> {
+  return requireThread(input).pipe(
+    Effect.flatMap((thread) =>
+      thread.parentThreadId === null
+        ? Effect.succeed(thread)
+        : Effect.fail(
+            invariantError(
+              input.command.type,
+              `Thread '${input.threadId}' is not a root thread and cannot handle command '${input.command.type}'.`,
+            ),
+          ),
+    ),
+  );
+}
+
 export function requireThreadHasMessages(input: {
   readonly readModel: OrchestrationReadModel;
   readonly command: ForgeCommand;

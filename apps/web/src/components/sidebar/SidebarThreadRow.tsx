@@ -3,6 +3,7 @@ import {
   ChevronRightIcon,
   GitPullRequestIcon,
   PaletteIcon,
+  PinIcon,
   TerminalIcon,
 } from "lucide-react";
 import type { Dispatch, MouseEvent, MutableRefObject, SetStateAction } from "react";
@@ -64,6 +65,7 @@ export interface SidebarThreadRowBindings {
   cancelRename: () => void;
   attemptArchiveThread: (threadId: ThreadId) => Promise<void>;
   openPrLink: (event: MouseEvent<HTMLElement>, prUrl: string) => void;
+  togglePinnedThread: (threadId: ThreadId, nextPinned: boolean) => Promise<void>;
   toggleTreeNodeExpansion: (threadId: ThreadId) => void;
   prByThreadId: ReadonlyMap<ThreadId, ThreadPr | null>;
 }
@@ -170,6 +172,7 @@ export function SidebarThreadRow(props: {
       : "pointer-events-none";
   const roleLabel = formatThreadRoleLabel(thread.role ?? null);
   const isChildThread = (props.treeNode?.depth ?? 0) > 0;
+  const isPinned = !isChildThread && thread.pinnedAt !== null;
   const rowPaddingLeft = 8 + (props.treeNode?.depth ?? 0) * 14;
   const isExpandable = props.treeNode?.isExpandable ?? false;
   const showChildMeta = isChildThread;
@@ -266,6 +269,39 @@ export function SidebarThreadRow(props: {
             ) : (
               <span className="mt-0.5 inline-flex size-4 shrink-0" aria-hidden="true" />
             )
+          ) : null}
+          {!isChildThread ? (
+            <div className="mt-0.5 inline-flex size-4 shrink-0 items-center justify-center">
+              <Tooltip>
+                <TooltipTrigger
+                  render={
+                    <button
+                      type="button"
+                      data-thread-selection-safe
+                      data-testid={`thread-pin-${thread.id}`}
+                      aria-label={isPinned ? `Unpin ${thread.title}` : `Pin ${thread.title}`}
+                      aria-pressed={isPinned}
+                      className={`inline-flex size-4 items-center justify-center rounded-sm transition-[opacity,color,background-color] focus-visible:outline-hidden focus-visible:ring-1 focus-visible:ring-ring ${
+                        isPinned
+                          ? "cursor-pointer text-foreground/85 hover:bg-accent hover:text-foreground"
+                          : "pointer-events-none text-muted-foreground/65 opacity-0 group-hover/menu-sub-item:pointer-events-auto group-hover/menu-sub-item:opacity-100 group-focus-within/menu-sub-item:pointer-events-auto group-focus-within/menu-sub-item:opacity-100 hover:bg-accent hover:text-foreground"
+                      }`}
+                      onPointerDown={(event) => {
+                        event.stopPropagation();
+                      }}
+                      onClick={(event) => {
+                        event.preventDefault();
+                        event.stopPropagation();
+                        void props.bindings.togglePinnedThread(thread.id, !isPinned);
+                      }}
+                    >
+                      <PinIcon className={`size-3 ${isPinned ? "fill-current" : ""}`} />
+                    </button>
+                  }
+                />
+                <TooltipPopup side="top">{isPinned ? "Unpin" : "Pin"}</TooltipPopup>
+              </Tooltip>
+            </div>
           ) : null}
           {prStatus ? (
             <Tooltip>

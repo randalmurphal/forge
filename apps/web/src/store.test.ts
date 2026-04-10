@@ -54,6 +54,7 @@ function makeThread(overrides: Partial<Thread> = {}): Thread {
     branch: null,
     worktreePath: null,
     ...overrides,
+    pinnedAt: overrides.pinnedAt ?? null,
   };
 }
 
@@ -168,6 +169,7 @@ function makeReadModelThread(overrides: Partial<OrchestrationReadModel["threads"
     checkpoints: [],
     session: null,
     ...overrides,
+    pinnedAt: overrides.pinnedAt ?? null,
   } satisfies OrchestrationReadModel["threads"][number];
 }
 
@@ -381,6 +383,39 @@ describe("incremental orchestration updates", () => {
     );
 
     expect(next.bootstrapComplete).toBe(false);
+  });
+
+  it("applies thread pin and unpin events without mutating updatedAt", () => {
+    const threadId = ThreadId.makeUnsafe("thread-pin");
+    const initialState = makeState(
+      makeThread({
+        id: threadId,
+        updatedAt: "2026-02-27T00:05:00.000Z",
+      }),
+    );
+
+    const pinned = applyOrchestrationEvent(
+      initialState,
+      makeEvent("thread.pinned", {
+        threadId,
+        pinnedAt: "2026-02-27T00:06:00.000Z",
+      }),
+    );
+
+    expect(pinned.threads[0]?.pinnedAt).toBe("2026-02-27T00:06:00.000Z");
+    expect(pinned.threads[0]?.updatedAt).toBe("2026-02-27T00:05:00.000Z");
+    expect(pinned.sidebarThreadsById[threadId]?.pinnedAt).toBe("2026-02-27T00:06:00.000Z");
+
+    const unpinned = applyOrchestrationEvent(
+      pinned,
+      makeEvent("thread.unpinned", {
+        threadId,
+        unpinnedAt: "2026-02-27T00:07:00.000Z",
+      }),
+    );
+
+    expect(unpinned.threads[0]?.pinnedAt).toBeNull();
+    expect(unpinned.threads[0]?.updatedAt).toBe("2026-02-27T00:05:00.000Z");
   });
 
   it("applies session-style thread.message-sent events", () => {

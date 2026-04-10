@@ -51,7 +51,7 @@ export default function Sidebar() {
   const appSettings = useSettings();
   const { updateSettings } = useUpdateSettings();
   const { activeDraftThread, activeThread, handleNewThread } = useHandleNewThread();
-  const { archiveThread, deleteThread, forkThread } = useThreadActions();
+  const { archiveThread, deleteThread, forkThread, pinThread, unpinThread } = useThreadActions();
   const routeThreadId = useParams({
     strict: false,
     select: (params) => (params.threadId ? ThreadId.makeUnsafe(params.threadId) : null),
@@ -121,6 +121,7 @@ export default function Sidebar() {
     clearProjectDraftThreadId,
     navigate,
     archiveThread,
+    pinThread,
     deleteThread,
     forkThread,
     handleNewThread,
@@ -136,6 +137,7 @@ export default function Sidebar() {
     clearSelection,
     removeFromSelection,
     setSelectionAnchor,
+    unpinThread,
     expandedThreadListsByProject,
     setExpandedThreadListsByProject,
     expandedSidebarTreeThreadIds,
@@ -240,6 +242,7 @@ export default function Sidebar() {
             cancelRename: threadActions.cancelRename,
             attemptArchiveThread: threadActions.attemptArchiveThread,
             openPrLink: threadActions.openPrLink,
+            togglePinnedThread: threadActions.togglePinnedThread,
             toggleTreeNodeExpansion: threadActions.toggleSidebarTreeExpansion,
           }}
           prByThreadId={sidebarData.prByThreadId}

@@ -145,6 +145,7 @@ describe("orchestration projector", () => {
         latestTurn: null,
         createdAt: now,
         updatedAt: now,
+        pinnedAt: null,
         archivedAt: null,
         deletedAt: null,
         parentThreadId: null,
@@ -164,6 +165,83 @@ describe("orchestration projector", () => {
         session: null,
       },
     ]);
+  });
+
+  it("applies thread.pinned and thread.unpinned events without mutating updatedAt", async () => {
+    const createdAt = "2026-04-10T00:00:00.000Z";
+    const pinnedAt = "2026-04-10T00:05:00.000Z";
+    const unpinnedAt = "2026-04-10T00:06:00.000Z";
+    const model = createEmptyReadModel(createdAt);
+
+    const created = await Effect.runPromise(
+      projectEvent(
+        model,
+        makeEvent({
+          sequence: 1,
+          type: "thread.created",
+          aggregateKind: "thread",
+          aggregateId: "thread-1",
+          occurredAt: createdAt,
+          commandId: "cmd-thread-create",
+          payload: {
+            threadId: "thread-1",
+            projectId: "project-1",
+            title: "demo",
+            modelSelection: {
+              provider: "codex",
+              model: "gpt-5-codex",
+            },
+            runtimeMode: "full-access",
+            branch: null,
+            worktreePath: null,
+            createdAt,
+            updatedAt: createdAt,
+          },
+        }),
+      ),
+    );
+
+    const pinned = await Effect.runPromise(
+      projectEvent(
+        created,
+        makeEvent({
+          sequence: 2,
+          type: "thread.pinned",
+          aggregateKind: "thread",
+          aggregateId: "thread-1",
+          occurredAt: pinnedAt,
+          commandId: "cmd-thread-pin",
+          payload: {
+            threadId: "thread-1",
+            pinnedAt,
+          },
+        }),
+      ),
+    );
+
+    expect(pinned.threads[0]?.pinnedAt).toBe(pinnedAt);
+    expect(pinned.threads[0]?.updatedAt).toBe(createdAt);
+
+    const unpinned = await Effect.runPromise(
+      projectEvent(
+        pinned,
+        makeEvent({
+          sequence: 3,
+          type: "thread.unpinned",
+          aggregateKind: "thread",
+          aggregateId: "thread-1",
+          occurredAt: unpinnedAt,
+          commandId: "cmd-thread-unpin",
+          payload: {
+            threadId: "thread-1",
+            unpinnedAt,
+          },
+        }),
+      ),
+    );
+
+    expect(unpinned.threads[0]?.pinnedAt).toBeNull();
+    expect(unpinned.threads[0]?.updatedAt).toBe(createdAt);
   });
 
   it("rebinds agent diffs when the assistant message arrives after the diff upsert", async () => {

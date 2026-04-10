@@ -181,10 +181,21 @@ const makeOrchestrationEngine = Effect.gen(function* () {
 
               const lastSavedEvent = committedEvents.at(-1) ?? null;
               if (lastSavedEvent === null) {
-                return yield* new OrchestrationCommandInvariantError({
-                  commandType: envelope.command.type,
-                  detail: "Command produced no events.",
+                yield* commandReceiptRepository.upsert({
+                  commandId: envelope.command.commandId,
+                  aggregateKind: aggregateRef.aggregateKind,
+                  aggregateId: aggregateRef.aggregateId,
+                  acceptedAt: new Date().toISOString(),
+                  resultSequence: readModel.snapshotSequence,
+                  status: "accepted",
+                  error: null,
                 });
+
+                return {
+                  committedEvents,
+                  lastSequence: readModel.snapshotSequence,
+                  nextReadModel,
+                } as const;
               }
 
               yield* commandReceiptRepository.upsert({

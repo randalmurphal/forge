@@ -37,11 +37,14 @@ export interface RenderedSidebarProject {
   orderedProjectThreadIds: readonly ThreadId[];
   project: SidebarProjectSnapshot;
   projectStatus: ReturnType<typeof resolveProjectStatusIndicator>;
+  pinnedRenderedTreeNodes: readonly SidebarTreeVisibleNode[];
   renderedTreeNodes: readonly SidebarTreeVisibleNode[];
   renderedThreadIds: readonly ThreadId[];
   showEmptyThreadState: boolean;
+  showPinnedSeparator: boolean;
   shouldShowThreadPanel: boolean;
   isThreadListExpanded: boolean;
+  unpinnedRenderedTreeNodes: readonly SidebarTreeVisibleNode[];
 }
 
 export function useSidebarData(input: {
@@ -167,6 +170,8 @@ export function useSidebarData(input: {
             }),
           ),
         });
+        const pinnedTreeNodes = treeNodes.filter((node) => node.thread.pinnedAt !== null);
+        const unpinnedTreeNodes = treeNodes.filter((node) => node.thread.pinnedAt === null);
         const activeThreadId = input.routeThreadId ?? undefined;
         const isThreadListExpanded = input.expandedThreadListsByProject.has(project.id);
         const effectiveExpandedTreeThreadIds = syncExpandedSidebarTreeState({
@@ -174,11 +179,16 @@ export function useSidebarData(input: {
           expandedThreadIds: input.expandedSidebarTreeThreadIds,
           activeThreadId: input.routeThreadId,
         });
-        const flatTreeNodes = flattenSidebarThreadTree({
-          nodes: treeNodes,
+        const flatPinnedTreeNodes = flattenSidebarThreadTree({
+          nodes: pinnedTreeNodes,
           expandedThreadIds: effectiveExpandedTreeThreadIds,
         });
-        const previewTreeNodes = flatTreeNodes.map((node) => ({
+        const flatUnpinnedTreeNodes = flattenSidebarThreadTree({
+          nodes: unpinnedTreeNodes,
+          expandedThreadIds: effectiveExpandedTreeThreadIds,
+        });
+        const flatTreeNodes = [...flatPinnedTreeNodes, ...flatUnpinnedTreeNodes];
+        const previewTreeNodes = flatUnpinnedTreeNodes.map((node) => ({
           id: node.thread.id,
           node,
         }));
@@ -230,11 +240,21 @@ export function useSidebarData(input: {
           hiddenProjectTreeNodes.map((node) => node.displayStatus),
         );
         const orderedProjectThreadIds = flatTreeNodes.map((node) => node.thread.id);
-        const renderedTreeNodes = pinnedCollapsedThread
-          ? [pinnedCollapsedThread]
+        const pinnedRenderedTreeNodes = pinnedCollapsedThread
+          ? pinnedCollapsedThread.thread.pinnedAt !== null
+            ? [pinnedCollapsedThread]
+            : []
+          : flatPinnedTreeNodes;
+        const unpinnedRenderedTreeNodes = pinnedCollapsedThread
+          ? pinnedCollapsedThread.thread.pinnedAt === null
+            ? [pinnedCollapsedThread]
+            : []
           : visibleProjectTreeNodes.map((entry) => entry.node);
+        const renderedTreeNodes = [...pinnedRenderedTreeNodes, ...unpinnedRenderedTreeNodes];
         const renderedThreadIds = renderedTreeNodes.map((node) => node.thread.id);
         const showEmptyThreadState = project.expanded && treeNodes.length === 0;
+        const showPinnedSeparator =
+          pinnedRenderedTreeNodes.length > 0 && unpinnedRenderedTreeNodes.length > 0;
 
         return {
           hasHiddenThreads,
@@ -242,11 +262,14 @@ export function useSidebarData(input: {
           orderedProjectThreadIds,
           project,
           projectStatus,
+          pinnedRenderedTreeNodes,
           renderedTreeNodes,
           renderedThreadIds,
           showEmptyThreadState,
+          showPinnedSeparator,
           shouldShowThreadPanel,
           isThreadListExpanded,
+          unpinnedRenderedTreeNodes,
         };
       }),
     [

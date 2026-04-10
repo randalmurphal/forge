@@ -294,6 +294,7 @@ projectionSnapshotLayer("ProjectionSnapshotQuery", (it) => {
           },
           createdAt: "2026-02-24T00:00:02.000Z",
           updatedAt: "2026-02-24T00:00:03.000Z",
+          pinnedAt: null,
           archivedAt: null,
           deletedAt: null,
           parentThreadId: null,

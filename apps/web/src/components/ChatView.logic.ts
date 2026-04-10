@@ -73,6 +73,7 @@ export function buildLocalDraftThread(
     messages: [],
     error,
     createdAt: draftThread.createdAt,
+    pinnedAt: null,
     archivedAt: null,
     latestTurn: null,
     branch: draftThread.branch,

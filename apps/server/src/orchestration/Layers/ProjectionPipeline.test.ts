@@ -3442,4 +3442,89 @@ engineLayer("OrchestrationProjectionPipeline via engine dispatch", (it) => {
       ]);
     }),
   );
+
+  it.effect("projects thread pinning without mutating updated_at", () =>
+    Effect.gen(function* () {
+      const engine = yield* OrchestrationEngineService;
+      const sql = yield* SqlClient.SqlClient;
+      const createdAt = "2026-04-10T01:00:00.000Z";
+
+      yield* engine.dispatch({
+        type: "project.create",
+        commandId: CommandId.makeUnsafe("cmd-pin-project-create"),
+        projectId: ProjectId.makeUnsafe("project-pin"),
+        title: "Pin Project",
+        workspaceRoot: "/tmp/project-pin",
+        defaultModelSelection: {
+          provider: "codex",
+          model: "gpt-5-codex",
+        },
+        createdAt,
+      });
+
+      yield* engine.dispatch({
+        type: "thread.create",
+        commandId: CommandId.makeUnsafe("cmd-pin-thread-create"),
+        threadId: ThreadId.makeUnsafe("thread-pin"),
+        projectId: ProjectId.makeUnsafe("project-pin"),
+        title: "Pin Me",
+        modelSelection: {
+          provider: "codex",
+          model: "gpt-5-codex",
+        },
+        interactionMode: "default",
+        runtimeMode: "full-access",
+        branch: null,
+        worktreePath: null,
+        createdAt,
+      });
+
+      yield* engine.dispatch({
+        type: "thread.pin",
+        commandId: CommandId.makeUnsafe("cmd-pin-thread"),
+        threadId: ThreadId.makeUnsafe("thread-pin"),
+      });
+
+      const rowsAfterPin = yield* sql<{
+        readonly pinnedAt: string | null;
+        readonly updatedAt: string;
+      }>`
+        SELECT
+          pinned_at AS "pinnedAt",
+          updated_at AS "updatedAt"
+        FROM projection_threads
+        WHERE thread_id = 'thread-pin'
+      `;
+      assert.deepEqual(rowsAfterPin, [
+        {
+          pinnedAt: rowsAfterPin[0]?.pinnedAt ?? null,
+          updatedAt: createdAt,
+        },
+      ]);
+      assert.isNotNull(rowsAfterPin[0]?.pinnedAt);
+
+      yield* engine.dispatch({
+        type: "thread.unpin",
+        commandId: CommandId.makeUnsafe("cmd-unpin-thread"),
+        threadId: ThreadId.makeUnsafe("thread-pin"),
+      });
+
+      const rowsAfterUnpin = yield* sql<{
+        readonly pinnedAt: string | null;
+        readonly updatedAt: string;
+      }>`
+        SELECT
+          pinned_at AS "pinnedAt",
+          updated_at AS "updatedAt"
+        FROM projection_threads
+        WHERE thread_id = 'thread-pin'
+      `;
+      assert.deepEqual(rowsAfterUnpin, [
+        {
+          pinnedAt: null,
+          updatedAt: createdAt,
+        },
+      ]);
+    }),
+  );
 });

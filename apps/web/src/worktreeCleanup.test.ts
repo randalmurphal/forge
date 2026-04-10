@@ -31,6 +31,7 @@ function makeThread(overrides: Partial<Thread> = {}): Thread {
     branch: null,
     worktreePath: null,
     ...overrides,
+    pinnedAt: overrides.pinnedAt ?? null,
   };
 }
 

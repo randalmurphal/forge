@@ -48,11 +48,13 @@ export function useSidebarInteractions(input: {
   clearProjectDraftThreadId: (projectId: ProjectId) => void;
   navigate: (input: { to: string; params?: Record<string, string> }) => Promise<void>;
   archiveThread: (threadId: ThreadId) => Promise<void>;
+  pinThread: (threadId: ThreadId) => Promise<void>;
   deleteThread: (
     threadId: ThreadId,
     options?: { deletedThreadIds?: ReadonlySet<ThreadId> },
   ) => Promise<void>;
   forkThread: (sourceThreadId: ThreadId) => Promise<void>;
+  unpinThread: (threadId: ThreadId) => Promise<void>;
   handleNewThread: (
     projectId: ProjectId,
     input: {
@@ -98,6 +100,7 @@ export function useSidebarInteractions(input: {
     markThreadUnread,
     navigate,
     orderedSidebarThreadIds,
+    pinThread,
     platform,
     projectCwdById,
     projects,
@@ -117,6 +120,7 @@ export function useSidebarInteractions(input: {
     threadJumpThreadIds,
     toggleProject,
     toggleThreadSelection,
+    unpinThread,
     updateThreadJumpHintsVisibility,
   } = input;
   const [addingProject, setAddingProject] = useState(false);
@@ -173,6 +177,25 @@ export function useSidebarInteractions(input: {
       }
     },
     [archiveThread],
+  );
+
+  const togglePinnedThread = useCallback(
+    async (threadId: ThreadId, nextPinned: boolean) => {
+      try {
+        if (nextPinned) {
+          await pinThread(threadId);
+          return;
+        }
+        await unpinThread(threadId);
+      } catch (error) {
+        toastManager.add({
+          type: "error",
+          title: `Failed to ${nextPinned ? "pin" : "unpin"} thread`,
+          description: error instanceof Error ? error.message : "An error occurred.",
+        });
+      }
+    },
+    [pinThread, unpinThread],
   );
 
   const focusMostRecentThreadForProject = useCallback(
@@ -903,6 +926,7 @@ export function useSidebarInteractions(input: {
     setNewCwd,
     setRenamingTitle,
     shouldShowProjectPathEntry,
+    togglePinnedThread,
     toggleSidebarTreeExpansion,
     attemptArchiveThread,
     cancelAddProject,

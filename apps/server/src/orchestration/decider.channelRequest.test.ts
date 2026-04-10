@@ -38,6 +38,7 @@ const makeThread = (threadId: string, projectId: string): OrchestrationThread =>
   latestTurn: null,
   createdAt: now,
   updatedAt: now,
+  pinnedAt: null,
   archivedAt: null,
   deletedAt: null,
   parentThreadId: null,

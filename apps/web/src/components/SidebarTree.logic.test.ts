@@ -37,6 +37,7 @@ function makeThread(
     hasPendingUserInput: false,
     hasActionableProposedPlan: false,
     ...overrides,
+    pinnedAt: overrides.pinnedAt ?? null,
   };
 }
 

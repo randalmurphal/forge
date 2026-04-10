@@ -64,6 +64,26 @@ export function useThreadActions() {
     });
   }, []);
 
+  const pinThread = useCallback(async (threadId: ThreadId) => {
+    const api = readNativeApi();
+    if (!api) return;
+    await api.orchestration.dispatchCommand({
+      type: "thread.pin",
+      commandId: newCommandId(),
+      threadId,
+    });
+  }, []);
+
+  const unpinThread = useCallback(async (threadId: ThreadId) => {
+    const api = readNativeApi();
+    if (!api) return;
+    await api.orchestration.dispatchCommand({
+      type: "thread.unpin",
+      commandId: newCommandId(),
+      threadId,
+    });
+  }, []);
+
   const deleteThread = useCallback(
     async (threadId: ThreadId, opts: { deletedThreadIds?: ReadonlySet<ThreadId> } = {}) => {
       const api = readNativeApi();
@@ -238,6 +258,8 @@ export function useThreadActions() {
   return {
     archiveThread,
     unarchiveThread,
+    pinThread,
+    unpinThread,
     deleteThread,
     confirmAndDeleteThread,
     forkThread,

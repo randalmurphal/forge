@@ -28,10 +28,12 @@ import {
   requirePhaseRunStatus,
   requireProject,
   requireProjectAbsent,
+  requireRootThread,
   requireThread,
   requireThreadArchived,
   requireThreadAbsent,
   requireThreadHasMessages,
+  requireThreadNotDeleted,
   requireThreadNotArchived,
   requireThreadWithoutActivePhase,
   requireThreadsInSameProject,
@@ -415,6 +417,66 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
         return baseEvent;
       }
       return [baseEvent, ...thread.childThreadIds.map(makeUnarchivedEvent)];
+    }
+
+    case "thread.pin": {
+      yield* requireThreadNotDeleted({
+        readModel,
+        command,
+        threadId: command.threadId,
+      });
+      const thread = yield* requireRootThread({
+        readModel,
+        command,
+        threadId: command.threadId,
+      });
+      if (thread.pinnedAt !== null) {
+        return [];
+      }
+      const occurredAt = nowIso();
+      return {
+        ...withEventBase({
+          aggregateKind: "thread",
+          aggregateId: command.threadId,
+          occurredAt,
+          commandId: command.commandId,
+        }),
+        type: "thread.pinned",
+        payload: {
+          threadId: command.threadId,
+          pinnedAt: occurredAt,
+        },
+      };
+    }
+
+    case "thread.unpin": {
+      yield* requireThreadNotDeleted({
+        readModel,
+        command,
+        threadId: command.threadId,
+      });
+      const thread = yield* requireRootThread({
+        readModel,
+        command,
+        threadId: command.threadId,
+      });
+      if (thread.pinnedAt === null) {
+        return [];
+      }
+      const occurredAt = nowIso();
+      return {
+        ...withEventBase({
+          aggregateKind: "thread",
+          aggregateId: command.threadId,
+          occurredAt,
+          commandId: command.commandId,
+        }),
+        type: "thread.unpinned",
+        payload: {
+          threadId: command.threadId,
+          unpinnedAt: occurredAt,
+        },
+      };
     }
 
     case "thread.meta.update": {

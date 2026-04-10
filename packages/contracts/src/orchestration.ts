@@ -335,6 +335,7 @@ export const OrchestrationThread = Schema.Struct({
   latestTurn: Schema.NullOr(OrchestrationLatestTurn),
   createdAt: IsoDateTime,
   updatedAt: IsoDateTime,
+  pinnedAt: Schema.NullOr(IsoDateTime).pipe(Schema.withDecodingDefault(() => null)),
   archivedAt: Schema.NullOr(IsoDateTime).pipe(Schema.withDecodingDefault(() => null)),
   deletedAt: Schema.NullOr(IsoDateTime),
   parentThreadId: Schema.NullOr(ThreadId).pipe(Schema.withDecodingDefault(() => null)),
@@ -644,6 +645,18 @@ const ThreadArchiveCommand = Schema.Struct({
 
 const ThreadUnarchiveCommand = Schema.Struct({
   type: Schema.Literal("thread.unarchive"),
+  commandId: CommandId,
+  threadId: ThreadId,
+});
+
+const ThreadPinCommand = Schema.Struct({
+  type: Schema.Literal("thread.pin"),
+  commandId: CommandId,
+  threadId: ThreadId,
+});
+
+const ThreadUnpinCommand = Schema.Struct({
+  type: Schema.Literal("thread.unpin"),
   commandId: CommandId,
   threadId: ThreadId,
 });
@@ -1183,6 +1196,8 @@ const DispatchableClientOrchestrationCommand = Schema.Union([
   ThreadForkCommand,
   ThreadArchiveCommand,
   ThreadUnarchiveCommand,
+  ThreadPinCommand,
+  ThreadUnpinCommand,
   ThreadMetaUpdateCommand,
   ThreadRuntimeModeSetCommand,
   ThreadInteractionModeSetCommand,
@@ -1206,6 +1221,8 @@ export const ClientOrchestrationCommand = Schema.Union([
   ThreadForkCommand,
   ThreadArchiveCommand,
   ThreadUnarchiveCommand,
+  ThreadPinCommand,
+  ThreadUnpinCommand,
   ThreadMetaUpdateCommand,
   ThreadRuntimeModeSetCommand,
   ThreadInteractionModeSetCommand,
@@ -1393,6 +1410,8 @@ export const OrchestrationEventType = Schema.Literals([
   "thread.deleted",
   "thread.archived",
   "thread.unarchived",
+  "thread.pinned",
+  "thread.unpinned",
   "thread.meta-updated",
   "thread.runtime-mode-set",
   "thread.interaction-mode-set",
@@ -1542,6 +1561,16 @@ export const ThreadUnarchivedPayload = Schema.Struct({
 
 export const SessionUnarchivedPayload = ThreadUnarchivedPayload;
 export type SessionUnarchivedPayload = typeof SessionUnarchivedPayload.Type;
+
+export const ThreadPinnedPayload = Schema.Struct({
+  threadId: ThreadId,
+  pinnedAt: IsoDateTime,
+});
+
+export const ThreadUnpinnedPayload = Schema.Struct({
+  threadId: ThreadId,
+  unpinnedAt: IsoDateTime,
+});
 
 export const ThreadMetaUpdatedPayload = Schema.Struct({
   threadId: ThreadId,
@@ -1821,6 +1850,16 @@ export const OrchestrationEvent = Schema.Union([
     ...EventBaseFields,
     type: Schema.Literal("thread.unarchived"),
     payload: ThreadUnarchivedPayload,
+  }),
+  Schema.Struct({
+    ...EventBaseFields,
+    type: Schema.Literal("thread.pinned"),
+    payload: ThreadPinnedPayload,
+  }),
+  Schema.Struct({
+    ...EventBaseFields,
+    type: Schema.Literal("thread.unpinned"),
+    payload: ThreadUnpinnedPayload,
   }),
   Schema.Struct({
     ...EventBaseFields,
