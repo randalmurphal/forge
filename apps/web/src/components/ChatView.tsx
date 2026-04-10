@@ -3355,6 +3355,8 @@ export default function ChatView({ threadId }: ChatViewProps) {
       createdAt: new Date().toISOString(),
     });
   };
+  const onInterruptRef = useRef(onInterrupt);
+  onInterruptRef.current = onInterrupt;
 
   const onRespondToApproval = useCallback(
     async (requestId: ApprovalRequestId, decision: ProviderApprovalDecision) => {
@@ -3383,6 +3385,48 @@ export default function ChatView({ threadId }: ChatViewProps) {
     },
     [activeThreadId, setStoreThreadError],
   );
+
+  // Escape key: cancel pending prompts or interrupt running turn
+  useEffect(() => {
+    const handler = (event: globalThis.KeyboardEvent) => {
+      if (event.key !== "Escape") return;
+      if (event.defaultPrevented) return;
+      if (isTerminalFocused()) return;
+
+      // Priority 1: Cancel pending approval
+      if (activePendingApproval) {
+        if (respondingRequestIds.includes(activePendingApproval.requestId)) return;
+        event.preventDefault();
+        void onRespondToApproval(activePendingApproval.requestId, "cancel");
+        return;
+      }
+
+      // Priority 2: Cancel pending user input via turn interrupt
+      if (pendingUserInputs.length > 0) {
+        if (activePendingIsResponding) return;
+        event.preventDefault();
+        void onInterruptRef.current();
+        return;
+      }
+
+      // Priority 3: Interrupt a running turn
+      if (phase === "running") {
+        event.preventDefault();
+        void onInterruptRef.current();
+        return;
+      }
+    };
+
+    window.addEventListener("keydown", handler);
+    return () => window.removeEventListener("keydown", handler);
+  }, [
+    activePendingApproval,
+    activePendingIsResponding,
+    respondingRequestIds,
+    onRespondToApproval,
+    pendingUserInputs.length,
+    phase,
+  ]);
 
   const onRespondToUserInput = useCallback(
     async (requestId: ApprovalRequestId, answers: Record<string, unknown>) => {
