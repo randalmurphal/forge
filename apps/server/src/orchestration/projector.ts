@@ -22,6 +22,7 @@ import {
   OrchestrationMessage,
   OrchestrationSession,
   OrchestrationThread,
+  OrchestrationToolInlineDiff,
   PhaseRunId,
   WorkflowPhaseId,
 } from "@forgetools/contracts";
@@ -44,6 +45,7 @@ import {
   SessionTurnRestartedPayload,
   SessionTurnStartedPayload,
   ThreadActivityAppendedPayload,
+  ThreadActivityInlineDiffUpsertedPayload,
   ThreadArchivedPayload,
   ThreadBootstrapCompletedPayload,
   ThreadBootstrapFailedPayload,
@@ -212,6 +214,29 @@ function updateThread(
   patch: ThreadPatch,
 ): ProjectedThread[] {
   return threads.map((thread) => (thread.id === threadId ? { ...thread, ...patch } : thread));
+}
+
+function upsertActivityInlineDiffPayload(
+  activities: ReadonlyArray<ProjectedThread["activities"][number]>,
+  activityId: string,
+  inlineDiff: OrchestrationToolInlineDiff,
+) {
+  return activities.map((activity) => {
+    if (activity.id !== activityId) {
+      return activity;
+    }
+
+    const payload =
+      typeof activity.payload === "object" && activity.payload !== null ? activity.payload : {};
+
+    return {
+      ...activity,
+      payload: {
+        ...payload,
+        inlineDiff,
+      },
+    };
+  });
 }
 
 function decodeForEvent<A>(
@@ -1241,6 +1266,42 @@ export function projectEvent(
             threads: updateThread(nextBase.threads, payload.threadId, {
               activities,
               updatedAt: event.occurredAt,
+            }),
+          };
+        }),
+      );
+
+    case "thread.activity-inline-diff-upserted":
+      return decodeForEvent(
+        ThreadActivityInlineDiffUpsertedPayload,
+        event.payload,
+        event.type,
+        "payload",
+      ).pipe(
+        Effect.map((payload) => {
+          const thread = nextBase.threads.find((entry) => entry.id === payload.threadId) as
+            | ProjectedThread
+            | undefined;
+          if (!thread) {
+            return nextBase;
+          }
+
+          const matchingActivityExists = thread.activities.some(
+            (activity) => activity.id === payload.activityId,
+          );
+          if (!matchingActivityExists) {
+            return nextBase;
+          }
+
+          return {
+            ...nextBase,
+            threads: updateThread(nextBase.threads, payload.threadId, {
+              activities: upsertActivityInlineDiffPayload(
+                thread.activities,
+                payload.activityId,
+                payload.inlineDiff,
+              ),
+              updatedAt: payload.updatedAt,
             }),
           };
         }),

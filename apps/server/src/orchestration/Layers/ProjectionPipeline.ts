@@ -683,7 +683,8 @@ const makeOrchestrationProjectionPipeline = Effect.fn("makeOrchestrationProjecti
 
         case "thread.message-sent":
         case "thread.proposed-plan-upserted":
-        case "thread.activity-appended": {
+        case "thread.activity-appended":
+        case "thread.activity-inline-diff-upserted": {
           const existingRow = yield* projectionThreadRepository.getById({
             threadId: event.payload.threadId,
           });
@@ -1684,6 +1685,30 @@ const makeOrchestrationProjectionPipeline = Effect.fn("makeOrchestrationProjecti
             createdAt: event.payload.activity.createdAt,
           });
           return;
+
+        case "thread.activity-inline-diff-upserted": {
+          const existingRows = yield* projectionThreadActivityRepository.listByThreadId({
+            threadId: event.payload.threadId,
+          });
+          const existingRow = existingRows.find(
+            (row) => row.activityId === event.payload.activityId,
+          );
+          if (!existingRow) {
+            return;
+          }
+          const payload =
+            typeof existingRow.payload === "object" && existingRow.payload !== null
+              ? existingRow.payload
+              : {};
+          yield* projectionThreadActivityRepository.upsert({
+            ...existingRow,
+            payload: {
+              ...payload,
+              inlineDiff: event.payload.inlineDiff,
+            },
+          });
+          return;
+        }
 
         case "thread.reverted": {
           const existingRows = yield* projectionThreadActivityRepository.listByThreadId({

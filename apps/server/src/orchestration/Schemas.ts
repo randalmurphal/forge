@@ -50,6 +50,7 @@ import {
   ThreadAgentDiffUpsertedPayload as ContractsThreadAgentDiffUpsertedPayloadSchema,
   ThreadRevertedPayload as ContractsThreadRevertedPayloadSchema,
   ThreadActivityAppendedPayload as ContractsThreadActivityAppendedPayloadSchema,
+  ThreadActivityInlineDiffUpsertedPayload as ContractsThreadActivityInlineDiffUpsertedPayloadSchema,
   ThreadForkedPayload as ContractsThreadForkedPayloadSchema,
   ThreadTurnStartRequestedPayload as ContractsThreadTurnStartRequestedPayloadSchema,
   ThreadTurnInterruptRequestedPayload as ContractsThreadTurnInterruptRequestedPayloadSchema,
@@ -89,6 +90,8 @@ export const ThreadTurnDiffCompletedPayload = ContractsThreadTurnDiffCompletedPa
 export const ThreadAgentDiffUpsertedPayload = ContractsThreadAgentDiffUpsertedPayloadSchema;
 export const ThreadRevertedPayload = ContractsThreadRevertedPayloadSchema;
 export const ThreadActivityAppendedPayload = ContractsThreadActivityAppendedPayloadSchema;
+export const ThreadActivityInlineDiffUpsertedPayload =
+  ContractsThreadActivityInlineDiffUpsertedPayloadSchema;
 export const ThreadForkedPayload = ContractsThreadForkedPayloadSchema;
 
 export const ThreadTurnStartRequestedPayload = ContractsThreadTurnStartRequestedPayloadSchema;

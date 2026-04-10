@@ -2418,6 +2418,508 @@ describe("ProviderRuntimeIngestion", () => {
     ).toBeUndefined();
   });
 
+  it("upgrades a summary-only codex tool activity when a later exact turn diff is unambiguous", async () => {
+    const harness = await createHarness();
+    const now = new Date().toISOString();
+
+    harness.emit({
+      type: "item.updated",
+      eventId: asEventId("evt-summary-only-before-native"),
+      provider: "codex",
+      createdAt: now,
+      threadId: asThreadId("thread-1"),
+      turnId: asTurnId("turn-summary-upgrade"),
+      itemId: asItemId("item-summary-only-before-native"),
+      payload: {
+        itemType: "file_change",
+        status: "in_progress",
+        title: "File change",
+        data: {
+          item: {
+            changes: [
+              {
+                path: "apps/web/src/session-logic.ts",
+                kind: { type: "update", move_path: null },
+              },
+            ],
+          },
+        },
+      },
+    });
+
+    await waitForThread(harness.engine, (entry) =>
+      entry.activities.some(
+        (activity: ProviderRuntimeTestActivity) => activity.id === "evt-summary-only-before-native",
+      ),
+    );
+
+    harness.emit({
+      type: "turn.diff.updated",
+      eventId: asEventId("evt-summary-only-native-diff"),
+      provider: "codex",
+      createdAt: new Date().toISOString(),
+      threadId: asThreadId("thread-1"),
+      turnId: asTurnId("turn-summary-upgrade"),
+      payload: {
+        unifiedDiff: [
+          "diff --git a/apps/web/src/session-logic.ts b/apps/web/src/session-logic.ts",
+          "--- a/apps/web/src/session-logic.ts",
+          "+++ b/apps/web/src/session-logic.ts",
+          "@@ -1 +1,2 @@",
+          " export const value = 1;",
+          "+export const next = 2;",
+        ].join("\n"),
+      },
+    });
+
+    const thread = await waitForThread(harness.engine, (entry) => {
+      const activity = entry.activities.find(
+        (candidate: ProviderRuntimeTestActivity) =>
+          candidate.id === "evt-summary-only-before-native",
+      );
+      const payload =
+        activity?.payload && typeof activity.payload === "object"
+          ? (activity.payload as Record<string, unknown>)
+          : undefined;
+      const inlineDiff =
+        payload?.inlineDiff && typeof payload.inlineDiff === "object"
+          ? (payload.inlineDiff as Record<string, unknown>)
+          : undefined;
+      return inlineDiff?.availability === "exact_patch";
+    });
+
+    const activity = thread.activities.find(
+      (candidate: ProviderRuntimeTestActivity) => candidate.id === "evt-summary-only-before-native",
+    );
+    const payload =
+      activity?.payload && typeof activity.payload === "object"
+        ? (activity.payload as Record<string, unknown>)
+        : undefined;
+    const inlineDiff =
+      payload?.inlineDiff && typeof payload.inlineDiff === "object"
+        ? (payload.inlineDiff as Record<string, unknown>)
+        : undefined;
+
+    expect(inlineDiff?.availability).toBe("exact_patch");
+    expect(inlineDiff?.unifiedDiff).toContain(
+      "diff --git a/apps/web/src/session-logic.ts b/apps/web/src/session-logic.ts",
+    );
+  });
+
+  it("does not overwrite an existing exact codex tool diff from a later turn diff update", async () => {
+    const harness = await createHarness();
+    const now = new Date().toISOString();
+
+    harness.emit({
+      type: "item.updated",
+      eventId: asEventId("evt-existing-exact-before-native"),
+      provider: "codex",
+      createdAt: now,
+      threadId: asThreadId("thread-1"),
+      turnId: asTurnId("turn-existing-exact-before-native"),
+      itemId: asItemId("item-existing-exact-before-native"),
+      payload: {
+        itemType: "file_change",
+        status: "in_progress",
+        title: "File change",
+        data: {
+          item: {
+            changes: [
+              {
+                path: "apps/web/src/session-logic.ts",
+                kind: { type: "update", move_path: null },
+                diff: [
+                  "@@ -1 +1,2 @@",
+                  " export const value = 1;",
+                  "+export const exactToolPatch = 2;",
+                ].join("\n"),
+              },
+            ],
+          },
+        },
+      },
+    });
+
+    await waitForThread(harness.engine, (entry) => {
+      const activity = entry.activities.find(
+        (candidate: ProviderRuntimeTestActivity) =>
+          candidate.id === "evt-existing-exact-before-native",
+      );
+      const payload =
+        activity?.payload && typeof activity.payload === "object"
+          ? (activity.payload as Record<string, unknown>)
+          : undefined;
+      const inlineDiff =
+        payload?.inlineDiff && typeof payload.inlineDiff === "object"
+          ? (payload.inlineDiff as Record<string, unknown>)
+          : undefined;
+      return inlineDiff?.availability === "exact_patch";
+    });
+
+    harness.emit({
+      type: "turn.diff.updated",
+      eventId: asEventId("evt-existing-exact-native-diff"),
+      provider: "codex",
+      createdAt: new Date().toISOString(),
+      threadId: asThreadId("thread-1"),
+      turnId: asTurnId("turn-existing-exact-before-native"),
+      payload: {
+        unifiedDiff: [
+          "diff --git a/apps/web/src/session-logic.ts b/apps/web/src/session-logic.ts",
+          "--- a/apps/web/src/session-logic.ts",
+          "+++ b/apps/web/src/session-logic.ts",
+          "@@ -1 +1,2 @@",
+          " export const value = 1;",
+          "+export const nativeTurnPatch = 3;",
+        ].join("\n"),
+      },
+    });
+
+    const thread = await waitForThread(harness.engine, (entry) => {
+      const activity = entry.activities.find(
+        (candidate: ProviderRuntimeTestActivity) =>
+          candidate.id === "evt-existing-exact-before-native",
+      );
+      const payload =
+        activity?.payload && typeof activity.payload === "object"
+          ? (activity.payload as Record<string, unknown>)
+          : undefined;
+      const inlineDiff =
+        payload?.inlineDiff && typeof payload.inlineDiff === "object"
+          ? (payload.inlineDiff as Record<string, unknown>)
+          : undefined;
+      return typeof inlineDiff?.unifiedDiff === "string";
+    });
+
+    const activity = thread.activities.find(
+      (candidate: ProviderRuntimeTestActivity) =>
+        candidate.id === "evt-existing-exact-before-native",
+    );
+    const payload =
+      activity?.payload && typeof activity.payload === "object"
+        ? (activity.payload as Record<string, unknown>)
+        : undefined;
+    const inlineDiff =
+      payload?.inlineDiff && typeof payload.inlineDiff === "object"
+        ? (payload.inlineDiff as Record<string, unknown>)
+        : undefined;
+
+    expect(inlineDiff?.availability).toBe("exact_patch");
+    expect(String(inlineDiff?.unifiedDiff)).toContain("exactToolPatch");
+    expect(String(inlineDiff?.unifiedDiff)).not.toContain("nativeTurnPatch");
+  });
+
+  it("upgrades a summary-only codex tool activity when file metadata uses absolute paths", async () => {
+    const harness = await createHarness();
+    const now = new Date().toISOString();
+    const absoluteToolDiffArtifactsPath = path.join(
+      harness.workspaceRoot,
+      "apps/server/src/orchestration/toolDiffArtifacts.ts",
+    );
+
+    harness.emit({
+      type: "item.updated",
+      eventId: asEventId("evt-summary-only-absolute-path"),
+      provider: "codex",
+      createdAt: now,
+      threadId: asThreadId("thread-1"),
+      turnId: asTurnId("turn-summary-absolute-path-upgrade"),
+      itemId: asItemId("item-summary-only-absolute-path"),
+      payload: {
+        itemType: "file_change",
+        status: "in_progress",
+        title: "File change",
+        data: {
+          item: {
+            changes: [
+              {
+                path: absoluteToolDiffArtifactsPath,
+                kind: { type: "update", move_path: null },
+              },
+            ],
+          },
+        },
+      },
+    });
+
+    await waitForThread(harness.engine, (entry) =>
+      entry.activities.some(
+        (activity: ProviderRuntimeTestActivity) => activity.id === "evt-summary-only-absolute-path",
+      ),
+    );
+
+    harness.emit({
+      type: "turn.diff.updated",
+      eventId: asEventId("evt-summary-only-absolute-path-native-diff"),
+      provider: "codex",
+      createdAt: new Date().toISOString(),
+      threadId: asThreadId("thread-1"),
+      turnId: asTurnId("turn-summary-absolute-path-upgrade"),
+      payload: {
+        unifiedDiff: [
+          "diff --git a/apps/server/src/orchestration/toolDiffArtifacts.ts b/apps/server/src/orchestration/toolDiffArtifacts.ts",
+          "--- a/apps/server/src/orchestration/toolDiffArtifacts.ts",
+          "+++ b/apps/server/src/orchestration/toolDiffArtifacts.ts",
+          "@@ -1 +1,2 @@",
+          ' import { ProviderKind } from "@forgetools/contracts";',
+          "+const updated = true;",
+        ].join("\n"),
+      },
+    });
+
+    const thread = await waitForThread(harness.engine, (entry) => {
+      const activity = entry.activities.find(
+        (candidate: ProviderRuntimeTestActivity) =>
+          candidate.id === "evt-summary-only-absolute-path",
+      );
+      const payload =
+        activity?.payload && typeof activity.payload === "object"
+          ? (activity.payload as Record<string, unknown>)
+          : undefined;
+      const inlineDiff =
+        payload?.inlineDiff && typeof payload.inlineDiff === "object"
+          ? (payload.inlineDiff as Record<string, unknown>)
+          : undefined;
+      return inlineDiff?.availability === "exact_patch";
+    });
+
+    const activity = thread.activities.find(
+      (candidate: ProviderRuntimeTestActivity) => candidate.id === "evt-summary-only-absolute-path",
+    );
+    const payload =
+      activity?.payload && typeof activity.payload === "object"
+        ? (activity.payload as Record<string, unknown>)
+        : undefined;
+    const inlineDiff =
+      payload?.inlineDiff && typeof payload.inlineDiff === "object"
+        ? (payload.inlineDiff as Record<string, unknown>)
+        : undefined;
+
+    expect(inlineDiff?.availability).toBe("exact_patch");
+    expect(inlineDiff?.unifiedDiff).toContain(
+      "diff --git a/apps/server/src/orchestration/toolDiffArtifacts.ts",
+    );
+    expect(inlineDiff?.files).toEqual([
+      {
+        path: "apps/server/src/orchestration/toolDiffArtifacts.ts",
+        kind: "modified",
+        additions: 1,
+        deletions: 0,
+      },
+    ]);
+  });
+
+  it("keeps same-path codex file-change activities summary-only when item ids are missing", async () => {
+    const harness = await createHarness();
+    const now = new Date().toISOString();
+
+    harness.emit({
+      type: "item.updated",
+      eventId: asEventId("evt-no-item-id-a"),
+      provider: "codex",
+      createdAt: now,
+      threadId: asThreadId("thread-1"),
+      turnId: asTurnId("turn-no-item-id-overlap"),
+      payload: {
+        itemType: "file_change",
+        status: "in_progress",
+        title: "First file change",
+        data: {
+          item: {
+            changes: [
+              {
+                path: "apps/web/src/session-logic.ts",
+                kind: { type: "update", move_path: null },
+              },
+            ],
+          },
+        },
+      },
+    });
+
+    harness.emit({
+      type: "item.updated",
+      eventId: asEventId("evt-no-item-id-b"),
+      provider: "codex",
+      createdAt: new Date().toISOString(),
+      threadId: asThreadId("thread-1"),
+      turnId: asTurnId("turn-no-item-id-overlap"),
+      payload: {
+        itemType: "file_change",
+        status: "in_progress",
+        title: "Second file change",
+        data: {
+          item: {
+            changes: [
+              {
+                path: "apps/web/src/session-logic.ts",
+                kind: { type: "update", move_path: null },
+              },
+            ],
+          },
+        },
+      },
+    });
+
+    await waitForThread(harness.engine, (entry) =>
+      entry.activities.some(
+        (activity: ProviderRuntimeTestActivity) => activity.id === "evt-no-item-id-b",
+      ),
+    );
+
+    harness.emit({
+      type: "turn.diff.updated",
+      eventId: asEventId("evt-no-item-id-native-diff"),
+      provider: "codex",
+      createdAt: new Date().toISOString(),
+      threadId: asThreadId("thread-1"),
+      turnId: asTurnId("turn-no-item-id-overlap"),
+      payload: {
+        unifiedDiff: [
+          "diff --git a/apps/web/src/session-logic.ts b/apps/web/src/session-logic.ts",
+          "--- a/apps/web/src/session-logic.ts",
+          "+++ b/apps/web/src/session-logic.ts",
+          "@@ -1 +1,2 @@",
+          " export const value = 1;",
+          "+export const next = 2;",
+        ].join("\n"),
+      },
+    });
+
+    const thread = await waitForThread(
+      harness.engine,
+      (entry) =>
+        entry.activities.filter(
+          (activity: ProviderRuntimeTestActivity) =>
+            activity.id === "evt-no-item-id-a" || activity.id === "evt-no-item-id-b",
+        ).length === 2,
+    );
+
+    for (const activityId of ["evt-no-item-id-a", "evt-no-item-id-b"]) {
+      const activity = thread.activities.find(
+        (candidate: ProviderRuntimeTestActivity) => candidate.id === activityId,
+      );
+      const payload =
+        activity?.payload && typeof activity.payload === "object"
+          ? (activity.payload as Record<string, unknown>)
+          : undefined;
+      const inlineDiff =
+        payload?.inlineDiff && typeof payload.inlineDiff === "object"
+          ? (payload.inlineDiff as Record<string, unknown>)
+          : undefined;
+
+      expect(inlineDiff?.availability).toBe("summary_only");
+      expect(inlineDiff?.unifiedDiff).toBeUndefined();
+    }
+  });
+
+  it("keeps overlapping codex file-change tool activities summary-only when exact ownership is ambiguous", async () => {
+    const harness = await createHarness();
+    const now = new Date().toISOString();
+
+    harness.emit({
+      type: "item.updated",
+      eventId: asEventId("evt-overlap-a"),
+      provider: "codex",
+      createdAt: now,
+      threadId: asThreadId("thread-1"),
+      turnId: asTurnId("turn-overlap-summary-only"),
+      itemId: asItemId("item-overlap-a"),
+      payload: {
+        itemType: "file_change",
+        status: "in_progress",
+        title: "First file change",
+        data: {
+          item: {
+            changes: [
+              {
+                path: "apps/web/src/session-logic.ts",
+                kind: { type: "update", move_path: null },
+              },
+            ],
+          },
+        },
+      },
+    });
+
+    harness.emit({
+      type: "item.completed",
+      eventId: asEventId("evt-overlap-b"),
+      provider: "codex",
+      createdAt: new Date().toISOString(),
+      threadId: asThreadId("thread-1"),
+      turnId: asTurnId("turn-overlap-summary-only"),
+      itemId: asItemId("item-overlap-b"),
+      payload: {
+        itemType: "file_change",
+        title: "Second file change",
+        data: {
+          item: {
+            changes: [
+              {
+                path: "apps/web/src/session-logic.ts",
+                kind: { type: "update", move_path: null },
+              },
+            ],
+          },
+        },
+      },
+    });
+
+    await waitForThread(
+      harness.engine,
+      (entry) =>
+        entry.activities.some(
+          (activity: ProviderRuntimeTestActivity) => activity.id === "evt-overlap-a",
+        ) &&
+        entry.activities.some(
+          (activity: ProviderRuntimeTestActivity) => activity.id === "evt-overlap-b",
+        ),
+    );
+
+    harness.emit({
+      type: "turn.diff.updated",
+      eventId: asEventId("evt-overlap-native-diff"),
+      provider: "codex",
+      createdAt: new Date().toISOString(),
+      threadId: asThreadId("thread-1"),
+      turnId: asTurnId("turn-overlap-summary-only"),
+      payload: {
+        unifiedDiff: [
+          "diff --git a/apps/web/src/session-logic.ts b/apps/web/src/session-logic.ts",
+          "--- a/apps/web/src/session-logic.ts",
+          "+++ b/apps/web/src/session-logic.ts",
+          "@@ -1 +1,2 @@",
+          " export const value = 1;",
+          "+export const next = 2;",
+        ].join("\n"),
+      },
+    });
+
+    const thread = await waitForThread(
+      harness.engine,
+      (entry) =>
+        entry.agentDiffs?.find((diff) => diff.turnId === "turn-overlap-summary-only")?.coverage ===
+        "complete",
+    );
+
+    for (const activityId of ["evt-overlap-a", "evt-overlap-b"]) {
+      const activity = thread.activities.find(
+        (candidate: ProviderRuntimeTestActivity) => candidate.id === activityId,
+      );
+      const payload =
+        activity?.payload && typeof activity.payload === "object"
+          ? (activity.payload as Record<string, unknown>)
+          : undefined;
+      const inlineDiff =
+        payload?.inlineDiff && typeof payload.inlineDiff === "object"
+          ? (payload.inlineDiff as Record<string, unknown>)
+          : undefined;
+      expect(inlineDiff?.availability).toBe("summary_only");
+      expect(inlineDiff?.unifiedDiff).toBeUndefined();
+    }
+  });
+
   it("accepts later claude tool-derived turn diffs as refinements of the same turn", async () => {
     const harness = await createHarness();
     const now = new Date().toISOString();

@@ -4,7 +4,9 @@ import {
   CommandId,
   MessageId,
   type OrchestrationEvent,
+  type OrchestrationDiffFileChange,
   type OrchestrationProposedPlanId,
+  type OrchestrationToolInlineDiff,
   CheckpointRef,
   isToolLifecycleItemType,
   ThreadId,
@@ -150,6 +152,307 @@ function mapUnifiedDiffToCheckpointFiles(diff: string) {
       deletions: file.deletions,
     })),
   );
+}
+
+function asRecord(value: unknown): Record<string, unknown> | undefined {
+  return value && typeof value === "object" ? (value as Record<string, unknown>) : undefined;
+}
+
+function summarizeInlineDiffFiles(files: ReadonlyArray<OrchestrationDiffFileChange>): {
+  additions?: number;
+  deletions?: number;
+} {
+  let additions = 0;
+  let deletions = 0;
+  let hasStats = false;
+  for (const file of files) {
+    if (typeof file.additions === "number") {
+      additions += file.additions;
+      hasStats = true;
+    }
+    if (typeof file.deletions === "number") {
+      deletions += file.deletions;
+      hasStats = true;
+    }
+  }
+  return hasStats ? { additions, deletions } : {};
+}
+
+function buildExactInlineDiffFromUnifiedDiff(input: {
+  readonly inlineDiff: OrchestrationToolInlineDiff;
+  readonly unifiedDiff: string;
+  readonly workspaceRoot: string;
+}): OrchestrationToolInlineDiff {
+  const patchFiles = parseTurnDiffFilesFromUnifiedDiff(input.unifiedDiff).map((file) => ({
+    path: file.path,
+    additions: file.additions,
+    deletions: file.deletions,
+  }));
+  const metadataByPath = new Map<string, OrchestrationDiffFileChange>();
+  for (const file of input.inlineDiff.files) {
+    const normalizedPath = classifyToolDiffPaths({
+      workspaceRoot: input.workspaceRoot,
+      filePaths: [file.path],
+      ...(process.env.WSL_DISTRO_NAME ? { wslDistroName: process.env.WSL_DISTRO_NAME } : {}),
+    }).repoRelativePaths[0];
+    if (!normalizedPath) {
+      continue;
+    }
+    const existing = metadataByPath.get(normalizedPath);
+    metadataByPath.set(normalizedPath, {
+      path: normalizedPath,
+      kind: file.kind ?? existing?.kind,
+      additions: file.additions ?? existing?.additions,
+      deletions: file.deletions ?? existing?.deletions,
+    });
+  }
+  const files = patchFiles.map((file) => {
+    const metadata = metadataByPath.get(file.path);
+    if (metadata?.kind) {
+      return {
+        path: file.path,
+        kind: metadata.kind,
+        additions: file.additions,
+        deletions: file.deletions,
+      } satisfies OrchestrationDiffFileChange;
+    }
+    return {
+      path: file.path,
+      additions: file.additions,
+      deletions: file.deletions,
+    } satisfies OrchestrationDiffFileChange;
+  });
+  const stats = summarizeInlineDiffFiles(files);
+  return {
+    availability: "exact_patch",
+    files,
+    unifiedDiff: input.unifiedDiff,
+    ...(stats.additions !== undefined ? { additions: stats.additions } : {}),
+    ...(stats.deletions !== undefined ? { deletions: stats.deletions } : {}),
+  };
+}
+
+function extractActivityInlineDiff(
+  activity: OrchestrationThreadActivity,
+): OrchestrationToolInlineDiff | undefined {
+  const payload = asRecord(activity.payload);
+  const inlineDiff = asRecord(payload?.inlineDiff);
+  if (!inlineDiff || !Array.isArray(inlineDiff.files)) {
+    return undefined;
+  }
+  if (inlineDiff.availability !== "exact_patch" && inlineDiff.availability !== "summary_only") {
+    return undefined;
+  }
+  const files = inlineDiff.files
+    .map((file) => asRecord(file))
+    .filter((file): file is Record<string, unknown> => file !== undefined)
+    .flatMap((file) => {
+      const path = typeof file.path === "string" ? file.path : undefined;
+      if (!path) {
+        return [];
+      }
+      return [
+        {
+          path,
+          ...(typeof file.kind === "string" ? { kind: file.kind } : {}),
+          ...(typeof file.additions === "number" ? { additions: file.additions } : {}),
+          ...(typeof file.deletions === "number" ? { deletions: file.deletions } : {}),
+        },
+      ];
+    });
+  if (files.length === 0) {
+    return undefined;
+  }
+  return {
+    availability: inlineDiff.availability,
+    files,
+    ...(typeof inlineDiff.unifiedDiff === "string" ? { unifiedDiff: inlineDiff.unifiedDiff } : {}),
+    ...(typeof inlineDiff.additions === "number" ? { additions: inlineDiff.additions } : {}),
+    ...(typeof inlineDiff.deletions === "number" ? { deletions: inlineDiff.deletions } : {}),
+  };
+}
+
+function extractFileChangeActivityIdentity(
+  activity: OrchestrationThreadActivity,
+  filePaths: ReadonlyArray<string>,
+):
+  | {
+      readonly key: string;
+      readonly source: "item" | "paths";
+    }
+  | undefined {
+  const payload = asRecord(activity.payload);
+  if (typeof payload?.itemId === "string" && payload.itemId.length > 0) {
+    return {
+      key: `item:${payload.itemId}`,
+      source: "item",
+    };
+  }
+  const sortedPaths = [...filePaths].toSorted();
+  return sortedPaths.length > 0
+    ? {
+        key: `files:${sortedPaths.join("|")}`,
+        source: "paths",
+      }
+    : undefined;
+}
+
+function activityIsSummaryOnlyFileChange(
+  activity: OrchestrationThreadActivity,
+  turnId: TurnId,
+  workspaceRoot: string,
+):
+  | {
+      activity: OrchestrationThreadActivity;
+      identity: string;
+      identitySource: "item" | "paths";
+      inlineDiff: OrchestrationToolInlineDiff;
+      paths: ReadonlyArray<string>;
+    }
+  | undefined {
+  if (!sameId(activity.turnId, turnId)) {
+    return undefined;
+  }
+  if (activity.kind !== "tool.updated" && activity.kind !== "tool.completed") {
+    return undefined;
+  }
+  const payload = asRecord(activity.payload);
+  if (payload?.itemType !== "file_change") {
+    return undefined;
+  }
+  const inlineDiff = extractActivityInlineDiff(activity);
+  if (!inlineDiff) {
+    return undefined;
+  }
+  if (inlineDiff.availability !== "summary_only") {
+    return undefined;
+  }
+  const paths = classifyToolDiffPaths({
+    workspaceRoot,
+    filePaths: inlineDiff.files.map((file) => file.path),
+    ...(process.env.WSL_DISTRO_NAME ? { wslDistroName: process.env.WSL_DISTRO_NAME } : {}),
+  }).repoRelativePaths;
+  if (paths.length === 0) {
+    return undefined;
+  }
+  const identity = extractFileChangeActivityIdentity(activity, paths);
+  if (!identity) {
+    return undefined;
+  }
+  return {
+    activity,
+    identity: identity.key,
+    identitySource: identity.source,
+    inlineDiff,
+    paths,
+  };
+}
+
+function pathsOverlap(left: ReadonlyArray<string>, right: ReadonlyArray<string>): boolean {
+  const rightPaths = new Set(right);
+  return left.some((path) => rightPaths.has(path));
+}
+
+function upgradeActivitiesFromExactTurnDiff(input: {
+  readonly activitiesToUpgrade: ReadonlyArray<OrchestrationThreadActivity>;
+  readonly activityContext: ReadonlyArray<OrchestrationThreadActivity>;
+  readonly turnId: TurnId;
+  readonly workspaceRoot: string;
+  readonly unifiedDiff: string;
+}): OrchestrationThreadActivity[] {
+  const candidates = input.activityContext
+    .map((activity) => activityIsSummaryOnlyFileChange(activity, input.turnId, input.workspaceRoot))
+    .filter(
+      (
+        candidate,
+      ): candidate is {
+        activity: OrchestrationThreadActivity;
+        identity: string;
+        identitySource: "item" | "paths";
+        inlineDiff: OrchestrationToolInlineDiff;
+        paths: string[];
+      } => candidate !== undefined,
+    );
+  if (candidates.length === 0) {
+    return [...input.activitiesToUpgrade];
+  }
+
+  const groups = new Map<
+    string,
+    {
+      identitySource: "item" | "paths";
+      paths: ReadonlyArray<string>;
+      activityIds: Set<string>;
+    }
+  >();
+  for (const candidate of candidates) {
+    const existing = groups.get(candidate.identity);
+    if (!existing) {
+      groups.set(candidate.identity, {
+        identitySource: candidate.identitySource,
+        paths: candidate.paths,
+        activityIds: new Set([candidate.activity.id]),
+      });
+      continue;
+    }
+    groups.set(candidate.identity, {
+      identitySource: existing.identitySource,
+      paths: [...new Set([...existing.paths, ...candidate.paths])].toSorted(),
+      activityIds: new Set([...existing.activityIds, candidate.activity.id]),
+    });
+  }
+
+  const safeIdentities = new Set<string>();
+  if (groups.size === 1) {
+    const [[identity, group] = []] = groups.entries();
+    if (identity && group && !(group.identitySource === "paths" && group.activityIds.size > 1)) {
+      safeIdentities.add(identity);
+    }
+  } else {
+    for (const [identity, group] of groups.entries()) {
+      if (group.identitySource === "paths" && group.activityIds.size > 1) {
+        continue;
+      }
+      const overlaps = [...groups.entries()].some(
+        ([otherIdentity, otherGroup]) =>
+          otherIdentity !== identity && pathsOverlap(group.paths, otherGroup.paths),
+      );
+      if (!overlaps) {
+        safeIdentities.add(identity);
+      }
+    }
+  }
+
+  return input.activitiesToUpgrade.map((activity) => {
+    const candidate = activityIsSummaryOnlyFileChange(activity, input.turnId, input.workspaceRoot);
+    if (!candidate || !safeIdentities.has(candidate.identity)) {
+      return activity;
+    }
+    const filteredDiff = filterUnifiedDiffByPaths({
+      diff: input.unifiedDiff,
+      allowedPaths: candidate.paths,
+      workspaceRoot: input.workspaceRoot,
+      ...(process.env.WSL_DISTRO_NAME ? { wslDistroName: process.env.WSL_DISTRO_NAME } : {}),
+    });
+    if (!filteredDiff || filteredDiff.trim().length === 0) {
+      return activity;
+    }
+    const payload = asRecord(activity.payload);
+    if (!payload) {
+      return activity;
+    }
+    return {
+      ...activity,
+      payload: {
+        ...payload,
+        inlineDiff: buildExactInlineDiffFromUnifiedDiff({
+          inlineDiff: candidate.inlineDiff,
+          unifiedDiff: filteredDiff,
+          workspaceRoot: input.workspaceRoot,
+        }),
+      },
+    };
+  });
 }
 
 function buildContextWindowActivityPayload(
@@ -556,7 +859,10 @@ function runtimeEventToActivities(
       }
       const inlineDiff =
         event.payload.itemType === "file_change"
-          ? buildToolInlineDiffArtifact(event.payload.data)
+          ? buildToolInlineDiffArtifact({
+              provider: event.provider,
+              payloadData: event.payload.data,
+            })
           : undefined;
       const itemUpdatedToolName = (event.payload as Record<string, unknown>).toolName;
       const itemUpdatedChildAttr = extractChildThreadAttribution(event.payload);
@@ -589,7 +895,10 @@ function runtimeEventToActivities(
       }
       const inlineDiff =
         event.payload.itemType === "file_change"
-          ? buildToolInlineDiffArtifact(event.payload.data)
+          ? buildToolInlineDiffArtifact({
+              provider: event.provider,
+              payloadData: event.payload.data,
+            })
           : undefined;
       const itemCompletedToolName = (event.payload as Record<string, unknown>).toolName;
       const itemCompletedChildAttr = extractChildThreadAttribution(event.payload);
@@ -861,6 +1170,70 @@ const make = Effect.fn("make")(function* () {
         completedAt: input.event.createdAt,
         createdAt: input.event.createdAt,
       });
+    },
+  );
+
+  const getCompleteTurnDiffForTurn = Effect.fn("getCompleteTurnDiffForTurn")(function* (input: {
+    readonly threadId: ThreadId;
+    readonly turnId: TurnId;
+  }) {
+    const existingDiffOption = yield* projectionAgentDiffRepository
+      .getByTurnId({
+        threadId: input.threadId,
+        turnId: input.turnId,
+      })
+      .pipe(Effect.catch(() => Effect.succeed(Option.none())));
+    if (Option.isNone(existingDiffOption)) {
+      return undefined;
+    }
+    if (
+      existingDiffOption.value.coverage !== "complete" ||
+      existingDiffOption.value.diff.trim().length === 0
+    ) {
+      return undefined;
+    }
+    return existingDiffOption.value.diff;
+  });
+
+  const upsertThreadActivities = Effect.fn("upsertThreadActivities")(function* (input: {
+    readonly event: ProviderRuntimeEvent;
+    readonly threadId: ThreadId;
+    readonly activities: ReadonlyArray<OrchestrationThreadActivity>;
+  }) {
+    yield* Effect.forEach(input.activities, (activity) =>
+      orchestrationEngine.dispatch({
+        type: "thread.activity.append",
+        commandId: providerCommandId(input.event, "thread-activity-append"),
+        threadId: input.threadId,
+        activity,
+        createdAt: activity.createdAt,
+      }),
+    ).pipe(Effect.asVoid);
+  });
+
+  const upsertThreadActivityInlineDiffs = Effect.fn("upsertThreadActivityInlineDiffs")(
+    function* (input: {
+      readonly event: ProviderRuntimeEvent;
+      readonly threadId: ThreadId;
+      readonly activities: ReadonlyArray<OrchestrationThreadActivity>;
+    }) {
+      const activityInlineDiffs = input.activities.flatMap((activity) => {
+        const inlineDiff = extractActivityInlineDiff(activity);
+        return inlineDiff ? [{ activityId: activity.id, inlineDiff }] : [];
+      });
+      yield* Effect.forEach(
+        activityInlineDiffs,
+        ({ activityId, inlineDiff }) =>
+          orchestrationEngine.dispatch({
+            type: "thread.activity.inline-diff.upsert",
+            commandId: providerCommandId(input.event, "thread-activity-inline-diff-upsert"),
+            threadId: input.threadId,
+            activityId,
+            inlineDiff,
+            createdAt: input.event.createdAt,
+          }),
+        { discard: true },
+      );
     },
   );
 
@@ -1607,7 +1980,10 @@ const make = Effect.fn("make")(function* () {
       (event.type === "item.updated" || event.type === "item.completed") &&
       event.payload.itemType === "file_change"
     ) {
-      const inlineDiff = buildToolInlineDiffArtifact(event.payload.data);
+      const inlineDiff = buildToolInlineDiffArtifact({
+        provider: event.provider,
+        payloadData: event.payload.data,
+      });
       if (inlineDiff) {
         yield* refreshTurnAgentDiffFromToolArtifact({
           event,
@@ -1617,16 +1993,56 @@ const make = Effect.fn("make")(function* () {
       }
     }
 
-    const activities = runtimeEventToActivities(event);
-    yield* Effect.forEach(activities, (activity) =>
-      orchestrationEngine.dispatch({
-        type: "thread.activity.append",
-        commandId: providerCommandId(event, "thread-activity-append"),
-        threadId: thread.id,
-        activity,
-        createdAt: activity.createdAt,
-      }),
-    ).pipe(Effect.asVoid);
+    const turnId = toTurnId(event.turnId);
+    let activities = runtimeEventToActivities(event);
+
+    if (event.provider === "codex" && turnId) {
+      const workspaceCwd = yield* resolveWorkspaceCwdForThread(thread.id);
+      if (workspaceCwd) {
+        if (
+          (event.type === "item.updated" || event.type === "item.completed") &&
+          event.payload.itemType === "file_change"
+        ) {
+          const exactTurnDiff = yield* getCompleteTurnDiffForTurn({
+            threadId: thread.id,
+            turnId,
+          });
+          if (exactTurnDiff) {
+            activities = upgradeActivitiesFromExactTurnDiff({
+              activitiesToUpgrade: activities,
+              activityContext: [...thread.activities, ...activities],
+              turnId,
+              workspaceRoot: workspaceCwd,
+              unifiedDiff: exactTurnDiff,
+            });
+          }
+        }
+
+        if (event.type === "turn.diff.updated") {
+          const upgradedExistingActivities = upgradeActivitiesFromExactTurnDiff({
+            activitiesToUpgrade: thread.activities,
+            activityContext: thread.activities,
+            turnId,
+            workspaceRoot: workspaceCwd,
+            unifiedDiff: event.payload.unifiedDiff,
+          }).filter((activity, index) => activity !== thread.activities[index]);
+
+          if (upgradedExistingActivities.length > 0) {
+            yield* upsertThreadActivityInlineDiffs({
+              event,
+              threadId: thread.id,
+              activities: upgradedExistingActivities,
+            });
+          }
+        }
+      }
+    }
+
+    yield* upsertThreadActivities({
+      event,
+      threadId: thread.id,
+      activities,
+    });
   });
 
   const processDomainEvent = (_event: TurnStartRequestedDomainEvent) => Effect.void;

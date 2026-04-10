@@ -61,6 +61,9 @@ function extractNormalizedClaudeFileDiff(
   toolUseResult: unknown,
   cwd?: string,
 ): NormalizedClaudeFileDiff | null {
+  // Claude's SDK types tool_use_result as unknown, so this normalization is
+  // intentionally based on observed Write/Edit payloads rather than a stable
+  // provider contract.
   if (!isRecord(toolUseResult)) {
     return null;
   }

@@ -1,6 +1,7 @@
 import type {
   OrchestrationDiffFileChange,
   OrchestrationToolInlineDiff,
+  ProviderKind,
 } from "@forgetools/contracts";
 
 function asRecord(value: unknown): Record<string, unknown> | null {
@@ -19,8 +20,22 @@ function normalizeStatValue(value: unknown): number | undefined {
   return typeof value === "number" && Number.isFinite(value) && value >= 0 ? value : undefined;
 }
 
+function extractMovePath(value: unknown): string | undefined {
+  const record = asRecord(value);
+  return (
+    asTrimmedString(record?.movePath) ??
+    asTrimmedString(record?.move_path) ??
+    asTrimmedString(record?.newPath) ??
+    asTrimmedString(record?.new_path)
+  );
+}
+
 function normalizeFileChangeKind(value: unknown): OrchestrationDiffFileChange["kind"] {
-  const normalized = asTrimmedString(value)?.toLowerCase();
+  const record = asRecord(value);
+  const normalized =
+    asTrimmedString(value)?.toLowerCase() ??
+    asTrimmedString(record?.type)?.toLowerCase() ??
+    asTrimmedString(record?.kind)?.toLowerCase();
   if (!normalized) {
     return undefined;
   }
@@ -30,7 +45,10 @@ function normalizeFileChangeKind(value: unknown): OrchestrationDiffFileChange["k
   if (["delete", "deleted", "remove", "removed"].includes(normalized)) {
     return "deleted";
   }
-  if (["rename", "renamed"].includes(normalized)) {
+  if (
+    ["rename", "renamed"].includes(normalized) ||
+    (normalized === "update" && extractMovePath(value) !== undefined)
+  ) {
     return "renamed";
   }
   if (["modify", "modified", "update", "updated", "edit", "edited"].includes(normalized)) {
@@ -100,23 +118,31 @@ function collectChangedFileSummaries(
     return;
   }
 
+  const normalizedKind =
+    normalizeFileChangeKind(record.kind) ?? normalizeFileChangeKind(record.changeType);
   const path =
+    (normalizedKind === "renamed"
+      ? (extractMovePath(record.kind) ??
+        asTrimmedString(record.movePath) ??
+        asTrimmedString(record.move_path))
+      : undefined) ??
     asTrimmedString(record.path) ??
     asTrimmedString(record.filePath) ??
+    asTrimmedString(record.file_path) ??
     asTrimmedString(record.relativePath) ??
+    asTrimmedString(record.relative_path) ??
     asTrimmedString(record.filename) ??
     asTrimmedString(record.newPath) ??
-    asTrimmedString(record.oldPath);
+    asTrimmedString(record.new_path) ??
+    asTrimmedString(record.oldPath) ??
+    asTrimmedString(record.old_path);
   if (path) {
     const existing = target.get(path);
     const additions = normalizeStatValue(record.additions);
     const deletions = normalizeStatValue(record.deletions);
     target.set(path, {
       path,
-      kind:
-        normalizeFileChangeKind(record.kind) ??
-        normalizeFileChangeKind(record.changeType) ??
-        existing?.kind,
+      kind: normalizedKind ?? existing?.kind,
       additions: additions ?? existing?.additions,
       deletions: deletions ?? existing?.deletions,
     });
@@ -160,63 +186,20 @@ function looksLikeUnifiedDiff(value: string): boolean {
   );
 }
 
-function collectUnifiedDiffCandidates(
-  value: unknown,
-  target: string[],
-  seen: Set<string>,
-  depth: number,
-) {
-  if (depth > 5) {
-    return;
-  }
-  if (typeof value === "string") {
-    const normalized = value.trim();
-    if (normalized.length > 0 && looksLikeUnifiedDiff(normalized) && !seen.has(normalized)) {
-      seen.add(normalized);
-      target.push(normalized);
-    }
-    return;
-  }
-  if (Array.isArray(value)) {
-    for (const entry of value) {
-      collectUnifiedDiffCandidates(entry, target, seen, depth + 1);
-    }
-    return;
-  }
-
-  const record = asRecord(value);
+function extractDirectUnifiedDiffCandidate(payloadData: unknown): string | undefined {
+  const record = asRecord(payloadData);
   if (!record) {
-    return;
+    return undefined;
   }
 
-  for (const diffKey of ["unifiedDiff", "patch", "diff"]) {
-    if (diffKey in record) {
-      collectUnifiedDiffCandidates(record[diffKey], target, seen, depth + 1);
+  for (const diffKey of ["unifiedDiff", "unified_diff", "patch", "diff"] as const) {
+    const candidate = normalizePatchText(record[diffKey]);
+    if (candidate && looksLikeUnifiedDiff(candidate)) {
+      return candidate;
     }
   }
 
-  for (const nestedKey of [
-    "item",
-    "result",
-    "input",
-    "data",
-    "toolUseResult",
-    "tool_use_result",
-    "changes",
-    "files",
-    "gitDiff",
-    "patches",
-  ]) {
-    if (nestedKey in record) {
-      collectUnifiedDiffCandidates(record[nestedKey], target, seen, depth + 1);
-    }
-  }
-}
-
-function extractUnifiedDiffCandidate(payloadData: unknown): string | undefined {
-  const candidates: string[] = [];
-  collectUnifiedDiffCandidates(payloadData, candidates, new Set<string>(), 0);
-  return candidates.length > 0 ? candidates.join("\n\n") : undefined;
+  return undefined;
 }
 
 function normalizeUnifiedDiffCandidate(
@@ -263,24 +246,12 @@ function normalizePatchText(value: unknown): string | undefined {
   return text ? text.replace(/\r\n/g, "\n") : undefined;
 }
 
-function normalizeToolChangePath(record: Record<string, unknown>): string | undefined {
-  const directPath =
-    asTrimmedString(record.path) ??
-    asTrimmedString(record.filePath) ??
-    asTrimmedString(record.relativePath) ??
-    asTrimmedString(record.filename);
-  if (directPath) {
-    return directPath;
+function normalizePossibleFileContent(value: unknown): string | undefined {
+  if (typeof value !== "string") {
+    return undefined;
   }
-  const oldPath = asTrimmedString(record.oldPath);
-  const newPath = asTrimmedString(record.newPath);
-  if (newPath && newPath !== "/dev/null") {
-    return newPath;
-  }
-  if (oldPath && oldPath !== "/dev/null") {
-    return oldPath;
-  }
-  return undefined;
+  const text = value.replace(/\r\n/g, "\n");
+  return looksLikeUnifiedDiff(text) ? undefined : text;
 }
 
 function splitRawFileContentLines(content: string): string[] {
@@ -297,31 +268,40 @@ function splitRawFileContentLines(content: string): string[] {
 
 function buildCreatedFileUnifiedDiff(path: string, rawContent: string): string | undefined {
   const lines = splitRawFileContentLines(rawContent);
-  if (lines.length === 0) {
-    return undefined;
-  }
   return [
     `diff --git a/${path} b/${path}`,
     "new file mode 100644",
     "--- /dev/null",
     `+++ b/${path}`,
-    `@@ -0,0 +1,${lines.length} @@`,
-    ...lines.map((line) => `+${line}`),
+    ...(lines.length > 0
+      ? [`@@ -0,0 +1,${lines.length} @@`, ...lines.map((line) => `+${line}`)]
+      : []),
   ].join("\n");
 }
 
 function buildDeletedFileUnifiedDiff(path: string, rawContent: string): string | undefined {
   const lines = splitRawFileContentLines(rawContent);
-  if (lines.length === 0) {
-    return undefined;
-  }
   return [
     `diff --git a/${path} b/${path}`,
     "deleted file mode 100644",
     `--- a/${path}`,
     "+++ /dev/null",
-    `@@ -1,${lines.length} +0,0 @@`,
-    ...lines.map((line) => `-${line}`),
+    ...(lines.length > 0
+      ? [`@@ -1,${lines.length} +0,0 @@`, ...lines.map((line) => `-${line}`)]
+      : []),
+  ].join("\n");
+}
+
+function buildRenamedFileUnifiedDiff(input: {
+  readonly oldPath: string;
+  readonly newPath: string;
+}): string {
+  return [
+    `diff --git a/${input.oldPath} b/${input.newPath}`,
+    `rename from ${input.oldPath}`,
+    `rename to ${input.newPath}`,
+    `--- a/${input.oldPath}`,
+    `+++ b/${input.newPath}`,
   ].join("\n");
 }
 
@@ -333,8 +313,8 @@ function inferFileChangeKindFromRecord(
   if (normalizedKind) {
     return normalizedKind;
   }
-  const oldPath = asTrimmedString(record.oldPath);
-  const newPath = asTrimmedString(record.newPath);
+  const oldPath = asTrimmedString(record.oldPath) ?? asTrimmedString(record.old_path);
+  const newPath = asTrimmedString(record.newPath) ?? asTrimmedString(record.new_path);
   if (oldPath === "/dev/null" || (!oldPath && !!newPath)) {
     return "added";
   }
@@ -344,70 +324,163 @@ function inferFileChangeKindFromRecord(
   return "modified";
 }
 
-function collectToolChangePatchFragments(
-  value: unknown,
-  target: string[],
-  seen: Set<string>,
-  depth: number,
-) {
-  if (depth > 5) {
-    return;
-  }
-  if (Array.isArray(value)) {
-    for (const entry of value) {
-      collectToolChangePatchFragments(entry, target, seen, depth + 1);
+function wrapUnifiedDiffFragment(input: {
+  readonly oldPath?: string;
+  readonly newPath?: string;
+  readonly kind: OrchestrationDiffFileChange["kind"];
+  readonly fragment: string;
+}): string | undefined {
+  const oldPath = input.oldPath;
+  const newPath = input.newPath;
+
+  if (input.kind === "added") {
+    if (!newPath) {
+      return undefined;
     }
-    return;
+    return [
+      `diff --git a/${newPath} b/${newPath}`,
+      "new file mode 100644",
+      "--- /dev/null",
+      `+++ b/${newPath}`,
+      input.fragment,
+    ].join("\n");
   }
 
-  const record = asRecord(value);
-  if (!record) {
-    return;
+  if (input.kind === "deleted") {
+    if (!oldPath) {
+      return undefined;
+    }
+    return [
+      `diff --git a/${oldPath} b/${oldPath}`,
+      "deleted file mode 100644",
+      `--- a/${oldPath}`,
+      "+++ /dev/null",
+      input.fragment,
+    ].join("\n");
   }
 
-  const path = normalizeToolChangePath(record);
-  const rawPatch =
-    normalizePatchText(record.unifiedDiff) ??
-    normalizePatchText(record.patch) ??
-    normalizePatchText(record.diff);
-  if (path && rawPatch) {
-    const normalizedPatch =
-      normalizeUnifiedDiffCandidate(rawPatch, [path]) ??
-      (inferFileChangeKindFromRecord(record) === "added"
-        ? buildCreatedFileUnifiedDiff(path, rawPatch)
-        : inferFileChangeKindFromRecord(record) === "deleted"
-          ? buildDeletedFileUnifiedDiff(path, rawPatch)
-          : undefined);
-    if (normalizedPatch && !seen.has(normalizedPatch)) {
-      seen.add(normalizedPatch);
-      target.push(normalizedPatch);
+  if (input.kind === "renamed") {
+    if (!oldPath || !newPath) {
+      return undefined;
     }
+    return [
+      `diff --git a/${oldPath} b/${newPath}`,
+      `rename from ${oldPath}`,
+      `rename to ${newPath}`,
+      `--- a/${oldPath}`,
+      `+++ b/${newPath}`,
+      input.fragment,
+    ].join("\n");
   }
 
-  for (const nestedKey of [
-    "item",
-    "result",
-    "input",
-    "data",
-    "toolUseResult",
-    "tool_use_result",
-    "changes",
-    "files",
-    "edits",
-    "gitDiff",
-    "patches",
-    "operations",
-  ]) {
-    if (!(nestedKey in record)) {
-      continue;
-    }
-    collectToolChangePatchFragments(record[nestedKey], target, seen, depth + 1);
+  if (!newPath) {
+    return undefined;
   }
+
+  return [
+    `diff --git a/${newPath} b/${newPath}`,
+    `--- a/${oldPath ?? newPath}`,
+    `+++ b/${newPath}`,
+    input.fragment,
+  ].join("\n");
 }
 
-function extractStructuredToolUnifiedDiff(payloadData: unknown): string | undefined {
-  const fragments: string[] = [];
-  collectToolChangePatchFragments(payloadData, fragments, new Set<string>(), 0);
+function normalizeCodexChangePaths(record: Record<string, unknown>): {
+  oldPath?: string;
+  newPath?: string;
+  summaryPath?: string;
+} {
+  const movePath =
+    extractMovePath(record.kind) ??
+    asTrimmedString(record.movePath) ??
+    asTrimmedString(record.move_path);
+  const directPath =
+    asTrimmedString(record.path) ??
+    asTrimmedString(record.filePath) ??
+    asTrimmedString(record.file_path) ??
+    asTrimmedString(record.filename);
+  const oldPath = asTrimmedString(record.oldPath) ?? asTrimmedString(record.old_path) ?? directPath;
+  const newPath =
+    asTrimmedString(record.newPath) ?? asTrimmedString(record.new_path) ?? movePath ?? directPath;
+  const normalizedOldPath = oldPath === "/dev/null" ? undefined : oldPath;
+  const normalizedNewPath = newPath === "/dev/null" ? undefined : newPath;
+  const summaryPath = normalizedNewPath ?? normalizedOldPath;
+  return {
+    ...(normalizedOldPath ? { oldPath: normalizedOldPath } : {}),
+    ...(normalizedNewPath ? { newPath: normalizedNewPath } : {}),
+    ...(summaryPath ? { summaryPath } : {}),
+  };
+}
+
+function buildCodexPatchFromRecord(record: Record<string, unknown>): string | undefined {
+  const kind = inferFileChangeKindFromRecord(record);
+  const { oldPath, newPath, summaryPath } = normalizeCodexChangePaths(record);
+  const rawPatch =
+    normalizePatchText(record.unifiedDiff) ??
+    normalizePatchText(record.unified_diff) ??
+    normalizePatchText(record.patch) ??
+    normalizePatchText(record.diff);
+  const rawContent = normalizePossibleFileContent(record.content);
+
+  if (rawPatch) {
+    if (/^diff --git /m.test(rawPatch) || (/^--- /m.test(rawPatch) && /^\+\+\+ /m.test(rawPatch))) {
+      return rawPatch;
+    }
+    if (/^@@ /m.test(rawPatch)) {
+      return wrapUnifiedDiffFragment({
+        ...(oldPath ? { oldPath } : {}),
+        ...(newPath ? { newPath } : {}),
+        kind,
+        fragment: rawPatch,
+      });
+    }
+    if (kind === "added" && summaryPath) {
+      return buildCreatedFileUnifiedDiff(summaryPath, rawPatch);
+    }
+    if (kind === "deleted" && summaryPath) {
+      return buildDeletedFileUnifiedDiff(summaryPath, rawPatch);
+    }
+  }
+
+  if (kind === "added" && summaryPath && rawContent !== undefined) {
+    return buildCreatedFileUnifiedDiff(summaryPath, rawContent);
+  }
+  if (kind === "deleted" && summaryPath && rawContent !== undefined) {
+    return buildDeletedFileUnifiedDiff(summaryPath, rawContent);
+  }
+  if (kind === "renamed" && oldPath && newPath) {
+    return buildRenamedFileUnifiedDiff({
+      oldPath,
+      newPath,
+    });
+  }
+
+  return undefined;
+}
+
+function extractCodexChangeRecords(payloadData: unknown): ReadonlyArray<Record<string, unknown>> {
+  const record = asRecord(payloadData);
+  if (!record) {
+    return [];
+  }
+
+  const item = asRecord(record.item);
+  const directChanges = Array.isArray(record.changes) ? record.changes : undefined;
+  const itemChanges = Array.isArray(item?.changes) ? item.changes : undefined;
+  const changes = itemChanges ?? directChanges;
+  if (!changes) {
+    return [];
+  }
+
+  return changes
+    .map((entry) => asRecord(entry))
+    .filter((entry): entry is Record<string, unknown> => entry !== null);
+}
+
+function buildCodexStructuredToolUnifiedDiff(payloadData: unknown): string | undefined {
+  const fragments = extractCodexChangeRecords(payloadData)
+    .map((record) => buildCodexPatchFromRecord(record))
+    .filter((patch): patch is string => typeof patch === "string" && patch.trim().length > 0);
   return fragments.length > 0 ? fragments.join("\n\n") : undefined;
 }
 
@@ -468,14 +541,14 @@ function parseUnifiedDiffFiles(patch: string): OrchestrationDiffFileChange[] {
   }));
 }
 
-export function buildToolInlineDiffArtifact(
+function buildCodexToolInlineDiffArtifact(
   payloadData: unknown,
 ): OrchestrationToolInlineDiff | undefined {
   const payloadFiles = extractChangedFileSummaries(payloadData);
   const fallbackPaths = payloadFiles.map((file) => file.path);
   const exactPatch =
-    extractStructuredToolUnifiedDiff(payloadData) ??
-    normalizeUnifiedDiffCandidate(extractUnifiedDiffCandidate(payloadData), fallbackPaths);
+    buildCodexStructuredToolUnifiedDiff(payloadData) ??
+    normalizeUnifiedDiffCandidate(extractDirectUnifiedDiffCandidate(payloadData), fallbackPaths);
   const patchFiles = exactPatch ? parseUnifiedDiffFiles(exactPatch) : [];
   const files = mergeFileChanges(payloadFiles, patchFiles);
 
@@ -491,4 +564,39 @@ export function buildToolInlineDiffArtifact(
     ...(fileStats.additions !== undefined ? { additions: fileStats.additions } : {}),
     ...(fileStats.deletions !== undefined ? { deletions: fileStats.deletions } : {}),
   };
+}
+
+function buildClaudeToolInlineDiffArtifact(
+  payloadData: unknown,
+): OrchestrationToolInlineDiff | undefined {
+  const payloadFiles = extractChangedFileSummaries(payloadData);
+  const fallbackPaths = payloadFiles.map((file) => file.path);
+  const exactPatch = normalizeUnifiedDiffCandidate(
+    extractDirectUnifiedDiffCandidate(payloadData),
+    fallbackPaths,
+  );
+  const patchFiles = exactPatch ? parseUnifiedDiffFiles(exactPatch) : [];
+  const files = mergeFileChanges(payloadFiles, patchFiles);
+
+  if (files.length === 0 && exactPatch === undefined) {
+    return undefined;
+  }
+
+  const fileStats = summarizeFiles(files);
+  return {
+    availability: exactPatch ? "exact_patch" : "summary_only",
+    files,
+    ...(exactPatch ? { unifiedDiff: exactPatch } : {}),
+    ...(fileStats.additions !== undefined ? { additions: fileStats.additions } : {}),
+    ...(fileStats.deletions !== undefined ? { deletions: fileStats.deletions } : {}),
+  };
+}
+
+export function buildToolInlineDiffArtifact(input: {
+  readonly provider: ProviderKind;
+  readonly payloadData: unknown;
+}): OrchestrationToolInlineDiff | undefined {
+  return input.provider === "codex"
+    ? buildCodexToolInlineDiffArtifact(input.payloadData)
+    : buildClaudeToolInlineDiffArtifact(input.payloadData);
 }

@@ -185,7 +185,7 @@ const makeEventStore = Effect.gen(function* () {
       eventId: event.eventId,
       aggregateKind: event.aggregateKind,
       streamId: event.aggregateId,
-      type: event.type,
+      type: event.type as Schema.Schema.Type<typeof ForgeEventType>,
       causationEventId: event.causationEventId,
       correlationId: event.correlationId,
       actorKind: inferActorKind(event),

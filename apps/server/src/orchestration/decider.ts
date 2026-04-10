@@ -1002,6 +1002,29 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
       };
     }
 
+    case "thread.activity.inline-diff.upsert": {
+      yield* requireThread({
+        readModel,
+        command,
+        threadId: command.threadId,
+      });
+      return {
+        ...withEventBase({
+          aggregateKind: "thread",
+          aggregateId: command.threadId,
+          occurredAt: command.createdAt,
+          commandId: command.commandId,
+        }),
+        type: "thread.activity-inline-diff-upserted",
+        payload: {
+          threadId: command.threadId,
+          activityId: command.activityId,
+          inlineDiff: command.inlineDiff,
+          updatedAt: command.createdAt,
+        },
+      };
+    }
+
     case "thread.correct": {
       yield* requireThreadNotArchived({
         readModel,

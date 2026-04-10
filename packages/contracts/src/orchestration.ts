@@ -1322,6 +1322,15 @@ const ThreadActivityAppendCommand = Schema.Struct({
   createdAt: IsoDateTime,
 });
 
+const ThreadActivityInlineDiffUpsertCommand = Schema.Struct({
+  type: Schema.Literal("thread.activity.inline-diff.upsert"),
+  commandId: CommandId,
+  threadId: ThreadId,
+  activityId: EventId,
+  inlineDiff: OrchestrationToolInlineDiff,
+  createdAt: IsoDateTime,
+});
+
 const ThreadRevertCompleteCommand = Schema.Struct({
   type: Schema.Literal("thread.revert.complete"),
   commandId: CommandId,
@@ -1339,6 +1348,7 @@ const InternalOrchestrationCommand = Schema.Union([
   ThreadTurnDiffCompleteCommand,
   ThreadAgentDiffUpsertCommand,
   ThreadActivityAppendCommand,
+  ThreadActivityInlineDiffUpsertCommand,
   ThreadRevertCompleteCommand,
 ]);
 export type InternalOrchestrationCommand = typeof InternalOrchestrationCommand.Type;
@@ -1429,6 +1439,7 @@ export const OrchestrationEventType = Schema.Literals([
   "thread.turn-diff-completed",
   "thread.agent-diff-upserted",
   "thread.activity-appended",
+  "thread.activity-inline-diff-upserted",
   "thread.forked",
 ]);
 export type OrchestrationEventType = typeof OrchestrationEventType.Type;
@@ -1786,6 +1797,15 @@ export const ThreadActivityAppendedPayload = Schema.Struct({
   activity: OrchestrationThreadActivity,
 });
 
+export const ThreadActivityInlineDiffUpsertedPayload = Schema.Struct({
+  threadId: ThreadId,
+  activityId: EventId,
+  inlineDiff: OrchestrationToolInlineDiff,
+  updatedAt: IsoDateTime,
+});
+export type ThreadActivityInlineDiffUpsertedPayload =
+  typeof ThreadActivityInlineDiffUpsertedPayload.Type;
+
 export const ThreadForkedPayload = Schema.Struct({
   threadId: ThreadId,
   sourceThreadId: ThreadId,
@@ -1945,6 +1965,11 @@ export const OrchestrationEvent = Schema.Union([
     ...EventBaseFields,
     type: Schema.Literal("thread.activity-appended"),
     payload: ThreadActivityAppendedPayload,
+  }),
+  Schema.Struct({
+    ...EventBaseFields,
+    type: Schema.Literal("thread.activity-inline-diff-upserted"),
+    payload: ThreadActivityInlineDiffUpsertedPayload,
   }),
   Schema.Struct({
     ...EventBaseFields,
