@@ -813,6 +813,129 @@ function extractTextContent(value: unknown): string {
   return extractTextContent(record.content);
 }
 
+function asRecord(value: unknown): Record<string, unknown> | undefined {
+  return value && typeof value === "object" ? (value as Record<string, unknown>) : undefined;
+}
+
+function readToolUseResultId(value: unknown): string | undefined {
+  const record = asRecord(value);
+  if (!record) {
+    return undefined;
+  }
+
+  const toolUseId = record.tool_use_id;
+  if (typeof toolUseId === "string" && toolUseId.length > 0) {
+    return toolUseId;
+  }
+
+  const camelToolUseId = record.toolUseId;
+  if (typeof camelToolUseId === "string" && camelToolUseId.length > 0) {
+    return camelToolUseId;
+  }
+
+  return undefined;
+}
+
+function indexToolUseResults(value: unknown): Map<string, unknown> {
+  const resultsById = new Map<string, unknown>();
+
+  const addResult = (candidate: unknown, fallbackId?: string) => {
+    const explicitId = readToolUseResultId(candidate);
+    const toolUseId = explicitId ?? fallbackId;
+    if (!toolUseId || resultsById.has(toolUseId)) {
+      return;
+    }
+    resultsById.set(toolUseId, candidate);
+  };
+
+  if (Array.isArray(value)) {
+    for (const entry of value) {
+      addResult(entry);
+    }
+    return resultsById;
+  }
+
+  const record = asRecord(value);
+  if (!record) {
+    return resultsById;
+  }
+
+  addResult(record);
+  for (const [key, entry] of Object.entries(record)) {
+    addResult(entry, key);
+  }
+
+  return resultsById;
+}
+
+function resolveSdkToolUseResult(input: {
+  readonly messageToolUseResult: unknown;
+  readonly block: Record<string, unknown>;
+  readonly totalToolResultBlocks: number;
+}): unknown {
+  if ("tool_use_result" in input.block) {
+    return input.block.tool_use_result;
+  }
+
+  const toolUseId =
+    typeof input.block.tool_use_id === "string" ? input.block.tool_use_id : undefined;
+  if (!toolUseId) {
+    return input.totalToolResultBlocks === 1 ? input.messageToolUseResult : undefined;
+  }
+
+  const indexedResults = indexToolUseResults(input.messageToolUseResult);
+  if (indexedResults.has(toolUseId)) {
+    return indexedResults.get(toolUseId);
+  }
+
+  return input.totalToolResultBlocks === 1 ? input.messageToolUseResult : undefined;
+}
+
+function buildClaudeToolResultPatch(input: {
+  readonly cwd?: string;
+  readonly sdkToolUseResult: unknown;
+}): string | null {
+  return buildClaudeToolResultDiffFragment(
+    input.cwd
+      ? {
+          cwd: input.cwd,
+          toolUseResult: input.sdkToolUseResult,
+        }
+      : {
+          toolUseResult: input.sdkToolUseResult,
+        },
+  );
+}
+
+function buildClaudeToolResultData(input: {
+  readonly tool: ToolInFlight;
+  readonly toolResultBlock: Record<string, unknown>;
+  readonly sdkToolUseResult: unknown;
+  readonly cwd?: string;
+}): Record<string, unknown> {
+  const data: Record<string, unknown> = {
+    toolName: input.tool.toolName,
+    input: input.tool.input,
+    result: input.toolResultBlock,
+  };
+
+  if (input.tool.itemType !== "file_change" || input.sdkToolUseResult === undefined) {
+    return data;
+  }
+
+  data.toolUseResult = input.sdkToolUseResult;
+
+  const unifiedDiff = buildClaudeToolResultPatch({
+    sdkToolUseResult: input.sdkToolUseResult,
+    ...(input.cwd ? { cwd: input.cwd } : {}),
+  });
+  if (typeof unifiedDiff === "string" && unifiedDiff.trim().length > 0) {
+    data.unifiedDiff = unifiedDiff;
+  }
+
+  return data;
+}
+
 function extractExitPlanModePlan(value: unknown): string | undefined {
   if (!value || typeof value !== "object") {
     return undefined;
@@ -881,6 +1004,11 @@ function toolResultBlocksFromUserMessage(message: SDKMessage): Array<{
     return [];
   }
 
+  const toolResultContentBlocks = content.filter(
+    (entry): entry is Record<string, unknown> =>
+      !!entry && typeof entry === "object" && (entry as { type?: unknown }).type === "tool_result",
+  );
+  const messageToolUseResult = (message as SDKUserMessage).tool_use_result;
   const blocks: Array<{
     readonly toolUseId: string;
     readonly block: Record<string, unknown>;
@@ -909,7 +1037,11 @@ function toolResultBlocksFromUserMessage(message: SDKMessage): Array<{
       block,
       text: extractTextContent(block.content),
       isError: block.is_error === true,
-      sdkToolUseResult: (message as SDKUserMessage).tool_use_result,
+      sdkToolUseResult: resolveSdkToolUseResult({
+        messageToolUseResult,
+        block,
+        totalToolResultBlocks: toolResultContentBlocks.length,
+      }),
     });
   }
 
@@ -1108,16 +1240,10 @@ const makeClaudeAdapter = Effect.fn("makeClaudeAdapter")(function* (
         return;
       }
 
-      const patch = buildClaudeToolResultDiffFragment(
-        context.session.cwd
-          ? {
-              cwd: context.session.cwd,
-              toolUseResult: toolResult.sdkToolUseResult,
-            }
-          : {
-              toolUseResult: toolResult.sdkToolUseResult,
-            },
-      );
+      const patch = buildClaudeToolResultPatch({
+        sdkToolUseResult: toolResult.sdkToolUseResult,
+        ...(context.session.cwd ? { cwd: context.session.cwd } : {}),
+      });
 
       if (patch === null) {
         context.turnState.agentDiffCoverage = "partial";
@@ -1954,11 +2080,12 @@ const makeClaudeAdapter = Effect.fn("makeClaudeAdapter")(function* (
 
       const [index, tool] = toolEntry;
       const itemStatus = toolResult.isError ? "failed" : "completed";
-      const toolData = {
-        toolName: tool.toolName,
-        input: tool.input,
-        result: toolResult.block,
-      };
+      const toolData = buildClaudeToolResultData({
+        tool,
+        toolResultBlock: toolResult.block,
+        sdkToolUseResult: toolResult.sdkToolUseResult,
+        ...(context.session.cwd ? { cwd: context.session.cwd } : {}),
+      });
 
       const userToolAttribution = buildChildThreadAttribution(context, userParentToolUseId);
 

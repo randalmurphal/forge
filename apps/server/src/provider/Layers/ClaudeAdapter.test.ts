@@ -965,6 +965,142 @@ describe("ClaudeAdapterLive", () => {
     );
   });
 
+  it.effect("includes exact file-change diff data on Claude write tool results", () => {
+    const cwd = "/tmp/claude-adapter-write-diff";
+    const harness = makeHarness({ cwd });
+    return Effect.gen(function* () {
+      const adapter = yield* ClaudeAdapter;
+
+      const runtimeEventsFiber = yield* Stream.take(adapter.streamEvents, 11).pipe(
+        Stream.runCollect,
+        Effect.forkChild,
+      );
+
+      const session = yield* adapter.startSession({
+        threadId: THREAD_ID,
+        provider: "claudeAgent",
+        runtimeMode: "full-access",
+      });
+
+      const turn = yield* adapter.sendTurn({
+        threadId: session.threadId,
+        input: "update the file",
+        attachments: [],
+      });
+
+      harness.query.emit({
+        type: "stream_event",
+        session_id: "sdk-session-write-tool",
+        uuid: "stream-write-start",
+        parent_tool_use_id: null,
+        event: {
+          type: "content_block_start",
+          index: 0,
+          content_block: {
+            type: "tool_use",
+            id: "tool-write-1",
+            name: "Write",
+            input: {
+              file_path: path.join(cwd, "apps/server/src/example.ts"),
+            },
+          },
+        },
+      } as unknown as SDKMessage);
+
+      harness.query.emit({
+        type: "user",
+        session_id: "sdk-session-write-tool",
+        uuid: "user-write-result",
+        parent_tool_use_id: null,
+        tool_use_result: {
+          type: "update",
+          filePath: path.join(cwd, "apps/server/src/example.ts"),
+          content: ["export const value = 1;", "export const next = 2;"].join("\n"),
+          originalFile: "export const value = 1;\n",
+          structuredPatch: [
+            {
+              oldStart: 1,
+              oldLines: 1,
+              newStart: 1,
+              newLines: 2,
+              lines: [" export const value = 1;", "+export const next = 2;"],
+            },
+          ],
+        },
+        message: {
+          role: "user",
+          content: [
+            {
+              type: "tool_result",
+              tool_use_id: "tool-write-1",
+              content: "Updated apps/server/src/example.ts",
+            },
+          ],
+        },
+      } as unknown as SDKMessage);
+
+      harness.query.emit({
+        type: "result",
+        subtype: "success",
+        is_error: false,
+        errors: [],
+        session_id: "sdk-session-write-tool",
+        uuid: "result-write-tool",
+      } as unknown as SDKMessage);
+
+      const runtimeEvents = Array.from(yield* Fiber.join(runtimeEventsFiber));
+      assert.deepEqual(
+        runtimeEvents.map((event) => event.type),
+        [
+          "session.started",
+          "session.configured",
+          "session.state.changed",
+          "turn.started",
+          "thread.started",
+          "item.started",
+          "item.updated",
+          "turn.diff.updated",
+          "content.delta",
+          "item.completed",
+          "turn.completed",
+        ],
+      );
+
+      const toolResultUpdated = runtimeEvents.find(
+        (event) =>
+          event.type === "item.updated" &&
+          (event.payload.data as { unifiedDiff?: unknown } | undefined)?.unifiedDiff !== undefined,
+      );
+      assert.equal(toolResultUpdated?.type, "item.updated");
+      if (toolResultUpdated?.type === "item.updated") {
+        const payloadData = toolResultUpdated.payload.data as {
+          toolUseResult?: { filePath?: string };
+          unifiedDiff?: string;
+        };
+        assert.equal(
+          payloadData.toolUseResult?.filePath,
+          path.join(cwd, "apps/server/src/example.ts"),
+        );
+        assert.equal(
+          (payloadData.unifiedDiff?.includes("diff --git a/") ?? false) &&
+            (payloadData.unifiedDiff?.includes("example.ts") ?? false),
+          true,
+        );
+      }
+
+      const turnDiffUpdated = runtimeEvents.find((event) => event.type === "turn.diff.updated");
+      assert.equal(turnDiffUpdated?.type, "turn.diff.updated");
+      if (turnDiffUpdated?.type === "turn.diff.updated") {
+        assert.equal(String(turnDiffUpdated.turnId), String(turn.turnId));
+        assert.equal(turnDiffUpdated.payload.coverage, "complete");
+        assert.equal(turnDiffUpdated.payload.unifiedDiff.includes("example.ts"), true);
+      }
+    }).pipe(
+      Effect.provideService(Random.Random, makeDeterministicRandomService()),
+      Effect.provide(harness.layer),
+    );
+  });
+
   it.effect("classifies Claude Task tool invocations as collaboration agent work", () => {
     const harness = makeHarness();
     return Effect.gen(function* () {

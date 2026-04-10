@@ -127,9 +127,12 @@ function collectChangedFileSummaries(
     "result",
     "input",
     "data",
+    "toolUseResult",
+    "tool_use_result",
     "changes",
     "files",
     "edits",
+    "gitDiff",
     "patch",
     "patches",
     "operations",
@@ -192,7 +195,18 @@ function collectUnifiedDiffCandidates(
     }
   }
 
-  for (const nestedKey of ["item", "result", "input", "data", "changes", "files", "patches"]) {
+  for (const nestedKey of [
+    "item",
+    "result",
+    "input",
+    "data",
+    "toolUseResult",
+    "tool_use_result",
+    "changes",
+    "files",
+    "gitDiff",
+    "patches",
+  ]) {
     if (nestedKey in record) {
       collectUnifiedDiffCandidates(record[nestedKey], target, seen, depth + 1);
     }
@@ -375,9 +389,12 @@ function collectToolChangePatchFragments(
     "result",
     "input",
     "data",
+    "toolUseResult",
+    "tool_use_result",
     "changes",
     "files",
     "edits",
+    "gitDiff",
     "patches",
     "operations",
   ]) {

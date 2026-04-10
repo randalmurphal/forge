@@ -118,6 +118,35 @@ describe("buildToolInlineDiffArtifact", () => {
     });
   });
 
+  it("walks nested Claude tool results for exact patches and file metadata", () => {
+    const artifact = buildToolInlineDiffArtifact({
+      result: {
+        type: "tool_result",
+        tool_use_id: "tool-write-1",
+      },
+      toolUseResult: {
+        type: "update",
+        filePath: "apps/server/src/example.ts",
+        gitDiff: {
+          filename: "apps/server/src/example.ts",
+          patch: ["@@ -1 +1,2 @@", " export const value = 1;", "+export const next = 2;"].join(
+            "\n",
+          ),
+        },
+      },
+    });
+
+    expect(artifact).toMatchObject({
+      availability: "exact_patch",
+      files: [{ path: "apps/server/src/example.ts", additions: 1, deletions: 0 }],
+      additions: 1,
+      deletions: 0,
+    });
+    expect(artifact?.unifiedDiff).toContain(
+      "diff --git a/apps/server/src/example.ts b/apps/server/src/example.ts",
+    );
+  });
+
   it("returns undefined when there is no renderable file metadata", () => {
     expect(buildToolInlineDiffArtifact({ item: {} })).toBeUndefined();
   });
