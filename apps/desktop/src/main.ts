@@ -1110,6 +1110,7 @@ async function ensureDaemonReady(): Promise<void> {
         baseDir: BASE_DIR,
         entryScriptPath: backendEntry,
         cwd: resolveBackendCwd(),
+        execPath: "node",
         env: resolveDaemonProcessEnv(),
       });
       writeDesktopLogHeader(
