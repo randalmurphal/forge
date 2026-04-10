@@ -75,7 +75,10 @@ function resolveCommandEditorArgs(
   }
 }
 
-function fileManagerCommandForPlatform(platform: NodeJS.Platform): string {
+function fileManagerCommandForPlatform(
+  platform: NodeJS.Platform,
+  env: NodeJS.ProcessEnv = process.env,
+): string {
   switch (platform) {
     case "darwin":
       return "open";
@@ -84,7 +87,7 @@ function fileManagerCommandForPlatform(platform: NodeJS.Platform): string {
     default:
       // In WSL, explorer.exe is available and opens Windows File Explorer.
       // xdg-open typically fails in headless WSL environments.
-      if (process.env.WSL_DISTRO_NAME) {
+      if (env.WSL_DISTRO_NAME) {
         return "explorer.exe";
       }
       return "xdg-open";
@@ -203,7 +206,7 @@ export function resolveAvailableEditors(
   const available: EditorId[] = [];
 
   for (const editor of EDITORS) {
-    const command = editor.command ?? fileManagerCommandForPlatform(platform);
+    const command = editor.command ?? fileManagerCommandForPlatform(platform, env);
     if (isCommandAvailable(command, { platform, env })) {
       available.push(editor.id);
     }
@@ -241,6 +244,7 @@ export class Open extends ServiceMap.Service<Open, OpenShape>()("forge/open") {}
 export const resolveEditorLaunch = Effect.fn("resolveEditorLaunch")(function* (
   input: OpenInEditorInput,
   platform: NodeJS.Platform = process.platform,
+  env: NodeJS.ProcessEnv = process.env,
 ): Effect.fn.Return<EditorLaunch, OpenError> {
   yield* Effect.annotateCurrentSpan({
     "open.editor": input.editor,
@@ -263,7 +267,7 @@ export const resolveEditorLaunch = Effect.fn("resolveEditorLaunch")(function* (
     return yield* new OpenError({ message: `Unsupported editor: ${input.editor}` });
   }
 
-  return { command: fileManagerCommandForPlatform(platform), args: [input.cwd] };
+  return { command: fileManagerCommandForPlatform(platform, env), args: [input.cwd] };
 });
 
 export const launchDetached = (launch: EditorLaunch) =>

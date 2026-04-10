@@ -2,6 +2,7 @@ import * as NodeServices from "@effect/platform-node/NodeServices";
 import { DEFAULT_SERVER_SETTINGS, ServerSettingsPatch } from "@forgetools/contracts";
 import { assert, it } from "@effect/vitest";
 import { Duration, Effect, FileSystem, Layer, Schema } from "effect";
+import { test } from "vitest";
 import { ServerConfig } from "./config";
 import { ServerSettingsLive, ServerSettingsService } from "./serverSettings";
 
@@ -14,6 +15,12 @@ const makeServerSettingsLayer = () =>
         }),
       ),
     ),
+  );
+
+const makeScopedServerSettingsRuntimeLayer = () =>
+  Layer.merge(
+    NodeServices.layer,
+    makeServerSettingsLayer().pipe(Layer.provide(NodeServices.layer)),
   );
 
 it.layer(NodeServices.layer)("server settings", (it) => {
@@ -332,8 +339,10 @@ it.layer(NodeServices.layer)("server settings", (it) => {
       });
     }).pipe(Effect.provide(makeServerSettingsLayer())),
   );
+});
 
-  it.effect("reloads appearance settings and surfaces appearance issues from external edits", () =>
+test("reloads appearance settings and surfaces appearance issues from external edits", async () => {
+  await Effect.runPromise(
     Effect.gen(function* () {
       const serverSettings = yield* ServerSettingsService;
       const serverConfig = yield* ServerConfig;
@@ -387,6 +396,6 @@ it.layer(NodeServices.layer)("server settings", (it) => {
         DEFAULT_SERVER_SETTINGS.appearance.typography.terminalFontSize,
       );
       assert.equal(invalidState.issues[0]?.kind, "appearance.malformed-config");
-    }).pipe(Effect.provide(makeServerSettingsLayer())),
+    }).pipe(Effect.provide(makeScopedServerSettingsRuntimeLayer()), Effect.scoped),
   );
 });

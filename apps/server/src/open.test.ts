@@ -204,6 +204,7 @@ it.layer(NodeServices.layer)("resolveEditorLaunch", (it) => {
       const launch3 = yield* resolveEditorLaunch(
         { cwd: "/tmp/workspace", editor: "file-manager" },
         "linux",
+        {},
       );
       assert.deepEqual(launch3, {
         command: "xdg-open",

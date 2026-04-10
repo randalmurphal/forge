@@ -27,10 +27,12 @@ import {
   Duration,
   Effect,
   Exit,
+  Fiber,
   FileSystem,
   Layer,
   Path,
   Equal,
+  Option,
   PubSub,
   Ref,
   Schema,
@@ -206,7 +208,16 @@ const makeServerSettings = Effect.gen(function* () {
   const startedRef = yield* Ref.make(false);
   const startedDeferred = yield* Deferred.make<void, ServerSettingsError>();
   const watcherScope = yield* Scope.make("sequential");
-  yield* Effect.addFinalizer(() => Scope.close(watcherScope, Exit.void));
+  const watcherFiberRef = yield* Ref.make<Option.Option<Fiber.Fiber<void, never>>>(Option.none());
+  yield* Effect.addFinalizer((_exit) =>
+    Effect.gen(function* () {
+      const watcherFiber = yield* Ref.get(watcherFiberRef);
+      if (Option.isSome(watcherFiber)) {
+        yield* Fiber.interrupt(watcherFiber.value).pipe(Effect.ignore);
+      }
+      yield* Scope.close(watcherScope, Exit.void);
+    }),
+  );
 
   const emitChange = (state: { settings: ServerSettings; issues: readonly ServerConfigIssue[] }) =>
     PubSub.publish(changesPubSub, resolveSettingsState(state)).pipe(Effect.asVoid);
@@ -347,12 +358,20 @@ const makeServerSettings = Effect.gen(function* () {
     );
 
     const revalidateAndEmitSafely = revalidateAndEmit.pipe(Effect.ignoreCause({ log: true }));
+    const revalidateAfterWatchEvent = Effect.gen(function* () {
+      yield* revalidateAndEmitSafely;
+      yield* Effect.sleep(Duration.millis(150));
+      yield* revalidateAndEmitSafely;
+    });
 
     // Debounce watch events so the file is fully written before we read it.
     // Editors emit multiple events per save (truncate, write, rename) and
     // `fs.watch` can fire before the content has been flushed to disk.
     const debouncedSettingsEvents = fs.watch(settingsDir).pipe(
       Stream.filter((event) => {
+        if (!event.path) {
+          return true;
+        }
         return (
           event.path === settingsFile ||
           event.path === settingsPath ||
@@ -362,11 +381,11 @@ const makeServerSettings = Effect.gen(function* () {
       Stream.debounce(Duration.millis(100)),
     );
 
-    yield* Stream.runForEach(debouncedSettingsEvents, () => revalidateAndEmitSafely).pipe(
-      Effect.ignoreCause({ log: true }),
-      Effect.forkIn(watcherScope),
-      Effect.asVoid,
-    );
+    const watcherFiber = yield* Stream.runForEach(
+      debouncedSettingsEvents,
+      () => revalidateAfterWatchEvent,
+    ).pipe(Effect.ignoreCause({ log: true }), Effect.forkIn(watcherScope));
+    yield* Ref.set(watcherFiberRef, Option.some(watcherFiber));
   });
 
   const start = Effect.gen(function* () {
@@ -376,7 +395,11 @@ const makeServerSettings = Effect.gen(function* () {
     }
 
     const startup = Effect.gen(function* () {
+      if (!(yield* readConfigExists)) {
+        yield* writeSettingsAtomically(DEFAULT_SERVER_SETTINGS);
+      }
       yield* startWatcher;
+      yield* Effect.sleep(Duration.millis(50));
       yield* Cache.invalidate(settingsCache, cacheKey);
       yield* getSettingsFromCache;
     });

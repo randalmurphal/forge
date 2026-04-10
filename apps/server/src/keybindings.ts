@@ -28,6 +28,7 @@ import {
   Duration,
   Effect,
   Exit,
+  Fiber,
   FileSystem,
   Path,
   Layer,
@@ -535,7 +536,16 @@ const makeKeybindings = Effect.gen(function* () {
   const startedRef = yield* Ref.make(false);
   const startedDeferred = yield* Deferred.make<void, KeybindingsConfigError>();
   const watcherScope = yield* Scope.make("sequential");
-  yield* Effect.addFinalizer(() => Scope.close(watcherScope, Exit.void));
+  const watcherFiberRef = yield* Ref.make<Option.Option<Fiber.Fiber<void, never>>>(Option.none());
+  yield* Effect.addFinalizer((_exit) =>
+    Effect.gen(function* () {
+      const watcherFiber = yield* Ref.get(watcherFiberRef);
+      if (Option.isSome(watcherFiber)) {
+        yield* Fiber.interrupt(watcherFiber.value).pipe(Effect.ignore);
+      }
+      yield* Scope.close(watcherScope, Exit.void);
+    }),
+  );
   const emitChange = (configState: KeybindingsConfigState) =>
     PubSub.publish(changesPubSub, configState).pipe(Effect.asVoid);
 
@@ -814,12 +824,20 @@ const makeKeybindings = Effect.gen(function* () {
     );
 
     const revalidateAndEmitSafely = revalidateAndEmit.pipe(Effect.ignoreCause({ log: true }));
+    const revalidateAfterWatchEvent = Effect.gen(function* () {
+      yield* revalidateAndEmitSafely;
+      yield* Effect.sleep(Duration.millis(150));
+      yield* revalidateAndEmitSafely;
+    });
 
     // Debounce watch events so the file is fully written before we read it.
     // Editors emit multiple events per save (truncate, write, rename) and
     // `fs.watch` can fire before the content has been flushed to disk.
     const debouncedKeybindingsEvents = fs.watch(keybindingsConfigDir).pipe(
       Stream.filter((event) => {
+        if (!event.path) {
+          return true;
+        }
         return (
           event.path === keybindingsConfigFile ||
           event.path === keybindingsConfigPath ||
@@ -829,11 +847,11 @@ const makeKeybindings = Effect.gen(function* () {
       Stream.debounce(Duration.millis(100)),
     );
 
-    yield* Stream.runForEach(debouncedKeybindingsEvents, () => revalidateAndEmitSafely).pipe(
-      Effect.ignoreCause({ log: true }),
-      Effect.forkIn(watcherScope),
-      Effect.asVoid,
-    );
+    const watcherFiber = yield* Stream.runForEach(
+      debouncedKeybindingsEvents,
+      () => revalidateAfterWatchEvent,
+    ).pipe(Effect.ignoreCause({ log: true }), Effect.forkIn(watcherScope));
+    yield* Ref.set(watcherFiberRef, Option.some(watcherFiber));
   });
 
   const start = Effect.gen(function* () {
@@ -845,6 +863,7 @@ const makeKeybindings = Effect.gen(function* () {
     yield* Ref.set(startedRef, true);
     const startup = Effect.gen(function* () {
       yield* startWatcher;
+      yield* Effect.sleep(Duration.millis(50));
       yield* syncDefaultKeybindingsOnStartup;
       yield* Cache.invalidate(resolvedConfigCache, resolvedConfigCacheKey);
       yield* loadConfigStateFromCacheOrDisk;
