@@ -11,6 +11,7 @@ import {
   deriveInlineTurnDiffSummaryByAssistantMessageId,
   deriveComposerSendState,
   hasServerAcknowledgedLocalDispatch,
+  prepareWorktree,
   reconcileMountedTerminalThreadIds,
   waitForServerThreadMatch,
   waitForStartedServerThread,
@@ -633,5 +634,111 @@ describe("hasServerAcknowledgedLocalDispatch", () => {
         threadError: null,
       }),
     ).toBe(true);
+  });
+});
+
+describe("prepareWorktree", () => {
+  /** Mock that echoes back `newBranch` as the created branch so tests verify
+   *  the full pipeline: input → sanitize/generate → createWorktree → result. */
+  const echoCreateWorktree = (worktreePath = "/worktrees/test") =>
+    vi
+      .fn()
+      .mockImplementation(({ newBranch }: { newBranch: string }) =>
+        Promise.resolve({ worktree: { branch: newBranch, path: worktreePath } }),
+      );
+
+  it("uses a sanitized user-supplied branch name when provided", async () => {
+    const createWorktree = echoCreateWorktree();
+    const result = await prepareWorktree({
+      cwd: "/repo",
+      baseBranch: "main",
+      userBranchName: "My Feature!!",
+      branchPrefix: "forge",
+      createWorktree,
+    });
+
+    expect(createWorktree).toHaveBeenCalledOnce();
+    const call = createWorktree.mock.calls[0]!;
+    expect(call[0].cwd).toBe("/repo");
+    expect(call[0].branch).toBe("main");
+    // Branch name should be sanitized (lowercased, special chars removed)
+    expect(call[0].newBranch).toBe("my-feature");
+    // Result reflects the sanitized name end-to-end (echoed by the mock)
+    expect(result.branch).toBe("my-feature");
+    expect(result.worktreePath).toBe("/worktrees/test");
+  });
+
+  it("generates a temporary branch name when userBranchName is null", async () => {
+    const createWorktree = echoCreateWorktree();
+    const result = await prepareWorktree({
+      cwd: "/repo",
+      baseBranch: "main",
+      userBranchName: null,
+      branchPrefix: "forge",
+      createWorktree,
+    });
+
+    const call = createWorktree.mock.calls[0]!;
+    // Should match the temporary branch pattern: prefix/8-hex-chars
+    expect(call[0].newBranch).toMatch(/^forge\/[0-9a-f]{8}$/);
+    // Result branch matches what was passed to createWorktree
+    expect(result.branch).toBe(call[0].newBranch);
+  });
+
+  it("generates a temporary branch name when userBranchName is empty string", async () => {
+    const createWorktree = echoCreateWorktree();
+    const result = await prepareWorktree({
+      cwd: "/repo",
+      baseBranch: "main",
+      userBranchName: "",
+      branchPrefix: "forge",
+      createWorktree,
+    });
+
+    const call = createWorktree.mock.calls[0]!;
+    expect(call[0].newBranch).toMatch(/^forge\/[0-9a-f]{8}$/);
+    expect(result.branch).toBe(call[0].newBranch);
+  });
+
+  it("generates a temporary branch name when userBranchName is whitespace-only", async () => {
+    const createWorktree = echoCreateWorktree();
+    const result = await prepareWorktree({
+      cwd: "/repo",
+      baseBranch: "develop",
+      userBranchName: "   ",
+      branchPrefix: "my-prefix",
+      createWorktree,
+    });
+
+    const call = createWorktree.mock.calls[0]!;
+    expect(call[0].newBranch).toMatch(/^my-prefix\/[0-9a-f]{8}$/);
+    expect(call[0].branch).toBe("develop");
+    expect(result.branch).toBe(call[0].newBranch);
+  });
+
+  it("returns the worktreePath from the createWorktree result", async () => {
+    const createWorktree = echoCreateWorktree("/home/user/.forge/worktrees/abc-123");
+    const result = await prepareWorktree({
+      cwd: "/repo",
+      baseBranch: "main",
+      userBranchName: null,
+      branchPrefix: "forge",
+      createWorktree,
+    });
+
+    expect(result.worktreePath).toBe("/home/user/.forge/worktrees/abc-123");
+  });
+
+  it("propagates errors from createWorktree", async () => {
+    const createWorktree = vi.fn().mockRejectedValue(new Error("git worktree add failed"));
+    await expect(
+      prepareWorktree({
+        cwd: "/repo",
+        baseBranch: "main",
+        userBranchName: null,
+        branchPrefix: "forge",
+        createWorktree,
+      }),
+    ).rejects.toThrow("git worktree add failed");
   });
 });

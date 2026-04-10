@@ -15,7 +15,7 @@ import {
 import { randomUUID } from "~/lib/utils";
 import { type ComposerImageAttachment, type DraftThreadState } from "../composerDraftStore";
 import { Schema } from "effect";
-import { FORGE_WORKTREE_BRANCH_PREFIX } from "@forgetools/shared/git";
+import { FORGE_WORKTREE_BRANCH_PREFIX, sanitizeBranchFragment } from "@forgetools/shared/git";
 import { useStore } from "../store";
 import {
   filterTerminalContextsWithText,
@@ -177,6 +177,47 @@ export function buildTemporaryWorktreeBranchName(
   // Keep the 8-hex suffix shape for backend temporary-branch detection.
   const token = randomUUID().slice(0, 8).toLowerCase();
   return `${prefix}/${token}`;
+}
+
+export interface WorktreePrepInput {
+  /** Project root directory. */
+  cwd: string;
+  /** Branch to fork the worktree from. */
+  baseBranch: string;
+  /** User-typed branch name (raw, pre-sanitization). Null means auto-generate. */
+  userBranchName: string | null;
+  /** Prefix for auto-generated temporary branch names (e.g. "forge"). */
+  branchPrefix: string;
+  /** Delegate that actually creates the git worktree. */
+  createWorktree: (input: {
+    cwd: string;
+    branch: string;
+    newBranch: string;
+  }) => Promise<{ worktree: { branch: string; path: string } }>;
+}
+
+export interface WorktreePrepResult {
+  branch: string;
+  worktreePath: string;
+}
+
+/**
+ * Create a git worktree, resolving the branch name from user input or
+ * generating a temporary one. Returns the resulting branch and path.
+ *
+ * Thread metadata updates and setup-script execution are intentionally
+ * left to callers — their lifecycle differs per send path.
+ */
+export async function prepareWorktree(input: WorktreePrepInput): Promise<WorktreePrepResult> {
+  const raw = input.userBranchName?.trim() || null;
+  const userBranch = raw ? sanitizeBranchFragment(raw) : null;
+  const newBranch = userBranch ?? buildTemporaryWorktreeBranchName(input.branchPrefix);
+  const result = await input.createWorktree({
+    cwd: input.cwd,
+    branch: input.baseBranch,
+    newBranch,
+  });
+  return { branch: result.worktree.branch, worktreePath: result.worktree.path };
 }
 
 export function cloneComposerImageForRetry(

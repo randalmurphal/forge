@@ -20,7 +20,6 @@ import {
   RuntimeMode,
   TerminalOpenInput,
 } from "@forgetools/contracts";
-import { sanitizeBranchFragment } from "@forgetools/shared/git";
 import { applyClaudePromptEffortPrefix, normalizeModelSlug } from "@forgetools/shared/model";
 import { truncate } from "@forgetools/shared/String";
 import { resolveThreadSpawnWorkspace } from "@forgetools/shared/threadWorkspace";
@@ -28,7 +27,11 @@ import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } fr
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useDebouncedValue } from "@tanstack/react-pacer";
 import { useNavigate, useSearch } from "@tanstack/react-router";
-import { gitCreateWorktreeMutationOptions, gitStatusQueryOptions } from "~/lib/gitReactQuery";
+import {
+  gitCreateWorktreeMutationOptions,
+  gitRemoveWorktreeMutationOptions,
+  gitStatusQueryOptions,
+} from "~/lib/gitReactQuery";
 import { projectSearchEntriesQueryOptions } from "~/lib/projectReactQuery";
 import { isElectron } from "../env";
 import { parseDiffRouteSearch, stripDiffSearchParams } from "../diffRouteSearch";
@@ -187,7 +190,6 @@ import {
   MAX_HIDDEN_MOUNTED_TERMINAL_THREADS,
   buildExpiredTerminalContextToastCopy,
   buildLocalDraftThread,
-  buildTemporaryWorktreeBranchName,
   cloneComposerImageForRetry,
   collectUserMessageBlobPreviewUrls,
   createLocalDispatchSnapshot,
@@ -197,6 +199,7 @@ import {
   LAST_INVOKED_SCRIPT_BY_PROJECT_KEY,
   LastInvokedScriptByProjectSchema,
   type LocalDispatchSnapshot,
+  prepareWorktree,
   PullRequestDialogState,
   readFileAsDataUrl,
   reconcileMountedTerminalThreadIds,
@@ -629,6 +632,7 @@ export default function ChatView({ threadId }: ChatViewProps) {
   const { resolvedTheme } = useTheme();
   const queryClient = useQueryClient();
   const createWorktreeMutation = useMutation(gitCreateWorktreeMutationOptions({ queryClient }));
+  const removeWorktreeMutation = useMutation(gitRemoveWorktreeMutationOptions({ queryClient }));
   const composerDraft = useComposerThreadDraft(threadId);
   const prompt = composerDraft.prompt;
   const composerImages = composerDraft.images;
@@ -2700,6 +2704,10 @@ export default function ChatView({ threadId }: ChatViewProps) {
       ? (draftThread?.envMode ?? "local")
       : (pendingEnvMode ?? "local");
 
+  const worktreeBranchName = isLocalDraftThread
+    ? (draftThread?.worktreeBranchName ?? null)
+    : pendingWorktreeBranchName;
+
   useEffect(() => {
     if (!isWorking) return;
     const timer = window.setInterval(() => {
@@ -3115,34 +3123,39 @@ export default function ChatView({ threadId }: ChatViewProps) {
 
     let createdServerThreadForLocalDraft = false;
     let turnStartSucceeded = false;
+    // Track worktree path for cleanup if the thread never successfully
+    // references it (meta.update or thread.create fails). Cleared once
+    // the worktree is linked to a thread so we don't remove a valid worktree.
+    let orphanedWorktreePath: string | null = null;
     let nextThreadBranch = envMode === "worktree" ? activeThread.branch : null;
     let nextThreadWorktreePath = activeThread.worktreePath;
     await (async () => {
       // Lock in branch + create worktree if needed (first message or mid-conversation switch).
       if (baseBranchForWorktree) {
         beginLocalDispatch({ preparingWorktree: true });
-        const rawUserBranchName = worktreeBranchName?.trim() || null;
-        const userBranchName = rawUserBranchName ? sanitizeBranchFragment(rawUserBranchName) : null;
-        const newBranch =
-          userBranchName ?? buildTemporaryWorktreeBranchName(settings.worktreeBranchPrefix);
-        const result = await createWorktreeMutation.mutateAsync({
+        const worktreeResult = await prepareWorktree({
           cwd: activeProject.cwd,
-          branch: baseBranchForWorktree,
-          newBranch,
+          baseBranch: baseBranchForWorktree,
+          userBranchName: worktreeBranchName,
+          branchPrefix: settings.worktreeBranchPrefix,
+          createWorktree: createWorktreeMutation.mutateAsync,
         });
-        nextThreadBranch = result.worktree.branch;
-        nextThreadWorktreePath = result.worktree.path;
+        nextThreadBranch = worktreeResult.branch;
+        nextThreadWorktreePath = worktreeResult.worktreePath;
+        orphanedWorktreePath = worktreeResult.worktreePath;
         if (isServerThread) {
           await api.orchestration.dispatchCommand({
             type: "thread.meta.update",
             commandId: newCommandId(),
             threadId: threadIdForSend,
-            branch: result.worktree.branch,
-            worktreePath: result.worktree.path,
+            branch: worktreeResult.branch,
+            worktreePath: worktreeResult.worktreePath,
           });
           // Keep local thread state in sync immediately so terminal drawer opens
           // with the worktree cwd/env instead of briefly using the project root.
-          setStoreThreadBranch(threadIdForSend, result.worktree.branch, result.worktree.path);
+          setStoreThreadBranch(threadIdForSend, worktreeResult.branch, worktreeResult.worktreePath);
+          // Worktree is now referenced by the thread — no longer orphaned.
+          orphanedWorktreePath = null;
         }
       }
 
@@ -3202,6 +3215,8 @@ export default function ChatView({ threadId }: ChatViewProps) {
           createdAt: activeThread.createdAt,
         });
         createdServerThreadForLocalDraft = true;
+        // Worktree is now referenced by the newly created thread.
+        orphanedWorktreePath = null;
       }
 
       let setupScript: ProjectScript | null = null;
@@ -3292,6 +3307,13 @@ export default function ChatView({ threadId }: ChatViewProps) {
             commandId: newCommandId(),
             threadId: threadIdForSend,
           })
+          .catch(() => undefined);
+      }
+      // Clean up the git worktree if it was created but never linked to a thread
+      // (meta.update or thread.create failed before completing).
+      if (orphanedWorktreePath) {
+        await removeWorktreeMutation
+          .mutateAsync({ cwd: activeProject.cwd, path: orphanedWorktreePath, force: true })
           .catch(() => undefined);
       }
       if (
@@ -3559,6 +3581,7 @@ export default function ChatView({ threadId }: ChatViewProps) {
       if (
         !api ||
         !activeThread ||
+        !activeProject ||
         !isServerThread ||
         isSendBusy ||
         isConnecting ||
@@ -3573,6 +3596,18 @@ export default function ChatView({ threadId }: ChatViewProps) {
       }
 
       const threadIdForSend = activeThread.id;
+
+      // Honor the composer's env mode: create a worktree if the user switched
+      // to "New worktree" while reviewing the plan.
+      const shouldCreateWorktree = envMode === "worktree" && !activeThread.worktreePath;
+      if (shouldCreateWorktree && !activeThread.branch) {
+        setThreadError(
+          threadIdForSend,
+          "Select a base branch before sending in New worktree mode.",
+        );
+        return;
+      }
+
       const messageIdForSend = newMessageId();
       const messageCreatedAt = new Date().toISOString();
       const outgoingMessageText = formatOutgoingPrompt({
@@ -3584,7 +3619,7 @@ export default function ChatView({ threadId }: ChatViewProps) {
       });
 
       sendInFlightRef.current = true;
-      beginLocalDispatch({ preparingWorktree: false });
+      beginLocalDispatch({ preparingWorktree: shouldCreateWorktree });
       setThreadError(threadIdForSend, null);
       setOptimisticUserMessages((existing) => [
         ...existing,
@@ -3599,7 +3634,50 @@ export default function ChatView({ threadId }: ChatViewProps) {
       shouldAutoScrollRef.current = true;
       forceStickToBottom();
 
+      // Track worktree path for cleanup if creation succeeds but
+      // thread.meta.update fails (leaving the worktree orphaned).
+      // Cleared once the thread references it so we don't remove a valid worktree.
+      let orphanedWorktreePath: string | null = null;
+
       try {
+        // Create worktree before dispatching the turn if the user selected
+        // "New worktree" mode while the plan follow-up banner was active.
+        if (shouldCreateWorktree && activeThread.branch) {
+          const worktreeResult = await prepareWorktree({
+            cwd: activeProject.cwd,
+            baseBranch: activeThread.branch,
+            userBranchName: worktreeBranchName,
+            branchPrefix: settings.worktreeBranchPrefix,
+            createWorktree: createWorktreeMutation.mutateAsync,
+          });
+          orphanedWorktreePath = worktreeResult.worktreePath;
+          await api.orchestration.dispatchCommand({
+            type: "thread.meta.update",
+            commandId: newCommandId(),
+            threadId: threadIdForSend,
+            branch: worktreeResult.branch,
+            worktreePath: worktreeResult.worktreePath,
+          });
+          setStoreThreadBranch(threadIdForSend, worktreeResult.branch, worktreeResult.worktreePath);
+          // Worktree is now referenced by the thread — no longer orphaned.
+          orphanedWorktreePath = null;
+
+          // Run the project setup script inside the new worktree if configured.
+          const setupScript = setupProjectScript(activeProject.scripts);
+          if (setupScript) {
+            await runProjectScript(setupScript, {
+              cwd: worktreeResult.worktreePath,
+              worktreePath: worktreeResult.worktreePath,
+              rememberAsLastInvoked: false,
+            });
+          }
+
+          setPendingEnvMode(null);
+          setPendingWorktreeBranchName(null);
+        }
+
+        beginLocalDispatch({ preparingWorktree: false });
+
         await persistThreadSettingsForNextTurn({
           threadId: threadIdForSend,
           createdAt: messageCreatedAt,
@@ -3643,37 +3721,54 @@ export default function ChatView({ threadId }: ChatViewProps) {
           planSidebarDismissedForTurnRef.current = null;
           setPlanSidebarOpen(true);
         }
-        sendInFlightRef.current = false;
       } catch (err) {
+        // Clean up the git worktree if it was created but never linked
+        // to the thread (thread.meta.update failed before completing).
+        if (orphanedWorktreePath) {
+          await removeWorktreeMutation
+            .mutateAsync({ cwd: activeProject.cwd, path: orphanedWorktreePath, force: true })
+            .catch(() => undefined);
+        }
         setOptimisticUserMessages((existing) =>
           existing.filter((message) => message.id !== messageIdForSend),
         );
+        setPendingEnvMode(null);
+        setPendingWorktreeBranchName(null);
         setThreadError(
           threadIdForSend,
           err instanceof Error ? err.message : "Failed to send plan follow-up.",
         );
-        sendInFlightRef.current = false;
         resetLocalDispatch();
+      } finally {
+        sendInFlightRef.current = false;
       }
     },
     [
+      activeProject,
       activeThread,
       activeProposedPlan,
       beginLocalDispatch,
+      createWorktreeMutation.mutateAsync,
+      envMode,
       forceStickToBottom,
       isConnecting,
       isSendBusy,
       isServerThread,
       persistThreadSettingsForNextTurn,
+      removeWorktreeMutation,
       resetLocalDispatch,
+      runProjectScript,
       runtimeMode,
       selectedPromptEffort,
       selectedModelSelection,
       selectedProvider,
       selectedProviderModels,
       setComposerDraftInteractionMode,
+      setStoreThreadBranch,
       setThreadError,
+      settings.worktreeBranchPrefix,
       selectedModel,
+      worktreeBranchName,
     ],
   );
 
@@ -3692,6 +3787,18 @@ export default function ChatView({ threadId }: ChatViewProps) {
       return;
     }
 
+    // Honor the composer's env mode: if the user switched to "New worktree"
+    // while reviewing the plan, create a fresh worktree for the new thread.
+    const shouldCreateWorktree = envMode === "worktree" && !activeThread.worktreePath;
+    if (shouldCreateWorktree && !activeThread.branch) {
+      toastManager.add({
+        type: "error",
+        title: "Select a base branch",
+        description: "Select a base branch before implementing in New worktree mode.",
+      });
+      return;
+    }
+
     const createdAt = new Date().toISOString();
     const nextThreadId = newThreadId();
     const planMarkdown = activeProposedPlan.planMarkdown;
@@ -3705,17 +3812,62 @@ export default function ChatView({ threadId }: ChatViewProps) {
     });
     const nextThreadTitle = truncate(buildPlanImplementationThreadTitle(planMarkdown));
     const nextThreadModelSelection: ModelSelection = selectedModelSelection;
-    const activeThreadSpawnWorkspace = resolveThreadSpawnWorkspace(activeThread);
 
     sendInFlightRef.current = true;
-    beginLocalDispatch({ preparingWorktree: false });
+    beginLocalDispatch({ preparingWorktree: shouldCreateWorktree });
     const finish = () => {
       sendInFlightRef.current = false;
       resetLocalDispatch();
     };
 
-    await api.orchestration
-      .dispatchCommand({
+    // Track worktree path for cleanup on error. Since the catch block
+    // always deletes the new thread, the worktree would be orphaned
+    // regardless of whether thread.create succeeded.
+    let createdWorktreePath: string | null = null;
+
+    try {
+      // Resolve the workspace for the new thread: either create a fresh
+      // worktree from the composer state or inherit the planning thread's
+      // existing workspace via resolveThreadSpawnWorkspace.
+      let newThreadSpawnMode: "local" | "worktree";
+      let newThreadBranch: string | null;
+      let newThreadWorktreePath: string | null;
+
+      if (shouldCreateWorktree && activeThread.branch) {
+        const worktreeResult = await prepareWorktree({
+          cwd: activeProject.cwd,
+          baseBranch: activeThread.branch,
+          userBranchName: worktreeBranchName,
+          branchPrefix: settings.worktreeBranchPrefix,
+          createWorktree: createWorktreeMutation.mutateAsync,
+        });
+        newThreadSpawnMode = "worktree";
+        newThreadBranch = worktreeResult.branch;
+        newThreadWorktreePath = worktreeResult.worktreePath;
+        createdWorktreePath = worktreeResult.worktreePath;
+
+        // Run the project setup script inside the new worktree if configured.
+        const setupScript = setupProjectScript(activeProject.scripts);
+        if (setupScript) {
+          await runProjectScript(setupScript, {
+            cwd: worktreeResult.worktreePath,
+            worktreePath: worktreeResult.worktreePath,
+            rememberAsLastInvoked: false,
+          });
+        }
+
+        setPendingEnvMode(null);
+        setPendingWorktreeBranchName(null);
+      } else {
+        const activeThreadSpawnWorkspace = resolveThreadSpawnWorkspace(activeThread);
+        newThreadSpawnMode = activeThreadSpawnWorkspace.mode;
+        newThreadBranch = activeThreadSpawnWorkspace.branch;
+        newThreadWorktreePath = activeThreadSpawnWorkspace.worktreePath;
+      }
+
+      beginLocalDispatch({ preparingWorktree: false });
+
+      await api.orchestration.dispatchCommand({
         type: "thread.create",
         commandId: newCommandId(),
         threadId: nextThreadId,
@@ -3724,76 +3876,89 @@ export default function ChatView({ threadId }: ChatViewProps) {
         modelSelection: nextThreadModelSelection,
         runtimeMode,
         interactionMode: "default",
-        spawnMode: activeThreadSpawnWorkspace.mode,
-        branch: activeThreadSpawnWorkspace.branch,
-        worktreePath: activeThreadSpawnWorkspace.worktreePath,
+        spawnMode: newThreadSpawnMode,
+        branch: newThreadBranch,
+        worktreePath: newThreadWorktreePath,
         createdAt,
-      })
-      .then(() => {
-        return api.orchestration.dispatchCommand({
-          type: "thread.turn.start",
+      });
+
+      await api.orchestration.dispatchCommand({
+        type: "thread.turn.start",
+        commandId: newCommandId(),
+        threadId: nextThreadId,
+        message: {
+          messageId: newMessageId(),
+          role: "user",
+          text: outgoingImplementationPrompt,
+          attachments: [],
+        },
+        modelSelection: selectedModelSelection,
+        titleSeed: nextThreadTitle,
+        runtimeMode,
+        interactionMode: "default",
+        sourceProposedPlan: {
+          threadId: activeThread.id,
+          planId: activeProposedPlan.id,
+        },
+        createdAt,
+      });
+
+      await waitForStartedServerThread(nextThreadId);
+
+      // Signal that the plan sidebar should open on the new thread.
+      planSidebarOpenOnNextThreadRef.current = true;
+      await navigate({
+        to: "/$threadId",
+        params: { threadId: nextThreadId },
+      });
+    } catch (err) {
+      await api.orchestration
+        .dispatchCommand({
+          type: "thread.delete",
           commandId: newCommandId(),
           threadId: nextThreadId,
-          message: {
-            messageId: newMessageId(),
-            role: "user",
-            text: outgoingImplementationPrompt,
-            attachments: [],
-          },
-          modelSelection: selectedModelSelection,
-          titleSeed: nextThreadTitle,
-          runtimeMode,
-          interactionMode: "default",
-          sourceProposedPlan: {
-            threadId: activeThread.id,
-            planId: activeProposedPlan.id,
-          },
-          createdAt,
-        });
-      })
-      .then(() => {
-        return waitForStartedServerThread(nextThreadId);
-      })
-      .then(() => {
-        // Signal that the plan sidebar should open on the new thread.
-        planSidebarOpenOnNextThreadRef.current = true;
-        return navigate({
-          to: "/$threadId",
-          params: { threadId: nextThreadId },
-        });
-      })
-      .catch(async (err) => {
-        await api.orchestration
-          .dispatchCommand({
-            type: "thread.delete",
-            commandId: newCommandId(),
-            threadId: nextThreadId,
-          })
+        })
+        .catch(() => undefined);
+      // Clean up the git worktree we created — the thread is being deleted
+      // so the worktree would be left orphaned on disk.
+      if (createdWorktreePath) {
+        await removeWorktreeMutation
+          .mutateAsync({ cwd: activeProject.cwd, path: createdWorktreePath, force: true })
           .catch(() => undefined);
-        toastManager.add({
-          type: "error",
-          title: "Could not start implementation thread",
-          description:
-            err instanceof Error ? err.message : "An error occurred while creating the new thread.",
-        });
-      })
-      .then(finish, finish);
+      }
+      setPendingEnvMode(null);
+      setPendingWorktreeBranchName(null);
+      toastManager.add({
+        type: "error",
+        title: "Could not start implementation thread",
+        description:
+          err instanceof Error ? err.message : "An error occurred while creating the new thread.",
+      });
+    } finally {
+      finish();
+    }
   }, [
     activeProject,
     activeProposedPlan,
     activeThread,
     beginLocalDispatch,
+    createWorktreeMutation.mutateAsync,
+    envMode,
     isConnecting,
     isSendBusy,
     isServerThread,
     navigate,
+    removeWorktreeMutation,
     resetLocalDispatch,
+    runProjectScript,
     runtimeMode,
     selectedPromptEffort,
     selectedModelSelection,
     selectedProvider,
     selectedProviderModels,
     selectedModel,
+    settings.worktreeBranchPrefix,
+    worktreeBranchName,
   ]);
 
   const onProviderModelSelect = useCallback(
@@ -3877,10 +4042,6 @@ export default function ChatView({ threadId }: ChatViewProps) {
     },
     [isLocalDraftThread, scheduleComposerFocus, setDraftThreadContext, threadId],
   );
-
-  const worktreeBranchName = isLocalDraftThread
-    ? (draftThread?.worktreeBranchName ?? null)
-    : pendingWorktreeBranchName;
 
   const onWorktreeBranchNameChange = useCallback(
     (name: string | null) => {
