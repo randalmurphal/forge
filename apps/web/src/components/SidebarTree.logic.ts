@@ -42,6 +42,7 @@ const PAUSED_STATUS_PILL: ThreadStatusPill = {
   colorClass: "text-[var(--feature-phase-pending)]",
   dotClass: "bg-[var(--feature-phase-pending)]",
   pulse: false,
+  glowClass: null,
 };
 
 const COMPLETED_STATUS_PILL: ThreadStatusPill = {
@@ -50,6 +51,7 @@ const COMPLETED_STATUS_PILL: ThreadStatusPill = {
   colorClass: "text-[var(--success-foreground)]",
   dotClass: "bg-[var(--success)]",
   pulse: false,
+  glowClass: null,
 };
 
 const FAILED_STATUS_PILL: ThreadStatusPill = {
@@ -58,6 +60,7 @@ const FAILED_STATUS_PILL: ThreadStatusPill = {
   colorClass: "text-[var(--destructive-foreground)]",
   dotClass: "bg-[var(--destructive)]",
   pulse: false,
+  glowClass: null,
 };
 
 function toSortableTimestamp(iso: string | undefined | null): number {

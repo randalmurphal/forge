@@ -78,6 +78,7 @@ function makeTreeNode(
       colorClass: "text-muted-foreground",
       dotClass: "bg-muted-foreground",
       pulse: false,
+      glowClass: null,
     },
     displayStatus: {
       kind: "paused",
@@ -85,6 +86,7 @@ function makeTreeNode(
       colorClass: "text-muted-foreground",
       dotClass: "bg-muted-foreground",
       pulse: false,
+      glowClass: null,
     },
     sortGroup: "paused",
     latestActivityAt: thread.lastSortableActivityAt,

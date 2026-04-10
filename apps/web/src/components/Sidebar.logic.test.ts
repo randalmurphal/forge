@@ -469,7 +469,7 @@ describe("resolveThreadStatusPill", () => {
           hasPendingUserInput: true,
         },
       }),
-    ).toMatchObject({ label: "Pending Approval", pulse: false });
+    ).toMatchObject({ label: "Pending Approval", pulse: true, glowClass: "glow-ring-amber" });
   });
 
   it("shows awaiting input when plan mode is blocked on user answers", () => {
@@ -480,7 +480,7 @@ describe("resolveThreadStatusPill", () => {
           hasPendingUserInput: true,
         },
       }),
-    ).toMatchObject({ label: "Awaiting Input", pulse: false });
+    ).toMatchObject({ label: "Awaiting Input", pulse: true, glowClass: "glow-ring-blue" });
   });
 
   it("falls back to working when the thread is actively running without blockers", () => {
@@ -565,7 +565,8 @@ describe("resolveThreadStatusPill", () => {
       }),
     ).toMatchObject({
       label: "Awaiting Input",
-      pulse: false,
+      pulse: true,
+      glowClass: "glow-ring-blue",
     });
   });
 
@@ -580,7 +581,8 @@ describe("resolveThreadStatusPill", () => {
       }),
     ).toMatchObject({
       label: "Pending Approval",
-      pulse: false,
+      pulse: true,
+      glowClass: "glow-ring-amber",
     });
   });
 
@@ -660,6 +662,37 @@ describe("resolveThreadRowClassName", () => {
     expect(className).toContain("bg-accent/85");
     expect(className).toContain("hover:bg-accent");
   });
+
+  it("includes glow class and overflow-visible when glowClass is provided", () => {
+    const className = resolveThreadRowClassName({
+      isActive: false,
+      isSelected: false,
+      glowClass: "glow-ring-amber",
+    });
+    expect(className).toContain("glow-ring-amber");
+    expect(className).toContain("overflow-visible");
+  });
+
+  it("includes glow class on active rows", () => {
+    const className = resolveThreadRowClassName({
+      isActive: true,
+      isSelected: false,
+      glowClass: "glow-ring-blue",
+    });
+    expect(className).toContain("glow-ring-blue");
+    expect(className).toContain("overflow-visible");
+    expect(className).toContain("bg-accent/85");
+  });
+
+  it("does not include glow classes when glowClass is null", () => {
+    const className = resolveThreadRowClassName({
+      isActive: false,
+      isSelected: false,
+      glowClass: null,
+    });
+    expect(className).not.toContain("glow-ring");
+    expect(className).not.toContain("overflow-visible");
+  });
 });
 
 describe("resolveProjectStatusIndicator", () => {
@@ -676,6 +709,7 @@ describe("resolveProjectStatusIndicator", () => {
           colorClass: "text-emerald-600",
           dotClass: "bg-emerald-500",
           pulse: false,
+          glowClass: null,
         },
         {
           kind: "pending-approval",
@@ -683,6 +717,7 @@ describe("resolveProjectStatusIndicator", () => {
           colorClass: "text-amber-600",
           dotClass: "bg-amber-500",
           pulse: false,
+          glowClass: null,
         },
         {
           kind: "discussing",
@@ -690,6 +725,7 @@ describe("resolveProjectStatusIndicator", () => {
           colorClass: "text-sky-600",
           dotClass: "border border-sky-500 bg-transparent",
           pulse: false,
+          glowClass: null,
         },
       ]),
     ).toMatchObject({ label: "Pending Approval", dotClass: "bg-amber-500" });
@@ -704,6 +740,7 @@ describe("resolveProjectStatusIndicator", () => {
           colorClass: "text-emerald-600",
           dotClass: "bg-emerald-500",
           pulse: false,
+          glowClass: null,
         },
         {
           kind: "plan-ready",
@@ -711,6 +748,7 @@ describe("resolveProjectStatusIndicator", () => {
           colorClass: "text-violet-600",
           dotClass: "bg-violet-500",
           pulse: false,
+          glowClass: null,
         },
       ]),
     ).toMatchObject({ label: "Plan Ready", dotClass: "bg-violet-500" });

@@ -3,9 +3,11 @@ import { resolveThreadStatusPill } from "../Sidebar.logic";
 export function ThreadStatusLabel({
   status,
   compact = false,
+  variant = "full",
 }: {
   status: NonNullable<ReturnType<typeof resolveThreadStatusPill>>;
   compact?: boolean;
+  variant?: "full" | "dot-only" | "label-only";
 }) {
   if (compact) {
     return (
@@ -15,6 +17,33 @@ export function ThreadStatusLabel({
       >
         <span
           className={`size-[9px] rounded-full ${status.dotClass} ${
+            status.pulse ? "animate-pulse" : ""
+          }`}
+        />
+        <span className="sr-only">{status.label}</span>
+      </span>
+    );
+  }
+
+  if (variant === "label-only") {
+    return (
+      <span
+        title={status.label}
+        className={`whitespace-nowrap text-[10px] font-medium ${status.colorClass}`}
+      >
+        {status.label}
+      </span>
+    );
+  }
+
+  if (variant === "dot-only") {
+    return (
+      <span
+        title={status.label}
+        className={`inline-flex shrink-0 items-center ${status.colorClass}`}
+      >
+        <span
+          className={`h-1.5 w-1.5 rounded-full ${status.dotClass} ${
             status.pulse ? "animate-pulse" : ""
           }`}
         />

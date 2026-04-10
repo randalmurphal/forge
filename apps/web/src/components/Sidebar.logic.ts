@@ -55,6 +55,7 @@ export interface ThreadStatusPill {
   colorClass: string;
   dotClass: string;
   pulse: boolean;
+  glowClass: string | null;
 }
 
 const THREAD_STATUS_METADATA: Record<
@@ -64,6 +65,7 @@ const THREAD_STATUS_METADATA: Record<
     colorClass: string;
     dotClass: string;
     pulse: boolean;
+    glowClass: string | null;
     priority: number;
     sortGroup: ThreadStatusSortGroup;
   }
@@ -73,6 +75,7 @@ const THREAD_STATUS_METADATA: Record<
     colorClass: "text-[var(--destructive-foreground)]",
     dotClass: "bg-[var(--destructive)]",
     pulse: false,
+    glowClass: null,
     priority: 100,
     sortGroup: "needs-attention",
   },
@@ -80,7 +83,8 @@ const THREAD_STATUS_METADATA: Record<
     label: "Pending Approval",
     colorClass: "text-[var(--warning-foreground)]",
     dotClass: "bg-[var(--warning)]",
-    pulse: false,
+    pulse: true,
+    glowClass: "glow-ring-amber",
     priority: 90,
     sortGroup: "needs-attention",
   },
@@ -88,7 +92,8 @@ const THREAD_STATUS_METADATA: Record<
     label: "Awaiting Input",
     colorClass: "text-[var(--info-foreground)]",
     dotClass: "bg-[var(--info)]",
-    pulse: false,
+    pulse: true,
+    glowClass: "glow-ring-blue",
     priority: 80,
     sortGroup: "needs-attention",
   },
@@ -97,6 +102,7 @@ const THREAD_STATUS_METADATA: Record<
     colorClass: "text-[var(--feature-phase-running)]",
     dotClass: "border border-[var(--feature-phase-running)] bg-transparent",
     pulse: false,
+    glowClass: null,
     priority: 75,
     sortGroup: "running",
   },
@@ -105,6 +111,7 @@ const THREAD_STATUS_METADATA: Record<
     colorClass: "text-[var(--success-foreground)]",
     dotClass: "bg-[var(--success)]",
     pulse: true,
+    glowClass: null,
     priority: 74,
     sortGroup: "running",
   },
@@ -113,6 +120,7 @@ const THREAD_STATUS_METADATA: Record<
     colorClass: "text-[var(--success-foreground)]",
     dotClass: "bg-[var(--success)]",
     pulse: true,
+    glowClass: null,
     priority: 73,
     sortGroup: "running",
   },
@@ -121,6 +129,7 @@ const THREAD_STATUS_METADATA: Record<
     colorClass: "text-[var(--success-foreground)]",
     dotClass: "bg-[var(--success)]",
     pulse: true,
+    glowClass: null,
     priority: 72,
     sortGroup: "running",
   },
@@ -129,6 +138,7 @@ const THREAD_STATUS_METADATA: Record<
     colorClass: "text-[var(--feature-phase-running)]",
     dotClass: "bg-[var(--feature-phase-running)]",
     pulse: true,
+    glowClass: null,
     priority: 71,
     sortGroup: "running",
   },
@@ -137,6 +147,7 @@ const THREAD_STATUS_METADATA: Record<
     colorClass: "text-[var(--primary)]",
     dotClass: "bg-[var(--primary)]",
     pulse: false,
+    glowClass: null,
     priority: 60,
     sortGroup: "needs-attention",
   },
@@ -145,6 +156,7 @@ const THREAD_STATUS_METADATA: Record<
     colorClass: "text-[var(--feature-phase-pending)]",
     dotClass: "bg-[var(--feature-phase-pending)]",
     pulse: false,
+    glowClass: null,
     priority: 50,
     sortGroup: "paused",
   },
@@ -153,6 +165,7 @@ const THREAD_STATUS_METADATA: Record<
     colorClass: "text-[var(--success-foreground)]",
     dotClass: "bg-[var(--success)]",
     pulse: false,
+    glowClass: null,
     priority: 40,
     sortGroup: "completed",
   },
@@ -404,13 +417,17 @@ export function resolveThreadRowClassName(input: {
   isActive: boolean;
   isSelected: boolean;
   multiLine?: boolean;
+  glowClass?: string | null | undefined;
 }): string {
   const baseClassName = `${input.multiLine ? "min-h-10 py-1" : "h-7"} w-full translate-x-0 cursor-pointer justify-start px-2 text-left select-none focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-ring`;
+
+  const glowClasses = input.glowClass ? `${input.glowClass} overflow-visible` : undefined;
 
   if (input.isSelected && input.isActive) {
     return cn(
       baseClassName,
       "bg-primary/22 text-foreground font-medium hover:bg-primary/26 hover:text-foreground dark:bg-primary/30 dark:hover:bg-primary/36",
+      glowClasses,
     );
   }
 
@@ -418,6 +435,7 @@ export function resolveThreadRowClassName(input: {
     return cn(
       baseClassName,
       "bg-primary/15 text-foreground hover:bg-primary/19 hover:text-foreground dark:bg-primary/22 dark:hover:bg-primary/28",
+      glowClasses,
     );
   }
 
@@ -425,10 +443,15 @@ export function resolveThreadRowClassName(input: {
     return cn(
       baseClassName,
       "bg-accent/85 text-foreground font-medium hover:bg-accent hover:text-foreground dark:bg-accent/55 dark:hover:bg-accent/70",
+      glowClasses,
     );
   }
 
-  return cn(baseClassName, "text-muted-foreground hover:bg-accent hover:text-foreground");
+  return cn(
+    baseClassName,
+    "text-muted-foreground hover:bg-accent hover:text-foreground",
+    glowClasses,
+  );
 }
 
 export function resolveThreadStatusPill(input: {
@@ -499,6 +522,7 @@ function createThreadStatusPill(kind: ThreadStatusKind): ThreadStatusPill {
     colorClass: metadata.colorClass,
     dotClass: metadata.dotClass,
     pulse: metadata.pulse,
+    glowClass: metadata.glowClass,
   };
 }
 

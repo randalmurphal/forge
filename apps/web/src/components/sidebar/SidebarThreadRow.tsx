@@ -210,6 +210,7 @@ export function SidebarThreadRow(props: {
           isActive,
           isSelected,
           multiLine: showChildMeta,
+          glowClass: threadStatus?.glowClass,
         })} relative isolate`}
         style={{ paddingLeft: `${rowPaddingLeft}px` }}
         onClick={(event) => {
@@ -325,7 +326,9 @@ export function SidebarThreadRow(props: {
           {thread.interactionMode === "design" ? (
             <PaletteIcon className="size-3 shrink-0 text-[var(--primary)]" />
           ) : null}
-          {!showChildMeta && threadStatus ? <ThreadStatusLabel status={threadStatus} /> : null}
+          {!showChildMeta && threadStatus ? (
+            <ThreadStatusLabel status={threadStatus} variant="dot-only" />
+          ) : null}
           <div className="min-w-0 flex-1">
             {props.bindings.renamingThreadId === thread.id ? (
               <input
@@ -392,6 +395,11 @@ export function SidebarThreadRow(props: {
           </div>
         </div>
         <div className="ml-auto flex shrink-0 items-center gap-1.5">
+          {!showChildMeta && threadStatus ? (
+            <span className="hidden shrink-0 md:inline">
+              <ThreadStatusLabel status={threadStatus} variant="label-only" />
+            </span>
+          ) : null}
           {terminalStatus ? (
             <span
               role="img"

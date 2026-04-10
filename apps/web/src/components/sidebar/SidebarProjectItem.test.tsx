@@ -44,6 +44,7 @@ function makeTreeNode(threadId: string, pinnedAt: string | null): SidebarTreeVis
       colorClass: "text-muted-foreground",
       dotClass: "bg-muted-foreground",
       pulse: false,
+      glowClass: null,
     },
     displayStatus: {
       kind: "paused",
@@ -51,6 +52,7 @@ function makeTreeNode(threadId: string, pinnedAt: string | null): SidebarTreeVis
       colorClass: "text-muted-foreground",
       dotClass: "bg-muted-foreground",
       pulse: false,
+      glowClass: null,
     },
     sortGroup: "paused",
     latestActivityAt: "2026-04-10T00:00:00.000Z",
