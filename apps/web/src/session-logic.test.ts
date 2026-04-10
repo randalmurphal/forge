@@ -1315,6 +1315,7 @@ describe("deriveWorkLogEntries", () => {
               prompt: "Review the auth module for security issues",
             },
           },
+          childThreadAttribution: { taskId: "test-task", childProviderThreadId: "test-thread" },
         },
       }),
     ];
@@ -1350,6 +1351,7 @@ describe("deriveWorkLogEntries", () => {
               prompt: "Write unit tests for the parser module",
             },
           },
+          childThreadAttribution: { taskId: "test-task", childProviderThreadId: "test-thread" },
         },
       }),
     ];
@@ -1381,6 +1383,7 @@ describe("deriveWorkLogEntries", () => {
             toolName: "Task",
             input: {},
           },
+          childThreadAttribution: { taskId: "test-task", childProviderThreadId: "test-thread" },
         },
       }),
     ];
@@ -1391,6 +1394,76 @@ describe("deriveWorkLogEntries", () => {
     expect(entry?.agentType).toBeUndefined();
     expect(entry?.agentModel).toBeUndefined();
     expect(entry?.agentPrompt).toBeUndefined();
+  });
+
+  it("filters out collab_agent_tool_call tool.updated/tool.completed without childThreadAttribution", () => {
+    const activities: OrchestrationThreadActivity[] = [
+      // Should be filtered out: collab_agent_tool_call without attribution
+      makeActivity({
+        id: "orphaned-updated",
+        kind: "tool.updated",
+        summary: "Subagent task",
+        payload: {
+          itemType: "collab_agent_tool_call",
+          title: "Subagent task",
+          toolName: "Agent",
+        },
+      }),
+      makeActivity({
+        id: "orphaned-completed",
+        kind: "tool.completed",
+        summary: "Subagent task",
+        payload: {
+          itemType: "collab_agent_tool_call",
+          title: "Subagent task",
+          toolName: "Agent",
+        },
+      }),
+      // Should be retained: collab_agent_tool_call WITH attribution
+      makeActivity({
+        id: "attributed-updated",
+        kind: "tool.updated",
+        summary: "Subagent task",
+        payload: {
+          itemType: "collab_agent_tool_call",
+          title: "Subagent task",
+          toolName: "Agent",
+          toolCallId: "call-2",
+          childThreadAttribution: { taskId: "task-2", childProviderThreadId: "thread-2" },
+        },
+      }),
+      makeActivity({
+        id: "attributed-completed",
+        kind: "tool.completed",
+        summary: "Subagent task",
+        payload: {
+          itemType: "collab_agent_tool_call",
+          title: "Subagent task",
+          toolName: "Agent",
+          childThreadAttribution: { taskId: "task-1", childProviderThreadId: "thread-1" },
+        },
+      }),
+      // Should be retained: non-collab_agent_tool_call without attribution
+      makeActivity({
+        id: "regular-tool",
+        kind: "tool.completed",
+        summary: "Ran command",
+        payload: {
+          itemType: "command_execution",
+          title: "Ran command",
+          toolName: "Bash",
+        },
+      }),
+    ];
+
+    const entries = deriveWorkLogEntries(activities, undefined);
+    const ids = entries.map((e) => e.id);
+
+    expect(ids).not.toContain("orphaned-updated");
+    expect(ids).not.toContain("orphaned-completed");
+    expect(ids).toContain("attributed-updated");
+    expect(ids).toContain("attributed-completed");
+    expect(ids).toContain("regular-tool");
   });
 });
 

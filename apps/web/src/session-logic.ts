@@ -536,6 +536,28 @@ export function deriveWorkLogEntries(
     )
     .filter((activity) => activity.kind !== "tool.started")
     .filter((activity) => {
+      // Filter out tool.updated/tool.completed for collab_agent_tool_call without
+      // childThreadAttribution. These are the tool-use envelope events for top-level
+      // subagent calls; the actual lifecycle is covered by task.started/task.progress/
+      // task.completed events which carry childThreadAttribution. Keeping these creates
+      // duplicate AgentWorkEntryRow entries in the standalone array.
+      //
+      // Assumption: every collab_agent_tool_call has a corresponding task.started/
+      // task.completed event pair with childThreadAttribution (true for both Claude
+      // and Codex adapters today). If a provider emits item-lifecycle events without
+      // a matching task-lifecycle pair, the agent call would be invisible in the UI.
+      if (activity.kind === "tool.updated" || activity.kind === "tool.completed") {
+        const payload =
+          activity.payload && typeof activity.payload === "object"
+            ? (activity.payload as Record<string, unknown>)
+            : null;
+        if (payload?.itemType === "collab_agent_tool_call" && !payload.childThreadAttribution) {
+          return false;
+        }
+      }
+      return true;
+    })
+    .filter((activity) => {
       if (activity.kind === "task.started" || activity.kind === "task.completed") {
         const activityPayload =
           activity.payload && typeof activity.payload === "object"
