@@ -23,6 +23,7 @@ import { cn } from "~/lib/utils";
 import { readNativeApi } from "../nativeApi";
 import { resolvePathLinkTarget } from "../terminal-links";
 import { parseDiffRouteSearch, stripDiffSearchParams } from "../diffRouteSearch";
+import { toastManager } from "./ui/toast";
 import { useTheme } from "../hooks/useTheme";
 import {
   buildPatchCacheKey,
@@ -330,8 +331,12 @@ export default function DiffPanel({ mode = "inline" }: DiffPanelProps) {
       const api = readNativeApi();
       if (!api) return;
       const targetPath = activeCwd ? resolvePathLinkTarget(filePath, activeCwd) : filePath;
-      void openInPreferredEditor(api, targetPath).catch((error) => {
-        console.warn("Failed to open diff file in editor.", error);
+      void openInPreferredEditor(api, targetPath).catch((error: unknown) => {
+        toastManager.add({
+          type: "error",
+          title: "Unable to open file",
+          description: error instanceof Error ? error.message : "An unknown error occurred.",
+        });
       });
     },
     [activeCwd],

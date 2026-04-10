@@ -322,4 +322,98 @@ it.layer(NodeServices.layer)("resolveAvailableEditors", (it) => {
       assert.deepEqual(editors, ["trae", "vscode-insiders", "vscodium", "file-manager"]);
     }),
   );
+
+  it("does not apply WSL discovery when platform is not linux", () => {
+    // Even with WSL_DISTRO_NAME set, non-linux platforms should not trigger WSL scanning
+    const editors = resolveAvailableEditors("darwin", {
+      PATH: "",
+      WSL_DISTRO_NAME: "Ubuntu-24.04",
+    });
+    assert.deepEqual(editors, []);
+  });
+
+  it("does not apply WSL discovery when WSL_DISTRO_NAME is absent", () => {
+    const editors = resolveAvailableEditors("linux", { PATH: "" });
+    assert.deepEqual(editors, []);
+  });
+});
+
+it.layer(NodeServices.layer)("resolveEditorLaunch (WSL)", (it) => {
+  it.effect("does not apply WSL path resolution when platform is darwin", () =>
+    Effect.gen(function* () {
+      // Platform override to darwin — WSL logic should not activate even if
+      // WSL_DISTRO_NAME is present in the real process env
+      const launch = yield* resolveEditorLaunch(
+        { cwd: "/tmp/workspace", editor: "vscode" },
+        "darwin",
+        {},
+      );
+      assert.deepEqual(launch, { command: "code", args: ["/tmp/workspace"] });
+    }),
+  );
+
+  it.effect("converts file-manager args to UNC path in WSL", () =>
+    Effect.gen(function* () {
+      const launch = yield* resolveEditorLaunch(
+        { cwd: "/home/user/project", editor: "file-manager" },
+        "linux",
+        { WSL_DISTRO_NAME: "Ubuntu-24.04" },
+      );
+      assert.deepEqual(launch, {
+        command: "/mnt/c/Windows/explorer.exe",
+        args: ["\\\\wsl.localhost\\Ubuntu-24.04\\home\\user\\project"],
+      });
+    }),
+  );
+
+  it.effect("does not convert file-manager args to UNC path on plain linux", () =>
+    Effect.gen(function* () {
+      const launch = yield* resolveEditorLaunch(
+        { cwd: "/tmp/workspace", editor: "file-manager" },
+        "linux",
+        {},
+      );
+      assert.deepEqual(launch, {
+        command: "xdg-open",
+        args: ["/tmp/workspace"],
+      });
+    }),
+  );
+
+  it.effect("uses editor command directly when it is on PATH in WSL", () =>
+    Effect.gen(function* () {
+      const fs = yield* FileSystem.FileSystem;
+      const path = yield* Path.Path;
+      const dir = yield* fs.makeTempDirectoryScoped({ prefix: "forge-wsl-editor-" });
+
+      // Create a mock "code" binary on PATH
+      const codePath = path.join(dir, "code");
+      yield* fs.writeFileString(codePath, "#!/bin/sh\n");
+      yield* Effect.tryPromise(() =>
+        import("node:fs/promises").then((fsp) => fsp.chmod(codePath, 0o755)),
+      );
+
+      const launch = yield* resolveEditorLaunch(
+        { cwd: "/home/user/project", editor: "vscode" },
+        "linux",
+        { PATH: dir, WSL_DISTRO_NAME: "Ubuntu-24.04" },
+      );
+      // Should use the bare command since it's on PATH, no WSL fallback needed
+      assert.deepEqual(launch, {
+        command: "code",
+        args: ["/home/user/project"],
+      });
+    }),
+  );
+
+  it.effect("returns OpenError when WSL editor is not found", () =>
+    Effect.gen(function* () {
+      const result = yield* resolveEditorLaunch(
+        { cwd: "/tmp/workspace", editor: "antigravity" },
+        "linux",
+        { PATH: "", WSL_DISTRO_NAME: "Ubuntu-24.04" },
+      ).pipe(Effect.result);
+      assert.equal(result._tag, "Failure");
+    }),
+  );
 });

@@ -7,7 +7,7 @@
  * @module Open
  */
 import { spawn } from "node:child_process";
-import { accessSync, constants, statSync } from "node:fs";
+import { accessSync, constants, existsSync, readdirSync, statSync } from "node:fs";
 import { extname, join } from "node:path";
 
 import { EDITORS, OpenError, type EditorId } from "@forgetools/contracts";
@@ -85,13 +85,99 @@ function fileManagerCommandForPlatform(
     case "win32":
       return "explorer";
     default:
-      // In WSL, explorer.exe is available and opens Windows File Explorer.
-      // xdg-open typically fails in headless WSL environments.
+      // In WSL, explorer.exe opens Windows File Explorer but isn't typically
+      // on PATH when Windows PATH entries are stripped from the shell profile.
+      // Use the full path via the /mnt/c mount.
       if (env.WSL_DISTRO_NAME) {
-        return "explorer.exe";
+        return "/mnt/c/Windows/explorer.exe";
       }
       return "xdg-open";
   }
+}
+
+// ==============================
+// WSL editor discovery
+// ==============================
+
+/**
+ * Well-known Windows install paths for editor CLI shims.
+ * Each entry maps an editor command to relative paths under user profiles
+ * (AppData/Local/Programs) and system-wide Program Files directories.
+ *
+ * When the server runs inside WSL and Windows PATH entries aren't forwarded
+ * (common when the shell profile resets PATH), we scan these locations
+ * directly via the /mnt/c mount to find Windows-side editors.
+ */
+const WSL_EDITOR_INSTALL_PATHS: ReadonlyArray<{
+  command: string;
+  userRelative: string;
+  systemPaths: ReadonlyArray<string>;
+}> = [
+  {
+    command: "code",
+    userRelative: "AppData/Local/Programs/Microsoft VS Code/bin/code",
+    systemPaths: ["/mnt/c/Program Files/Microsoft VS Code/bin/code"],
+  },
+  {
+    command: "code-insiders",
+    userRelative: "AppData/Local/Programs/Microsoft VS Code Insiders/bin/code-insiders",
+    systemPaths: ["/mnt/c/Program Files/Microsoft VS Code Insiders/bin/code-insiders"],
+  },
+  {
+    command: "cursor",
+    userRelative: "AppData/Local/Programs/cursor/resources/app/bin/cursor",
+    systemPaths: [],
+  },
+  {
+    command: "codium",
+    userRelative: "AppData/Local/Programs/VSCodium/bin/codium",
+    systemPaths: ["/mnt/c/Program Files/VSCodium/bin/codium"],
+  },
+];
+
+const WSL_USERS_SKIP = new Set(["Default", "Public", "All Users", "Default User"]);
+
+/**
+ * Resolve the full WSL-accessible path to a Windows editor command.
+ *
+ * Scans well-known Windows install locations via the /mnt/c mount.
+ * Prefers user installs (AppData/Local/Programs) over system installs
+ * (Program Files) since system installs can be stale.
+ *
+ * Returns the full path (e.g. /mnt/c/Users/alice/AppData/.../bin/code)
+ * or null if the editor is not found.
+ */
+function resolveWslEditorCommand(command: string): string | null {
+  const entry = WSL_EDITOR_INSTALL_PATHS.find((e) => e.command === command);
+  if (!entry) return null;
+
+  // Scan user profile directories first (preferred over system installs)
+  const usersDir = "/mnt/c/Users";
+  try {
+    const userDirs = readdirSync(usersDir);
+    for (const user of userDirs) {
+      if (WSL_USERS_SKIP.has(user)) continue;
+      const fullPath = join(usersDir, user, entry.userRelative);
+      if (existsSync(fullPath)) return fullPath;
+    }
+  } catch {
+    // /mnt/c/Users not accessible — fall through to system paths
+  }
+
+  for (const systemPath of entry.systemPaths) {
+    if (existsSync(systemPath)) return systemPath;
+  }
+
+  return null;
+}
+
+/**
+ * Convert a Linux path to a Windows UNC path for the given WSL distro.
+ * /home/user/project → \\wsl.localhost\Ubuntu\home\user\project
+ */
+function toWslUncPath(distro: string, linuxPath: string): string {
+  const windowsSegments = linuxPath.replace(/\//g, "\\");
+  return `\\\\wsl.localhost\\${distro}${windowsSegments}`;
 }
 
 function stripWrappingQuotes(value: string): string {
@@ -204,10 +290,21 @@ export function resolveAvailableEditors(
   env: NodeJS.ProcessEnv = process.env,
 ): ReadonlyArray<EditorId> {
   const available: EditorId[] = [];
+  const wsl =
+    platform === "linux" &&
+    typeof env.WSL_DISTRO_NAME === "string" &&
+    env.WSL_DISTRO_NAME.length > 0;
 
   for (const editor of EDITORS) {
     const command = editor.command ?? fileManagerCommandForPlatform(platform, env);
     if (isCommandAvailable(command, { platform, env })) {
+      available.push(editor.id);
+      continue;
+    }
+
+    // In WSL, Windows editors aren't on the Linux PATH when the shell profile
+    // strips Windows PATH entries. Scan well-known Windows install locations.
+    if (wsl && editor.command && resolveWslEditorCommand(editor.command)) {
       available.push(editor.id);
     }
   }
@@ -256,9 +353,26 @@ export const resolveEditorLaunch = Effect.fn("resolveEditorLaunch")(function* (
     return yield* new OpenError({ message: `Unknown editor: ${input.editor}` });
   }
 
+  const distro = env.WSL_DISTRO_NAME;
+  const wsl = platform === "linux" && typeof distro === "string" && distro.length > 0;
+
   if (editorDef.command) {
+    let command: string = editorDef.command;
+
+    // In WSL, the editor command may not be on PATH. Resolve the full path
+    // to the Windows-side binary via well-known install locations.
+    if (wsl && !isCommandAvailable(command, { platform, env })) {
+      const wslPath = resolveWslEditorCommand(command);
+      if (!wslPath) {
+        return yield* new OpenError({
+          message: `Editor "${editorDef.label}" not found. Install it on Windows and ensure it is in a standard location.`,
+        });
+      }
+      command = wslPath;
+    }
+
     return {
-      command: editorDef.command,
+      command,
       args: resolveCommandEditorArgs(editorDef, input.cwd),
     };
   }
@@ -267,7 +381,11 @@ export const resolveEditorLaunch = Effect.fn("resolveEditorLaunch")(function* (
     return yield* new OpenError({ message: `Unsupported editor: ${input.editor}` });
   }
 
-  return { command: fileManagerCommandForPlatform(platform, env), args: [input.cwd] };
+  const fileManagerCommand = fileManagerCommandForPlatform(platform, env);
+  // In WSL, explorer.exe needs a Windows UNC path, not a Linux path
+  const fileManagerArgs = wsl && distro ? [toWslUncPath(distro, input.cwd)] : [input.cwd];
+
+  return { command: fileManagerCommand, args: fileManagerArgs };
 });
 
 export const launchDetached = (launch: EditorLaunch) =>

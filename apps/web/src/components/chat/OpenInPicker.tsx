@@ -17,6 +17,7 @@ import {
 } from "../Icons";
 import { isMacPlatform, isWindowsPlatform } from "~/lib/utils";
 import { readNativeApi } from "~/nativeApi";
+import { toastManager } from "../ui/toast";
 
 const resolveOptions = (platform: string, availableEditors: ReadonlyArray<EditorId>) => {
   const baseOptions: ReadonlyArray<{ label: string; Icon: Icon; value: EditorId }> = [
@@ -95,7 +96,13 @@ export const OpenInPicker = memo(function OpenInPicker({
       if (!api || !openInCwd) return;
       const editor = editorId ?? preferredEditor;
       if (!editor) return;
-      void api.shell.openInEditor(openInCwd, editor);
+      void api.shell.openInEditor(openInCwd, editor).catch((error: unknown) => {
+        toastManager.add({
+          type: "error",
+          title: "Unable to open editor",
+          description: error instanceof Error ? error.message : "An unknown error occurred.",
+        });
+      });
       setPreferredEditor(editor);
     },
     [preferredEditor, openInCwd, setPreferredEditor],
@@ -114,7 +121,13 @@ export const OpenInPicker = memo(function OpenInPicker({
       if (!preferredEditor) return;
 
       e.preventDefault();
-      void api.shell.openInEditor(openInCwd, preferredEditor);
+      void api.shell.openInEditor(openInCwd, preferredEditor).catch((error: unknown) => {
+        toastManager.add({
+          type: "error",
+          title: "Unable to open editor",
+          description: error instanceof Error ? error.message : "An unknown error occurred.",
+        });
+      });
     };
     window.addEventListener("keydown", handler);
     return () => window.removeEventListener("keydown", handler);
