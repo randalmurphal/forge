@@ -1555,17 +1555,25 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
       this.readArray(item, "receiverThreadIds")
         ?.map((value) => (typeof value === "string" ? value : null))
         .filter((value): value is string => value !== null) ?? [];
+    const toolName = this.readString(item, "tool");
     const prompt = this.readString(item, "prompt");
     const description = this.readString(item, "description");
     const itemId = this.readString(item, "id") ?? this.readString(payload, "itemId");
     const label = description ?? prompt?.slice(0, 120) ?? undefined;
     for (const receiverThreadId of receiverThreadIds) {
       context.collabReceiverTurns.set(receiverThreadId, parentTurnId);
+      if (!this.shouldRememberCollabChildTask(toolName)) {
+        continue;
+      }
       context.collabChildTaskIds.set(receiverThreadId, {
         taskId: itemId ?? receiverThreadId,
         label,
       });
     }
+  }
+
+  private shouldRememberCollabChildTask(toolName: string | undefined): boolean {
+    return toolName === undefined || toolName === "spawnAgent";
   }
 
   private shouldSuppressChildConversationNotification(method: string): boolean {

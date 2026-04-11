@@ -666,4 +666,41 @@ describe("groupSubagentEntries", () => {
     expect(result.subagentGroups[0]?.status).toBe("failed");
     expect(result.subagentGroups[0]?.entries).toEqual([]);
   });
+
+  it.each(["wait", "sendInput"] as const)(
+    "ignores Codex control collab tool %s when grouping subagent entries",
+    (tool) => {
+      const entries = deriveWorkLogEntries(
+        [
+          makeActivity({
+            id: `control-${tool}`,
+            createdAt: "2026-04-01T00:00:09.000Z",
+            kind: "tool.completed",
+            summary: "Subagent task",
+            payload: {
+              itemType: "collab_agent_tool_call",
+              data: {
+                item: {
+                  id: `control-${tool}`,
+                  tool,
+                  prompt: "This is control traffic, not a spawned agent",
+                  receiverThreadIds: ["child-thread-control"],
+                  agentsStates: {
+                    "child-thread-control": {
+                      status: "completed",
+                    },
+                  },
+                },
+              },
+            },
+          }),
+        ],
+        undefined,
+      );
+
+      const result = groupSubagentEntries(entries);
+      expect(result.standalone).toEqual([]);
+      expect(result.subagentGroups).toEqual([]);
+    },
+  );
 });

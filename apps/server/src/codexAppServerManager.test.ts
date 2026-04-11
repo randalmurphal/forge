@@ -1251,6 +1251,95 @@ describe("collab child conversation routing", () => {
     );
   });
 
+  it("keeps the original child task attribution when wait and sendInput collab calls arrive later", () => {
+    const { manager, context, emitEvent } = createCollabNotificationHarness();
+
+    (
+      manager as unknown as {
+        handleServerNotification: (context: unknown, notification: Record<string, unknown>) => void;
+      }
+    ).handleServerNotification(context, {
+      method: "item/completed",
+      params: {
+        item: {
+          type: "collabAgentToolCall",
+          tool: "spawnAgent",
+          id: "call_spawn_agent",
+          receiverThreadIds: ["child_provider_control"],
+          description: "Inspect the parser",
+        },
+        threadId: "provider_parent",
+        turnId: "turn_parent",
+      },
+    });
+
+    (
+      manager as unknown as {
+        handleServerNotification: (context: unknown, notification: Record<string, unknown>) => void;
+      }
+    ).handleServerNotification(context, {
+      method: "item/completed",
+      params: {
+        item: {
+          type: "collabAgentToolCall",
+          tool: "wait",
+          id: "call_wait_control",
+          receiverThreadIds: ["child_provider_control"],
+          description: "Wait on the spawned agent",
+        },
+        threadId: "provider_parent",
+        turnId: "turn_wait_parent",
+      },
+    });
+
+    (
+      manager as unknown as {
+        handleServerNotification: (context: unknown, notification: Record<string, unknown>) => void;
+      }
+    ).handleServerNotification(context, {
+      method: "item/completed",
+      params: {
+        item: {
+          type: "collabAgentToolCall",
+          tool: "sendInput",
+          id: "call_send_input",
+          receiverThreadIds: ["child_provider_control"],
+          description: "Clarify the parser task",
+        },
+        threadId: "provider_parent",
+        turnId: "turn_send_input_parent",
+      },
+    });
+    emitEvent.mockClear();
+
+    (
+      manager as unknown as {
+        handleServerNotification: (context: unknown, notification: Record<string, unknown>) => void;
+      }
+    ).handleServerNotification(context, {
+      method: "item/agentMessage/delta",
+      params: {
+        threadId: "child_provider_control",
+        turnId: "turn_child_control",
+        itemId: "msg_child_control",
+        delta: "parser inspection in progress",
+      },
+    });
+
+    expect(emitEvent).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        turnId: "turn_send_input_parent",
+        payload: expect.objectContaining({
+          _childThreadAttribution: {
+            childProviderThreadId: "child_provider_control",
+            taskId: "call_spawn_agent",
+            label: "Inspect the parser",
+          },
+        }),
+      }),
+    );
+  });
+
   it("does not inject _childThreadAttribution into parent thread event payloads", () => {
     const { manager, context, emitEvent } = createCollabNotificationHarness();
 

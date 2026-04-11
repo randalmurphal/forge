@@ -1513,8 +1513,19 @@ describe("deriveWorkLogEntries", () => {
     expect(entry?.agentPrompt).toBeUndefined();
   });
 
-  it("filters out collab_agent_tool_call tool.updated/tool.completed without childThreadAttribution", () => {
+  it("filters out unattributed collab_agent_tool_call envelope entries", () => {
     const activities: OrchestrationThreadActivity[] = [
+      // Should be filtered out: collab_agent_tool_call without attribution
+      makeActivity({
+        id: "orphaned-started",
+        kind: "tool.started",
+        summary: "Subagent task",
+        payload: {
+          itemType: "collab_agent_tool_call",
+          title: "Subagent task",
+          toolName: "Agent",
+        },
+      }),
       // Should be filtered out: collab_agent_tool_call without attribution
       makeActivity({
         id: "orphaned-updated",
@@ -1576,6 +1587,7 @@ describe("deriveWorkLogEntries", () => {
     const entries = deriveWorkLogEntries(activities, undefined);
     const ids = entries.map((e) => e.id);
 
+    expect(ids).not.toContain("orphaned-started");
     expect(ids).not.toContain("orphaned-updated");
     expect(ids).not.toContain("orphaned-completed");
     expect(ids).toContain("attributed-updated");
@@ -1708,6 +1720,40 @@ describe("deriveWorkLogEntries", () => {
     expect(completedEntries[0]?.id).toBe("real-task-complete");
   });
 
+  it.each(["wait", "sendInput"] as const)(
+    "does not synthesize a fallback subagent completion from Codex control tool %s",
+    (tool) => {
+      const entries = deriveWorkLogEntries(
+        [
+          makeActivity({
+            id: `codex-control-${tool}`,
+            kind: "tool.completed",
+            summary: "Subagent task",
+            payload: {
+              itemType: "collab_agent_tool_call",
+              data: {
+                item: {
+                  id: `control-${tool}`,
+                  tool,
+                  prompt: "This should not become a subagent",
+                  receiverThreadIds: ["child-thread-1"],
+                  agentsStates: {
+                    "child-thread-1": {
+                      status: "completed",
+                    },
+                  },
+                },
+              },
+            },
+          }),
+        ],
+        undefined,
+      );
+
+      expect(entries).toEqual([]);
+    },
+  );
+
   it("keeps full Claude command output and marks explicit background commands", () => {
     const longOutput = `${"stdout line\n".repeat(80)}stderr line`;
     const [entry] = deriveWorkLogEntries(
@@ -1809,6 +1855,132 @@ describe("deriveWorkLogEntries", () => {
     );
     expect(
       entries.find((entry) => entry.id === "foreground-command")?.isBackgroundCommand,
+    ).toBeUndefined();
+  });
+
+  it("infers a command is background when other work overlaps its lifetime", () => {
+    const entries = deriveWorkLogEntries(
+      [
+        makeActivity({
+          id: "long-command-start",
+          createdAt: "2026-04-10T12:00:00.000Z",
+          kind: "tool.updated",
+          summary: "Ran command",
+          payload: {
+            itemType: "command_execution",
+            itemId: "command-overlap-1",
+            status: "inProgress",
+            data: {
+              item: {
+                id: "command-overlap-1",
+                command: ["/bin/zsh", "-lc", "sleep 30"],
+              },
+            },
+          },
+        }),
+        makeActivity({
+          id: "subagent-work",
+          createdAt: "2026-04-10T12:00:10.000Z",
+          kind: "task.started",
+          summary: "Task started",
+          tone: "info",
+          payload: {
+            taskId: "spawned-child",
+            childThreadAttribution: {
+              taskId: "spawned-child",
+              childProviderThreadId: "child-thread-1",
+              label: "Inspect parser",
+            },
+          },
+        }),
+        makeActivity({
+          id: "long-command-complete",
+          createdAt: "2026-04-10T12:00:30.000Z",
+          kind: "tool.completed",
+          summary: "Ran command",
+          payload: {
+            itemType: "command_execution",
+            itemId: "command-overlap-1",
+            status: "completed",
+            data: {
+              item: {
+                id: "command-overlap-1",
+                command: ["/bin/zsh", "-lc", "sleep 30"],
+                aggregatedOutput: "done",
+                exitCode: 0,
+              },
+            },
+          },
+        }),
+      ],
+      undefined,
+    );
+
+    expect(
+      entries.find((entry) => entry.toolCallId === "command-overlap-1")?.isBackgroundCommand,
+    ).toBe(true);
+  });
+
+  it("keeps a top-level command inline when later work starts after it completes", () => {
+    const entries = deriveWorkLogEntries(
+      [
+        makeActivity({
+          id: "foreground-command-start",
+          createdAt: "2026-04-10T12:00:00.000Z",
+          kind: "tool.updated",
+          summary: "Ran command",
+          payload: {
+            itemType: "command_execution",
+            itemId: "foreground-command-1",
+            status: "inProgress",
+            data: {
+              item: {
+                id: "foreground-command-1",
+                command: ["/bin/zsh", "-lc", "sleep 1"],
+              },
+            },
+          },
+        }),
+        makeActivity({
+          id: "foreground-command-complete",
+          createdAt: "2026-04-10T12:00:01.000Z",
+          kind: "tool.completed",
+          summary: "Ran command",
+          payload: {
+            itemType: "command_execution",
+            itemId: "foreground-command-1",
+            status: "completed",
+            data: {
+              item: {
+                id: "foreground-command-1",
+                command: ["/bin/zsh", "-lc", "sleep 1"],
+                aggregatedOutput: "done",
+                exitCode: 0,
+              },
+            },
+          },
+        }),
+        makeActivity({
+          id: "later-unrelated-work",
+          createdAt: "2026-04-10T12:00:03.000Z",
+          kind: "tool.completed",
+          summary: "Read file",
+          payload: {
+            itemType: "file_read",
+            status: "completed",
+            data: {
+              input: {
+                path: "README.md",
+              },
+            },
+          },
+        }),
+      ],
+      undefined,
+    );
+
+    expect(
+      entries.find((entry) => entry.toolCallId === "foreground-command-1")?.isBackgroundCommand,
     ).toBeUndefined();
   });
 

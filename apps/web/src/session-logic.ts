@@ -561,26 +561,7 @@ export function deriveWorkLogEntries(
     .filter((activity) => activity.kind !== "tool.started")
     .filter((activity) => activity.kind !== "tool.output.delta")
     .filter((activity) => {
-      // Filter out tool.updated/tool.completed for collab_agent_tool_call without
-      // childThreadAttribution. These are the tool-use envelope events for top-level
-      // subagent calls; the actual lifecycle is covered by task.started/task.progress/
-      // task.completed events which carry childThreadAttribution. Keeping these creates
-      // duplicate AgentWorkEntryRow entries in the standalone array.
-      //
-      // Assumption: every collab_agent_tool_call has a corresponding task.started/
-      // task.completed event pair with childThreadAttribution (true for both Claude
-      // and Codex adapters today). If a provider emits item-lifecycle events without
-      // a matching task-lifecycle pair, the agent call would be invisible in the UI.
-      if (activity.kind === "tool.updated" || activity.kind === "tool.completed") {
-        const payload =
-          activity.payload && typeof activity.payload === "object"
-            ? (activity.payload as Record<string, unknown>)
-            : null;
-        if (payload?.itemType === "collab_agent_tool_call" && !payload.childThreadAttribution) {
-          return false;
-        }
-      }
-      return true;
+      return !isUnattributedCollabAgentToolEnvelope(activity);
     })
     .filter((activity) => {
       if (activity.kind === "task.started" || activity.kind === "task.completed") {
@@ -596,7 +577,11 @@ export function deriveWorkLogEntries(
     })
     .map(toDerivedWorkLogEntry);
   const collapsedEntries = collapseDerivedWorkLogEntries(entries);
-  return applyStreamedCommandOutput(collapsedEntries, streamedCommandOutputByToolCallId).map(
+  const entriesWithOutput = applyStreamedCommandOutput(
+    collapsedEntries,
+    streamedCommandOutputByToolCallId,
+  );
+  return inferBackgroundCommandEntries(entriesWithOutput).map(
     ({ collapseKey: _collapseKey, ...entry }) => entry,
   );
 }
@@ -630,6 +615,9 @@ function synthesizeCodexSubagentCompletionActivities(
 
     const data = asRecord(payload.data);
     const item = asRecord(data?.item);
+    if (isCodexControlCollabTool(asTrimmedString(item?.tool))) {
+      continue;
+    }
     const taskId = asTrimmedString(item?.id);
     const receiverThreadIds =
       asArray(item?.receiverThreadIds)
@@ -747,6 +735,74 @@ function applyStreamedCommandOutput(
   });
 }
 
+function inferBackgroundCommandEntries(
+  entries: ReadonlyArray<DerivedWorkLogEntry>,
+): DerivedWorkLogEntry[] {
+  return entries.map((entry, index) => {
+    if (!shouldInferBackgroundCommand(entry)) {
+      return entry;
+    }
+    if (!hasOverlappingEntryDuringCommandLifetime(entries, index)) {
+      return entry;
+    }
+    return {
+      ...entry,
+      isBackgroundCommand: true,
+    };
+  });
+}
+
+function shouldInferBackgroundCommand(entry: DerivedWorkLogEntry): boolean {
+  return (
+    entry.itemType === "command_execution" &&
+    !entry.isBackgroundCommand &&
+    !entry.childThreadAttribution
+  );
+}
+
+function hasOverlappingEntryDuringCommandLifetime(
+  entries: ReadonlyArray<DerivedWorkLogEntry>,
+  commandIndex: number,
+): boolean {
+  const commandEntry = entries[commandIndex];
+  if (!commandEntry) {
+    return false;
+  }
+
+  const commandStartedAt = Date.parse(commandEntry.startedAt ?? commandEntry.createdAt);
+  if (Number.isNaN(commandStartedAt)) {
+    return false;
+  }
+
+  const commandStatus = deriveBackgroundCommandStatus(commandEntry);
+  const commandCompletedAt =
+    commandStatus === "running" ? Number.POSITIVE_INFINITY : Date.parse(commandEntry.createdAt);
+  if (!Number.isFinite(commandCompletedAt) && commandCompletedAt !== Number.POSITIVE_INFINITY) {
+    return false;
+  }
+
+  return entries.some((entry, index) => {
+    if (index === commandIndex || !isSubstantiveOverlappingEntry(commandEntry, entry)) {
+      return false;
+    }
+    const activityAt = Date.parse(entry.createdAt);
+    if (Number.isNaN(activityAt)) {
+      return false;
+    }
+    return activityAt > commandStartedAt && activityAt < commandCompletedAt;
+  });
+}
+
+function isSubstantiveOverlappingEntry(
+  commandEntry: DerivedWorkLogEntry,
+  otherEntry: DerivedWorkLogEntry,
+): boolean {
+  if (commandEntry.toolCallId && commandEntry.toolCallId === otherEntry.toolCallId) {
+    return false;
+  }
+  return true;
+}
+
 export interface SubagentGroup {
   groupId: string;
   taskId: string;
@@ -758,6 +814,22 @@ export interface SubagentGroup {
   completedAt?: string | undefined;
   agentType?: string | undefined;
   agentModel?: string | undefined;
+}
+
+function isUnattributedCollabAgentToolEnvelope(activity: OrchestrationThreadActivity): boolean {
+  if (
+    activity.kind !== "tool.started" &&
+    activity.kind !== "tool.updated" &&
+    activity.kind !== "tool.completed"
+  ) {
+    return false;
+  }
+  const payload = asRecord(activity.payload);
+  return payload?.itemType === "collab_agent_tool_call" && !payload.childThreadAttribution;
+}
+
+function isCodexControlCollabTool(toolName: string | null): boolean {
+  return toolName === "sendInput" || toolName === "wait";
 }
 
 export function groupSubagentEntries(workEntries: ReadonlyArray<WorkLogEntry>): {
