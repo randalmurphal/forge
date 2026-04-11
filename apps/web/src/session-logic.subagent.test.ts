@@ -632,6 +632,130 @@ describe("groupSubagentEntries", () => {
     expect(result.subagentGroups[0]?.completedAt).toBe("2026-04-01T00:00:05.000Z");
   });
 
+  it("keeps a spawned group running when spawn_agent completes but the child agent state is still pending", () => {
+    const entries = deriveWorkLogEntries(
+      [
+        makeActivity({
+          id: "child-command-start",
+          createdAt: "2026-04-01T00:00:01.000Z",
+          kind: "tool.started",
+          summary: "Command started",
+          payload: {
+            itemType: "command_execution",
+            itemId: "child-command-1",
+            status: "inProgress",
+            data: {
+              item: {
+                id: "child-command-1",
+                command: ["/bin/zsh", "-lc", "sleep 120"],
+                source: "unifiedExecStartup",
+                processId: "proc-child-1",
+              },
+            },
+            childThreadAttribution: {
+              taskId: "task-codex-running",
+              childProviderThreadId: "child-thread-running",
+              label: "Sleep for 120 seconds",
+            },
+          },
+        }),
+        makeActivity({
+          id: "spawn-agent-completed",
+          createdAt: "2026-04-01T00:00:02.000Z",
+          kind: "tool.completed",
+          summary: "Subagent task",
+          payload: {
+            itemType: "collab_agent_tool_call",
+            status: "completed",
+            data: {
+              item: {
+                id: "task-codex-running",
+                tool: "spawnAgent",
+                status: "completed",
+                prompt: "Sleep for 120 seconds",
+                receiverThreadIds: ["child-thread-running"],
+                agentsStates: {
+                  "child-thread-running": {
+                    status: "running",
+                  },
+                },
+              },
+            },
+          },
+        }),
+      ],
+      undefined,
+    );
+
+    const result = groupSubagentEntries(entries);
+    expect(result.standalone).toEqual([]);
+    expect(result.subagentGroups).toHaveLength(1);
+    expect(result.subagentGroups[0]?.status).toBe("running");
+    expect(result.subagentGroups[0]?.completedAt).toBeUndefined();
+    expect(result.subagentGroups[0]?.entries.map((entry) => entry.id)).toEqual([
+      "child-command-start",
+    ]);
+  });
+
+  it("marks a known group as completed when wait_agent returns a terminal child status", () => {
+    const entries = deriveWorkLogEntries(
+      [
+        makeActivity({
+          id: "known-child-start",
+          createdAt: "2026-04-01T00:00:01.000Z",
+          kind: "tool.started",
+          summary: "Command started",
+          payload: {
+            itemType: "command_execution",
+            itemId: "child-command-2",
+            status: "inProgress",
+            data: {
+              item: {
+                id: "child-command-2",
+                command: ["/bin/zsh", "-lc", "sleep 120"],
+                source: "unifiedExecStartup",
+                processId: "proc-child-2",
+              },
+            },
+            childThreadAttribution: {
+              taskId: "task-known-completion",
+              childProviderThreadId: "child-thread-known-completion",
+              label: "Wait for completion",
+            },
+          },
+        }),
+        makeActivity({
+          id: "wait-agent-completed",
+          createdAt: "2026-04-01T00:02:00.000Z",
+          kind: "tool.completed",
+          summary: "Subagent wait",
+          payload: {
+            itemType: "collab_agent_tool_call",
+            data: {
+              item: {
+                id: "wait-agent-completed",
+                tool: "wait",
+                receiverThreadIds: ["child-thread-known-completion"],
+                agentsStates: {
+                  "child-thread-known-completion": {
+                    status: "completed",
+                  },
+                },
+              },
+            },
+          },
+        }),
+      ],
+      undefined,
+    );
+
+    const result = groupSubagentEntries(entries);
+    expect(result.standalone).toEqual([]);
+    expect(result.subagentGroups).toHaveLength(1);
+    expect(result.subagentGroups[0]?.status).toBe("completed");
+    expect(result.subagentGroups[0]?.completedAt).toBe("2026-04-01T00:02:00.000Z");
+  });
+
   it("does not create orphan standalone entries for the Codex fallback completion row", () => {
     const entries = deriveWorkLogEntries(
       [
@@ -668,7 +792,7 @@ describe("groupSubagentEntries", () => {
   });
 
   it.each(["wait", "sendInput"] as const)(
-    "ignores Codex control collab tool %s when grouping subagent entries",
+    "ignores orphan Codex control collab tool %s when grouping subagent entries",
     (tool) => {
       const entries = deriveWorkLogEntries(
         [

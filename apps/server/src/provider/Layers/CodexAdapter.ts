@@ -332,6 +332,34 @@ function normalizeDebugCommandValue(value: unknown): string | undefined {
   return truncateDebugString(parts.join(" "), 220);
 }
 
+function summarizeDebugStringArray(value: unknown): string[] | undefined {
+  if (!Array.isArray(value)) {
+    return undefined;
+  }
+
+  const values = value
+    .map((entry) => (typeof entry === "string" && entry.trim().length > 0 ? entry.trim() : null))
+    .filter((entry): entry is string => entry !== null);
+  return values.length > 0 ? values : undefined;
+}
+
+function summarizeCollabAgentStates(value: unknown): Record<string, string> | undefined {
+  const record = asObject(value);
+  if (!record) {
+    return undefined;
+  }
+
+  const statuses = Object.entries(record)
+    .map(([threadId, rawState]) => {
+      const state = asObject(rawState);
+      const status = asString(state?.status);
+      return threadId.trim().length > 0 && status ? ([threadId, status] as const) : null;
+    })
+    .filter((entry): entry is readonly [string, string] => entry !== null);
+
+  return statuses.length > 0 ? Object.fromEntries(statuses) : undefined;
+}
+
 function summarizeCommandLifecyclePayloadDebug(input: {
   payload: Record<string, unknown> | undefined;
   source: Record<string, unknown>;
@@ -340,6 +368,8 @@ function summarizeCommandLifecyclePayloadDebug(input: {
   const item = asObject(payload?.item);
   const itemInput = asObject(item?.input);
   const itemResult = asObject(item?.result);
+  const receiverThreadIds = summarizeDebugStringArray(item?.receiverThreadIds);
+  const collabAgentStates = summarizeCollabAgentStates(item?.agentsStates);
 
   const runInBackground =
     payload?.run_in_background ??
@@ -372,6 +402,8 @@ function summarizeCommandLifecyclePayloadDebug(input: {
     ...((asString(item?.tool) ?? asString(input.source.tool))
       ? { tool: asString(item?.tool) ?? asString(input.source.tool) }
       : {}),
+    ...(receiverThreadIds ? { receiverThreadIds } : {}),
+    ...(collabAgentStates ? { agentsStates: collabAgentStates } : {}),
     ...(normalizeDebugCommandValue(item?.command)
       ? { itemCommand: normalizeDebugCommandValue(item?.command) }
       : {}),

@@ -652,14 +652,19 @@ function synthesizeCodexSubagentCompletionActivities(
   activities: ReadonlyArray<OrchestrationThreadActivity>,
 ): OrchestrationThreadActivity[] {
   const completionsByChildKey = new Set<string>();
+  const knownChildThreadIds = new Set<string>();
   for (const activity of activities) {
+    const payload = asRecord(activity.payload);
+    const childAttr = asRecord(payload?.childThreadAttribution);
+    const childProviderThreadId = asTrimmedString(childAttr?.childProviderThreadId);
+    if (childProviderThreadId) {
+      knownChildThreadIds.add(childProviderThreadId);
+    }
+
     if (activity.kind !== "task.completed") {
       continue;
     }
-    const payload = asRecord(activity.payload);
-    const childAttr = asRecord(payload?.childThreadAttribution);
     const taskId = asTrimmedString(childAttr?.taskId);
-    const childProviderThreadId = asTrimmedString(childAttr?.childProviderThreadId);
     if (taskId && childProviderThreadId) {
       completionsByChildKey.add(`${taskId}\u001f${childProviderThreadId}`);
     }
@@ -677,9 +682,7 @@ function synthesizeCodexSubagentCompletionActivities(
 
     const data = asRecord(payload.data);
     const item = asRecord(data?.item);
-    if (isCodexControlCollabTool(asTrimmedString(item?.tool))) {
-      continue;
-    }
+    const toolName = asTrimmedString(item?.tool);
     const taskId = asTrimmedString(item?.id);
     const receiverThreadIds =
       asArray(item?.receiverThreadIds)
@@ -692,18 +695,24 @@ function synthesizeCodexSubagentCompletionActivities(
     const label = asTrimmedString(item?.prompt)?.slice(0, 120);
     const agentModel = asTrimmedString(item?.model) ?? undefined;
     const agentsStates = asRecord(item?.agentsStates);
-    const itemStatus = asTrimmedString(item?.status) ?? asTrimmedString(payload.status);
 
     for (const childProviderThreadId of receiverThreadIds) {
       const completionKey = `${taskId}\u001f${childProviderThreadId}`;
       if (completionsByChildKey.has(completionKey)) {
         continue;
       }
+      if (isCodexControlCollabTool(toolName) && !knownChildThreadIds.has(childProviderThreadId)) {
+        continue;
+      }
 
       const agentState = asRecord(agentsStates?.[childProviderThreadId]);
-      const normalizedStatus = resolveCodexCollabAgentTerminalStatus(
+      // Codex marks the collab tool call itself as completed as soon as the channel operation
+      // finishes. For spawn_agent that usually means "child thread created", not "child task
+      // finished". The app-server tests explicitly assert that spawn_agent can be completed while
+      // the child agent state is still pendingInit/running, so we only synthesize a subagent
+      // completion from the per-child agentsStates entry once that child reaches a terminal state.
+      const normalizedStatus = normalizeCodexCollabAgentTerminalStatus(
         asTrimmedString(agentState?.status),
-        itemStatus,
       );
       if (normalizedStatus === "running") {
         continue;
@@ -734,17 +743,6 @@ function synthesizeCodexSubagentCompletionActivities(
   }
 
   return syntheticActivities;
-}
-
-function resolveCodexCollabAgentTerminalStatus(
-  agentStatus: string | null,
-  itemStatus: string | null,
-): "running" | "completed" | "failed" {
-  const normalizedAgentStatus = normalizeCodexCollabAgentTerminalStatus(agentStatus);
-  if (normalizedAgentStatus !== "running") {
-    return normalizedAgentStatus;
-  }
-  return normalizeCodexCollabAgentTerminalStatus(itemStatus);
 }
 
 function normalizeCodexCollabAgentTerminalStatus(
@@ -917,6 +915,11 @@ function deriveCodexBackgroundCommandSignals(input: {
     const commandSource =
       itemType === "command_execution" ? (extractCommandSource(payload) ?? undefined) : undefined;
 
+    // unifiedExecStartup only tells us Codex launched the command under the unified exec runtime.
+    // It does not mean the command was already backgrounded from the user's point of view. We
+    // treat these as candidates first and only flip them to background once later turn activity,
+    // assistant output, turn completion, or a terminalInteraction proves the process outlived the
+    // original tool call.
     if (
       itemType === "command_execution" &&
       toolCallId &&

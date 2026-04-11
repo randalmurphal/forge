@@ -1793,8 +1793,8 @@ describe("deriveWorkLogEntries", () => {
     });
   });
 
-  it("synthesizes a completed Codex subagent lifecycle entry from the top-level payload status", () => {
-    const [entry] = deriveWorkLogEntries(
+  it("does not synthesize a Codex subagent completion from the parent collab item status alone", () => {
+    const entries = deriveWorkLogEntries(
       [
         makeActivity({
           id: "codex-collab-payload-status-complete",
@@ -1816,15 +1816,7 @@ describe("deriveWorkLogEntries", () => {
       undefined,
     );
 
-    expect(entry).toMatchObject({
-      activityKind: "task.completed",
-      itemStatus: "completed",
-      childThreadAttribution: {
-        taskId: "task-codex-payload-status",
-        childProviderThreadId: "child-thread-2",
-        label: "Review tray rendering",
-      },
-    });
+    expect(entries).toEqual([]);
   });
 
   it.each(["errored", "interrupted", "notFound"] as const)(
@@ -1864,8 +1856,8 @@ describe("deriveWorkLogEntries", () => {
     },
   );
 
-  it("prefers a terminal parent collab status over a non-terminal child agent state", () => {
-    const [entry] = deriveWorkLogEntries(
+  it("keeps a Codex spawned subagent running when spawn_agent completes but the child agent is still pending", () => {
+    const entries = deriveWorkLogEntries(
       [
         makeActivity({
           id: "codex-collab-parent-complete-child-pending",
@@ -1894,15 +1886,7 @@ describe("deriveWorkLogEntries", () => {
       undefined,
     );
 
-    expect(entry).toMatchObject({
-      activityKind: "task.completed",
-      itemStatus: "completed",
-      childThreadAttribution: {
-        taskId: "task-parent-complete-child-pending",
-        childProviderThreadId: "child-thread-3",
-        label: "Inspect tray state",
-      },
-    });
+    expect(entries).toEqual([]);
   });
 
   it("prefers a real attributed task.completed over a synthetic Codex fallback completion", () => {
@@ -1952,7 +1936,7 @@ describe("deriveWorkLogEntries", () => {
   });
 
   it.each(["wait", "sendInput"] as const)(
-    "does not synthesize a fallback subagent completion from Codex control tool %s",
+    "does not synthesize an orphan fallback subagent completion from Codex control tool %s",
     (tool) => {
       const entries = deriveWorkLogEntries(
         [
@@ -1984,6 +1968,91 @@ describe("deriveWorkLogEntries", () => {
       expect(entries).toEqual([]);
     },
   );
+
+  it("does not synthesize a fallback subagent completion from a timed-out wait_agent call", () => {
+    const entries = deriveWorkLogEntries(
+      [
+        makeActivity({
+          id: "timed-out-wait",
+          kind: "tool.completed",
+          summary: "Subagent wait",
+          payload: {
+            itemType: "collab_agent_tool_call",
+            data: {
+              item: {
+                id: "wait-timed-out",
+                tool: "wait",
+                receiverThreadIds: [],
+                agentsStates: {},
+              },
+            },
+          },
+        }),
+      ],
+      undefined,
+    );
+
+    expect(entries).toEqual([]);
+  });
+
+  it("synthesizes a fallback subagent completion from wait_agent when a known child reaches a terminal state", () => {
+    const entries = deriveWorkLogEntries(
+      [
+        makeActivity({
+          id: "child-command-start",
+          kind: "tool.started",
+          summary: "Command started",
+          payload: {
+            itemType: "command_execution",
+            itemId: "child-command-1",
+            status: "inProgress",
+            data: {
+              item: {
+                id: "child-command-1",
+                command: ["/bin/zsh", "-lc", "sleep 120"],
+              },
+            },
+            childThreadAttribution: {
+              taskId: "task-known-child",
+              childProviderThreadId: "child-thread-known",
+              label: "Known child",
+            },
+          },
+        }),
+        makeActivity({
+          id: "wait-completed",
+          createdAt: "2026-04-10T12:00:05.000Z",
+          kind: "tool.completed",
+          summary: "Subagent wait",
+          payload: {
+            itemType: "collab_agent_tool_call",
+            data: {
+              item: {
+                id: "wait-completed",
+                tool: "wait",
+                receiverThreadIds: ["child-thread-known"],
+                agentsStates: {
+                  "child-thread-known": {
+                    status: "completed",
+                  },
+                },
+              },
+            },
+          },
+        }),
+      ],
+      undefined,
+    );
+
+    const completedEntries = entries.filter((entry) => entry.activityKind === "task.completed");
+    expect(completedEntries).toHaveLength(1);
+    expect(completedEntries[0]).toMatchObject({
+      itemStatus: "completed",
+      childThreadAttribution: {
+        childProviderThreadId: "child-thread-known",
+      },
+    });
+  });
 
   it("keeps full Claude command output and marks explicit background commands", () => {
     const longOutput = `${"stdout line\n".repeat(80)}stderr line`;
