@@ -33,6 +33,7 @@ import {
   resolveDesktopDaemonPaths,
   resolveDesktopStateDir,
 } from "./daemonState";
+import { resolveDaemonProcessEnv } from "./daemonEnv";
 import {
   buildDesktopWindowUrl,
   buildDetachedDaemonLaunchPlan,
@@ -170,6 +171,7 @@ let connectionMode: "local" | "wsl" | "external" = "local";
 let wslDefaultBrowsePath: string | undefined;
 let reconnectInProgress = false;
 let pendingProtocolUrl = extractProtocolUrlFromArgv(process.argv, DESKTOP_SCHEME);
+const INITIAL_PROCESS_ENV = { ...process.env };
 
 let destructiveMenuIconCache: Electron.NativeImage | null | undefined;
 const desktopRuntimeInfo = resolveDesktopRuntimeInfo({
@@ -439,16 +441,6 @@ function resolveBackendCwd(): string {
     return resolveAppRoot();
   }
   return OS.homedir();
-}
-
-function resolveDaemonProcessEnv(): NodeJS.ProcessEnv {
-  const env = { ...process.env };
-  delete env.FORGE_PORT;
-  delete env.FORGE_AUTH_TOKEN;
-  delete env.FORGE_MODE;
-  delete env.FORGE_NO_BROWSER;
-  delete env.FORGE_HOST;
-  return env;
 }
 
 function updateDaemonStatus(nextStatus: DaemonStatus, detail?: string): void {
@@ -1111,7 +1103,7 @@ async function ensureDaemonReady(): Promise<void> {
         entryScriptPath: backendEntry,
         cwd: resolveBackendCwd(),
         execPath: "node",
-        env: resolveDaemonProcessEnv(),
+        env: resolveDaemonProcessEnv(process.env, INITIAL_PROCESS_ENV),
       });
       writeDesktopLogHeader(
         `spawning detached daemon command=${launchPlan.command} cwd=${launchPlan.cwd}`,

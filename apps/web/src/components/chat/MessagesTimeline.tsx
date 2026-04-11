@@ -1208,6 +1208,8 @@ const SimpleWorkEntryRow = memo(function SimpleWorkEntryRow(props: {
   const showExitCode =
     workEntry.itemType === "command_execution" && workEntry.exitCode !== undefined;
   const exitSuccess = workEntry.exitCode === 0;
+  const showBackgroundBadge =
+    workEntry.itemType === "command_execution" && workEntry.isBackgroundCommand === true;
 
   // Duration
   const durationLabel =
@@ -1272,6 +1274,11 @@ const SimpleWorkEntryRow = memo(function SimpleWorkEntryRow(props: {
         </div>
         {/* Right-side metadata badges */}
         <div className="flex shrink-0 items-center gap-1.5">
+          {showBackgroundBadge && (
+            <span className="inline-flex items-center rounded px-1 py-px text-[9px] font-medium uppercase tracking-[0.12em] text-primary/70 ring-1 ring-inset ring-primary/20">
+              background
+            </span>
+          )}
           {showExitCode && (
             <span
               className={cn(

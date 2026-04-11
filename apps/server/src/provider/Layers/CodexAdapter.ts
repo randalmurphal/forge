@@ -38,12 +38,23 @@ import {
   type CodexAppServerStartSessionInput,
 } from "../../codexAppServerManager.ts";
 import { resolveAttachmentPath } from "../../attachmentStore.ts";
+import {
+  appendBackgroundDebugRecord,
+  isBackgroundDebugEnabled,
+  resolveBackgroundDebugLogPath,
+} from "../../backgroundDebug.ts";
 import { ServerConfig } from "../../config.ts";
 import { getPendingMcpServer } from "../pendingMcpServers.ts";
 import { ServerSettingsService } from "../../serverSettings.ts";
 import { type EventNdjsonLogger, makeEventNdjsonLogger } from "./EventNdjsonLogger.ts";
 
 const PROVIDER = "codex" as const;
+const DEBUG_BACKGROUND_TASKS = isBackgroundDebugEnabled();
+
+appendBackgroundDebugRecord("adapter", "startup", {
+  debugEnabled: DEBUG_BACKGROUND_TASKS,
+  logPath: resolveBackgroundDebugLogPath(),
+});
 
 const registerDynamicToolsNoop: CodexAdapterShape["registerDynamicTools"] = () => {
   // Codex discussion tools are injected as MCP server config before the child session starts.
@@ -111,6 +122,14 @@ function asString(value: unknown): string | undefined {
 
 function asArray(value: unknown): unknown[] | undefined {
   return Array.isArray(value) ? value : undefined;
+}
+
+function logBackgroundAdapterDebug(label: string, details: Record<string, unknown>): void {
+  if (!DEBUG_BACKGROUND_TASKS) {
+    return;
+  }
+
+  appendBackgroundDebugRecord("adapter", label, details);
 }
 
 function asNumber(value: unknown): number | undefined {
@@ -279,6 +298,97 @@ function itemDetail(
     return trimmed;
   }
   return undefined;
+}
+
+function truncateDebugString(value: string, limit = 180): string {
+  return value.length > limit ? `${value.slice(0, limit - 3)}...` : value;
+}
+
+function summarizeRecordKeys(value: Record<string, unknown> | undefined): string[] | undefined {
+  if (!value) {
+    return undefined;
+  }
+
+  const keys = Object.keys(value).toSorted();
+  return keys.length > 0 ? keys : undefined;
+}
+
+function normalizeDebugCommandValue(value: unknown): string | undefined {
+  if (typeof value === "string" && value.trim().length > 0) {
+    return truncateDebugString(value.trim(), 220);
+  }
+
+  if (!Array.isArray(value)) {
+    return undefined;
+  }
+
+  const parts = value
+    .map((entry) => (typeof entry === "string" && entry.trim().length > 0 ? entry.trim() : null))
+    .filter((entry): entry is string => entry !== null);
+  if (parts.length === 0) {
+    return undefined;
+  }
+
+  return truncateDebugString(parts.join(" "), 220);
+}
+
+function summarizeCommandLifecyclePayloadDebug(input: {
+  payload: Record<string, unknown> | undefined;
+  source: Record<string, unknown>;
+}): Record<string, unknown> {
+  const payload = input.payload;
+  const item = asObject(payload?.item);
+  const itemInput = asObject(item?.input);
+  const itemResult = asObject(item?.result);
+
+  const runInBackground =
+    payload?.run_in_background ??
+    itemInput?.run_in_background ??
+    itemInput?.runInBackground ??
+    item?.run_in_background ??
+    item?.runInBackground;
+  const sessionId =
+    asString(payload?.sessionId) ??
+    asString(payload?.session_id) ??
+    asString(item?.sessionId) ??
+    asString(item?.session_id) ??
+    asString(itemResult?.sessionId) ??
+    asString(itemResult?.session_id);
+
+  return {
+    ...(summarizeRecordKeys(payload) ? { payloadKeys: summarizeRecordKeys(payload) } : {}),
+    ...(summarizeRecordKeys(item) ? { itemKeys: summarizeRecordKeys(item) } : {}),
+    ...(summarizeRecordKeys(itemInput) ? { inputKeys: summarizeRecordKeys(itemInput) } : {}),
+    ...(summarizeRecordKeys(itemResult) ? { resultKeys: summarizeRecordKeys(itemResult) } : {}),
+    ...((asString(item?.source) ?? asString(input.source.source))
+      ? { itemSource: asString(item?.source) ?? asString(input.source.source) }
+      : {}),
+    ...((asString(item?.processId) ?? asString(input.source.processId))
+      ? { processId: asString(item?.processId) ?? asString(input.source.processId) }
+      : {}),
+    ...((asString(item?.status) ?? asString(input.source.status))
+      ? { itemStatus: asString(item?.status) ?? asString(input.source.status) }
+      : {}),
+    ...((asString(item?.tool) ?? asString(input.source.tool))
+      ? { tool: asString(item?.tool) ?? asString(input.source.tool) }
+      : {}),
+    ...(normalizeDebugCommandValue(item?.command)
+      ? { itemCommand: normalizeDebugCommandValue(item?.command) }
+      : {}),
+    ...(normalizeDebugCommandValue(itemInput?.command)
+      ? { inputCommand: normalizeDebugCommandValue(itemInput?.command) }
+      : {}),
+    ...(normalizeDebugCommandValue(itemResult?.command)
+      ? { resultCommand: normalizeDebugCommandValue(itemResult?.command) }
+      : {}),
+    ...(typeof runInBackground === "boolean" ? { runInBackground } : {}),
+    ...(sessionId ? { sessionId } : {}),
+    ...(typeof item?.exitCode === "number" ? { exitCode: item.exitCode } : {}),
+    ...(typeof itemResult?.exitCode === "number" ? { resultExitCode: itemResult.exitCode } : {}),
+    ...(typeof item?.aggregatedOutput === "string"
+      ? { aggregatedOutputLength: item.aggregatedOutput.length }
+      : {}),
+  };
 }
 
 function toRequestTypeFromMethod(method: string): CanonicalRequestType {
@@ -589,6 +699,30 @@ function mapItemLifecycle(
         : undefined;
   const toolName = extractToolName(source);
   const childThreadAttribution = asObject(payload?._childThreadAttribution);
+
+  if (itemType === "command_execution" || itemType === "collab_agent_tool_call") {
+    const runtimeItem = asObject(payload?.item);
+    logBackgroundAdapterDebug("itemLifecycle", {
+      lifecycle,
+      method: event.method,
+      canonicalThreadId,
+      turnId: event.turnId ?? null,
+      itemType,
+      itemId: asString(payload?.itemId) ?? asString(source.id) ?? null,
+      source: asString(runtimeItem?.source) ?? asString(source.source) ?? null,
+      processId: asString(runtimeItem?.processId) ?? asString(source.processId) ?? null,
+      status:
+        asString(payload?.status) ??
+        asString(runtimeItem?.status) ??
+        asString(source.status) ??
+        null,
+      hasChildThreadAttribution: childThreadAttribution !== undefined,
+      rawSnapshot: summarizeCommandLifecyclePayloadDebug({
+        payload,
+        source,
+      }),
+    });
+  }
 
   return {
     ...runtimeEventBase(event, canonicalThreadId),
@@ -942,6 +1076,15 @@ function mapToRuntimeEvents(
       return [];
     }
     const childThreadAttribution = asObject(payload?._childThreadAttribution);
+    logBackgroundAdapterDebug("terminalInteraction", {
+      method: event.method,
+      canonicalThreadId,
+      turnId: event.turnId ?? null,
+      itemId: asString(payload?.itemId) ?? null,
+      processId,
+      stdinLength: stdin.length,
+      hasChildThreadAttribution: childThreadAttribution !== undefined,
+    });
     return [
       {
         ...runtimeEventBase(event, canonicalThreadId),
@@ -991,6 +1134,16 @@ function mapToRuntimeEvents(
       return [];
     }
     const childThreadAttribution = asObject(payload?._childThreadAttribution);
+    if (event.method === "item/commandExecution/outputDelta") {
+      logBackgroundAdapterDebug("commandOutputDelta", {
+        method: event.method,
+        canonicalThreadId,
+        turnId: event.turnId ?? null,
+        itemId: asString(payload?.itemId) ?? null,
+        deltaLength: delta.length,
+        hasChildThreadAttribution: childThreadAttribution !== undefined,
+      });
+    }
     return [
       {
         ...runtimeEventBase(event, canonicalThreadId),

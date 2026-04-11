@@ -1145,8 +1145,10 @@ export default function ChatView({ threadId }: ChatViewProps) {
       deriveWorkLogEntries(threadActivities, {
         scope: "all-turns",
         latestTurnId: activeLatestTurn?.turnId ?? undefined,
+        messages: activeThread?.messages,
+        latestTurn: activeLatestTurn,
       }),
-    [activeLatestTurn?.turnId, threadActivities],
+    [activeLatestTurn, activeThread?.messages, threadActivities],
   );
   const latestTurnHasToolActivity = useMemo(
     () => hasToolActivityForTurn(threadActivities, activeLatestTurn?.turnId),

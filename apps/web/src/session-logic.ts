@@ -36,6 +36,21 @@ export const PROVIDER_OPTIONS: Array<{
   { value: "cursor", label: "Cursor", available: false },
 ];
 
+const DEBUG_BACKGROUND_TASKS =
+  import.meta.env.FORGE_DEBUG_BACKGROUND_TASKS === "1" ||
+  import.meta.env.FORGE_DEBUG_BACKGROUND_TASKS === "true";
+
+if (DEBUG_BACKGROUND_TASKS) {
+  console.warn("[forge:bg:web] debug enabled");
+}
+
+function debugBackgroundTasks(label: string, details: unknown): void {
+  if (!DEBUG_BACKGROUND_TASKS) {
+    return;
+  }
+  console.warn(`[forge:bg:web] ${label}`, details);
+}
+
 export interface WorkLogEntry {
   id: string;
   createdAt: string;
@@ -536,18 +551,22 @@ export function hasActionableProposedPlan(
 export type WorkLogScope = "latest-turn" | "all-turns";
 const BACKGROUND_TASK_RETENTION_MS = 5_000;
 
+interface DeriveWorkLogEntriesOptions {
+  scope: WorkLogScope;
+  latestTurnId?: TurnId | undefined;
+  messages?: ReadonlyArray<ChatMessage> | undefined;
+  latestTurn?: LatestTurnTiming | null | undefined;
+}
+
 export function deriveWorkLogEntries(
   activities: ReadonlyArray<OrchestrationThreadActivity>,
-  input:
-    | {
-        scope: WorkLogScope;
-        latestTurnId?: TurnId | undefined;
-      }
-    | TurnId
-    | undefined,
+  input: DeriveWorkLogEntriesOptions | TurnId | undefined,
 ): WorkLogEntry[] {
   const scope = typeof input === "object" && input !== null ? input.scope : "all-turns";
   const latestTurnId = typeof input === "object" && input !== null ? input.latestTurnId : input;
+  const messages = typeof input === "object" && input !== null ? input.messages : undefined;
+  const latestTurn =
+    typeof input === "object" && input !== null ? (input.latestTurn ?? null) : null;
   const scopedActivities = [...activities]
     .toSorted(compareActivitiesByOrder)
     .filter((activity) =>
@@ -560,10 +579,17 @@ export function deriveWorkLogEntries(
     ...scopedActivities,
     ...synthesizeCodexSubagentCompletionActivities(scopedActivities),
   ].toSorted(compareActivitiesByOrder);
+  if (DEBUG_BACKGROUND_TASKS) {
+    const relevantActivities = ordered
+      .map(summarizeBackgroundRelevantActivity)
+      .filter((entry): entry is NonNullable<typeof entry> => entry !== null);
+    if (relevantActivities.length > 0) {
+      debugBackgroundTasks("activities", relevantActivities);
+    }
+  }
   const streamedCommandOutputByToolCallId = collectStreamedCommandOutputByToolCallId(ordered);
   const streamedCommandOutputPresenceByToolCallId =
     collectStreamedCommandOutputPresenceByToolCallId(ordered);
-  const terminalInteractionsByToolCallId = collectTerminalInteractionsByToolCallId(ordered);
   const entries = ordered
     .filter((activity) => !shouldFilterToolStartedActivity(activity))
     .filter((activity) => activity.kind !== "tool.output.delta")
@@ -584,16 +610,41 @@ export function deriveWorkLogEntries(
       return true;
     })
     .map(toDerivedWorkLogEntry);
+  if (DEBUG_BACKGROUND_TASKS) {
+    const relevantEntries = entries
+      .map(summarizeBackgroundRelevantEntry)
+      .filter((entry): entry is NonNullable<typeof entry> => entry !== null);
+    if (relevantEntries.length > 0) {
+      debugBackgroundTasks("entries.preCollapse", relevantEntries);
+    }
+  }
   const collapsedEntries = collapseDerivedWorkLogEntries(entries);
+  if (DEBUG_BACKGROUND_TASKS) {
+    const relevantCollapsedEntries = collapsedEntries
+      .map(summarizeBackgroundRelevantEntry)
+      .filter((entry): entry is NonNullable<typeof entry> => entry !== null);
+    if (relevantCollapsedEntries.length > 0) {
+      debugBackgroundTasks("entries.collapsed", relevantCollapsedEntries);
+    }
+  }
   const entriesWithOutput = applyStreamedCommandOutput(
     collapsedEntries,
     streamedCommandOutputByToolCallId,
     streamedCommandOutputPresenceByToolCallId,
   );
-  const entriesWithBackgroundSignals = applyBackgroundCommandSignals(
-    entriesWithOutput,
-    terminalInteractionsByToolCallId,
-  );
+  const entriesWithBackgroundSignals = applyBackgroundCommandSignals(entriesWithOutput, {
+    activities: ordered,
+    messages,
+    latestTurn,
+  });
+  if (DEBUG_BACKGROUND_TASKS) {
+    const relevantFinalEntries = entriesWithBackgroundSignals
+      .map(summarizeBackgroundRelevantEntry)
+      .filter((entry): entry is NonNullable<typeof entry> => entry !== null);
+    if (relevantFinalEntries.length > 0) {
+      debugBackgroundTasks("entries.final", relevantFinalEntries);
+    }
+  }
   return entriesWithBackgroundSignals.map(({ collapseKey: _collapseKey, ...entry }) => entry);
 }
 
@@ -755,24 +806,6 @@ function collectStreamedCommandOutputPresenceByToolCallId(
   return toolCallIds;
 }
 
-function collectTerminalInteractionsByToolCallId(
-  activities: ReadonlyArray<OrchestrationThreadActivity>,
-): Set<string> {
-  const toolCallIds = new Set<string>();
-  for (const activity of activities) {
-    if (activity.kind !== "tool.terminal.interaction") {
-      continue;
-    }
-    const payload = asRecord(activity.payload);
-    const toolCallId = asTrimmedString(payload?.itemId);
-    if (!toolCallId) {
-      continue;
-    }
-    toolCallIds.add(toolCallId);
-  }
-  return toolCallIds;
-}
-
 function applyStreamedCommandOutput(
   entries: ReadonlyArray<DerivedWorkLogEntry>,
   streamedCommandOutputByToolCallId: ReadonlyMap<string, string>,
@@ -804,18 +837,26 @@ function applyStreamedCommandOutput(
 
 function applyBackgroundCommandSignals(
   entries: ReadonlyArray<DerivedWorkLogEntry>,
-  terminalInteractionsByToolCallId: ReadonlySet<string>,
+  input: {
+    activities: ReadonlyArray<OrchestrationThreadActivity>;
+    messages?: ReadonlyArray<ChatMessage> | undefined;
+    latestTurn?: LatestTurnTiming | null | undefined;
+  },
 ): DerivedWorkLogEntry[] {
-  return entries.map((entry) => {
+  const codexBackgroundSignals = deriveCodexBackgroundCommandSignals({
+    activities: input.activities,
+    messages: input.messages,
+    latestTurn: input.latestTurn ?? null,
+  });
+  const nextEntries = entries.map((entry) => {
     if (entry.itemType !== "command_execution") {
       return entry;
     }
-    const hasUnifiedExecSource = isUnifiedExecCommandSource(entry.commandSource);
-    const hasTerminalInteraction =
-      entry.toolCallId !== undefined &&
-      entry.toolCallId.length > 0 &&
-      terminalInteractionsByToolCallId.has(entry.toolCallId);
-    if (!entry.isBackgroundCommand && !hasUnifiedExecSource && !hasTerminalInteraction) {
+    const toolCallId = entry.toolCallId ?? null;
+    const isBackgroundCommand =
+      entry.isBackgroundCommand === true ||
+      (toolCallId !== null && codexBackgroundSignals.backgroundedToolCallIds.has(toolCallId));
+    if (!isBackgroundCommand) {
       return entry;
     }
     return {
@@ -823,6 +864,331 @@ function applyBackgroundCommandSignals(
       isBackgroundCommand: true,
     };
   });
+
+  if (DEBUG_BACKGROUND_TASKS) {
+    const commandDecisions = entries
+      .map((entry, index) =>
+        summarizeBackgroundCommandClassification(
+          entry,
+          nextEntries[index] ?? entry,
+          codexBackgroundSignals.reasonsByToolCallId,
+        ),
+      )
+      .filter((entry): entry is NonNullable<typeof entry> => entry !== null);
+    if (commandDecisions.length > 0) {
+      debugBackgroundTasks("command.classification", commandDecisions);
+    }
+  }
+
+  return nextEntries;
+}
+
+interface CodexBackgroundCommandCandidate {
+  toolCallId: string;
+  turnId?: TurnId | undefined;
+  processId?: string | undefined;
+  startedAt: string;
+  completedAt?: string | undefined;
+  backgrounded: boolean;
+}
+
+function deriveCodexBackgroundCommandSignals(input: {
+  activities: ReadonlyArray<OrchestrationThreadActivity>;
+  messages?: ReadonlyArray<ChatMessage> | undefined;
+  latestTurn: LatestTurnTiming | null;
+}): {
+  backgroundedToolCallIds: Set<string>;
+  reasonsByToolCallId: Map<string, string>;
+} {
+  const candidatesByToolCallId = new Map<string, CodexBackgroundCommandCandidate>();
+  const openCandidateIdsByTurnId = new Map<string, Set<string>>();
+  const openCandidateIdsByProcessId = new Map<string, Set<string>>();
+  const reasonsByToolCallId = new Map<string, string>();
+
+  for (const activity of input.activities) {
+    const payload = asRecord(activity.payload);
+    const itemType = extractWorkLogItemType(payload);
+    const toolCallId =
+      itemType === "command_execution" ? (extractToolCallId(payload) ?? undefined) : undefined;
+    const processId =
+      itemType === "command_execution"
+        ? (extractCommandProcessId(payload) ?? undefined)
+        : undefined;
+    const commandSource =
+      itemType === "command_execution" ? (extractCommandSource(payload) ?? undefined) : undefined;
+
+    if (
+      itemType === "command_execution" &&
+      toolCallId &&
+      commandSource === "unifiedExecStartup" &&
+      processId
+    ) {
+      const candidate = candidatesByToolCallId.get(toolCallId);
+      const nextCandidate: CodexBackgroundCommandCandidate = candidate
+        ? {
+            ...candidate,
+            turnId: candidate.turnId ?? activity.turnId ?? undefined,
+            processId: candidate.processId ?? processId,
+            startedAt:
+              earliestIsoValue(candidate.startedAt, activity.createdAt) ?? activity.createdAt,
+          }
+        : {
+            toolCallId,
+            turnId: activity.turnId ?? undefined,
+            processId,
+            startedAt: activity.createdAt,
+            backgrounded: false,
+          };
+      candidatesByToolCallId.set(toolCallId, nextCandidate);
+      if (activity.kind !== "tool.completed") {
+        trackOpenCodexBackgroundCandidate(openCandidateIdsByTurnId, activity.turnId, toolCallId);
+        trackOpenCodexBackgroundCandidate(openCandidateIdsByProcessId, processId, toolCallId);
+      }
+    }
+
+    if (activity.kind === "tool.terminal.interaction") {
+      markCodexBackgroundCandidatesFromTerminalInteraction(
+        payload,
+        candidatesByToolCallId,
+        openCandidateIdsByProcessId,
+        reasonsByToolCallId,
+      );
+      continue;
+    }
+
+    if (isCommandBackgroundingActivity(activity)) {
+      markCodexBackgroundCandidatesForTurnAdvance(
+        activity.turnId ?? undefined,
+        toolCallId,
+        candidatesByToolCallId,
+        openCandidateIdsByTurnId,
+        reasonsByToolCallId,
+      );
+    }
+
+    if (itemType === "command_execution" && toolCallId && activity.kind === "tool.completed") {
+      const candidate = candidatesByToolCallId.get(toolCallId);
+      if (candidate) {
+        candidate.completedAt = activity.createdAt;
+      }
+      clearOpenCodexBackgroundCandidate(openCandidateIdsByTurnId, activity.turnId, toolCallId);
+      clearOpenCodexBackgroundCandidate(openCandidateIdsByProcessId, processId, toolCallId);
+    }
+  }
+
+  markCodexBackgroundCandidatesFromMessages(
+    candidatesByToolCallId,
+    input.messages,
+    reasonsByToolCallId,
+  );
+  markCodexBackgroundCandidatesFromLatestTurn(
+    candidatesByToolCallId,
+    input.latestTurn,
+    reasonsByToolCallId,
+  );
+
+  return {
+    backgroundedToolCallIds: new Set(
+      [...candidatesByToolCallId.values()]
+        .filter((candidate) => candidate.backgrounded)
+        .map((candidate) => candidate.toolCallId),
+    ),
+    reasonsByToolCallId,
+  };
+}
+
+function isCommandBackgroundingActivity(activity: OrchestrationThreadActivity): boolean {
+  return activity.kind !== "tool.output.delta" && activity.kind !== "tool.terminal.interaction";
+}
+
+function trackOpenCodexBackgroundCandidate(
+  openCandidateIds: Map<string, Set<string>>,
+  key: string | null | undefined,
+  toolCallId: string,
+): void {
+  if (!key) {
+    return;
+  }
+  const next = openCandidateIds.get(key) ?? new Set<string>();
+  next.add(toolCallId);
+  openCandidateIds.set(key, next);
+}
+
+function clearOpenCodexBackgroundCandidate(
+  openCandidateIds: Map<string, Set<string>>,
+  key: string | null | undefined,
+  toolCallId: string | undefined,
+): void {
+  if (!key || !toolCallId) {
+    return;
+  }
+  const existing = openCandidateIds.get(key);
+  if (!existing) {
+    return;
+  }
+  existing.delete(toolCallId);
+  if (existing.size === 0) {
+    openCandidateIds.delete(key);
+  }
+}
+
+function markCodexBackgroundCandidatesForTurnAdvance(
+  turnId: TurnId | undefined,
+  currentToolCallId: string | undefined,
+  candidatesByToolCallId: Map<string, CodexBackgroundCommandCandidate>,
+  openCandidateIdsByTurnId: Map<string, Set<string>>,
+  reasonsByToolCallId: Map<string, string>,
+): void {
+  if (!turnId) {
+    return;
+  }
+  const candidateIds = openCandidateIdsByTurnId.get(turnId);
+  if (!candidateIds) {
+    return;
+  }
+  for (const candidateId of candidateIds) {
+    if (candidateId === currentToolCallId) {
+      continue;
+    }
+    markCodexBackgroundCandidate(
+      candidatesByToolCallId.get(candidateId),
+      reasonsByToolCallId,
+      "later turn activity",
+    );
+  }
+}
+
+function markCodexBackgroundCandidatesFromTerminalInteraction(
+  payload: Record<string, unknown> | null,
+  candidatesByToolCallId: Map<string, CodexBackgroundCommandCandidate>,
+  openCandidateIdsByProcessId: Map<string, Set<string>>,
+  reasonsByToolCallId: Map<string, string>,
+): void {
+  const toolCallId = asTrimmedString(payload?.itemId);
+  const processId = asTrimmedString(payload?.processId);
+  const stdin = typeof payload?.stdin === "string" ? payload.stdin : "";
+  const reason =
+    stdin.length === 0 ? "background terminal wait" : "background terminal interaction";
+
+  if (toolCallId) {
+    markCodexBackgroundCandidate(
+      candidatesByToolCallId.get(toolCallId),
+      reasonsByToolCallId,
+      reason,
+    );
+  }
+
+  if (!processId) {
+    return;
+  }
+  const candidateIds = openCandidateIdsByProcessId.get(processId);
+  if (!candidateIds) {
+    return;
+  }
+  for (const candidateId of candidateIds) {
+    markCodexBackgroundCandidate(
+      candidatesByToolCallId.get(candidateId),
+      reasonsByToolCallId,
+      reason,
+    );
+  }
+}
+
+function markCodexBackgroundCandidatesFromMessages(
+  candidatesByToolCallId: Map<string, CodexBackgroundCommandCandidate>,
+  messages: ReadonlyArray<ChatMessage> | undefined,
+  reasonsByToolCallId: Map<string, string>,
+): void {
+  if (!messages || messages.length === 0) {
+    return;
+  }
+  const assistantMessages = messages
+    .filter((message) => message.role === "assistant" && message.turnId)
+    .toSorted((left, right) => left.createdAt.localeCompare(right.createdAt));
+  if (assistantMessages.length === 0) {
+    return;
+  }
+
+  for (const candidate of candidatesByToolCallId.values()) {
+    if (!candidate.turnId || candidate.backgrounded) {
+      continue;
+    }
+    const hasLaterAssistantMessage = assistantMessages.some(
+      (message) =>
+        message.turnId === candidate.turnId &&
+        isIsoWithinCandidateLifetime(message.createdAt, candidate),
+    );
+    if (hasLaterAssistantMessage) {
+      markCodexBackgroundCandidate(candidate, reasonsByToolCallId, "assistant message");
+    }
+  }
+}
+
+function markCodexBackgroundCandidatesFromLatestTurn(
+  candidatesByToolCallId: Map<string, CodexBackgroundCommandCandidate>,
+  latestTurn: LatestTurnTiming | null,
+  reasonsByToolCallId: Map<string, string>,
+): void {
+  if (!latestTurn?.turnId || !latestTurn.startedAt) {
+    return;
+  }
+
+  for (const candidate of candidatesByToolCallId.values()) {
+    if (candidate.backgrounded || !candidate.turnId) {
+      continue;
+    }
+
+    if (candidate.turnId === latestTurn.turnId) {
+      if (
+        latestTurn.completedAt &&
+        isIsoWithinCandidateLifetime(latestTurn.completedAt, candidate)
+      ) {
+        markCodexBackgroundCandidate(candidate, reasonsByToolCallId, "turn completed");
+      }
+      continue;
+    }
+
+    if (isIsoWithinCandidateLifetime(latestTurn.startedAt, candidate)) {
+      markCodexBackgroundCandidate(candidate, reasonsByToolCallId, "later turn started");
+    }
+  }
+}
+
+function isIsoWithinCandidateLifetime(
+  timestamp: string,
+  candidate: Pick<CodexBackgroundCommandCandidate, "startedAt" | "completedAt">,
+): boolean {
+  if (timestamp.localeCompare(candidate.startedAt) <= 0) {
+    return false;
+  }
+  if (candidate.completedAt && timestamp.localeCompare(candidate.completedAt) > 0) {
+    return false;
+  }
+  return true;
+}
+
+function markCodexBackgroundCandidate(
+  candidate: CodexBackgroundCommandCandidate | undefined,
+  reasonsByToolCallId: Map<string, string>,
+  reason: string,
+): void {
+  if (!candidate || candidate.backgrounded) {
+    return;
+  }
+  candidate.backgrounded = true;
+  reasonsByToolCallId.set(candidate.toolCallId, reason);
+}
+
+function extractCommandSource(payload: Record<string, unknown> | null): string | null {
+  const data = asRecord(payload?.data);
+  const item = asRecord(data?.item);
+  return asTrimmedString(item?.source) ?? asTrimmedString(payload?.source);
+}
+
+function extractCommandProcessId(payload: Record<string, unknown> | null): string | null {
+  const data = asRecord(payload?.data);
+  const item = asRecord(data?.item);
+  return asTrimmedString(item?.processId) ?? asTrimmedString(payload?.processId);
 }
 
 function shouldFilterToolStartedActivity(activity: OrchestrationThreadActivity): boolean {
@@ -2051,11 +2417,37 @@ export function deriveBackgroundTrayState(
   );
   const visibleCommandEntries = deriveVisibleBackgroundCommandEntries(standalone, nowIso);
 
+  if (DEBUG_BACKGROUND_TASKS) {
+    const trayCommandDecisions = standalone
+      .map((entry) => summarizeBackgroundTrayCommandDecision(entry, nowIso))
+      .filter((entry): entry is NonNullable<typeof entry> => entry !== null);
+    debugBackgroundTasks("tray", {
+      nowIso,
+      commandDecisions: trayCommandDecisions,
+      visibleCommands: visibleCommandEntries.map((entry) => ({
+        id: entry.id,
+        toolCallId: entry.toolCallId,
+        processId: entry.processId,
+        command: entry.command,
+        itemStatus: entry.itemStatus,
+        isBackgroundCommand: entry.isBackgroundCommand === true,
+        commandSource: entry.commandSource ?? null,
+        status: deriveBackgroundCommandStatus(entry),
+      })),
+      visibleSubagents: visibleSubagentGroups.map((group) => ({
+        groupId: group.groupId,
+        taskId: group.taskId,
+        status: group.status,
+        label: group.label,
+      })),
+    });
+  }
+
   return {
     subagentGroups: visibleSubagentGroups,
     commandEntries: visibleCommandEntries,
     hiddenSubagentGroupIds: visibleSubagentGroups.map((group) => group.groupId),
-    hiddenWorkEntryIds: visibleCommandEntries.map((entry) => entry.id),
+    hiddenWorkEntryIds: [],
     hasRunningTasks:
       visibleSubagentGroups.some((group) => group.status === "running") ||
       visibleCommandEntries.some((entry) => deriveBackgroundCommandStatus(entry) === "running"),
@@ -2068,12 +2460,8 @@ export function filterTrayOwnedWorkEntries(
   backgroundTrayState: BackgroundTrayState,
 ): WorkLogEntry[] {
   const hiddenSubagentGroupIds = new Set(backgroundTrayState.hiddenSubagentGroupIds);
-  const hiddenWorkEntryIds = new Set(backgroundTrayState.hiddenWorkEntryIds);
 
   return workEntries.filter((entry) => {
-    if (hiddenWorkEntryIds.has(entry.id)) {
-      return false;
-    }
     const groupId = entry.childThreadAttribution?.childProviderThreadId;
     if (groupId && hiddenSubagentGroupIds.has(groupId)) {
       return false;
@@ -2109,6 +2497,171 @@ function deriveVisibleBackgroundCommandEntries(
 
 function isUnifiedExecCommandSource(value: string | undefined): boolean {
   return value === "unifiedExecStartup" || value === "unifiedExecInteraction";
+}
+
+function summarizeBackgroundRelevantActivity(activity: OrchestrationThreadActivity): {
+  id: string;
+  createdAt: string;
+  kind: string;
+  itemType?: string | undefined;
+  itemId?: string | undefined;
+  rawItemId?: string | undefined;
+  processId?: string | undefined;
+  source?: string | undefined;
+  status?: string | undefined;
+  stdinLength?: number | undefined;
+  childTaskId?: string | undefined;
+  childProviderThreadId?: string | undefined;
+} | null {
+  const payload = asRecord(activity.payload);
+  const data = asRecord(payload?.data);
+  const item = asRecord(data?.item);
+  const childAttr = asRecord(payload?.childThreadAttribution);
+  const itemType =
+    extractWorkLogItemType(payload) ?? asTrimmedString(payload?.itemType) ?? undefined;
+  const summary = {
+    id: activity.id,
+    createdAt: activity.createdAt,
+    kind: activity.kind,
+    ...(itemType ? { itemType } : {}),
+    ...(asTrimmedString(payload?.itemId)
+      ? { itemId: asTrimmedString(payload?.itemId) ?? undefined }
+      : {}),
+    ...(asTrimmedString(item?.id) ? { rawItemId: asTrimmedString(item?.id) ?? undefined } : {}),
+    ...(asTrimmedString(payload?.processId) || asTrimmedString(item?.processId)
+      ? {
+          processId:
+            asTrimmedString(payload?.processId) ?? asTrimmedString(item?.processId) ?? undefined,
+        }
+      : {}),
+    ...(asTrimmedString(item?.source)
+      ? { source: asTrimmedString(item?.source) ?? undefined }
+      : {}),
+    ...(asTrimmedString(payload?.status)
+      ? { status: asTrimmedString(payload?.status) ?? undefined }
+      : {}),
+    ...(typeof payload?.stdin === "string" ? { stdinLength: payload.stdin.length } : {}),
+    ...(asTrimmedString(childAttr?.taskId)
+      ? { childTaskId: asTrimmedString(childAttr?.taskId) ?? undefined }
+      : {}),
+    ...(asTrimmedString(childAttr?.childProviderThreadId)
+      ? { childProviderThreadId: asTrimmedString(childAttr?.childProviderThreadId) ?? undefined }
+      : {}),
+  };
+  const isRelevant =
+    summary.itemType === "command_execution" ||
+    summary.itemType === "collab_agent_tool_call" ||
+    activity.kind === "tool.output.delta" ||
+    activity.kind === "tool.terminal.interaction" ||
+    activity.kind === "task.started" ||
+    activity.kind === "task.progress" ||
+    activity.kind === "task.completed";
+  return isRelevant ? summary : null;
+}
+
+function summarizeBackgroundRelevantEntry(entry: DerivedWorkLogEntry): {
+  id: string;
+  createdAt: string;
+  activityKind: string;
+  itemType?: string | undefined;
+  toolCallId?: string | undefined;
+  processId?: string | undefined;
+  commandSource?: string | undefined;
+  itemStatus?: string | undefined;
+  isBackgroundCommand?: boolean | undefined;
+  command?: string | undefined;
+  collapseKey?: string | undefined;
+} | null {
+  if (
+    entry.itemType !== "command_execution" &&
+    entry.itemType !== "collab_agent_tool_call" &&
+    !entry.childThreadAttribution
+  ) {
+    return null;
+  }
+  return {
+    id: entry.id,
+    createdAt: entry.createdAt,
+    activityKind: entry.activityKind,
+    ...(entry.itemType ? { itemType: entry.itemType } : {}),
+    ...(entry.toolCallId ? { toolCallId: entry.toolCallId } : {}),
+    ...(entry.processId ? { processId: entry.processId } : {}),
+    ...(entry.commandSource ? { commandSource: entry.commandSource } : {}),
+    ...(entry.itemStatus ? { itemStatus: entry.itemStatus } : {}),
+    ...(entry.isBackgroundCommand !== undefined
+      ? { isBackgroundCommand: entry.isBackgroundCommand }
+      : {}),
+    ...(entry.command ? { command: entry.command } : {}),
+    ...(entry.collapseKey ? { collapseKey: entry.collapseKey } : {}),
+  };
+}
+
+function summarizeBackgroundCommandClassification(
+  previous: DerivedWorkLogEntry,
+  next: DerivedWorkLogEntry,
+  reasonsByToolCallId: ReadonlyMap<string, string>,
+): {
+  id: string;
+  toolCallId?: string | undefined;
+  processId?: string | undefined;
+  commandSource?: string | undefined;
+  hadExplicitBackgroundSignal: boolean;
+  hadUnifiedExecSignal: boolean;
+  finalIsBackgroundCommand: boolean;
+  reason: string;
+  itemStatus?: string | undefined;
+} | null {
+  if (previous.itemType !== "command_execution") {
+    return null;
+  }
+
+  const hadExplicitBackgroundSignal = previous.isBackgroundCommand === true;
+  const hadUnifiedExecSignal = isUnifiedExecCommandSource(previous.commandSource);
+  const reason =
+    (previous.toolCallId ? reasonsByToolCallId.get(previous.toolCallId) : undefined) ??
+    (hadExplicitBackgroundSignal ? "explicit" : "none");
+
+  return {
+    id: previous.id,
+    ...(previous.toolCallId ? { toolCallId: previous.toolCallId } : {}),
+    ...(previous.processId ? { processId: previous.processId } : {}),
+    ...(previous.commandSource ? { commandSource: previous.commandSource } : {}),
+    hadExplicitBackgroundSignal,
+    hadUnifiedExecSignal,
+    finalIsBackgroundCommand: next.isBackgroundCommand === true,
+    reason,
+    ...(next.itemStatus ? { itemStatus: next.itemStatus } : {}),
+  };
+}
+
+function summarizeBackgroundTrayCommandDecision(
+  entry: WorkLogEntry,
+  nowIso: string,
+): {
+  id: string;
+  toolCallId?: string | undefined;
+  processId?: string | undefined;
+  isBackgroundCommand: boolean;
+  commandSource?: string | undefined;
+  itemStatus?: string | undefined;
+  derivedStatus?: "running" | "completed" | "failed" | undefined;
+  visibleInTray: boolean;
+} | null {
+  if (entry.itemType !== "command_execution") {
+    return null;
+  }
+
+  const visibleInTray = isBackgroundCommandVisibleInTray(entry, nowIso);
+  return {
+    id: entry.id,
+    ...(entry.toolCallId ? { toolCallId: entry.toolCallId } : {}),
+    ...(entry.processId ? { processId: entry.processId } : {}),
+    isBackgroundCommand: entry.isBackgroundCommand === true,
+    ...(entry.commandSource ? { commandSource: entry.commandSource } : {}),
+    ...(entry.itemStatus ? { itemStatus: entry.itemStatus } : {}),
+    ...(entry.isBackgroundCommand ? { derivedStatus: deriveBackgroundCommandStatus(entry) } : {}),
+    visibleInTray,
+  };
 }
 
 export function deriveBackgroundCommandStatus(

@@ -1931,6 +1931,59 @@ describe("ProviderRuntimeIngestion", () => {
     ).toBe(true);
   });
 
+  it("preserves command data on tool.started activities for command executions", async () => {
+    const harness = await createHarness();
+    const now = new Date().toISOString();
+
+    harness.emit({
+      type: "item.started",
+      eventId: asEventId("evt-command-started-with-data"),
+      provider: "codex",
+      createdAt: now,
+      threadId: asThreadId("thread-1"),
+      turnId: asTurnId("turn-command-started"),
+      itemId: asItemId("command-item-1"),
+      payload: {
+        itemType: "command_execution",
+        status: "inProgress",
+        title: "Command",
+        toolName: "commandExecution",
+        data: {
+          item: {
+            id: "command-item-1",
+            source: "unifiedExecStartup",
+            processId: "proc-123",
+            command: ["/bin/zsh", "-lc", "echo hello"],
+          },
+        },
+      },
+    });
+
+    const thread = await waitForThread(harness.engine, (entry) =>
+      entry.activities.some(
+        (activity: ProviderRuntimeTestActivity) => activity.id === "evt-command-started-with-data",
+      ),
+    );
+
+    const activity = thread.activities.find(
+      (entry: ProviderRuntimeTestActivity) => entry.id === "evt-command-started-with-data",
+    );
+    const payload = activityPayload(activity);
+    const data =
+      payload?.data && typeof payload.data === "object"
+        ? (payload.data as Record<string, unknown>)
+        : undefined;
+    const item =
+      data?.item && typeof data.item === "object"
+        ? (data.item as Record<string, unknown>)
+        : undefined;
+
+    expect(activity?.kind).toBe("tool.started");
+    expect(payload?.itemType).toBe("command_execution");
+    expect(item?.source).toBe("unifiedExecStartup");
+    expect(item?.processId).toBe("proc-123");
+  });
+
   it("consumes P1 runtime events into thread metadata, diff checkpoints, and activities", async () => {
     const harness = await createHarness();
     const now = new Date().toISOString();

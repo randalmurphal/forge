@@ -46,6 +46,11 @@ import {
   parseSupportedShellMutationCommand,
   type CapturedShellMutationOperation,
 } from "../commandInlineDiffArtifacts.ts";
+import {
+  appendBackgroundDebugRecord,
+  isBackgroundDebugEnabled,
+  resolveBackgroundDebugLogPath,
+} from "../../backgroundDebug.ts";
 
 const providerTurnKey = (threadId: ThreadId, turnId: TurnId) => `${threadId}:${turnId}`;
 const providerCommandId = (event: ProviderRuntimeEvent, tag: string): CommandId =>
@@ -59,6 +64,12 @@ const BUFFERED_PROPOSED_PLAN_BY_ID_CACHE_CAPACITY = 10_000;
 const BUFFERED_PROPOSED_PLAN_BY_ID_TTL = Duration.minutes(120);
 const MAX_BUFFERED_ASSISTANT_CHARS = 24_000;
 const STRICT_PROVIDER_LIFECYCLE_GUARD = process.env.FORGE_STRICT_PROVIDER_LIFECYCLE_GUARD !== "0";
+const DEBUG_BACKGROUND_TASKS = isBackgroundDebugEnabled();
+
+appendBackgroundDebugRecord("ingestion", "startup", {
+  debugEnabled: DEBUG_BACKGROUND_TASKS,
+  logPath: resolveBackgroundDebugLogPath(),
+});
 
 type TurnStartRequestedDomainEvent = Extract<
   OrchestrationEvent,
@@ -102,6 +113,14 @@ function sameId(left: string | null | undefined, right: string | null | undefine
 
 function truncateDetail(value: string, limit = 180): string {
   return value.length > limit ? `${value.slice(0, limit - 3)}...` : value;
+}
+
+function logBackgroundIngestionDebug(label: string, details: Record<string, unknown>): void {
+  if (!DEBUG_BACKGROUND_TASKS) {
+    return;
+  }
+
+  appendBackgroundDebugRecord("ingestion", label, details);
 }
 
 function normalizeProposedPlanMarkdown(planMarkdown: string | undefined): string | undefined {
@@ -178,6 +197,68 @@ function asRecord(value: unknown): Record<string, unknown> | undefined {
 
 function asTrimmedString(value: unknown): string | undefined {
   return typeof value === "string" && value.trim().length > 0 ? value.trim() : undefined;
+}
+
+function extractBackgroundDebugItemRecord(value: unknown): Record<string, unknown> | undefined {
+  const record = asRecord(value);
+  if (!record) {
+    return undefined;
+  }
+
+  const directItem = asRecord(record.item);
+  if (directItem) {
+    return directItem;
+  }
+
+  const nestedData = asRecord(record.data);
+  const nestedItem = asRecord(nestedData?.item);
+  if (nestedItem) {
+    return nestedItem;
+  }
+
+  return record;
+}
+
+function extractBackgroundDebugSource(value: unknown): string | undefined {
+  const item = extractBackgroundDebugItemRecord(value);
+  return asTrimmedString(item?.source);
+}
+
+function extractBackgroundDebugProcessId(value: unknown): string | undefined {
+  const record = asRecord(value);
+  const item = extractBackgroundDebugItemRecord(value);
+  return asTrimmedString(record?.processId) ?? asTrimmedString(item?.processId);
+}
+
+function extractBackgroundDebugCommandPreview(value: unknown): string | undefined {
+  const command = extractRuntimeToolCommand(value);
+  if (!command) {
+    return undefined;
+  }
+
+  return truncateDetail(command, 140);
+}
+
+function extractBackgroundDebugChildThread(value: unknown):
+  | {
+      taskId?: string | undefined;
+      childProviderThreadId?: string | undefined;
+    }
+  | undefined {
+  const record = asRecord(value);
+  const child = asRecord(record?.childThreadAttribution);
+  if (!child) {
+    return undefined;
+  }
+  const taskId = asTrimmedString(child.taskId);
+  const childProviderThreadId = asTrimmedString(child.childProviderThreadId);
+  if (!taskId && !childProviderThreadId) {
+    return undefined;
+  }
+  return {
+    ...(taskId ? { taskId } : {}),
+    ...(childProviderThreadId ? { childProviderThreadId } : {}),
+  };
 }
 
 function quoteShellArgument(value: string): string {
@@ -786,6 +867,13 @@ function runtimeEventToActivities(
 
     case "task.started": {
       const taskStartedChildAttr = extractChildThreadAttribution(event.payload);
+      logBackgroundIngestionDebug("runtime.task.started", {
+        threadId: event.threadId,
+        turnId: event.turnId ?? null,
+        taskId: event.payload.taskId,
+        taskType: event.payload.taskType ?? null,
+        childThreadAttribution: extractBackgroundDebugChildThread(event.payload) ?? null,
+      });
       return [
         {
           id: event.eventId,
@@ -837,6 +925,13 @@ function runtimeEventToActivities(
 
     case "task.completed": {
       const taskCompletedChildAttr = extractChildThreadAttribution(event.payload);
+      logBackgroundIngestionDebug("runtime.task.completed", {
+        threadId: event.threadId,
+        turnId: event.turnId ?? null,
+        taskId: event.payload.taskId,
+        status: event.payload.status,
+        childThreadAttribution: extractBackgroundDebugChildThread(event.payload) ?? null,
+      });
       return [
         {
           id: event.eventId,
@@ -959,6 +1054,14 @@ function runtimeEventToActivities(
         return [];
       }
       const contentDeltaChildAttr = extractChildThreadAttribution(event.payload);
+      logBackgroundIngestionDebug("runtime.content.delta", {
+        threadId: event.threadId,
+        turnId: event.turnId ?? null,
+        itemId: event.itemId ?? null,
+        streamKind: event.payload.streamKind,
+        deltaLength: event.payload.delta.length,
+        childThreadAttribution: extractBackgroundDebugChildThread(event.payload) ?? null,
+      });
       return [
         {
           id: event.eventId,
@@ -980,6 +1083,14 @@ function runtimeEventToActivities(
 
     case "terminal.interaction": {
       const terminalInteractionChildAttr = extractChildThreadAttribution(event.payload);
+      logBackgroundIngestionDebug("runtime.terminal.interaction", {
+        threadId: event.threadId,
+        turnId: event.turnId ?? null,
+        itemId: event.itemId ?? null,
+        processId: event.payload.processId,
+        stdinLength: event.payload.stdin.length,
+        childThreadAttribution: extractBackgroundDebugChildThread(event.payload) ?? null,
+      });
       return [
         {
           id: event.eventId,
@@ -1010,6 +1121,22 @@ function runtimeEventToActivities(
       }
       const itemUpdatedToolName = (event.payload as Record<string, unknown>).toolName;
       const itemUpdatedChildAttr = extractChildThreadAttribution(event.payload);
+      if (
+        event.payload.itemType === "command_execution" ||
+        event.payload.itemType === "collab_agent_tool_call"
+      ) {
+        logBackgroundIngestionDebug("runtime.item.updated", {
+          threadId: event.threadId,
+          turnId: event.turnId ?? null,
+          itemType: event.payload.itemType,
+          itemId: event.itemId ?? null,
+          source: extractBackgroundDebugSource(event.payload.data) ?? null,
+          processId: extractBackgroundDebugProcessId(event.payload.data) ?? null,
+          status: event.payload.status ?? null,
+          toolName: typeof itemUpdatedToolName === "string" ? itemUpdatedToolName : null,
+          childThreadAttribution: extractBackgroundDebugChildThread(event.payload) ?? null,
+        });
+      }
       return [
         {
           id: event.eventId,
@@ -1039,6 +1166,29 @@ function runtimeEventToActivities(
       }
       const itemCompletedToolName = (event.payload as Record<string, unknown>).toolName;
       const itemCompletedChildAttr = extractChildThreadAttribution(event.payload);
+      if (
+        event.payload.itemType === "command_execution" ||
+        event.payload.itemType === "collab_agent_tool_call"
+      ) {
+        const projectedData = event.payload.data;
+        logBackgroundIngestionDebug("runtime.item.completed", {
+          threadId: event.threadId,
+          turnId: event.turnId ?? null,
+          itemType: event.payload.itemType,
+          itemId: event.itemId ?? null,
+          source: extractBackgroundDebugSource(event.payload.data) ?? null,
+          processId: extractBackgroundDebugProcessId(event.payload.data) ?? null,
+          commandPreview: extractBackgroundDebugCommandPreview(event.payload.data) ?? null,
+          status: event.payload.status ?? null,
+          toolName: typeof itemCompletedToolName === "string" ? itemCompletedToolName : null,
+          childThreadAttribution: extractBackgroundDebugChildThread(event.payload) ?? null,
+          projectedPayload: {
+            hasData: projectedData !== undefined,
+            source: extractBackgroundDebugSource(projectedData) ?? null,
+            processId: extractBackgroundDebugProcessId(projectedData) ?? null,
+          },
+        });
+      }
       return [
         {
           id: event.eventId,
@@ -1070,6 +1220,37 @@ function runtimeEventToActivities(
       }
       const itemStartedToolName = (event.payload as Record<string, unknown>).toolName;
       const itemStartedChildAttr = extractChildThreadAttribution(event.payload);
+      const includeStartedData =
+        event.payload.itemType === "command_execution" ||
+        event.payload.itemType === "collab_agent_tool_call";
+      if (
+        event.payload.itemType === "command_execution" ||
+        event.payload.itemType === "collab_agent_tool_call"
+      ) {
+        logBackgroundIngestionDebug("runtime.item.started", {
+          threadId: event.threadId,
+          turnId: event.turnId ?? null,
+          itemType: event.payload.itemType,
+          itemId: event.itemId ?? null,
+          source: extractBackgroundDebugSource(event.payload.data) ?? null,
+          processId: extractBackgroundDebugProcessId(event.payload.data) ?? null,
+          commandPreview: extractBackgroundDebugCommandPreview(event.payload.data) ?? null,
+          status: event.payload.status ?? null,
+          toolName: typeof itemStartedToolName === "string" ? itemStartedToolName : null,
+          childThreadAttribution: extractBackgroundDebugChildThread(event.payload) ?? null,
+          projectedPayload: {
+            hasData: includeStartedData && event.payload.data !== undefined,
+            source:
+              includeStartedData && event.payload.data !== undefined
+                ? (extractBackgroundDebugSource(event.payload.data) ?? null)
+                : null,
+            processId:
+              includeStartedData && event.payload.data !== undefined
+                ? (extractBackgroundDebugProcessId(event.payload.data) ?? null)
+                : null,
+          },
+        });
+      }
       return [
         {
           id: event.eventId,
@@ -1082,6 +1263,9 @@ function runtimeEventToActivities(
             ...(event.itemId ? { itemId: event.itemId } : {}),
             ...(event.payload.status ? { status: event.payload.status } : {}),
             ...(event.payload.detail ? { detail: truncateDetail(event.payload.detail) } : {}),
+            ...(includeStartedData && event.payload.data !== undefined
+              ? { data: event.payload.data }
+              : {}),
             ...(typeof itemStartedToolName === "string" ? { toolName: itemStartedToolName } : {}),
             ...(itemStartedChildAttr ? { childThreadAttribution: itemStartedChildAttr } : {}),
           },

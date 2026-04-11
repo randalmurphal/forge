@@ -183,6 +183,7 @@ describe("MessagesTimeline", () => {
               tone: "tool",
               itemType: "command_execution",
               command: "bun fmt",
+              isBackgroundCommand: true,
             },
           },
         ]}
@@ -206,6 +207,7 @@ describe("MessagesTimeline", () => {
 
     expect(markup).toContain("Command");
     expect(markup).toContain("bun fmt");
+    expect(markup).toContain("background");
     expect(markup).not.toContain("Operations");
   });
 

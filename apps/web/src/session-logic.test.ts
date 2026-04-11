@@ -2081,7 +2081,7 @@ describe("deriveWorkLogEntries", () => {
     expect(entry?.outputSource).toBe("final");
   });
 
-  it("marks Codex unified-exec commands as background from the command source", () => {
+  it("keeps Codex unified-exec commands inline when no background signal exists", () => {
     const [entry] = deriveWorkLogEntries(
       [
         makeActivity({
@@ -2108,7 +2108,7 @@ describe("deriveWorkLogEntries", () => {
       undefined,
     );
 
-    expect(entry?.isBackgroundCommand).toBe(true);
+    expect(entry?.isBackgroundCommand).toBeUndefined();
     expect(entry?.commandSource).toBe("unifiedExecStartup");
     expect(entry?.processId).toBe("proc-build-watch");
   });
@@ -2155,7 +2155,7 @@ describe("deriveWorkLogEntries", () => {
     ).toBeUndefined();
   });
 
-  it("marks a Codex command as background when terminal interaction is observed", () => {
+  it("marks a Codex unified-exec command as background from terminal interaction", () => {
     const [entry] = deriveWorkLogEntries(
       [
         makeActivity({
@@ -2171,6 +2171,7 @@ describe("deriveWorkLogEntries", () => {
               item: {
                 id: "background-command-1",
                 command: ["/bin/zsh", "-lc", "bun run build --watch"],
+                source: "unifiedExecStartup",
                 processId: "proc-watch-1",
               },
             },
@@ -2195,7 +2196,8 @@ describe("deriveWorkLogEntries", () => {
     expect(entry?.isBackgroundCommand).toBe(true);
   });
 
-  it("does not mark overlapping commands as background during work-log derivation", () => {
+  it("marks a Codex unified-exec command as background when later work begins while it is still running", () => {
+    const turnId = TurnId.makeUnsafe("turn-overlap-1");
     const entries = deriveWorkLogEntries(
       [
         makeActivity({
@@ -2203,6 +2205,7 @@ describe("deriveWorkLogEntries", () => {
           createdAt: "2026-04-10T12:00:00.000Z",
           kind: "tool.started",
           summary: "Command started",
+          turnId: turnId,
           payload: {
             itemType: "command_execution",
             itemId: "command-overlap-1",
@@ -2211,6 +2214,8 @@ describe("deriveWorkLogEntries", () => {
               item: {
                 id: "command-overlap-1",
                 command: ["/bin/zsh", "-lc", "sleep 30"],
+                source: "unifiedExecStartup",
+                processId: "proc-overlap-1",
               },
             },
           },
@@ -2221,6 +2226,7 @@ describe("deriveWorkLogEntries", () => {
           kind: "task.started",
           summary: "Task started",
           tone: "info",
+          turnId: turnId,
           payload: {
             taskId: "spawned-child",
             childThreadAttribution: {
@@ -2235,6 +2241,7 @@ describe("deriveWorkLogEntries", () => {
           createdAt: "2026-04-10T12:00:30.000Z",
           kind: "tool.completed",
           summary: "Ran command",
+          turnId: turnId,
           payload: {
             itemType: "command_execution",
             itemId: "command-overlap-1",
@@ -2255,10 +2262,11 @@ describe("deriveWorkLogEntries", () => {
 
     expect(
       entries.find((entry) => entry.toolCallId === "command-overlap-1")?.isBackgroundCommand,
-    ).toBeUndefined();
+    ).toBe(true);
   });
 
   it("keeps a top-level command inline when later work starts after it completes", () => {
+    const turnId = TurnId.makeUnsafe("turn-foreground-inline");
     const entries = deriveWorkLogEntries(
       [
         makeActivity({
@@ -2266,6 +2274,7 @@ describe("deriveWorkLogEntries", () => {
           createdAt: "2026-04-10T12:00:00.000Z",
           kind: "tool.started",
           summary: "Command started",
+          turnId: turnId,
           payload: {
             itemType: "command_execution",
             itemId: "foreground-command-1",
@@ -2274,6 +2283,8 @@ describe("deriveWorkLogEntries", () => {
               item: {
                 id: "foreground-command-1",
                 command: ["/bin/zsh", "-lc", "sleep 1"],
+                source: "unifiedExecStartup",
+                processId: "proc-foreground-1",
               },
             },
           },
@@ -2283,6 +2294,7 @@ describe("deriveWorkLogEntries", () => {
           createdAt: "2026-04-10T12:00:01.000Z",
           kind: "tool.completed",
           summary: "Ran command",
+          turnId: turnId,
           payload: {
             itemType: "command_execution",
             itemId: "foreground-command-1",
@@ -2302,6 +2314,7 @@ describe("deriveWorkLogEntries", () => {
           createdAt: "2026-04-10T12:00:03.000Z",
           kind: "tool.completed",
           summary: "Read file",
+          turnId: turnId,
           payload: {
             itemType: "file_read",
             status: "completed",
@@ -2319,6 +2332,133 @@ describe("deriveWorkLogEntries", () => {
     expect(
       entries.find((entry) => entry.toolCallId === "foreground-command-1")?.isBackgroundCommand,
     ).toBeUndefined();
+  });
+
+  it("marks a Codex unified-exec command as background when an assistant message arrives while it is still running", () => {
+    const turnId = TurnId.makeUnsafe("turn-assistant-message");
+    const [entry] = deriveWorkLogEntries(
+      [
+        makeActivity({
+          id: "assistant-message-command-start",
+          createdAt: "2026-04-10T12:00:00.000Z",
+          kind: "tool.started",
+          summary: "Command started",
+          turnId: turnId,
+          payload: {
+            itemType: "command_execution",
+            itemId: "assistant-message-command-1",
+            status: "inProgress",
+            data: {
+              item: {
+                id: "assistant-message-command-1",
+                command: ["/bin/zsh", "-lc", "bun run dev"],
+                source: "unifiedExecStartup",
+                processId: "proc-assistant-message-1",
+              },
+            },
+          },
+        }),
+        makeActivity({
+          id: "assistant-message-command-complete",
+          createdAt: "2026-04-10T12:00:10.000Z",
+          kind: "tool.completed",
+          summary: "Ran command",
+          turnId: turnId,
+          payload: {
+            itemType: "command_execution",
+            itemId: "assistant-message-command-1",
+            status: "completed",
+            data: {
+              item: {
+                id: "assistant-message-command-1",
+                command: ["/bin/zsh", "-lc", "bun run dev"],
+                source: "unifiedExecStartup",
+                processId: "proc-assistant-message-1",
+                aggregatedOutput: "ready\n",
+                exitCode: 0,
+              },
+            },
+          },
+        }),
+      ],
+      {
+        scope: "all-turns",
+        messages: [
+          {
+            id: MessageId.makeUnsafe("assistant-message-1"),
+            role: "assistant",
+            text: "Build watcher is running in the background.",
+            turnId,
+            createdAt: "2026-04-10T12:00:05.000Z",
+            streaming: false,
+          },
+        ],
+      },
+    );
+
+    expect(entry?.toolCallId).toBe("assistant-message-command-1");
+    expect(entry?.isBackgroundCommand).toBe(true);
+  });
+
+  it("marks a Codex unified-exec command as background when the turn completes while it is still running", () => {
+    const turnId = TurnId.makeUnsafe("turn-completed-while-open");
+    const [entry] = deriveWorkLogEntries(
+      [
+        makeActivity({
+          id: "turn-complete-command-start",
+          createdAt: "2026-04-10T12:00:00.000Z",
+          kind: "tool.started",
+          summary: "Command started",
+          turnId: turnId,
+          payload: {
+            itemType: "command_execution",
+            itemId: "turn-complete-command-1",
+            status: "inProgress",
+            data: {
+              item: {
+                id: "turn-complete-command-1",
+                command: ["/bin/zsh", "-lc", "bun run watch"],
+                source: "unifiedExecStartup",
+                processId: "proc-turn-complete-1",
+              },
+            },
+          },
+        }),
+        makeActivity({
+          id: "turn-complete-command-complete",
+          createdAt: "2026-04-10T12:00:12.000Z",
+          kind: "tool.completed",
+          summary: "Ran command",
+          turnId: turnId,
+          payload: {
+            itemType: "command_execution",
+            itemId: "turn-complete-command-1",
+            status: "completed",
+            data: {
+              item: {
+                id: "turn-complete-command-1",
+                command: ["/bin/zsh", "-lc", "bun run watch"],
+                source: "unifiedExecStartup",
+                processId: "proc-turn-complete-1",
+                aggregatedOutput: "watcher finished\n",
+                exitCode: 0,
+              },
+            },
+          },
+        }),
+      ],
+      {
+        scope: "all-turns",
+        latestTurn: {
+          turnId,
+          startedAt: "2026-04-10T12:00:00.000Z",
+          completedAt: "2026-04-10T12:00:05.000Z",
+        },
+      },
+    );
+
+    expect(entry?.toolCallId).toBe("turn-complete-command-1");
+    expect(entry?.isBackgroundCommand).toBe(true);
   });
 
   it("falls back to streamed command output when no final output is present", () => {
@@ -2459,9 +2599,11 @@ describe("deriveWorkLogEntries", () => {
       "background-running",
       "background-completed",
     ]);
+    expect(visibleState.hiddenWorkEntryIds).toEqual([]);
 
     const expiredState = deriveBackgroundTrayState(workEntries, "2026-04-10T12:00:08.500Z");
     expect(expiredState.commandEntries.map((entry) => entry.id)).toEqual(["background-running"]);
+    expect(expiredState.hiddenWorkEntryIds).toEqual([]);
   });
 
   it("does not infer background tray ownership from overlap alone", () => {
@@ -2509,7 +2651,7 @@ describe("deriveWorkLogEntries", () => {
     );
   });
 
-  it("filters tray-owned background work from the timeline and restores it after TTL expiry", () => {
+  it("keeps background commands inline while still filtering running subagent work", () => {
     const workEntries = deriveWorkLogEntries(
       [
         makeActivity({
@@ -2571,13 +2713,18 @@ describe("deriveWorkLogEntries", () => {
       workEntries,
       deriveBackgroundTrayState(workEntries, "2026-04-10T12:00:06.000Z"),
     );
-    expect(visibleWhileOwned.map((entry) => entry.id)).toEqual(["foreground-command"]);
+    expect(visibleWhileOwned.map((entry) => entry.id)).toEqual([
+      "background-running",
+      "background-completed",
+      "foreground-command",
+    ]);
 
     const visibleAfterTtl = filterTrayOwnedWorkEntries(
       workEntries,
       deriveBackgroundTrayState(workEntries, "2026-04-10T12:00:08.500Z"),
     );
     expect(visibleAfterTtl.map((entry) => entry.id)).toEqual([
+      "background-running",
       "background-completed",
       "foreground-command",
     ]);
