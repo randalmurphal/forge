@@ -47,6 +47,7 @@ import { providerQueryKeys } from "../lib/providerReactQuery";
 import { projectQueryKeys } from "../lib/projectReactQuery";
 import { collectActiveTerminalThreadIds } from "../lib/terminalStateCleanup";
 import { deriveOrchestrationBatchEffects } from "../orchestrationEventEffects";
+import { safelyApplyOrchestrationEventBatch } from "../orchestrationEventBatch";
 import { createOrchestrationRecoveryCoordinator } from "../orchestrationRecovery";
 import { routeChannelPushEvent, routeWorkflowPushEvent } from "../pushEventRouter";
 import { getWsRpcClient } from "~/wsRpcClient";
@@ -429,54 +430,68 @@ function EventRouter() {
     );
 
     const applyEventBatch = (events: ReadonlyArray<ForgeEvent>) => {
-      const nextEvents = recovery.markEventBatchApplied(events);
-      if (nextEvents.length === 0) {
-        return;
-      }
+      return safelyApplyOrchestrationEventBatch({
+        events,
+        apply: () => {
+          // A thrown live batch used to wedge the thread until a manual refresh rebuilt state from
+          // snapshot. Keep the normal fast path here, but treat any exception as a hard recovery
+          // boundary so the client can immediately resync from the server.
+          const nextEvents = recovery.markEventBatchApplied(events);
+          if (nextEvents.length === 0) {
+            return {
+              applied: false,
+            } as const;
+          }
 
-      const orchestrationEvents = nextEvents.filter(Schema.is(OrchestrationEvent));
-      const batchEffects = deriveOrchestrationBatchEffects(orchestrationEvents);
-      const uiEvents = coalesceOrchestrationUiEvents(nextEvents);
-      const needsProjectUiSync = nextEvents.some(
-        (event) =>
-          event.type === "project.created" ||
-          event.type === "project.meta-updated" ||
-          event.type === "project.deleted",
-      );
+          const orchestrationEvents = nextEvents.filter(Schema.is(OrchestrationEvent));
+          const batchEffects = deriveOrchestrationBatchEffects(orchestrationEvents);
+          const uiEvents = coalesceOrchestrationUiEvents(nextEvents);
+          const needsProjectUiSync = nextEvents.some(
+            (event) =>
+              event.type === "project.created" ||
+              event.type === "project.meta-updated" ||
+              event.type === "project.deleted",
+          );
 
-      if (batchEffects.needsProviderInvalidation) {
-        needsProviderInvalidation = true;
-        void queryInvalidationThrottler.maybeExecute();
-      }
+          if (batchEffects.needsProviderInvalidation) {
+            needsProviderInvalidation = true;
+            void queryInvalidationThrottler.maybeExecute();
+          }
 
-      applyOrchestrationEvents(uiEvents);
-      if (needsProjectUiSync) {
-        const projects = useStore.getState().projects;
-        syncProjects(projects.map((project) => ({ id: project.id, cwd: project.cwd })));
-      }
-      const needsThreadUiSync = nextEvents.some(
-        (event) => event.type === "thread.created" || event.type === "thread.deleted",
-      );
-      if (needsThreadUiSync) {
-        const threads = useStore.getState().threads;
-        syncThreads(
-          threads.map((thread) => ({
-            id: thread.id,
-            seedVisitedAt: thread.updatedAt ?? thread.createdAt,
-          })),
-        );
-      }
-      const draftStore = useComposerDraftStore.getState();
-      for (const threadId of batchEffects.clearPromotedDraftThreadIds) {
-        clearPromotedDraftThread(threadId);
-      }
-      for (const threadId of batchEffects.clearDeletedThreadIds) {
-        draftStore.clearDraftThread(threadId);
-        clearThreadUi(threadId);
-      }
-      for (const threadId of batchEffects.removeTerminalStateThreadIds) {
-        removeTerminalState(threadId);
-      }
+          applyOrchestrationEvents(uiEvents);
+          if (needsProjectUiSync) {
+            const projects = useStore.getState().projects;
+            syncProjects(projects.map((project) => ({ id: project.id, cwd: project.cwd })));
+          }
+          const needsThreadUiSync = nextEvents.some(
+            (event) => event.type === "thread.created" || event.type === "thread.deleted",
+          );
+          if (needsThreadUiSync) {
+            const threads = useStore.getState().threads;
+            syncThreads(
+              threads.map((thread) => ({
+                id: thread.id,
+                seedVisitedAt: thread.updatedAt ?? thread.createdAt,
+              })),
+            );
+          }
+          const draftStore = useComposerDraftStore.getState();
+          for (const threadId of batchEffects.clearPromotedDraftThreadIds) {
+            clearPromotedDraftThread(threadId);
+          }
+          for (const threadId of batchEffects.clearDeletedThreadIds) {
+            draftStore.clearDraftThread(threadId);
+            clearThreadUi(threadId);
+          }
+          for (const threadId of batchEffects.removeTerminalStateThreadIds) {
+            removeTerminalState(threadId);
+          }
+
+          return {
+            applied: true,
+          } as const;
+        },
+      });
     };
     const flushPendingDomainEvents = () => {
       flushPendingDomainEventsScheduled = false;
@@ -485,7 +500,16 @@ function EventRouter() {
       }
 
       const events = pendingDomainEvents.splice(0, pendingDomainEvents.length);
-      applyEventBatch(events);
+      const result = applyEventBatch(events);
+      if (result.ok) {
+        return;
+      }
+
+      console.error("[orchestration-recovery] live event batch failed; falling back to snapshot", {
+        error: result.error,
+        events: result.eventSummary,
+      });
+      void fallbackToSnapshotRecovery();
     };
     const schedulePendingDomainEventFlush = () => {
       if (flushPendingDomainEventsScheduled) {
@@ -505,7 +529,19 @@ function EventRouter() {
       try {
         const events = await api.orchestration.replayEvents(fromSequenceExclusive);
         if (!disposed) {
-          applyEventBatch(events);
+          const result = applyEventBatch(events);
+          if (!result.ok) {
+            console.error(
+              "[orchestration-recovery] replay batch failed; falling back to snapshot",
+              {
+                error: result.error,
+                events: result.eventSummary,
+              },
+            );
+            recovery.failReplayRecovery();
+            void fallbackToSnapshotRecovery();
+            return;
+          }
         }
       } catch {
         recovery.failReplayRecovery();

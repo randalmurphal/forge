@@ -81,6 +81,7 @@ const rpcClientMock = {
     getTurnDiff: vi.fn(),
     getFullThreadDiff: vi.fn(),
     getCommandOutput: vi.fn(),
+    getSubagentActivityFeed: vi.fn(),
     replayEvents: vi.fn(),
     onDomainEvent: vi.fn((listener: (event: ForgeEvent) => void) =>
       registerListener(orchestrationEventListeners, listener),
@@ -332,6 +333,27 @@ describe("wsNativeApi", () => {
       threadId: "thread-1",
       activityId: "activity-1",
       toolCallId: "tool-1",
+    });
+  });
+
+  it("forwards subagent activity feed requests to the orchestration RPC", async () => {
+    rpcClientMock.orchestration.getSubagentActivityFeed.mockResolvedValue({
+      threadId: ThreadId.makeUnsafe("thread-1"),
+      childProviderThreadId: "child-thread-1",
+      activities: [],
+      omittedActivityCount: 0,
+    });
+    const { createWsNativeApi } = await import("./wsNativeApi");
+
+    const api = createWsNativeApi();
+    await api.orchestration.getSubagentActivityFeed({
+      threadId: ThreadId.makeUnsafe("thread-1"),
+      childProviderThreadId: "child-thread-1",
+    });
+
+    expect(rpcClientMock.orchestration.getSubagentActivityFeed).toHaveBeenCalledWith({
+      threadId: "thread-1",
+      childProviderThreadId: "child-thread-1",
     });
   });
 

@@ -14,6 +14,7 @@ import {
   type TurnId,
 } from "@forgetools/contracts";
 
+import { DEBUG_BACKGROUND_TASKS, debugBackgroundTasks } from "./backgroundDebug";
 import type {
   ChatMessage,
   ProposedPlan,
@@ -35,21 +36,6 @@ export const PROVIDER_OPTIONS: Array<{
   { value: "claudeAgent", label: "Claude", available: true },
   { value: "cursor", label: "Cursor", available: false },
 ];
-
-const DEBUG_BACKGROUND_TASKS =
-  import.meta.env.FORGE_DEBUG_BACKGROUND_TASKS === "1" ||
-  import.meta.env.FORGE_DEBUG_BACKGROUND_TASKS === "true";
-
-if (DEBUG_BACKGROUND_TASKS) {
-  console.warn("[forge:bg:web] debug enabled");
-}
-
-function debugBackgroundTasks(label: string, details: unknown): void {
-  if (!DEBUG_BACKGROUND_TASKS) {
-    return;
-  }
-  console.warn(`[forge:bg:web] ${label}`, details);
-}
 
 export interface WorkLogEntry {
   id: string;
@@ -578,7 +564,7 @@ export function deriveWorkLogEntries(
     .filter((activity) => !isPlanBoundaryToolActivity(activity));
   const ordered = [
     ...scopedActivities,
-    ...synthesizeCodexSubagentCompletionActivities(scopedActivities),
+    ...synthesizeCodexSubagentLifecycleActivities(scopedActivities),
   ].toSorted(compareActivitiesByOrder);
   if (DEBUG_BACKGROUND_TASKS) {
     const relevantActivities = ordered
@@ -636,20 +622,24 @@ export function deriveWorkLogEntries(
     messages,
     latestTurn,
   });
+  const entriesWithCollabMetadata = enrichVisibleCollabControlEntriesWithTargetMetadata(
+    entriesWithBackgroundSignals,
+  );
   if (DEBUG_BACKGROUND_TASKS) {
-    const relevantFinalEntries = entriesWithBackgroundSignals
+    const relevantFinalEntries = entriesWithCollabMetadata
       .map(summarizeBackgroundRelevantEntry)
       .filter((entry): entry is NonNullable<typeof entry> => entry !== null);
     if (relevantFinalEntries.length > 0) {
       debugBackgroundTasks("entries.final", relevantFinalEntries);
     }
   }
-  return entriesWithBackgroundSignals.map(({ collapseKey: _collapseKey, ...entry }) => entry);
+  return entriesWithCollabMetadata.map(({ collapseKey: _collapseKey, ...entry }) => entry);
 }
 
-function synthesizeCodexSubagentCompletionActivities(
+function synthesizeCodexSubagentLifecycleActivities(
   activities: ReadonlyArray<OrchestrationThreadActivity>,
 ): OrchestrationThreadActivity[] {
+  const startsByChildKey = new Set<string>();
   const completionsByChildKey = new Set<string>();
   const knownChildThreadIds = new Set<string>();
   for (const activity of activities) {
@@ -658,6 +648,14 @@ function synthesizeCodexSubagentCompletionActivities(
     const childProviderThreadId = asTrimmedString(childAttr?.childProviderThreadId);
     if (childProviderThreadId) {
       knownChildThreadIds.add(childProviderThreadId);
+    }
+
+    if (activity.kind === "task.started") {
+      const taskId = asTrimmedString(childAttr?.taskId);
+      if (taskId && childProviderThreadId) {
+        startsByChildKey.add(`${taskId}\u001f${childProviderThreadId}`);
+      }
+      continue;
     }
 
     if (activity.kind !== "task.completed") {
@@ -671,7 +669,11 @@ function synthesizeCodexSubagentCompletionActivities(
 
   const syntheticActivities: OrchestrationThreadActivity[] = [];
   for (const activity of activities) {
-    if (activity.kind !== "tool.updated" && activity.kind !== "tool.completed") {
+    if (
+      activity.kind !== "tool.started" &&
+      activity.kind !== "tool.updated" &&
+      activity.kind !== "tool.completed"
+    ) {
       continue;
     }
     const payload = asRecord(activity.payload);
@@ -696,6 +698,30 @@ function synthesizeCodexSubagentCompletionActivities(
     const agentsStates = asRecord(item?.agentsStates);
 
     for (const childProviderThreadId of receiverThreadIds) {
+      const childKey = `${taskId}\u001f${childProviderThreadId}`;
+      if (toolName === "spawnAgent" && !startsByChildKey.has(childKey)) {
+        startsByChildKey.add(childKey);
+        syntheticActivities.push({
+          id: EventId.makeUnsafe(
+            `${activity.id}:synthetic-subagent-start:${childProviderThreadId}`,
+          ),
+          tone: "info",
+          kind: "task.started",
+          summary: "Task started",
+          payload: {
+            taskId,
+            childThreadAttribution: {
+              taskId,
+              childProviderThreadId,
+              ...(label ? { label } : {}),
+              ...(agentModel ? { agentModel } : {}),
+            },
+          },
+          turnId: activity.turnId,
+          createdAt: activity.createdAt,
+        });
+      }
+
       const completionKey = `${taskId}\u001f${childProviderThreadId}`;
       if (completionsByChildKey.has(completionKey)) {
         continue;
@@ -2563,35 +2589,11 @@ function deriveVisibleBackgroundCommandEntries(
   return standaloneEntries.filter((entry) => isBackgroundCommandVisibleInTray(entry, nowIso));
 }
 
-function enrichSubagentGroupsWithControlMetadata(
+export function enrichSubagentGroupsWithControlMetadata(
   subagentGroups: ReadonlyArray<SubagentGroup>,
   standaloneEntries: ReadonlyArray<WorkLogEntry>,
 ): SubagentGroup[] {
-  const metadataByChildThreadId = new Map<
-    string,
-    {
-      label?: string;
-      agentType?: string;
-      agentModel?: string;
-    }
-  >();
-
-  for (const entry of standaloneEntries) {
-    if (entry.itemType !== "collab_agent_tool_call") {
-      continue;
-    }
-    for (const childThreadId of entry.receiverThreadIds ?? []) {
-      const current = metadataByChildThreadId.get(childThreadId) ?? {};
-      const label = current.label ?? entry.agentDescription ?? entry.agentPrompt ?? entry.detail;
-      const agentType = current.agentType ?? entry.agentType;
-      const agentModel = current.agentModel ?? entry.agentModel;
-      metadataByChildThreadId.set(childThreadId, {
-        ...(label ? { label } : {}),
-        ...(agentType ? { agentType } : {}),
-        ...(agentModel ? { agentModel } : {}),
-      });
-    }
-  }
+  const metadataByChildThreadId = collectChildThreadMetadata(standaloneEntries, subagentGroups);
 
   return subagentGroups.map((group) => {
     const metadata = metadataByChildThreadId.get(group.childProviderThreadId);
@@ -2606,6 +2608,98 @@ function enrichSubagentGroupsWithControlMetadata(
       agentModel: group.agentModel ?? metadata.agentModel,
     };
   });
+}
+
+function enrichVisibleCollabControlEntriesWithTargetMetadata(
+  entries: ReadonlyArray<DerivedWorkLogEntry>,
+): DerivedWorkLogEntry[] {
+  const standaloneEntries = entries.filter((entry) => !entry.childThreadAttribution);
+  const metadataByChildThreadId = collectChildThreadMetadata(standaloneEntries, []);
+
+  return entries.map((entry) => {
+    if (entry.itemType !== "collab_agent_tool_call") {
+      return entry;
+    }
+
+    const [firstReceiverThreadId] = entry.receiverThreadIds ?? [];
+    if (!firstReceiverThreadId) {
+      return entry;
+    }
+
+    const metadata = metadataByChildThreadId.get(firstReceiverThreadId);
+    if (!metadata) {
+      return entry;
+    }
+
+    return {
+      ...entry,
+      agentDescription: entry.agentDescription ?? metadata.label,
+      agentType: entry.agentType ?? metadata.agentType,
+      agentModel: entry.agentModel ?? metadata.agentModel,
+    };
+  });
+}
+
+function collectChildThreadMetadata(
+  standaloneEntries: ReadonlyArray<
+    Pick<
+      WorkLogEntry,
+      | "itemType"
+      | "receiverThreadIds"
+      | "agentDescription"
+      | "agentPrompt"
+      | "detail"
+      | "agentType"
+      | "agentModel"
+    >
+  >,
+  subagentGroups: ReadonlyArray<
+    Pick<SubagentGroup, "childProviderThreadId" | "label" | "agentType" | "agentModel">
+  >,
+): Map<
+  string,
+  {
+    label?: string;
+    agentType?: string;
+    agentModel?: string;
+  }
+> {
+  const metadataByChildThreadId = new Map<
+    string,
+    {
+      label?: string;
+      agentType?: string;
+      agentModel?: string;
+    }
+  >();
+
+  for (const group of subagentGroups) {
+    metadataByChildThreadId.set(group.childProviderThreadId, {
+      ...(group.label ? { label: group.label } : {}),
+      ...(group.agentType ? { agentType: group.agentType } : {}),
+      ...(group.agentModel ? { agentModel: group.agentModel } : {}),
+    });
+  }
+
+  for (const entry of standaloneEntries) {
+    if (entry.itemType !== "collab_agent_tool_call") {
+      continue;
+    }
+
+    for (const childThreadId of entry.receiverThreadIds ?? []) {
+      const current = metadataByChildThreadId.get(childThreadId) ?? {};
+      const label = current.label ?? entry.agentDescription ?? entry.agentPrompt ?? entry.detail;
+      const agentType = current.agentType ?? entry.agentType;
+      const agentModel = current.agentModel ?? entry.agentModel;
+      metadataByChildThreadId.set(childThreadId, {
+        ...(label ? { label } : {}),
+        ...(agentType ? { agentType } : {}),
+        ...(agentModel ? { agentModel } : {}),
+      });
+    }
+  }
+
+  return metadataByChildThreadId;
 }
 
 function compactSubagentGroups(subagentGroups: ReadonlyArray<SubagentGroup>): SubagentGroup[] {

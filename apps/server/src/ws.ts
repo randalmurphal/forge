@@ -37,6 +37,7 @@ import { RpcSerialization, RpcServer } from "effect/unstable/rpc";
 
 import { CheckpointDiffQuery } from "./checkpointing/Services/CheckpointDiffQuery";
 import { AgentDiffQuery } from "./orchestration/Services/AgentDiffQuery";
+import { appendBackgroundDebugRecord, isBackgroundDebugEnabled } from "./backgroundDebug";
 import { ChannelService } from "./channel/Services/ChannelService.ts";
 import { ServerConfig } from "./config";
 import { GitCore } from "./git/Services/GitCore";
@@ -114,6 +115,16 @@ type RateLimitRuntimeEvent = {
     readonly rateLimits: unknown;
   };
 };
+
+const DEBUG_BACKGROUND_TASKS = isBackgroundDebugEnabled();
+
+function logBackgroundWsDebug(label: string, details: unknown): void {
+  if (!DEBUG_BACKGROUND_TASKS) {
+    return;
+  }
+
+  appendBackgroundDebugRecord("ws", label, details);
+}
 
 function paginateEntries<T>(
   entries: ReadonlyArray<T>,
@@ -977,7 +988,35 @@ const WsRpcLayer = WsRpcGroup.toLayer(
       [ORCHESTRATION_WS_METHODS.getSubagentActivityFeed]: (input) =>
         observeRpcEffect(
           ORCHESTRATION_WS_METHODS.getSubagentActivityFeed,
-          projectionSnapshotQuery.getSubagentActivityFeed(input).pipe(
+          Effect.sync(() => {
+            logBackgroundWsDebug("subagent-feed.request", input);
+          }).pipe(
+            Effect.andThen(projectionSnapshotQuery.getSubagentActivityFeed(input)),
+            Effect.tap((result) =>
+              Effect.sync(() => {
+                logBackgroundWsDebug("subagent-feed.success", {
+                  threadId: result.threadId,
+                  childProviderThreadId: result.childProviderThreadId,
+                  activityCount: result.activities.length,
+                  omittedActivityCount: result.omittedActivityCount,
+                });
+              }),
+            ),
+            Effect.tapError((cause) =>
+              Effect.sync(() => {
+                logBackgroundWsDebug("subagent-feed.error", {
+                  input,
+                  error:
+                    cause instanceof Error
+                      ? {
+                          name: cause.name,
+                          message: cause.message,
+                          ...(cause.stack ? { stack: cause.stack } : {}),
+                        }
+                      : String(cause),
+                });
+              }),
+            ),
             Effect.mapError((cause) =>
               Schema.is(OrchestrationGetSubagentActivityFeedError)(cause)
                 ? cause

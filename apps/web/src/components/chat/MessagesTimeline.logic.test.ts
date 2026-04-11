@@ -110,6 +110,14 @@ describe("deriveMessagesTimelineRows", () => {
     const rows = deriveMessagesTimelineRows({
       timelineEntries: [
         makeWorkEntry({
+          id: "spawn-inline",
+          label: "Spawn agent",
+          itemType: "collab_agent_tool_call",
+          agentPrompt: "Verify background state",
+          agentModel: "gpt-5.4-mini",
+          receiverThreadIds: ["child-2"],
+        }),
+        makeWorkEntry({
           id: "task-started",
           label: "Task started",
           activityKind: "task.started",
@@ -142,13 +150,90 @@ describe("deriveMessagesTimelineRows", () => {
       activeTurnStartedAt: null,
     });
 
+    expect(rows).toHaveLength(2);
+    expect(rows[0]?.kind).toBe("work-entry");
+    expect(rows[1]?.kind).toBe("subagent-section");
+    if (rows[1]?.kind === "subagent-section") {
+      expect(rows[1].subagentGroups).toHaveLength(1);
+      expect(rows[1].subagentGroups[0]).toMatchObject({
+        status: "completed",
+        recordedActionCount: 1,
+        entries: [expect.objectContaining({ id: "subagent-work" })],
+        label: "Verify background state",
+        agentModel: "gpt-5.4-mini",
+      });
+    }
+  });
+
+  it("keeps only a bounded tail of completed subagent activity entries inline", () => {
+    const subagentEntries = Array.from({ length: 25 }, (_, index) =>
+      makeWorkEntry({
+        id: `subagent-work-${index + 1}`,
+        label: `Subagent work ${index + 1}`,
+        itemType: "command_execution",
+        command: `echo ${index + 1}`,
+        childThreadAttribution: {
+          taskId: "task-tail",
+          childProviderThreadId: "child-tail",
+        },
+      }),
+    );
+
+    const rows = deriveMessagesTimelineRows({
+      timelineEntries: [
+        makeWorkEntry({
+          id: "task-tail-started",
+          label: "Task started",
+          activityKind: "task.started",
+          detail: "Tail preservation",
+          childThreadAttribution: {
+            taskId: "task-tail",
+            childProviderThreadId: "child-tail",
+          },
+        }),
+        ...subagentEntries,
+        makeWorkEntry({
+          id: "task-tail-completed",
+          label: "Task completed",
+          activityKind: "task.completed",
+          childThreadAttribution: {
+            taskId: "task-tail",
+            childProviderThreadId: "child-tail",
+          },
+        }),
+      ],
+      completionDividerBeforeEntryId: null,
+      isWorking: false,
+      activeTurnStartedAt: null,
+    });
+
     expect(rows).toHaveLength(1);
     expect(rows[0]?.kind).toBe("subagent-section");
     if (rows[0]?.kind === "subagent-section") {
       expect(rows[0].subagentGroups).toHaveLength(1);
-      expect(rows[0].subagentGroups[0]?.status).toBe("completed");
-      expect(rows[0].subagentGroups[0]?.recordedActionCount).toBe(1);
-      expect(rows[0].subagentGroups[0]?.entries).toEqual([]);
+      expect(rows[0].subagentGroups[0]?.recordedActionCount).toBe(25);
+      expect(rows[0].subagentGroups[0]?.entries.map((entry) => entry.id)).toEqual([
+        "subagent-work-6",
+        "subagent-work-7",
+        "subagent-work-8",
+        "subagent-work-9",
+        "subagent-work-10",
+        "subagent-work-11",
+        "subagent-work-12",
+        "subagent-work-13",
+        "subagent-work-14",
+        "subagent-work-15",
+        "subagent-work-16",
+        "subagent-work-17",
+        "subagent-work-18",
+        "subagent-work-19",
+        "subagent-work-20",
+        "subagent-work-21",
+        "subagent-work-22",
+        "subagent-work-23",
+        "subagent-work-24",
+        "subagent-work-25",
+      ]);
     }
   });
 });
@@ -164,6 +249,9 @@ function makeWorkEntry(entry: {
   tone?: "tool" | "info" | "error";
   activityKind?: string;
   detail?: string;
+  agentPrompt?: string;
+  agentModel?: string;
+  receiverThreadIds?: string[];
   childThreadAttribution?: {
     taskId: string;
     childProviderThreadId: string;
@@ -185,6 +273,9 @@ function makeWorkEntry(entry: {
       ...(entry.searchPattern ? { searchPattern: entry.searchPattern } : {}),
       ...(entry.activityKind ? { activityKind: entry.activityKind } : {}),
       ...(entry.detail ? { detail: entry.detail } : {}),
+      ...(entry.agentPrompt ? { agentPrompt: entry.agentPrompt } : {}),
+      ...(entry.agentModel ? { agentModel: entry.agentModel } : {}),
+      ...(entry.receiverThreadIds ? { receiverThreadIds: entry.receiverThreadIds } : {}),
       ...(entry.childThreadAttribution
         ? { childThreadAttribution: entry.childThreadAttribution }
         : {}),

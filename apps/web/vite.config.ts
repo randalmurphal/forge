@@ -4,6 +4,7 @@ import babel from "@rolldown/plugin-babel";
 import { tanstackRouter } from "@tanstack/router-plugin/vite";
 import { defineConfig } from "vite";
 import pkg from "./package.json" with { type: "json" };
+import { isIgnorableDevServerSocketError } from "./src/devServerSocketErrors";
 
 const port = Number(process.env.PORT ?? 5733);
 const sourcemapEnv = process.env.FORGE_WEB_SOURCEMAP?.trim().toLowerCase();
@@ -19,6 +20,28 @@ export default defineConfig({
   plugins: [
     tanstackRouter(),
     react(),
+    {
+      name: "forge-ignore-dev-socket-resets",
+      configureServer(server) {
+        const httpServer = server.httpServer;
+        if (!httpServer) {
+          return;
+        }
+
+        // Electron/Chromium will occasionally tear down a dev-server socket mid-read during
+        // startup or reload. Vite leaves that connection-level error unhandled, which kills the
+        // entire renderer dev server. Swallow only the benign reset/aborted cases and let every
+        // other socket error stay visible.
+        httpServer.on("connection", (socket) => {
+          socket.on("error", (error: Error & { code?: string }) => {
+            if (isIgnorableDevServerSocketError(error)) {
+              return;
+            }
+            console.warn("[vite] unexpected dev socket error", error);
+          });
+        });
+      },
+    },
     babel({
       // We need to be explicit about the parser options after moving to @vitejs/plugin-react v6.0.0
       // This is because the babel plugin only automatically parses typescript and jsx based on relative paths (e.g. "**/*.ts")

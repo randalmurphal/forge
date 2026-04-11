@@ -97,7 +97,7 @@ projectionSnapshotLayer("ProjectionSnapshotQuery", (it) => {
     }),
   );
 
-  it.effect("loads recorded subagent activities on demand without task boundary noise", () =>
+  it.effect("loads recorded subagent activities on demand by correlating child command rows", () =>
     Effect.gen(function* () {
       const snapshotQuery = yield* ProjectionSnapshotQuery;
       const sql = yield* SqlClient.SqlClient;
@@ -123,14 +123,15 @@ projectionSnapshotLayer("ProjectionSnapshotQuery", (it) => {
         )
         VALUES
           (
-            'activity-child-start',
+            'activity-child-terminal',
             'thread-subagent-1',
             'turn-subagent-1',
-            'info',
-            'task.started',
-            'Task started',
+            'tool',
+            'tool.terminal.interaction',
+            'Terminal update',
             ${JSON.stringify({
-              taskId: "task-child-1",
+              itemId: "tool-child-1",
+              processId: "process-child-1",
               childThreadAttribution,
             })},
             1,
@@ -146,11 +147,11 @@ projectionSnapshotLayer("ProjectionSnapshotQuery", (it) => {
             ${JSON.stringify({
               itemType: "command_execution",
               itemId: "tool-child-1",
-              childThreadAttribution,
               data: {
                 item: {
                   id: "tool-child-1",
                   command: ["/bin/zsh", "-lc", "sleep 30"],
+                  processId: "process-child-1",
                   aggregatedOutput: "started\nfinished",
                 },
               },
@@ -202,6 +203,7 @@ projectionSnapshotLayer("ProjectionSnapshotQuery", (it) => {
                 item: {
                   id: "tool-child-1",
                   command: ["/bin/zsh", "-lc", "sleep 30"],
+                  processId: "process-child-1",
                 },
               },
             },

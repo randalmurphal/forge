@@ -1760,7 +1760,7 @@ describe("deriveWorkLogEntries", () => {
   });
 
   it("preserves visible collab control call metadata for inline rendering", () => {
-    const [entry] = deriveWorkLogEntries(
+    const entries = deriveWorkLogEntries(
       [
         makeActivity({
           id: "spawn-inline",
@@ -1783,13 +1783,25 @@ describe("deriveWorkLogEntries", () => {
       undefined,
     );
 
-    expect(entry).toMatchObject({
-      itemType: "collab_agent_tool_call",
-      toolName: "spawnAgent",
-      agentModel: "gpt-5.4-mini",
-      agentPrompt: "Inspect the parser",
-      receiverThreadIds: ["child-thread-inline"],
-    });
+    expect(entries).toContainEqual(
+      expect.objectContaining({
+        id: "spawn-inline",
+        itemType: "collab_agent_tool_call",
+        toolName: "spawnAgent",
+        agentModel: "gpt-5.4-mini",
+        agentPrompt: "Inspect the parser",
+        receiverThreadIds: ["child-thread-inline"],
+      }),
+    );
+    expect(entries).toContainEqual(
+      expect.objectContaining({
+        activityKind: "task.started",
+        childThreadAttribution: expect.objectContaining({
+          taskId: "spawn-inline",
+          childProviderThreadId: "child-thread-inline",
+        }),
+      }),
+    );
   });
 
   it("keeps visible wait_agent start events inline before completion", () => {
@@ -1823,6 +1835,92 @@ describe("deriveWorkLogEntries", () => {
       toolName: "wait",
       itemStatus: "inProgress",
     });
+  });
+
+  it("synthesizes a running subagent start from spawn_agent before child activity arrives", () => {
+    const entries = deriveWorkLogEntries(
+      [
+        makeActivity({
+          id: "spawn-started-inline",
+          kind: "tool.started",
+          summary: "Spawned subagent",
+          payload: {
+            itemType: "collab_agent_tool_call",
+            data: {
+              item: {
+                id: "spawn-task-1",
+                tool: "spawnAgent",
+                prompt: "Inspect the parser",
+                model: "gpt-5.4-mini",
+                receiverThreadIds: ["child-thread-early"],
+              },
+            },
+          },
+        }),
+      ],
+      undefined,
+    );
+
+    const trayState = deriveBackgroundTrayState(entries, "2026-04-10T12:00:01.000Z");
+    expect(trayState.subagentGroups).toHaveLength(1);
+    expect(trayState.subagentGroups[0]).toMatchObject({
+      childProviderThreadId: "child-thread-early",
+      taskId: "spawn-task-1",
+      status: "running",
+      label: "Inspect the parser",
+      agentModel: "gpt-5.4-mini",
+    });
+  });
+
+  it("carries target metadata into wait_agent rows", () => {
+    const entries = deriveWorkLogEntries(
+      [
+        makeActivity({
+          id: "spawn-completed-inline",
+          kind: "tool.completed",
+          summary: "Spawned subagent",
+          payload: {
+            itemType: "collab_agent_tool_call",
+            data: {
+              item: {
+                id: "spawn-task-2",
+                tool: "spawnAgent",
+                prompt: "Audit the parser",
+                model: "gpt-5.4-mini",
+                receiverThreadIds: ["child-thread-wait"],
+              },
+            },
+          },
+        }),
+        makeActivity({
+          id: "wait-started-with-target",
+          kind: "tool.started",
+          summary: "Waited for subagent",
+          payload: {
+            itemType: "collab_agent_tool_call",
+            data: {
+              item: {
+                id: "wait-task-2",
+                tool: "wait",
+                receiverThreadIds: ["child-thread-wait"],
+              },
+            },
+          },
+        }),
+      ],
+      undefined,
+    );
+
+    expect(entries).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          id: "wait-started-with-target",
+          toolName: "wait",
+          agentDescription: "Audit the parser",
+          agentModel: "gpt-5.4-mini",
+        }),
+      ]),
+    );
   });
 
   it("synthesizes a completed Codex subagent lifecycle entry when only the parent collab item completes", () => {
@@ -1960,14 +2058,25 @@ describe("deriveWorkLogEntries", () => {
       undefined,
     );
 
-    expect(entries).toHaveLength(1);
-    expect(entries[0]).toMatchObject({
-      id: "codex-collab-parent-complete-child-pending",
-      itemType: "collab_agent_tool_call",
-      toolName: "spawnAgent",
-      receiverThreadIds: ["child-thread-3"],
-      itemStatus: "completed",
-    });
+    expect(entries).toContainEqual(
+      expect.objectContaining({
+        id: "codex-collab-parent-complete-child-pending",
+        itemType: "collab_agent_tool_call",
+        toolName: "spawnAgent",
+        receiverThreadIds: ["child-thread-3"],
+        itemStatus: "completed",
+      }),
+    );
+    expect(entries).toContainEqual(
+      expect.objectContaining({
+        activityKind: "task.started",
+        itemStatus: "inProgress",
+        childThreadAttribution: expect.objectContaining({
+          taskId: "task-parent-complete-child-pending",
+          childProviderThreadId: "child-thread-3",
+        }),
+      }),
+    );
   });
 
   it("prefers a real attributed task.completed over a synthetic Codex fallback completion", () => {

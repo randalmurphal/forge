@@ -1,5 +1,6 @@
 import { type MessageId } from "@forgetools/contracts";
 import {
+  enrichSubagentGroupsWithControlMetadata,
   type ExpandedInlineDiffState,
   type SubagentGroup,
   type TimelineEntry,
@@ -12,6 +13,7 @@ import { estimateTimelineMessageHeight } from "../timelineHeight";
 export const MAX_VISIBLE_WORK_LOG_ENTRIES = 6;
 export const SUBAGENT_ENTRIES_MAX_HEIGHT_PX = 384;
 const COMMAND_OUTPUT_TIMELINE_MAX_HEIGHT_PX = 320;
+const COMPLETED_SUBAGENT_FALLBACK_ENTRY_LIMIT = 20;
 
 export interface TimelineDurationMessage {
   id: string;
@@ -148,9 +150,9 @@ export function deriveMessagesTimelineRows(input: {
       }
 
       // Completed subagent groups stay in the timeline. Running groups belong to the composer tray.
-      const completedGroups = subagentGroups
+      const completedGroups = enrichSubagentGroupsWithControlMetadata(subagentGroups, standalone)
         .filter((group) => group.status !== "running")
-        .map((group) => Object.assign({}, group, { entries: [] as never[] }));
+        .map(retainCompletedSubagentEntryTail);
 
       if (completedGroups.length > 0) {
         nextRows.push({
@@ -198,6 +200,20 @@ export function deriveMessagesTimelineRows(input: {
   }
 
   return nextRows;
+}
+
+function retainCompletedSubagentEntryTail(group: SubagentGroup): SubagentGroup {
+  // Keep a small local tail so the timeline can still render recent subagent activity if the
+  // lazy RPC feed is unavailable. The full feed stays server-backed to avoid hoarding large
+  // activity lists in long chats.
+  if (group.entries.length <= COMPLETED_SUBAGENT_FALLBACK_ENTRY_LIMIT) {
+    return group;
+  }
+
+  return {
+    ...group,
+    entries: group.entries.slice(-COMPLETED_SUBAGENT_FALLBACK_ENTRY_LIMIT),
+  };
 }
 
 export function estimateMessagesTimelineRowHeight(

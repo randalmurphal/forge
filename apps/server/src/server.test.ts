@@ -1315,6 +1315,27 @@ it.layer(NodeServices.layer)("server router seam", (it) => {
         layers: {
           projectionSnapshotQuery: {
             getSnapshot: () => Effect.succeed(snapshot),
+            getSubagentActivityFeed: () =>
+              Effect.succeed({
+                threadId: ThreadId.makeUnsafe("thread-1"),
+                childProviderThreadId: "child-provider-1",
+                activities: [
+                  {
+                    id: "activity-subagent-1" as never,
+                    kind: "tool.completed",
+                    tone: "tool",
+                    summary: "Ran command",
+                    payload: {
+                      itemType: "command_execution",
+                      itemId: "tool-command-1",
+                    },
+                    turnId: TurnId.makeUnsafe("turn-1"),
+                    createdAt: now,
+                    sequence: 5,
+                  },
+                ],
+                omittedActivityCount: 0,
+              }),
           },
           orchestrationEngine: {
             dispatch: () => Effect.succeed({ sequence: 7 }),
@@ -1377,6 +1398,35 @@ it.layer(NodeServices.layer)("server router seam", (it) => {
         ),
       );
       assert.equal(fullDiffResult.diff, "full-diff");
+
+      const subagentFeedResult = yield* Effect.scoped(
+        withWsRpcClient(wsUrl, (client) =>
+          client[ORCHESTRATION_WS_METHODS.getSubagentActivityFeed]({
+            threadId: ThreadId.makeUnsafe("thread-1"),
+            childProviderThreadId: "child-provider-1",
+          }),
+        ),
+      );
+      assert.deepEqual(subagentFeedResult, {
+        threadId: ThreadId.makeUnsafe("thread-1"),
+        childProviderThreadId: "child-provider-1",
+        activities: [
+          {
+            id: "activity-subagent-1" as never,
+            kind: "tool.completed",
+            tone: "tool",
+            summary: "Ran command",
+            payload: {
+              itemType: "command_execution",
+              itemId: "tool-command-1",
+            },
+            turnId: TurnId.makeUnsafe("turn-1"),
+            createdAt: now,
+            sequence: 5,
+          },
+        ],
+        omittedActivityCount: 0,
+      });
 
       const replayResult = yield* Effect.scoped(
         withWsRpcClient(wsUrl, (client) =>

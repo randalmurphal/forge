@@ -1,8 +1,21 @@
 import { ThreadId } from "@forgetools/contracts";
 import { useQuery } from "@tanstack/react-query";
-import { memo, useCallback, useLayoutEffect, useMemo, useRef, type ReactNode } from "react";
+import {
+  memo,
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  type ReactNode,
+} from "react";
 
 import { ensureNativeApi } from "~/nativeApi";
+import {
+  DEBUG_BACKGROUND_TASKS,
+  debugBackgroundTasks,
+  describeBackgroundDebugError,
+} from "~/backgroundDebug";
 import { type WorkLogEntry, deriveWorkLogEntries } from "../../session-logic";
 
 export const LazySubagentEntries = memo(function LazySubagentEntries(props: {
@@ -25,6 +38,9 @@ export const LazySubagentEntries = memo(function LazySubagentEntries(props: {
       props.childProviderThreadId,
     ],
     enabled: shouldFetch,
+    // A failing feed fetch currently means either the websocket path or the renderer state is wrong.
+    // Retrying just thrashes the panel and obscures the first useful error.
+    retry: false,
     staleTime: shouldPoll ? 0 : Number.POSITIVE_INFINITY,
     refetchInterval: shouldPoll ? 1_000 : false,
     queryFn: async () =>
@@ -33,6 +49,50 @@ export const LazySubagentEntries = memo(function LazySubagentEntries(props: {
         childProviderThreadId: props.childProviderThreadId,
       }),
   });
+
+  useEffect(() => {
+    if (!DEBUG_BACKGROUND_TASKS || !shouldFetch) {
+      return;
+    }
+
+    debugBackgroundTasks("subagent.feed.request", {
+      threadId: props.threadId,
+      childProviderThreadId: props.childProviderThreadId,
+      isRunning: props.isRunning,
+      fallbackEntryCount: props.fallbackEntries?.length ?? 0,
+    });
+  }, [
+    props.childProviderThreadId,
+    props.fallbackEntries?.length,
+    props.isRunning,
+    props.threadId,
+    shouldFetch,
+  ]);
+
+  useEffect(() => {
+    if (!DEBUG_BACKGROUND_TASKS || !feedQuery.data) {
+      return;
+    }
+
+    debugBackgroundTasks("subagent.feed.success", {
+      threadId: props.threadId,
+      childProviderThreadId: props.childProviderThreadId,
+      activityCount: feedQuery.data.activities.length,
+      omittedActivityCount: feedQuery.data.omittedActivityCount,
+    });
+  }, [feedQuery.data, props.childProviderThreadId, props.threadId]);
+
+  useEffect(() => {
+    if (!DEBUG_BACKGROUND_TASKS || !feedQuery.isError) {
+      return;
+    }
+
+    debugBackgroundTasks("subagent.feed.error", {
+      threadId: props.threadId,
+      childProviderThreadId: props.childProviderThreadId,
+      error: describeBackgroundDebugError(feedQuery.error),
+    });
+  }, [feedQuery.error, feedQuery.isError, props.childProviderThreadId, props.threadId]);
 
   const remoteEntries = useMemo(() => {
     if (!feedQuery.data) {
@@ -43,6 +103,7 @@ export const LazySubagentEntries = memo(function LazySubagentEntries(props: {
     );
   }, [feedQuery.data]);
   const entries = remoteEntries ?? [...(props.fallbackEntries ?? [])];
+  const fallbackStateLabel = props.isRunning ? "No recorded actions yet" : "No recorded actions";
 
   if (!props.expanded) {
     return null;
@@ -67,15 +128,20 @@ export const LazySubagentEntries = memo(function LazySubagentEntries(props: {
 
   if (feedQuery.isError) {
     return (
-      <div className="px-3 py-2 text-[10px] italic text-destructive/70">
-        Failed to load recorded actions
+      <div className="px-3 py-2 text-[10px] italic text-muted-foreground/45">
+        {fallbackStateLabel}
+        {DEBUG_BACKGROUND_TASKS && feedQuery.error ? (
+          <div className="mt-1 font-mono not-italic text-[9px] text-destructive/65">
+            {feedQuery.error instanceof Error ? feedQuery.error.message : String(feedQuery.error)}
+          </div>
+        ) : null}
       </div>
     );
   }
 
   return (
     <div className="px-3 py-2 text-[10px] italic text-muted-foreground/45">
-      {props.isRunning ? "No recorded actions yet" : "No recorded actions"}
+      {fallbackStateLabel}
     </div>
   );
 });

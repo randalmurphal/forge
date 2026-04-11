@@ -143,9 +143,15 @@ export function resolveSubagentActivityFeedForActivities(
     readonly childProviderThreadId: string;
   },
 ): SubagentActivityFeedResolution {
-  const relevantActivities = activities.filter((activity) =>
-    isRecordedSubagentActivity(activity, input.childProviderThreadId),
-  );
+  const attributionHints = collectSubagentAttributionHints(activities);
+  const relevantActivities = activities.flatMap((activity) => {
+    const resolved = resolveRecordedSubagentActivity(
+      activity,
+      input.childProviderThreadId,
+      attributionHints,
+    );
+    return resolved ? [resolved] : [];
+  });
   const omittedActivityCount = Math.max(
     0,
     relevantActivities.length - MAX_TRANSPORT_SUBAGENT_ACTIVITIES,
@@ -177,22 +183,166 @@ function buildTailResolution(input: {
   };
 }
 
-function isRecordedSubagentActivity(
+function resolveRecordedSubagentActivity(
   activity: OrchestrationThreadActivity,
   childProviderThreadId: string,
-): boolean {
+  attributionHints: {
+    readonly byItemId: ReadonlyMap<
+      string,
+      {
+        taskId?: string;
+        childProviderThreadId: string;
+        label?: string;
+        agentType?: string;
+        agentModel?: string;
+      }
+    >;
+    readonly byProcessId: ReadonlyMap<
+      string,
+      {
+        taskId?: string;
+        childProviderThreadId: string;
+        label?: string;
+        agentType?: string;
+        agentModel?: string;
+      }
+    >;
+  },
+): OrchestrationThreadActivity | null {
   if (
     activity.kind === "task.started" ||
     activity.kind === "task.completed" ||
     activity.kind === "tool.output.delta" ||
     activity.kind === "tool.terminal.interaction"
   ) {
-    return false;
+    return null;
   }
 
   const payload = asRecord(activity.payload);
-  const childAttr = asRecord(payload?.childThreadAttribution);
-  return asTrimmedString(childAttr?.childProviderThreadId) === childProviderThreadId;
+  const directChildAttr = normalizeChildThreadAttribution(
+    asRecord(payload?.childThreadAttribution),
+  );
+  if (directChildAttr?.childProviderThreadId === childProviderThreadId) {
+    return activity;
+  }
+
+  if (asTrimmedString(payload?.itemType) !== "command_execution") {
+    return null;
+  }
+
+  const toolCallId = extractToolCallId(payload);
+  const processId = extractProcessId(payload);
+  // Some child command rows arrive without direct childThreadAttribution, but sibling activities
+  // from the same tool call or process do carry it. Rehydrate that attribution here so the lazy
+  // subagent activity feed can still recover the child's recorded actions without keeping the full
+  // activity history in the browser.
+  const correlatedChildAttr =
+    (toolCallId ? attributionHints.byItemId.get(toolCallId) : undefined) ??
+    (processId ? attributionHints.byProcessId.get(processId) : undefined);
+  if (!correlatedChildAttr || correlatedChildAttr.childProviderThreadId !== childProviderThreadId) {
+    return null;
+  }
+
+  return {
+    ...activity,
+    payload: {
+      ...payload,
+      childThreadAttribution: {
+        ...(payload?.childThreadAttribution && typeof payload.childThreadAttribution === "object"
+          ? (payload.childThreadAttribution as Record<string, unknown>)
+          : {}),
+        ...correlatedChildAttr,
+      },
+    },
+  };
+}
+
+function collectSubagentAttributionHints(activities: ReadonlyArray<OrchestrationThreadActivity>): {
+  readonly byItemId: ReadonlyMap<
+    string,
+    {
+      taskId?: string;
+      childProviderThreadId: string;
+      label?: string;
+      agentType?: string;
+      agentModel?: string;
+    }
+  >;
+  readonly byProcessId: ReadonlyMap<
+    string,
+    {
+      taskId?: string;
+      childProviderThreadId: string;
+      label?: string;
+      agentType?: string;
+      agentModel?: string;
+    }
+  >;
+} {
+  const byItemId = new Map<
+    string,
+    {
+      taskId?: string;
+      childProviderThreadId: string;
+      label?: string;
+      agentType?: string;
+      agentModel?: string;
+    }
+  >();
+  const byProcessId = new Map<
+    string,
+    {
+      taskId?: string;
+      childProviderThreadId: string;
+      label?: string;
+      agentType?: string;
+      agentModel?: string;
+    }
+  >();
+
+  for (const activity of activities) {
+    const payload = asRecord(activity.payload);
+    const childAttr = normalizeChildThreadAttribution(asRecord(payload?.childThreadAttribution));
+    if (!childAttr) {
+      continue;
+    }
+
+    const toolCallId = extractToolCallId(payload);
+    const processId = extractProcessId(payload);
+    if (toolCallId && !byItemId.has(toolCallId)) {
+      byItemId.set(toolCallId, childAttr);
+    }
+    if (processId && !byProcessId.has(processId)) {
+      byProcessId.set(processId, childAttr);
+    }
+  }
+
+  return { byItemId, byProcessId };
+}
+
+function normalizeChildThreadAttribution(value: Record<string, unknown> | null): {
+  taskId?: string;
+  childProviderThreadId: string;
+  label?: string;
+  agentType?: string;
+  agentModel?: string;
+} | null {
+  const childProviderThreadId = asTrimmedString(value?.childProviderThreadId);
+  if (!childProviderThreadId) {
+    return null;
+  }
+
+  const taskId = asTrimmedString(value?.taskId) ?? undefined;
+  const label = asTrimmedString(value?.label) ?? undefined;
+  const agentType = asTrimmedString(value?.agentType) ?? undefined;
+  const agentModel = asTrimmedString(value?.agentModel) ?? undefined;
+  return {
+    childProviderThreadId,
+    ...(taskId ? { taskId } : {}),
+    ...(label ? { label } : {}),
+    ...(agentType ? { agentType } : {}),
+    ...(agentModel ? { agentModel } : {}),
+  };
 }
 
 function sanitizeCommandOutputDeltaPayload(
@@ -310,6 +460,17 @@ function extractToolCallId(payload: Record<string, unknown> | null): string | nu
     asTrimmedString(item?.itemId),
     asTrimmedString(itemResult?.tool_use_id),
     asTrimmedString(itemResult?.toolUseId),
+  ];
+  return candidates.find((candidate) => candidate !== null) ?? null;
+}
+
+function extractProcessId(payload: Record<string, unknown> | null): string | null {
+  const data = asRecord(payload?.data);
+  const item = asRecord(data?.item);
+  const candidates = [
+    asTrimmedString(payload?.processId),
+    asTrimmedString(data?.processId),
+    asTrimmedString(item?.processId),
   ];
   return candidates.find((candidate) => candidate !== null) ?? null;
 }
