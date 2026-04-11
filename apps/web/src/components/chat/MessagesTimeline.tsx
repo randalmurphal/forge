@@ -155,12 +155,12 @@ export const MessagesTimeline = memo(function MessagesTimeline({
   const timelineRootRef = useRef<HTMLDivElement | null>(null);
   const [timelineWidthPx, setTimelineWidthPx] = useState<number | null>(null);
   const [expandedInlineDiff, setExpandedInlineDiff] = useState<ExpandedInlineDiffState>(null);
-  const [expandedSubagentTaskId, setExpandedSubagentTaskId] = useState<string | null>(null);
+  const [expandedSubagentGroupId, setExpandedSubagentGroupId] = useState<string | null>(null);
   const [expandedCommandOutputIds, setExpandedCommandOutputIds] = useState<Record<string, boolean>>(
     () => deriveInitialExpandedCommandOutputIds(timelineEntries),
   );
-  const onToggleSubagent = useCallback((taskId: string) => {
-    setExpandedSubagentTaskId((prev) => (prev === taskId ? null : taskId));
+  const onToggleSubagent = useCallback((groupId: string) => {
+    setExpandedSubagentGroupId((prev) => (prev === groupId ? null : groupId));
   }, []);
   const onToggleCommandOutput = useCallback((entryId: string) => {
     setExpandedCommandOutputIds((current) => ({
@@ -298,7 +298,7 @@ export const MessagesTimeline = memo(function MessagesTimeline({
         expandedWorkGroups,
         expandedInlineDiff,
         expandedCommandOutputIds,
-        expandedSubagentTaskId,
+        expandedSubagentGroupId,
         timelineWidthPx,
         turnDiffSummaryByAssistantMessageId,
       });
@@ -313,7 +313,7 @@ export const MessagesTimeline = memo(function MessagesTimeline({
   }, [
     expandedInlineDiff,
     expandedCommandOutputIds,
-    expandedSubagentTaskId,
+    expandedSubagentGroupId,
     expandedWorkGroups,
     rowVirtualizer,
     timelineWidthPx,
@@ -432,7 +432,7 @@ export const MessagesTimeline = memo(function MessagesTimeline({
       {row.kind === "subagent-section" && (
         <SubagentSection
           groups={row.subagentGroups}
-          expandedTaskId={expandedSubagentTaskId}
+          expandedGroupId={expandedSubagentGroupId}
           onToggle={onToggleSubagent}
           renderWorkEntry={renderSubagentWorkEntry}
           nowIso={nowIso}
@@ -442,7 +442,7 @@ export const MessagesTimeline = memo(function MessagesTimeline({
       {row.kind === "running-subagents" && (
         <SubagentSection
           groups={row.subagentGroups}
-          expandedTaskId={expandedSubagentTaskId}
+          expandedGroupId={expandedSubagentGroupId}
           onToggle={onToggleSubagent}
           renderWorkEntry={renderSubagentWorkEntry}
           nowIso={nowIso}

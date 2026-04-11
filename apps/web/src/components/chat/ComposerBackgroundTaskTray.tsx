@@ -77,7 +77,7 @@ export const ComposerBackgroundTaskTray = memo(function ComposerBackgroundTaskTr
     () =>
       [
         ...props.state.subagentGroups.map((group) => ({
-          id: `subagent:${group.taskId}`,
+          id: `subagent:${group.groupId}`,
           kind: "subagent" as const,
           createdAt: group.startedAt,
           group,

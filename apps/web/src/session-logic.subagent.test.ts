@@ -48,7 +48,7 @@ describe("groupSubagentEntries", () => {
     expect(result.subagentGroups).toEqual([]);
   });
 
-  it("groups entries with the same taskId into one SubagentGroup", () => {
+  it("groups entries with the same child thread into one SubagentGroup", () => {
     const entries = [
       makeEntry({
         id: "w1",
@@ -70,31 +70,32 @@ describe("groupSubagentEntries", () => {
 
     expect(result.standalone).toEqual([]);
     expect(result.subagentGroups).toHaveLength(1);
+    expect(result.subagentGroups[0]!.groupId).toBe("thread-1");
     expect(result.subagentGroups[0]!.taskId).toBe("task-abc");
     expect(result.subagentGroups[0]!.entries).toHaveLength(2);
     expect(result.subagentGroups[0]!.entries.map((e) => e.id)).toEqual(["w1", "w2"]);
   });
 
-  it("creates separate groups for different taskIds", () => {
+  it("creates separate groups for different child threads", () => {
     const entries = [
       makeEntry({
         id: "a1",
         childThreadAttribution: {
-          taskId: "task-x",
+          taskId: "task-shared",
           childProviderThreadId: "t1",
         },
       }),
       makeEntry({
         id: "b1",
         childThreadAttribution: {
-          taskId: "task-y",
+          taskId: "task-shared",
           childProviderThreadId: "t2",
         },
       }),
       makeEntry({
         id: "a2",
         childThreadAttribution: {
-          taskId: "task-x",
+          taskId: "task-shared",
           childProviderThreadId: "t1",
         },
       }),
@@ -104,8 +105,8 @@ describe("groupSubagentEntries", () => {
 
     expect(result.subagentGroups).toHaveLength(2);
 
-    const groupX = result.subagentGroups.find((g) => g.taskId === "task-x")!;
-    const groupY = result.subagentGroups.find((g) => g.taskId === "task-y")!;
+    const groupX = result.subagentGroups.find((g) => g.groupId === "t1")!;
+    const groupY = result.subagentGroups.find((g) => g.groupId === "t2")!;
 
     expect(groupX.entries.map((e) => e.id)).toEqual(["a1", "a2"]);
     expect(groupY.entries.map((e) => e.id)).toEqual(["b1"]);
@@ -368,14 +369,14 @@ describe("groupSubagentEntries", () => {
         id: "first-b",
         childThreadAttribution: {
           taskId: "task-b",
-          childProviderThreadId: "t",
+          childProviderThreadId: "thread-b",
         },
       }),
       makeEntry({
         id: "first-a",
         childThreadAttribution: {
           taskId: "task-a",
-          childProviderThreadId: "t",
+          childProviderThreadId: "thread-a",
         },
       }),
     ];
@@ -383,6 +384,53 @@ describe("groupSubagentEntries", () => {
     const result = groupSubagentEntries(entries);
 
     expect(result.subagentGroups.map((g) => g.taskId)).toEqual(["task-b", "task-a"]);
+  });
+
+  it("merges mixed-attribution lifecycle rows for the same child thread", () => {
+    const entries = [
+      makeEntry({
+        id: "started-with-fallback-task-id",
+        activityKind: "task.started",
+        createdAt: "2026-04-01T00:00:00.000Z",
+        childThreadAttribution: {
+          taskId: "child-thread-1",
+          childProviderThreadId: "child-thread-1",
+        },
+      }),
+      makeEntry({
+        id: "progress-with-real-task-id",
+        activityKind: "task.progress",
+        createdAt: "2026-04-01T00:00:02.000Z",
+        childThreadAttribution: {
+          taskId: "call-collab-1",
+          childProviderThreadId: "child-thread-1",
+          label: "Inspect session logic",
+        },
+      }),
+      makeEntry({
+        id: "completed-with-real-task-id",
+        activityKind: "task.completed",
+        createdAt: "2026-04-01T00:00:05.000Z",
+        itemStatus: "completed",
+        childThreadAttribution: {
+          taskId: "call-collab-1",
+          childProviderThreadId: "child-thread-1",
+          label: "Inspect session logic",
+        },
+      }),
+    ];
+
+    const result = groupSubagentEntries(entries);
+
+    expect(result.subagentGroups).toHaveLength(1);
+    expect(result.subagentGroups[0]).toMatchObject({
+      groupId: "child-thread-1",
+      taskId: "call-collab-1",
+      childProviderThreadId: "child-thread-1",
+      label: "Inspect session logic",
+      status: "completed",
+      completedAt: "2026-04-01T00:00:05.000Z",
+    });
   });
 
   it("uses first entry's createdAt as startedAt when no task.started exists", () => {

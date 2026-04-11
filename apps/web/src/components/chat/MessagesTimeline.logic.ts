@@ -225,7 +225,7 @@ export function estimateMessagesTimelineRowHeight(
     expandedWorkGroups?: Readonly<Record<string, boolean>>;
     expandedInlineDiff?: ExpandedInlineDiffState;
     expandedCommandOutputIds?: Readonly<Record<string, boolean>>;
-    expandedSubagentTaskId?: string | null;
+    expandedSubagentGroupId?: string | null;
     turnDiffSummaryByAssistantMessageId?: ReadonlyMap<MessageId, TurnDiffSummary>;
   },
 ): number {
@@ -314,7 +314,7 @@ function estimateSubagentSectionHeight(
     | Extract<MessagesTimelineRow, { kind: "subagent-section" }>
     | Extract<MessagesTimelineRow, { kind: "running-subagents" }>,
   input: {
-    expandedSubagentTaskId?: string | null;
+    expandedSubagentGroupId?: string | null;
     expandedInlineDiff?: ExpandedInlineDiffState;
     expandedCommandOutputIds?: Readonly<Record<string, boolean>>;
   },
@@ -322,7 +322,7 @@ function estimateSubagentSectionHeight(
   // Section header
   let totalHeight = 36;
   for (const group of row.subagentGroups) {
-    const isExpanded = input.expandedSubagentTaskId === group.taskId;
+    const isExpanded = input.expandedSubagentGroupId === group.groupId;
     // Collapsed row height for each group
     totalHeight += 44;
     if (isExpanded) {

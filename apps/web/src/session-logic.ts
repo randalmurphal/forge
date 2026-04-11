@@ -87,7 +87,7 @@ interface DerivedWorkLogEntry extends WorkLogEntry {
 export interface BackgroundTrayState {
   subagentGroups: SubagentGroup[];
   commandEntries: WorkLogEntry[];
-  hiddenSubagentTaskIds: string[];
+  hiddenSubagentGroupIds: string[];
   hiddenWorkEntryIds: string[];
   hasRunningTasks: boolean;
   defaultCollapsed: boolean;
@@ -748,7 +748,9 @@ function applyStreamedCommandOutput(
 }
 
 export interface SubagentGroup {
+  groupId: string;
   taskId: string;
+  childProviderThreadId: string;
   label: string;
   entries: WorkLogEntry[];
   status: "running" | "completed" | "failed";
@@ -763,9 +765,12 @@ export function groupSubagentEntries(workEntries: ReadonlyArray<WorkLogEntry>): 
   subagentGroups: SubagentGroup[];
 } {
   const standalone: WorkLogEntry[] = [];
-  const groupsByTaskId = new Map<
+  const groupsByChildThreadId = new Map<
     string,
     {
+      groupId: string;
+      taskId: string;
+      childProviderThreadId: string;
       entries: WorkLogEntry[];
       label: string | undefined;
       startedAt: string;
@@ -777,23 +782,33 @@ export function groupSubagentEntries(workEntries: ReadonlyArray<WorkLogEntry>): 
   >();
 
   for (const entry of workEntries) {
-    const taskId = entry.childThreadAttribution?.taskId;
-    if (!taskId) {
+    const childThreadAttribution = entry.childThreadAttribution;
+    if (!childThreadAttribution) {
       standalone.push(entry);
       continue;
     }
+    const groupId = childThreadAttribution.childProviderThreadId;
+    const taskId = childThreadAttribution.taskId;
 
-    let group = groupsByTaskId.get(taskId);
+    let group = groupsByChildThreadId.get(groupId);
     if (!group) {
       group = {
+        groupId,
+        taskId,
+        childProviderThreadId: childThreadAttribution.childProviderThreadId,
         entries: [],
-        label: entry.childThreadAttribution?.label ?? undefined,
+        label: childThreadAttribution.label ?? undefined,
         startedAt: entry.startedAt ?? entry.createdAt,
         status: "running",
-        agentType: entry.childThreadAttribution?.agentType,
-        agentModel: entry.childThreadAttribution?.agentModel,
+        agentType: childThreadAttribution.agentType,
+        agentModel: childThreadAttribution.agentModel,
       };
-      groupsByTaskId.set(taskId, group);
+      groupsByChildThreadId.set(groupId, group);
+    } else if (
+      group.taskId === group.childProviderThreadId &&
+      taskId !== group.childProviderThreadId
+    ) {
+      group.taskId = taskId;
     }
 
     // Update group metadata from task lifecycle entries
@@ -818,16 +833,24 @@ export function groupSubagentEntries(workEntries: ReadonlyArray<WorkLogEntry>): 
     }
 
     // Update label from attribution if available
-    if (entry.childThreadAttribution?.label && !group.label) {
-      group.label = entry.childThreadAttribution.label;
+    if (childThreadAttribution.label && !group.label) {
+      group.label = childThreadAttribution.label;
+    }
+    if (!group.agentType && childThreadAttribution.agentType) {
+      group.agentType = childThreadAttribution.agentType;
+    }
+    if (!group.agentModel && childThreadAttribution.agentModel) {
+      group.agentModel = childThreadAttribution.agentModel;
     }
   }
 
   const subagentGroups: SubagentGroup[] = [];
-  for (const [taskId, group] of groupsByTaskId) {
+  for (const group of groupsByChildThreadId.values()) {
     subagentGroups.push({
-      taskId,
-      label: group.label ?? `Subagent ${taskId.slice(0, 8)}`,
+      groupId: group.groupId,
+      taskId: group.taskId,
+      childProviderThreadId: group.childProviderThreadId,
+      label: group.label ?? `Subagent ${group.taskId.slice(0, 8)}`,
       entries: group.entries,
       status: group.status,
       startedAt: group.startedAt,
@@ -1820,7 +1843,7 @@ export function deriveBackgroundTrayState(
   return {
     subagentGroups: visibleSubagentGroups,
     commandEntries: visibleCommandEntries,
-    hiddenSubagentTaskIds: visibleSubagentGroups.map((group) => group.taskId),
+    hiddenSubagentGroupIds: visibleSubagentGroups.map((group) => group.groupId),
     hiddenWorkEntryIds: visibleCommandEntries.map((entry) => entry.id),
     hasRunningTasks:
       visibleSubagentGroups.some((group) => group.status === "running") ||
@@ -1833,15 +1856,15 @@ export function filterTrayOwnedWorkEntries(
   workEntries: ReadonlyArray<WorkLogEntry>,
   backgroundTrayState: BackgroundTrayState,
 ): WorkLogEntry[] {
-  const hiddenSubagentTaskIds = new Set(backgroundTrayState.hiddenSubagentTaskIds);
+  const hiddenSubagentGroupIds = new Set(backgroundTrayState.hiddenSubagentGroupIds);
   const hiddenWorkEntryIds = new Set(backgroundTrayState.hiddenWorkEntryIds);
 
   return workEntries.filter((entry) => {
     if (hiddenWorkEntryIds.has(entry.id)) {
       return false;
     }
-    const taskId = entry.childThreadAttribution?.taskId;
-    if (taskId && hiddenSubagentTaskIds.has(taskId)) {
+    const groupId = entry.childThreadAttribution?.childProviderThreadId;
+    if (groupId && hiddenSubagentGroupIds.has(groupId)) {
       return false;
     }
     return true;

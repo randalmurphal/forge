@@ -83,7 +83,7 @@ function makeState(overrides: Partial<BackgroundTrayState> = {}): BackgroundTray
   return {
     subagentGroups: [],
     commandEntries: [],
-    hiddenSubagentTaskIds: [],
+    hiddenSubagentGroupIds: [],
     hiddenWorkEntryIds: [],
     hasRunningTasks: false,
     defaultCollapsed: false,

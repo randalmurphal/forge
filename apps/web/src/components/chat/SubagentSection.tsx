@@ -12,15 +12,15 @@ import { SUBAGENT_ENTRIES_MAX_HEIGHT_PX } from "./MessagesTimeline.logic";
 
 interface SubagentSectionProps {
   groups: ReadonlyArray<SubagentGroup>;
-  expandedTaskId: string | null;
-  onToggle: (taskId: string) => void;
+  expandedGroupId: string | null;
+  onToggle: (groupId: string) => void;
   renderWorkEntry: (entry: WorkLogEntry) => ReactNode;
   nowIso: string;
   sectionLabel?: string | undefined;
 }
 
 export const SubagentSection = memo(function SubagentSection(props: SubagentSectionProps) {
-  const { groups, expandedTaskId, onToggle, renderWorkEntry, nowIso, sectionLabel } = props;
+  const { groups, expandedGroupId, onToggle, renderWorkEntry, nowIso, sectionLabel } = props;
 
   return (
     <div className="rounded-xl border border-border/45 bg-card/25 px-2 py-1.5">
@@ -32,9 +32,9 @@ export const SubagentSection = memo(function SubagentSection(props: SubagentSect
       <div className="space-y-1">
         {groups.map((group) => (
           <SubagentGroupRow
-            key={group.taskId}
+            key={group.groupId}
             group={group}
-            isExpanded={expandedTaskId === group.taskId}
+            isExpanded={expandedGroupId === group.groupId}
             onToggle={onToggle}
             renderWorkEntry={renderWorkEntry}
             nowIso={nowIso}
@@ -48,15 +48,15 @@ export const SubagentSection = memo(function SubagentSection(props: SubagentSect
 const SubagentGroupRow = memo(function SubagentGroupRow(props: {
   group: SubagentGroup;
   isExpanded: boolean;
-  onToggle: (taskId: string) => void;
+  onToggle: (groupId: string) => void;
   renderWorkEntry: (entry: WorkLogEntry) => ReactNode;
   nowIso: string;
 }) {
   const { group, isExpanded, onToggle, renderWorkEntry, nowIso } = props;
 
   const handleToggle = useCallback(() => {
-    onToggle(group.taskId);
-  }, [onToggle, group.taskId]);
+    onToggle(group.groupId);
+  }, [group.groupId, onToggle]);
 
   const StatusIcon = statusIcon(group.status);
   const statusColor = statusColorClass(group.status);

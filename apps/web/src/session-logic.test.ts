@@ -1988,6 +1988,69 @@ describe("deriveWorkLogEntries", () => {
       "foreground-command",
     ]);
   });
+
+  it("hides mixed-attribution subagent rows by child thread identity instead of raw task id", () => {
+    const workEntries = deriveWorkLogEntries(
+      [
+        makeActivity({
+          id: "child-started-before-parent-mapping",
+          createdAt: "2026-04-10T12:00:00.000Z",
+          kind: "task.started",
+          summary: "Task started",
+          payload: {
+            taskId: "child-thread-1",
+            childThreadAttribution: {
+              taskId: "child-thread-1",
+              childProviderThreadId: "child-thread-1",
+            },
+          },
+        }),
+        makeActivity({
+          id: "child-progress-after-parent-mapping",
+          createdAt: "2026-04-10T12:00:01.000Z",
+          kind: "task.progress",
+          summary: "Reasoning update",
+          payload: {
+            taskId: "call-collab-1",
+            childThreadAttribution: {
+              taskId: "call-collab-1",
+              childProviderThreadId: "child-thread-1",
+              label: "Inspect tray behavior",
+            },
+          },
+        }),
+        makeActivity({
+          id: "foreground-command",
+          createdAt: "2026-04-10T12:00:02.000Z",
+          kind: "tool.completed",
+          summary: "Ran command",
+          payload: {
+            itemType: "command_execution",
+            status: "completed",
+            data: {
+              input: {
+                command: "bun run lint",
+              },
+            },
+          },
+        }),
+      ],
+      undefined,
+    );
+
+    const backgroundTrayState = deriveBackgroundTrayState(workEntries, "2026-04-10T12:00:03.000Z");
+
+    expect(backgroundTrayState.subagentGroups).toHaveLength(1);
+    expect(backgroundTrayState.subagentGroups[0]).toMatchObject({
+      groupId: "child-thread-1",
+      taskId: "call-collab-1",
+      label: "Inspect tray behavior",
+      status: "running",
+    });
+
+    const visibleEntries = filterTrayOwnedWorkEntries(workEntries, backgroundTrayState);
+    expect(visibleEntries.map((entry) => entry.id)).toEqual(["foreground-command"]);
+  });
 });
 
 describe("deriveTimelineEntries", () => {
