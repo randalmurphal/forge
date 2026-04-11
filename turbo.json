@@ -22,7 +22,7 @@
     "FORGE_OTLP_METRICS_URL",
     "FORGE_OTLP_EXPORT_INTERVAL_MS",
     "FORGE_OTLP_SERVICE_NAME",
-    "FORGE_DEBUG_BACKGROUND_TASKS"
+    "FORGE_DEBUG"
   ],
   "tasks": {
     "build": {

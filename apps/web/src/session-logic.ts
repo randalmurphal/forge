@@ -14,7 +14,7 @@ import {
   type TurnId,
 } from "@forgetools/contracts";
 
-import { DEBUG_BACKGROUND_TASKS, debugBackgroundTasks } from "./backgroundDebug";
+import { debugLog, isWebDebugEnabled } from "./debug";
 import type {
   ChatMessage,
   ProposedPlan,
@@ -26,6 +26,8 @@ import type {
 } from "./types";
 
 export type ProviderPickerKind = ProviderKind | "cursor";
+
+const DEBUG_BACKGROUND_TASKS = isWebDebugEnabled("background");
 
 export const PROVIDER_OPTIONS: Array<{
   value: ProviderPickerKind;
@@ -571,7 +573,12 @@ export function deriveWorkLogEntries(
       .map(summarizeBackgroundRelevantActivity)
       .filter((entry): entry is NonNullable<typeof entry> => entry !== null);
     if (relevantActivities.length > 0) {
-      debugBackgroundTasks("activities", relevantActivities);
+      debugLog({
+        topic: "background",
+        source: "session-logic",
+        label: "activities",
+        details: relevantActivities,
+      });
     }
   }
   const streamedCommandOutputByToolCallId = collectStreamedCommandOutputByToolCallId(ordered);
@@ -600,7 +607,12 @@ export function deriveWorkLogEntries(
       .map(summarizeBackgroundRelevantEntry)
       .filter((entry): entry is NonNullable<typeof entry> => entry !== null);
     if (relevantEntries.length > 0) {
-      debugBackgroundTasks("entries.preCollapse", relevantEntries);
+      debugLog({
+        topic: "background",
+        source: "session-logic",
+        label: "entries.preCollapse",
+        details: relevantEntries,
+      });
     }
   }
   const collapsedEntries = collapseDerivedWorkLogEntries(entries);
@@ -609,7 +621,12 @@ export function deriveWorkLogEntries(
       .map(summarizeBackgroundRelevantEntry)
       .filter((entry): entry is NonNullable<typeof entry> => entry !== null);
     if (relevantCollapsedEntries.length > 0) {
-      debugBackgroundTasks("entries.collapsed", relevantCollapsedEntries);
+      debugLog({
+        topic: "background",
+        source: "session-logic",
+        label: "entries.collapsed",
+        details: relevantCollapsedEntries,
+      });
     }
   }
   const entriesWithOutput = applyStreamedCommandOutput(
@@ -630,7 +647,12 @@ export function deriveWorkLogEntries(
       .map(summarizeBackgroundRelevantEntry)
       .filter((entry): entry is NonNullable<typeof entry> => entry !== null);
     if (relevantFinalEntries.length > 0) {
-      debugBackgroundTasks("entries.final", relevantFinalEntries);
+      debugLog({
+        topic: "background",
+        source: "session-logic",
+        label: "entries.final",
+        details: relevantFinalEntries,
+      });
     }
   }
   return entriesWithCollabMetadata.map(({ collapseKey: _collapseKey, ...entry }) => entry);
@@ -899,7 +921,12 @@ function applyBackgroundCommandSignals(
       )
       .filter((entry): entry is NonNullable<typeof entry> => entry !== null);
     if (commandDecisions.length > 0) {
-      debugBackgroundTasks("command.classification", commandDecisions);
+      debugLog({
+        topic: "background",
+        source: "session-logic",
+        label: "command.classification",
+        details: commandDecisions,
+      });
     }
   }
 
@@ -2507,25 +2534,30 @@ export function deriveBackgroundTrayState(
     const trayCommandDecisions = standalone
       .map((entry) => summarizeBackgroundTrayCommandDecision(entry, nowIso))
       .filter((entry): entry is NonNullable<typeof entry> => entry !== null);
-    debugBackgroundTasks("tray", {
-      nowIso,
-      commandDecisions: trayCommandDecisions,
-      visibleCommands: visibleCommandEntries.map((entry) => ({
-        id: entry.id,
-        toolCallId: entry.toolCallId,
-        processId: entry.processId,
-        command: entry.command,
-        itemStatus: entry.itemStatus,
-        isBackgroundCommand: entry.isBackgroundCommand === true,
-        commandSource: entry.commandSource ?? null,
-        status: deriveBackgroundCommandStatus(entry),
-      })),
-      visibleSubagents: visibleSubagentGroups.map((group) => ({
-        groupId: group.groupId,
-        taskId: group.taskId,
-        status: group.status,
-        label: group.label,
-      })),
+    debugLog({
+      topic: "background",
+      source: "session-logic",
+      label: "tray",
+      details: {
+        nowIso,
+        commandDecisions: trayCommandDecisions,
+        visibleCommands: visibleCommandEntries.map((entry) => ({
+          id: entry.id,
+          toolCallId: entry.toolCallId,
+          processId: entry.processId,
+          command: entry.command,
+          itemStatus: entry.itemStatus,
+          isBackgroundCommand: entry.isBackgroundCommand === true,
+          commandSource: entry.commandSource ?? null,
+          status: deriveBackgroundCommandStatus(entry),
+        })),
+        visibleSubagents: visibleSubagentGroups.map((group) => ({
+          groupId: group.groupId,
+          taskId: group.taskId,
+          status: group.status,
+          label: group.label,
+        })),
+      },
     });
   }
 

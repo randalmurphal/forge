@@ -16,6 +16,10 @@
       "types": "./src/logging.ts",
       "import": "./src/logging.ts"
     },
+    "./debug": {
+      "types": "./src/debug.ts",
+      "import": "./src/debug.ts"
+    },
     "./daemon": {
       "types": "./src/daemon.ts",
       "import": "./src/daemon.ts"

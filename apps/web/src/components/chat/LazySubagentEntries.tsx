@@ -11,12 +11,10 @@ import {
 } from "react";
 
 import { ensureNativeApi } from "~/nativeApi";
-import {
-  DEBUG_BACKGROUND_TASKS,
-  debugBackgroundTasks,
-  describeBackgroundDebugError,
-} from "~/backgroundDebug";
+import { debugLog, describeWebDebugError, isWebDebugEnabled } from "~/debug";
 import { type WorkLogEntry, deriveWorkLogEntries } from "../../session-logic";
+
+const DEBUG_BACKGROUND_TASKS = isWebDebugEnabled("background");
 
 export const LazySubagentEntries = memo(function LazySubagentEntries(props: {
   threadId: string | null;
@@ -55,11 +53,16 @@ export const LazySubagentEntries = memo(function LazySubagentEntries(props: {
       return;
     }
 
-    debugBackgroundTasks("subagent.feed.request", {
-      threadId: props.threadId,
-      childProviderThreadId: props.childProviderThreadId,
-      isRunning: props.isRunning,
-      fallbackEntryCount: props.fallbackEntries?.length ?? 0,
+    debugLog({
+      topic: "background",
+      source: "LazySubagentEntries",
+      label: "subagent.feed.request",
+      details: {
+        threadId: props.threadId,
+        childProviderThreadId: props.childProviderThreadId,
+        isRunning: props.isRunning,
+        fallbackEntryCount: props.fallbackEntries?.length ?? 0,
+      },
     });
   }, [
     props.childProviderThreadId,
@@ -74,11 +77,16 @@ export const LazySubagentEntries = memo(function LazySubagentEntries(props: {
       return;
     }
 
-    debugBackgroundTasks("subagent.feed.success", {
-      threadId: props.threadId,
-      childProviderThreadId: props.childProviderThreadId,
-      activityCount: feedQuery.data.activities.length,
-      omittedActivityCount: feedQuery.data.omittedActivityCount,
+    debugLog({
+      topic: "background",
+      source: "LazySubagentEntries",
+      label: "subagent.feed.success",
+      details: {
+        threadId: props.threadId,
+        childProviderThreadId: props.childProviderThreadId,
+        activityCount: feedQuery.data.activities.length,
+        omittedActivityCount: feedQuery.data.omittedActivityCount,
+      },
     });
   }, [feedQuery.data, props.childProviderThreadId, props.threadId]);
 
@@ -87,10 +95,15 @@ export const LazySubagentEntries = memo(function LazySubagentEntries(props: {
       return;
     }
 
-    debugBackgroundTasks("subagent.feed.error", {
-      threadId: props.threadId,
-      childProviderThreadId: props.childProviderThreadId,
-      error: describeBackgroundDebugError(feedQuery.error),
+    debugLog({
+      topic: "background",
+      source: "LazySubagentEntries",
+      label: "subagent.feed.error",
+      details: {
+        threadId: props.threadId,
+        childProviderThreadId: props.childProviderThreadId,
+        error: describeWebDebugError(feedQuery.error),
+      },
     });
   }, [feedQuery.error, feedQuery.isError, props.childProviderThreadId, props.threadId]);
 

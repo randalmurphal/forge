@@ -1,4 +1,4 @@
-const INITIAL_DAEMON_DEBUG_ENV_KEYS = ["FORGE_DEBUG_BACKGROUND_TASKS"] as const;
+const INITIAL_DAEMON_DEBUG_ENV_KEYS = ["FORGE_DEBUG"] as const;
 
 export const resolveDaemonProcessEnv = (
   env: NodeJS.ProcessEnv,

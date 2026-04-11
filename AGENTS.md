@@ -5,6 +5,12 @@
 - All of `bun fmt`, `bun lint`, and `bun typecheck` must pass before considering tasks completed.
 - NEVER run `bun test`. Always use `bun run test` (runs Vitest).
 
+## Debugging
+
+- Use `FORGE_DEBUG` for ad hoc debug logging. It accepts comma/space-separated topics such as `background`, or `all` to enable every topic.
+- Do not add one-off debug env vars for new work. Extend the shared debug topic system instead so web, server, and desktop all stay aligned.
+- When useful, prefer structured debug records over loose `console.log` calls. Server-side debug output is mirrored to stderr and persisted to the debug NDJSON log.
+
 ## Project Snapshot
 
 T3 Code is a minimal web GUI for using coding agents like Codex and Claude.

@@ -37,7 +37,7 @@ import { RpcSerialization, RpcServer } from "effect/unstable/rpc";
 
 import { CheckpointDiffQuery } from "./checkpointing/Services/CheckpointDiffQuery";
 import { AgentDiffQuery } from "./orchestration/Services/AgentDiffQuery";
-import { appendBackgroundDebugRecord, isBackgroundDebugEnabled } from "./backgroundDebug";
+import { appendServerDebugRecord, describeServerDebugError, isServerDebugEnabled } from "./debug";
 import { ChannelService } from "./channel/Services/ChannelService.ts";
 import { ServerConfig } from "./config";
 import { GitCore } from "./git/Services/GitCore";
@@ -116,14 +116,19 @@ type RateLimitRuntimeEvent = {
   };
 };
 
-const DEBUG_BACKGROUND_TASKS = isBackgroundDebugEnabled();
+const DEBUG_BACKGROUND_TASKS = isServerDebugEnabled("background");
 
 function logBackgroundWsDebug(label: string, details: unknown): void {
   if (!DEBUG_BACKGROUND_TASKS) {
     return;
   }
 
-  appendBackgroundDebugRecord("ws", label, details);
+  appendServerDebugRecord({
+    topic: "background",
+    source: "ws",
+    label,
+    details,
+  });
 }
 
 function paginateEntries<T>(
@@ -1006,14 +1011,7 @@ const WsRpcLayer = WsRpcGroup.toLayer(
               Effect.sync(() => {
                 logBackgroundWsDebug("subagent-feed.error", {
                   input,
-                  error:
-                    cause instanceof Error
-                      ? {
-                          name: cause.name,
-                          message: cause.message,
-                          ...(cause.stack ? { stack: cause.stack } : {}),
-                        }
-                      : String(cause),
+                  error: describeServerDebugError(cause),
                 });
               }),
             ),

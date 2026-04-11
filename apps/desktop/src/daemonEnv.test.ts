@@ -26,12 +26,12 @@ describe("resolveDaemonProcessEnv", () => {
         },
         {
           PATH: "/usr/bin",
-          FORGE_DEBUG_BACKGROUND_TASKS: "1",
+          FORGE_DEBUG: "all",
         },
       ),
     ).toEqual({
       PATH: "/usr/bin",
-      FORGE_DEBUG_BACKGROUND_TASKS: "1",
+      FORGE_DEBUG: "all",
     });
   });
 });

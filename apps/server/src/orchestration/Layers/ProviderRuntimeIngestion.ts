@@ -47,10 +47,10 @@ import {
   type CapturedShellMutationOperation,
 } from "../commandInlineDiffArtifacts.ts";
 import {
-  appendBackgroundDebugRecord,
-  isBackgroundDebugEnabled,
-  resolveBackgroundDebugLogPath,
-} from "../../backgroundDebug.ts";
+  appendServerDebugRecord,
+  isServerDebugEnabled,
+  resolveServerDebugLogPath,
+} from "../../debug.ts";
 
 const providerTurnKey = (threadId: ThreadId, turnId: TurnId) => `${threadId}:${turnId}`;
 const providerCommandId = (event: ProviderRuntimeEvent, tag: string): CommandId =>
@@ -64,11 +64,16 @@ const BUFFERED_PROPOSED_PLAN_BY_ID_CACHE_CAPACITY = 10_000;
 const BUFFERED_PROPOSED_PLAN_BY_ID_TTL = Duration.minutes(120);
 const MAX_BUFFERED_ASSISTANT_CHARS = 24_000;
 const STRICT_PROVIDER_LIFECYCLE_GUARD = process.env.FORGE_STRICT_PROVIDER_LIFECYCLE_GUARD !== "0";
-const DEBUG_BACKGROUND_TASKS = isBackgroundDebugEnabled();
+const DEBUG_BACKGROUND_TASKS = isServerDebugEnabled("background");
 
-appendBackgroundDebugRecord("ingestion", "startup", {
-  debugEnabled: DEBUG_BACKGROUND_TASKS,
-  logPath: resolveBackgroundDebugLogPath(),
+appendServerDebugRecord({
+  topic: "background",
+  source: "ingestion",
+  label: "startup",
+  details: {
+    debugEnabled: DEBUG_BACKGROUND_TASKS,
+    logPath: resolveServerDebugLogPath(),
+  },
 });
 
 type TurnStartRequestedDomainEvent = Extract<
@@ -120,7 +125,12 @@ function logBackgroundIngestionDebug(label: string, details: Record<string, unkn
     return;
   }
 
-  appendBackgroundDebugRecord("ingestion", label, details);
+  appendServerDebugRecord({
+    topic: "background",
+    source: "ingestion",
+    label,
+    details,
+  });
 }
 
 function normalizeProposedPlanMarkdown(planMarkdown: string | undefined): string | undefined {

@@ -39,21 +39,26 @@ import {
 } from "../../codexAppServerManager.ts";
 import { resolveAttachmentPath } from "../../attachmentStore.ts";
 import {
-  appendBackgroundDebugRecord,
-  isBackgroundDebugEnabled,
-  resolveBackgroundDebugLogPath,
-} from "../../backgroundDebug.ts";
+  appendServerDebugRecord,
+  isServerDebugEnabled,
+  resolveServerDebugLogPath,
+} from "../../debug.ts";
 import { ServerConfig } from "../../config.ts";
 import { getPendingMcpServer } from "../pendingMcpServers.ts";
 import { ServerSettingsService } from "../../serverSettings.ts";
 import { type EventNdjsonLogger, makeEventNdjsonLogger } from "./EventNdjsonLogger.ts";
 
 const PROVIDER = "codex" as const;
-const DEBUG_BACKGROUND_TASKS = isBackgroundDebugEnabled();
+const DEBUG_BACKGROUND_TASKS = isServerDebugEnabled("background");
 
-appendBackgroundDebugRecord("adapter", "startup", {
-  debugEnabled: DEBUG_BACKGROUND_TASKS,
-  logPath: resolveBackgroundDebugLogPath(),
+appendServerDebugRecord({
+  topic: "background",
+  source: "adapter",
+  label: "startup",
+  details: {
+    debugEnabled: DEBUG_BACKGROUND_TASKS,
+    logPath: resolveServerDebugLogPath(),
+  },
 });
 
 const registerDynamicToolsNoop: CodexAdapterShape["registerDynamicTools"] = () => {
@@ -129,7 +134,12 @@ function logBackgroundAdapterDebug(label: string, details: Record<string, unknow
     return;
   }
 
-  appendBackgroundDebugRecord("adapter", label, details);
+  appendServerDebugRecord({
+    topic: "background",
+    source: "adapter",
+    label,
+    details,
+  });
 }
 
 function asNumber(value: unknown): number | undefined {

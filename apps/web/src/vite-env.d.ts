@@ -4,7 +4,7 @@ import type { NativeApi, DesktopBridge } from "@forgetools/contracts";
 
 interface ImportMetaEnv {
   readonly APP_VERSION: string;
-  readonly FORGE_DEBUG_BACKGROUND_TASKS: string;
+  readonly FORGE_DEBUG: string;
 }
 
 interface ImportMeta {
