@@ -11,6 +11,7 @@ import { estimateTimelineMessageHeight } from "../timelineHeight";
 
 export const MAX_VISIBLE_WORK_LOG_ENTRIES = 6;
 export const SUBAGENT_ENTRIES_MAX_HEIGHT_PX = 384;
+const COMMAND_OUTPUT_TIMELINE_MAX_HEIGHT_PX = 320;
 
 export interface TimelineDurationMessage {
   id: string;
@@ -223,6 +224,7 @@ export function estimateMessagesTimelineRowHeight(
     timelineWidthPx: number | null;
     expandedWorkGroups?: Readonly<Record<string, boolean>>;
     expandedInlineDiff?: ExpandedInlineDiffState;
+    expandedCommandOutputIds?: Readonly<Record<string, boolean>>;
     expandedSubagentTaskId?: string | null;
     turnDiffSummaryByAssistantMessageId?: ReadonlyMap<MessageId, TurnDiffSummary>;
   },
@@ -262,6 +264,7 @@ function estimateWorkGroupRowHeight(
   input: {
     expandedWorkGroups?: Readonly<Record<string, boolean>>;
     expandedInlineDiff?: ExpandedInlineDiffState;
+    expandedCommandOutputIds?: Readonly<Record<string, boolean>>;
   },
 ): number {
   const isExpanded = input.expandedWorkGroups?.[row.id] ?? false;
@@ -274,6 +277,7 @@ function estimateWorkGroupRowHeight(
   // Card chrome, optional header, and one compact work-entry row per visible entry.
   let estimate = 28 + (showHeader ? 26 : 0) + visibleEntries * 32;
   for (const entry of row.groupedEntries.slice(-visibleEntries)) {
+    estimate += estimateExpandedCommandOutputHeight(entry, input.expandedCommandOutputIds);
     if (!entry.inlineDiff) continue;
     estimate +=
       input.expandedInlineDiff?.scope === "tool" && input.expandedInlineDiff.id === entry.id
@@ -289,9 +293,11 @@ function estimateStandaloneWorkRowHeight(
   row: Extract<MessagesTimelineRow, { kind: "work-entry" }>,
   input: {
     expandedInlineDiff?: ExpandedInlineDiffState;
+    expandedCommandOutputIds?: Readonly<Record<string, boolean>>;
   },
 ): number {
   let estimate = 58;
+  estimate += estimateExpandedCommandOutputHeight(row.entry, input.expandedCommandOutputIds);
   if (row.entry.inlineDiff) {
     estimate +=
       input.expandedInlineDiff?.scope === "tool" && input.expandedInlineDiff.id === row.entry.id
@@ -310,6 +316,7 @@ function estimateSubagentSectionHeight(
   input: {
     expandedSubagentTaskId?: string | null;
     expandedInlineDiff?: ExpandedInlineDiffState;
+    expandedCommandOutputIds?: Readonly<Record<string, boolean>>;
   },
 ): number {
   // Section header
@@ -322,6 +329,10 @@ function estimateSubagentSectionHeight(
       // Calculate uncapped content height
       let expandedContentHeight = group.entries.length * 32;
       for (const entry of group.entries) {
+        expandedContentHeight += estimateExpandedCommandOutputHeight(
+          entry,
+          input.expandedCommandOutputIds,
+        );
         if (entry.inlineDiff) {
           expandedContentHeight +=
             input.expandedInlineDiff?.scope === "tool" && input.expandedInlineDiff.id === entry.id
@@ -345,6 +356,22 @@ function estimateTimelineProposedPlanHeight(proposedPlan: ProposedPlan): number 
 
 function estimateCollapsedDiffCardHeight(): number {
   return 52;
+}
+
+function estimateExpandedCommandOutputHeight(
+  entry: WorkLogEntry,
+  expandedCommandOutputIds: Readonly<Record<string, boolean>> | undefined,
+): number {
+  if (
+    entry.itemType !== "command_execution" ||
+    !entry.output ||
+    !(expandedCommandOutputIds?.[entry.id] ?? false)
+  ) {
+    return 0;
+  }
+  const lineCount = entry.output.split("\n").length;
+  const estimatedBodyHeight = Math.min(COMMAND_OUTPUT_TIMELINE_MAX_HEIGHT_PX, lineCount * 17 + 20);
+  return 16 + 30 + estimatedBodyHeight;
 }
 
 function shouldRenderStandaloneWorkEntry(entry: WorkLogEntry): boolean {

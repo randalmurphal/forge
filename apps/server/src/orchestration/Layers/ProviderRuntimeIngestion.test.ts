@@ -4098,6 +4098,80 @@ describe("ProviderRuntimeIngestion", () => {
     });
   });
 
+  it("projects command output deltas into tool.output.delta thread activities", async () => {
+    const harness = await createHarness();
+    const now = new Date().toISOString();
+
+    harness.emit({
+      type: "content.delta",
+      eventId: asEventId("evt-command-output-delta"),
+      provider: "codex",
+      createdAt: now,
+      threadId: asThreadId("thread-1"),
+      turnId: asTurnId("turn-command-output"),
+      itemId: asItemId("item-command-output"),
+      payload: {
+        streamKind: "command_output",
+        delta: "[watch] build started\n",
+      },
+    });
+
+    const thread = await waitForThread(harness.engine, (entry) =>
+      entry.activities.some(
+        (activity: ProviderRuntimeTestActivity) => activity.kind === "tool.output.delta",
+      ),
+    );
+
+    const activity = thread.activities.find(
+      (entry: ProviderRuntimeTestActivity) => entry.id === "evt-command-output-delta",
+    );
+    expect(activity?.kind).toBe("tool.output.delta");
+    expect(activityPayload(activity)).toMatchObject({
+      itemId: "item-command-output",
+      streamKind: "command_output",
+      delta: "[watch] build started\n",
+    });
+  });
+
+  it("keeps child-thread attribution on projected command output deltas", async () => {
+    const harness = await createHarness();
+    const now = new Date().toISOString();
+
+    harness.emit({
+      type: "content.delta",
+      eventId: asEventId("evt-command-output-child"),
+      provider: "codex",
+      createdAt: now,
+      threadId: asThreadId("thread-1"),
+      turnId: asTurnId("turn-command-output-child"),
+      itemId: asItemId("item-command-output-child"),
+      payload: {
+        streamKind: "command_output",
+        delta: "build complete\n",
+        childThreadAttribution: {
+          taskId: "task-child-1",
+          childProviderThreadId: "provider-thread-1",
+          label: "Background build",
+        },
+      },
+    });
+
+    const thread = await waitForThread(harness.engine, (entry) =>
+      entry.activities.some(
+        (activity: ProviderRuntimeTestActivity) => activity.id === "evt-command-output-child",
+      ),
+    );
+
+    const activity = thread.activities.find(
+      (entry: ProviderRuntimeTestActivity) => entry.id === "evt-command-output-child",
+    );
+    expect(activityPayload(activity)?.childThreadAttribution).toEqual({
+      taskId: "task-child-1",
+      childProviderThreadId: "provider-thread-1",
+      label: "Background build",
+    });
+  });
+
   it("continues processing runtime events after a single event handler failure", async () => {
     const harness = await createHarness();
     const now = new Date().toISOString();

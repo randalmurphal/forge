@@ -1,5 +1,6 @@
 import {
   ApprovalRequestId,
+  EventId,
   isToolLifecycleItemType,
   type OrchestrationLatestTurn,
   type OrchestrationToolInlineDiff,
@@ -38,6 +39,7 @@ export const PROVIDER_OPTIONS: Array<{
 export interface WorkLogEntry {
   id: string;
   createdAt: string;
+  startedAt?: string | undefined;
   turnId?: TurnId | undefined;
   toolCallId?: string | undefined;
   label: string;
@@ -50,9 +52,12 @@ export interface WorkLogEntry {
   requestKind?: PendingApproval["requestKind"];
   inlineDiff?: ToolInlineDiffSummary | undefined;
   toolName?: string | undefined;
+  itemStatus?: "inProgress" | "completed" | "failed" | "declined" | undefined;
   exitCode?: number | undefined;
   durationMs?: number | undefined;
   output?: string | undefined;
+  outputSource?: "final" | "stream" | undefined;
+  isBackgroundCommand?: boolean | undefined;
   mcpServer?: string | undefined;
   mcpTool?: string | undefined;
   searchPattern?: string | undefined;
@@ -77,6 +82,15 @@ export interface WorkLogEntry {
 interface DerivedWorkLogEntry extends WorkLogEntry {
   activityKind: OrchestrationThreadActivity["kind"];
   collapseKey?: string;
+}
+
+export interface BackgroundTrayState {
+  subagentGroups: SubagentGroup[];
+  commandEntries: WorkLogEntry[];
+  hiddenSubagentTaskIds: string[];
+  hiddenWorkEntryIds: string[];
+  hasRunningTasks: boolean;
+  defaultCollapsed: boolean;
 }
 
 export type InlineDiffScope = "tool" | "turn";
@@ -516,6 +530,7 @@ export function hasActionableProposedPlan(
 }
 
 export type WorkLogScope = "latest-turn" | "all-turns";
+const BACKGROUND_TASK_RETENTION_MS = 5_000;
 
 export function deriveWorkLogEntries(
   activities: ReadonlyArray<OrchestrationThreadActivity>,
@@ -529,12 +544,22 @@ export function deriveWorkLogEntries(
 ): WorkLogEntry[] {
   const scope = typeof input === "object" && input !== null ? input.scope : "all-turns";
   const latestTurnId = typeof input === "object" && input !== null ? input.latestTurnId : input;
-  const ordered = [...activities].toSorted(compareActivitiesByOrder);
-  const entries = ordered
+  const scopedActivities = [...activities]
+    .toSorted(compareActivitiesByOrder)
     .filter((activity) =>
       scope === "latest-turn" && latestTurnId ? activity.turnId === latestTurnId : true,
     )
+    .filter((activity) => activity.kind !== "context-window.updated")
+    .filter((activity) => activity.summary !== "Checkpoint captured")
+    .filter((activity) => !isPlanBoundaryToolActivity(activity));
+  const ordered = [
+    ...scopedActivities,
+    ...synthesizeCodexSubagentCompletionActivities(scopedActivities),
+  ].toSorted(compareActivitiesByOrder);
+  const streamedCommandOutputByToolCallId = collectStreamedCommandOutputByToolCallId(ordered);
+  const entries = ordered
     .filter((activity) => activity.kind !== "tool.started")
+    .filter((activity) => activity.kind !== "tool.output.delta")
     .filter((activity) => {
       // Filter out tool.updated/tool.completed for collab_agent_tool_call without
       // childThreadAttribution. These are the tool-use envelope events for top-level
@@ -569,13 +594,157 @@ export function deriveWorkLogEntries(
       }
       return true;
     })
-    .filter((activity) => activity.kind !== "context-window.updated")
-    .filter((activity) => activity.summary !== "Checkpoint captured")
-    .filter((activity) => !isPlanBoundaryToolActivity(activity))
     .map(toDerivedWorkLogEntry);
-  return collapseDerivedWorkLogEntries(entries).map(
+  const collapsedEntries = collapseDerivedWorkLogEntries(entries);
+  return applyStreamedCommandOutput(collapsedEntries, streamedCommandOutputByToolCallId).map(
     ({ collapseKey: _collapseKey, ...entry }) => entry,
   );
+}
+
+function synthesizeCodexSubagentCompletionActivities(
+  activities: ReadonlyArray<OrchestrationThreadActivity>,
+): OrchestrationThreadActivity[] {
+  const completionsByChildKey = new Set<string>();
+  for (const activity of activities) {
+    if (activity.kind !== "task.completed") {
+      continue;
+    }
+    const payload = asRecord(activity.payload);
+    const childAttr = asRecord(payload?.childThreadAttribution);
+    const taskId = asTrimmedString(childAttr?.taskId);
+    const childProviderThreadId = asTrimmedString(childAttr?.childProviderThreadId);
+    if (taskId && childProviderThreadId) {
+      completionsByChildKey.add(`${taskId}\u001f${childProviderThreadId}`);
+    }
+  }
+
+  const syntheticActivities: OrchestrationThreadActivity[] = [];
+  for (const activity of activities) {
+    if (activity.kind !== "tool.updated" && activity.kind !== "tool.completed") {
+      continue;
+    }
+    const payload = asRecord(activity.payload);
+    if (payload?.itemType !== "collab_agent_tool_call" || payload.childThreadAttribution) {
+      continue;
+    }
+
+    const data = asRecord(payload.data);
+    const item = asRecord(data?.item);
+    const taskId = asTrimmedString(item?.id);
+    const receiverThreadIds =
+      asArray(item?.receiverThreadIds)
+        ?.map((value) => asTrimmedString(value))
+        .filter((value): value is string => value !== null) ?? [];
+    if (!taskId || receiverThreadIds.length === 0) {
+      continue;
+    }
+
+    const label = asTrimmedString(item?.prompt)?.slice(0, 120);
+    const agentModel = asTrimmedString(item?.model) ?? undefined;
+    const agentsStates = asRecord(item?.agentsStates);
+    const itemStatus = asTrimmedString(item?.status);
+
+    for (const childProviderThreadId of receiverThreadIds) {
+      const completionKey = `${taskId}\u001f${childProviderThreadId}`;
+      if (completionsByChildKey.has(completionKey)) {
+        continue;
+      }
+
+      const agentState = asRecord(agentsStates?.[childProviderThreadId]);
+      const normalizedStatus = normalizeCodexCollabAgentTerminalStatus(
+        asTrimmedString(agentState?.status) ?? itemStatus,
+      );
+      if (normalizedStatus === "running") {
+        continue;
+      }
+
+      completionsByChildKey.add(completionKey);
+      syntheticActivities.push({
+        id: EventId.makeUnsafe(
+          `${activity.id}:synthetic-subagent-complete:${childProviderThreadId}`,
+        ),
+        tone: normalizedStatus === "failed" ? "error" : "info",
+        kind: "task.completed",
+        summary: normalizedStatus === "failed" ? "Task failed" : "Task completed",
+        payload: {
+          taskId,
+          status: normalizedStatus === "failed" ? "failed" : "completed",
+          childThreadAttribution: {
+            taskId,
+            childProviderThreadId,
+            ...(label ? { label } : {}),
+            ...(agentModel ? { agentModel } : {}),
+          },
+        },
+        turnId: activity.turnId,
+        createdAt: activity.createdAt,
+      });
+    }
+  }
+
+  return syntheticActivities;
+}
+
+function normalizeCodexCollabAgentTerminalStatus(
+  status: string | null,
+): "running" | "completed" | "failed" {
+  switch (status) {
+    case "completed":
+    case "shutdown":
+      return "completed";
+    case "failed":
+    case "errored":
+    case "interrupted":
+    case "notFound":
+      return "failed";
+    default:
+      return "running";
+  }
+}
+
+function collectStreamedCommandOutputByToolCallId(
+  activities: ReadonlyArray<OrchestrationThreadActivity>,
+): Map<string, string> {
+  const outputByToolCallId = new Map<string, string>();
+  for (const activity of activities) {
+    if (activity.kind !== "tool.output.delta") {
+      continue;
+    }
+    const payload = asRecord(activity.payload);
+    const streamKind = asTrimmedString(payload?.streamKind);
+    const toolCallId = asTrimmedString(payload?.itemId);
+    const delta = typeof payload?.delta === "string" ? payload.delta : null;
+    if (streamKind !== "command_output" || !toolCallId || !delta || delta.length === 0) {
+      continue;
+    }
+    outputByToolCallId.set(toolCallId, `${outputByToolCallId.get(toolCallId) ?? ""}${delta}`);
+  }
+  return outputByToolCallId;
+}
+
+function applyStreamedCommandOutput(
+  entries: ReadonlyArray<DerivedWorkLogEntry>,
+  streamedCommandOutputByToolCallId: ReadonlyMap<string, string>,
+): DerivedWorkLogEntry[] {
+  return entries.map((entry) => {
+    if (
+      entry.itemType !== "command_execution" ||
+      entry.output ||
+      entry.toolCallId === undefined ||
+      entry.toolCallId.length === 0
+    ) {
+      return entry;
+    }
+    const streamedOutput = streamedCommandOutputByToolCallId.get(entry.toolCallId);
+    if (!streamedOutput || streamedOutput.trim().length === 0) {
+      return entry;
+    }
+    return {
+      ...entry,
+      output: streamedOutput,
+      outputSource: "stream",
+    };
+  });
 }
 
 export interface SubagentGroup {
@@ -619,7 +788,7 @@ export function groupSubagentEntries(workEntries: ReadonlyArray<WorkLogEntry>): 
       group = {
         entries: [],
         label: entry.childThreadAttribution?.label ?? undefined,
-        startedAt: entry.createdAt,
+        startedAt: entry.startedAt ?? entry.createdAt,
         status: "running",
         agentType: entry.childThreadAttribution?.agentType,
         agentModel: entry.childThreadAttribution?.agentModel,
@@ -629,13 +798,20 @@ export function groupSubagentEntries(workEntries: ReadonlyArray<WorkLogEntry>): 
 
     // Update group metadata from task lifecycle entries
     if (entry.activityKind === "task.started") {
-      group.startedAt = entry.createdAt;
+      group.startedAt = entry.startedAt ?? entry.createdAt;
       if (!group.label && entry.detail) {
         group.label = entry.detail;
       }
     } else if (entry.activityKind === "task.completed") {
-      group.completedAt = entry.createdAt;
-      group.status = entry.tone === "error" ? "failed" : "completed";
+      group.completedAt =
+        group.completedAt && group.completedAt > entry.createdAt
+          ? group.completedAt
+          : entry.createdAt;
+      const completedStatus =
+        entry.itemStatus === "failed" || entry.itemStatus === "declined" || entry.tone === "error"
+          ? "failed"
+          : "completed";
+      group.status = group.status === "failed" ? "failed" : completedStatus;
     } else {
       // Regular work entry for this subagent
       group.entries.push(entry);
@@ -681,6 +857,8 @@ interface ToolEnrichments {
   exitCode?: number;
   durationMs?: number;
   output?: string;
+  outputSource?: "final";
+  isBackgroundCommand?: boolean;
   mcpServer?: string;
   mcpTool?: string;
   searchPattern?: string;
@@ -717,6 +895,7 @@ function extractToolEnrichments(payload: Record<string, unknown> | null): ToolEn
   // Codex shape: { item: { type, command, output, exitCode, durationMs, ... }, ... }
   const codexItem = asRecord(data.item);
   const codexResult = asRecord(codexItem?.result);
+  const codexInput = asRecord(codexItem?.input);
 
   // Exit code
   const exitCodeCandidates = [
@@ -741,19 +920,48 @@ function extractToolEnrichments(payload: Record<string, unknown> | null): ToolEn
     }
   }
 
-  // Output (truncated for display)
-  const outputCandidates = [
-    codexItem?.aggregatedOutput,
-    claudeResult?.stdout,
-    claudeResult?.output,
-    codexResult?.output,
+  const finalOutputCandidates = [
+    normalizeCommandOutputValue(codexItem?.aggregatedOutput),
+    normalizeCommandOutputValue(claudeResult?.output),
+    joinCommandOutputParts(
+      normalizeCommandOutputValue(claudeResult?.stdout),
+      normalizeCommandOutputValue(claudeResult?.stderr),
+    ),
+    normalizeCommandOutputValue(claudeResult?.stdout),
+    normalizeCommandOutputValue(codexResult?.output),
   ];
-  for (const candidate of outputCandidates) {
-    if (typeof candidate === "string" && candidate.trim().length > 0) {
-      const trimmed = candidate.trim();
-      enrichments.output = trimmed.length > 500 ? `${trimmed.slice(0, 497)}...` : trimmed;
-      break;
+  for (const candidate of finalOutputCandidates) {
+    if (!candidate) {
+      continue;
     }
+    enrichments.output = candidate;
+    enrichments.outputSource = "final";
+    break;
+  }
+
+  if (enrichments.exitCode === undefined) {
+    const outputWithExitCodeCandidates = [
+      typeof claudeResult?.output === "string" ? claudeResult.output : null,
+      typeof codexResult?.output === "string" ? codexResult.output : null,
+    ];
+    for (const candidate of outputWithExitCodeCandidates) {
+      if (!candidate) {
+        continue;
+      }
+      const detailInfo = stripTrailingExitCode(candidate);
+      if (detailInfo.exitCode !== undefined) {
+        enrichments.exitCode = detailInfo.exitCode;
+        break;
+      }
+    }
+  }
+
+  if (
+    claudeInput?.run_in_background === true ||
+    codexInput?.run_in_background === true ||
+    data.run_in_background === true
+  ) {
+    enrichments.isBackgroundCommand = true;
   }
 
   // MCP server and tool
@@ -838,9 +1046,14 @@ function toDerivedWorkLogEntry(activity: OrchestrationThreadActivity): DerivedWo
   const command = extractToolCommand(payload);
   const title = extractToolTitle(payload);
   const toolCallId = extractToolCallId(payload);
+  const detailInfo =
+    payload && typeof payload.detail === "string"
+      ? stripTrailingExitCode(payload.detail)
+      : { output: null as string | null, exitCode: undefined as number | undefined };
   const entry: DerivedWorkLogEntry = {
     id: activity.id,
     createdAt: activity.createdAt,
+    startedAt: activity.createdAt,
     ...(activity.turnId ? { turnId: activity.turnId } : {}),
     ...(toolCallId ? { toolCallId } : {}),
     label: activity.summary,
@@ -849,11 +1062,8 @@ function toDerivedWorkLogEntry(activity: OrchestrationThreadActivity): DerivedWo
   };
   const itemType = extractWorkLogItemType(payload);
   const requestKind = extractWorkLogRequestKind(payload);
-  if (payload && typeof payload.detail === "string" && payload.detail.length > 0) {
-    const detail = stripTrailingExitCode(payload.detail).output;
-    if (detail) {
-      entry.detail = stripToolNamePrefix(detail);
-    }
+  if (detailInfo.output) {
+    entry.detail = stripToolNamePrefix(detailInfo.output);
   }
   if (command) {
     entry.command = command;
@@ -883,10 +1093,15 @@ function toDerivedWorkLogEntry(activity: OrchestrationThreadActivity): DerivedWo
     entry.changedFiles = inlineDiff.files.map((file) => file.path);
   }
   const enrichments = extractToolEnrichments(payload);
+  const itemStatus = normalizeWorkItemStatus(payload?.status) ?? deriveActivityItemStatus(activity);
+  if (itemStatus) entry.itemStatus = itemStatus;
   if (enrichments.toolName) entry.toolName = enrichments.toolName;
   if (enrichments.exitCode !== undefined) entry.exitCode = enrichments.exitCode;
+  else if (detailInfo.exitCode !== undefined) entry.exitCode = detailInfo.exitCode;
   if (enrichments.durationMs !== undefined) entry.durationMs = enrichments.durationMs;
   if (enrichments.output) entry.output = enrichments.output;
+  if (enrichments.outputSource) entry.outputSource = enrichments.outputSource;
+  if (enrichments.isBackgroundCommand) entry.isBackgroundCommand = true;
   if (enrichments.mcpServer) entry.mcpServer = enrichments.mcpServer;
   if (enrichments.mcpTool) entry.mcpTool = enrichments.mcpTool;
   if (enrichments.searchPattern) entry.searchPattern = enrichments.searchPattern;
@@ -970,6 +1185,10 @@ function mergeDerivedWorkLogEntries(
   const exitCode = next.exitCode ?? previous.exitCode;
   const durationMs = next.durationMs ?? previous.durationMs;
   const output = next.output ?? previous.output;
+  const outputSource = next.outputSource ?? previous.outputSource;
+  const startedAt = earliestIsoValue(previous.startedAt, next.startedAt);
+  const itemStatus = next.itemStatus ?? previous.itemStatus;
+  const isBackgroundCommand = Boolean(previous.isBackgroundCommand || next.isBackgroundCommand);
   const mcpServer = next.mcpServer ?? previous.mcpServer;
   const mcpTool = next.mcpTool ?? previous.mcpTool;
   const searchPattern = next.searchPattern ?? previous.searchPattern;
@@ -990,6 +1209,10 @@ function mergeDerivedWorkLogEntries(
     ...(exitCode !== undefined ? { exitCode } : {}),
     ...(durationMs !== undefined ? { durationMs } : {}),
     ...(output ? { output } : {}),
+    ...(outputSource ? { outputSource } : {}),
+    ...(startedAt ? { startedAt } : {}),
+    ...(itemStatus ? { itemStatus } : {}),
+    ...(isBackgroundCommand ? { isBackgroundCommand } : {}),
     ...(mcpServer ? { mcpServer } : {}),
     ...(mcpTool ? { mcpTool } : {}),
     ...(searchPattern ? { searchPattern } : {}),
@@ -1007,6 +1230,15 @@ function mergeChangedFiles(
     return [];
   }
   return [...new Set(merged)];
+}
+
+function earliestIsoValue(
+  previous: string | undefined,
+  next: string | undefined,
+): string | undefined {
+  if (!previous) return next;
+  if (!next) return previous;
+  return previous <= next ? previous : next;
 }
 
 function mergeToolInlineDiffSummaries(
@@ -1134,6 +1366,10 @@ function asRecord(value: unknown): Record<string, unknown> | null {
   return value && typeof value === "object" ? (value as Record<string, unknown>) : null;
 }
 
+function asArray(value: unknown): unknown[] | null {
+  return Array.isArray(value) ? value : null;
+}
+
 function asTrimmedString(value: unknown): string | null {
   if (typeof value !== "string") {
     return null;
@@ -1175,13 +1411,42 @@ function extractToolCommand(payload: Record<string, unknown> | null): string | n
   const item = asRecord(data?.item);
   const itemResult = asRecord(item?.result);
   const itemInput = asRecord(item?.input);
+  const dataInput = asRecord(data?.input);
   const candidates = [
     normalizeCommandValue(item?.command),
     normalizeCommandValue(itemInput?.command),
+    normalizeCommandValue(dataInput?.command),
     normalizeCommandValue(itemResult?.command),
     normalizeCommandValue(data?.command),
   ];
   return candidates.find((candidate) => candidate !== null) ?? null;
+}
+
+function normalizeCommandOutputValue(value: unknown): string | null {
+  if (typeof value !== "string") {
+    return null;
+  }
+  const normalized = value.replace(/\r\n/g, "\n");
+  if (normalized.trim().length === 0) {
+    return null;
+  }
+  return stripTrailingExitCodePreservingOutput(normalized).output;
+}
+
+function joinCommandOutputParts(stdout: string | null, stderr: string | null): string | null {
+  if (!stdout && !stderr) {
+    return null;
+  }
+  if (!stdout) {
+    return stderr;
+  }
+  if (!stderr) {
+    return stdout;
+  }
+  if (stdout.endsWith("\n") || stderr.startsWith("\n")) {
+    return `${stdout}${stderr}`;
+  }
+  return `${stdout}\n${stderr}`;
 }
 
 function extractToolTitle(payload: Record<string, unknown> | null): string | null {
@@ -1226,6 +1491,23 @@ function stripTrailingExitCode(value: string): {
   };
 }
 
+function stripTrailingExitCodePreservingOutput(value: string): {
+  output: string | null;
+  exitCode?: number | undefined;
+} {
+  const match = /^(?<output>[\s\S]*?)(?:\s*<exited with exit code (?<code>\d+)>)\s*$/i.exec(value);
+  if (!match?.groups) {
+    return {
+      output: value,
+    };
+  }
+  const exitCode = Number.parseInt(match.groups.code ?? "", 10);
+  return {
+    output: match.groups.output ?? "",
+    ...(Number.isInteger(exitCode) ? { exitCode } : {}),
+  };
+}
+
 function extractWorkLogItemType(
   payload: Record<string, unknown> | null,
 ): WorkLogEntry["itemType"] | undefined {
@@ -1246,6 +1528,46 @@ function extractWorkLogRequestKind(
     return payload.requestKind;
   }
   return requestKindFromRequestType(payload?.requestType) ?? undefined;
+}
+
+function normalizeWorkItemStatus(value: unknown): WorkLogEntry["itemStatus"] | undefined {
+  switch (value) {
+    case "pending":
+    case "running":
+    case "in_progress":
+    case "inProgress":
+      return "inProgress";
+    case "completed":
+    case "shutdown":
+      return "completed";
+    case "failed":
+    case "error":
+    case "errored":
+    case "interrupted":
+    case "notFound":
+      return "failed";
+    case "declined":
+    case "rejected":
+      return "declined";
+    default:
+      return undefined;
+  }
+}
+
+function deriveActivityItemStatus(
+  activity: OrchestrationThreadActivity,
+): WorkLogEntry["itemStatus"] | undefined {
+  switch (activity.kind) {
+    case "tool.updated":
+    case "task.progress":
+    case "task.started":
+      return "inProgress";
+    case "tool.completed":
+    case "task.completed":
+      return activity.tone === "error" ? "failed" : "completed";
+    default:
+      return undefined;
+  }
 }
 
 function extractChildThreadAttribution(
@@ -1481,4 +1803,91 @@ export function derivePhase(session: ThreadSession | null): SessionPhase {
   if (session.status === "connecting") return "connecting";
   if (session.status === "running") return "running";
   return "ready";
+}
+
+export function deriveBackgroundTrayState(
+  workEntries: ReadonlyArray<WorkLogEntry>,
+  nowIso: string,
+): BackgroundTrayState {
+  const { standalone, subagentGroups } = groupSubagentEntries(workEntries);
+  const visibleSubagentGroups = subagentGroups.filter((group) =>
+    isSubagentGroupVisibleInTray(group, nowIso),
+  );
+  const visibleCommandEntries = standalone.filter((entry) =>
+    isBackgroundCommandVisibleInTray(entry, nowIso),
+  );
+
+  return {
+    subagentGroups: visibleSubagentGroups,
+    commandEntries: visibleCommandEntries,
+    hiddenSubagentTaskIds: visibleSubagentGroups.map((group) => group.taskId),
+    hiddenWorkEntryIds: visibleCommandEntries.map((entry) => entry.id),
+    hasRunningTasks:
+      visibleSubagentGroups.some((group) => group.status === "running") ||
+      visibleCommandEntries.some((entry) => deriveBackgroundCommandStatus(entry) === "running"),
+    defaultCollapsed: visibleSubagentGroups.length + visibleCommandEntries.length >= 5,
+  };
+}
+
+export function filterTrayOwnedWorkEntries(
+  workEntries: ReadonlyArray<WorkLogEntry>,
+  backgroundTrayState: BackgroundTrayState,
+): WorkLogEntry[] {
+  const hiddenSubagentTaskIds = new Set(backgroundTrayState.hiddenSubagentTaskIds);
+  const hiddenWorkEntryIds = new Set(backgroundTrayState.hiddenWorkEntryIds);
+
+  return workEntries.filter((entry) => {
+    if (hiddenWorkEntryIds.has(entry.id)) {
+      return false;
+    }
+    const taskId = entry.childThreadAttribution?.taskId;
+    if (taskId && hiddenSubagentTaskIds.has(taskId)) {
+      return false;
+    }
+    return true;
+  });
+}
+
+function isSubagentGroupVisibleInTray(group: SubagentGroup, nowIso: string): boolean {
+  if (group.status === "running") {
+    return true;
+  }
+  return isWithinBackgroundTaskRetention(group.completedAt ?? group.startedAt, nowIso);
+}
+
+function isBackgroundCommandVisibleInTray(entry: WorkLogEntry, nowIso: string): boolean {
+  if (entry.itemType !== "command_execution" || !entry.isBackgroundCommand) {
+    return false;
+  }
+  const status = deriveBackgroundCommandStatus(entry);
+  if (status === "running") {
+    return true;
+  }
+  return isWithinBackgroundTaskRetention(entry.createdAt, nowIso);
+}
+
+export function deriveBackgroundCommandStatus(
+  entry: WorkLogEntry,
+): "running" | "completed" | "failed" {
+  if (
+    entry.itemStatus === "failed" ||
+    entry.itemStatus === "declined" ||
+    entry.tone === "error" ||
+    (entry.exitCode !== undefined && entry.exitCode !== 0)
+  ) {
+    return "failed";
+  }
+  if (entry.itemStatus === "completed" || entry.exitCode === 0) {
+    return "completed";
+  }
+  return "running";
+}
+
+function isWithinBackgroundTaskRetention(timestampIso: string, nowIso: string): boolean {
+  const timestampMs = Date.parse(timestampIso);
+  const nowMs = Date.parse(nowIso);
+  if (Number.isNaN(timestampMs) || Number.isNaN(nowMs)) {
+    return false;
+  }
+  return nowMs - timestampMs <= BACKGROUND_TASK_RETENTION_MS;
 }

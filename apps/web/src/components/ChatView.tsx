@@ -46,6 +46,8 @@ import {
 } from "../composer-logic";
 import {
   deriveCompletionDividerBeforeEntryId,
+  deriveBackgroundTrayState,
+  filterTrayOwnedWorkEntries,
   derivePendingApprovals,
   derivePendingUserInputs,
   derivePhase,
@@ -177,6 +179,7 @@ import { ComposerPrimaryActions } from "./chat/ComposerPrimaryActions";
 import { ComposerPendingApprovalPanel } from "./chat/ComposerPendingApprovalPanel";
 import { ComposerPendingUserInputPanel } from "./chat/ComposerPendingUserInputPanel";
 import { ComposerPlanFollowUpBanner } from "./chat/ComposerPlanFollowUpBanner";
+import { ComposerBackgroundTaskTray } from "./chat/ComposerBackgroundTaskTray";
 import {
   getComposerProviderState,
   renderProviderTraitsMenuContent,
@@ -1242,6 +1245,10 @@ export default function ChatView({ threadId }: ChatViewProps) {
       ? activeDiscussionChildren.length > 0
       : threadHasActiveTurn(activeThread));
   const nowIso = new Date(nowTick).toISOString();
+  const backgroundTrayState = useMemo(
+    () => deriveBackgroundTrayState(workLogEntries, nowIso),
+    [nowIso, workLogEntries],
+  );
   const activeWorkStartedAt = isDiscussionContainerThread
     ? discussionActiveTurnStartedAt
     : deriveActiveWorkStartedAt(
@@ -1435,10 +1442,18 @@ export default function ChatView({ threadId }: ChatViewProps) {
     }
     return [...serverMessagesWithPreviewHandoff, ...pendingMessages];
   }, [serverMessages, attachmentPreviewHandoffByMessageId, optimisticUserMessages]);
+  const visibleWorkLogEntries = useMemo(
+    () => filterTrayOwnedWorkEntries(workLogEntries, backgroundTrayState),
+    [backgroundTrayState, workLogEntries],
+  );
   const timelineEntries = useMemo(
     () =>
-      deriveTimelineEntries(timelineMessages, activeThread?.proposedPlans ?? [], workLogEntries),
-    [activeThread?.proposedPlans, timelineMessages, workLogEntries],
+      deriveTimelineEntries(
+        timelineMessages,
+        activeThread?.proposedPlans ?? [],
+        visibleWorkLogEntries,
+      ),
+    [activeThread?.proposedPlans, timelineMessages, visibleWorkLogEntries],
   );
   const { turnDiffSummaries, inferredCheckpointTurnCountByTurnId } =
     useTurnDiffSummaries(activeThread);
@@ -2710,14 +2725,24 @@ export default function ChatView({ threadId }: ChatViewProps) {
     : pendingWorktreeBranchName;
 
   useEffect(() => {
-    if (!isWorking) return;
+    if (
+      !isWorking &&
+      backgroundTrayState.subagentGroups.length === 0 &&
+      backgroundTrayState.commandEntries.length === 0
+    ) {
+      return;
+    }
     const timer = window.setInterval(() => {
       setNowTick(Date.now());
     }, 1000);
     return () => {
       window.clearInterval(timer);
     };
-  }, [isWorking]);
+  }, [
+    backgroundTrayState.commandEntries.length,
+    backgroundTrayState.subagentGroups.length,
+    isWorking,
+  ]);
 
   useEffect(() => {
     if (!activeThreadId) return;
@@ -4534,6 +4559,12 @@ export default function ChatView({ threadId }: ChatViewProps) {
                       />
                     </div>
                   ) : null}
+                  <ComposerBackgroundTaskTray
+                    key={activeThread.id}
+                    threadId={activeThread.id}
+                    state={backgroundTrayState}
+                    nowIso={nowIso}
+                  />
                   <div
                     className={cn(
                       "relative px-3 pb-2 sm:px-4",

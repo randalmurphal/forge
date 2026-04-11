@@ -11,11 +11,13 @@ import {
   deriveCompletionDividerBeforeEntryId,
   deriveActiveWorkStartedAt,
   deriveActivePlanState,
+  deriveBackgroundTrayState,
   PROVIDER_OPTIONS,
   derivePendingApprovals,
   derivePendingUserInputs,
   deriveTimelineEntries,
   deriveWorkLogEntries,
+  filterTrayOwnedWorkEntries,
   findLatestProposedPlan,
   findSidebarProposedPlan,
   hasActionableProposedPlan,
@@ -1579,6 +1581,412 @@ describe("deriveWorkLogEntries", () => {
     expect(ids).toContain("attributed-updated");
     expect(ids).toContain("attributed-completed");
     expect(ids).toContain("regular-tool");
+  });
+
+  it("synthesizes a completed Codex subagent lifecycle entry when only the parent collab item completes", () => {
+    const entries = deriveWorkLogEntries(
+      [
+        makeActivity({
+          id: "codex-collab-complete",
+          kind: "tool.completed",
+          summary: "Subagent task",
+          payload: {
+            itemType: "collab_agent_tool_call",
+            data: {
+              item: {
+                id: "task-codex-1",
+                prompt: "Review the parser",
+                model: "gpt-5.4-mini",
+                status: "completed",
+                receiverThreadIds: ["child-thread-1"],
+                agentsStates: {
+                  "child-thread-1": {
+                    status: "completed",
+                  },
+                },
+              },
+            },
+          },
+        }),
+      ],
+      undefined,
+    );
+
+    expect(entries).toHaveLength(1);
+    expect(entries[0]).toMatchObject({
+      activityKind: "task.completed",
+      itemStatus: "completed",
+      childThreadAttribution: {
+        taskId: "task-codex-1",
+        childProviderThreadId: "child-thread-1",
+        label: "Review the parser",
+        agentModel: "gpt-5.4-mini",
+      },
+    });
+  });
+
+  it.each(["errored", "interrupted", "notFound"] as const)(
+    "maps Codex fallback agent state %s to failed",
+    (status) => {
+      const [entry] = deriveWorkLogEntries(
+        [
+          makeActivity({
+            id: `codex-collab-${status}`,
+            kind: "tool.completed",
+            summary: "Subagent task",
+            payload: {
+              itemType: "collab_agent_tool_call",
+              data: {
+                item: {
+                  id: `task-${status}`,
+                  prompt: "Investigate failures",
+                  receiverThreadIds: ["child-thread-1"],
+                  agentsStates: {
+                    "child-thread-1": {
+                      status,
+                    },
+                  },
+                },
+              },
+            },
+          }),
+        ],
+        undefined,
+      );
+
+      expect(entry).toMatchObject({
+        activityKind: "task.completed",
+        tone: "error",
+        itemStatus: "failed",
+      });
+    },
+  );
+
+  it("prefers a real attributed task.completed over a synthetic Codex fallback completion", () => {
+    const entries = deriveWorkLogEntries(
+      [
+        makeActivity({
+          id: "codex-parent-complete",
+          kind: "tool.completed",
+          summary: "Subagent task",
+          payload: {
+            itemType: "collab_agent_tool_call",
+            data: {
+              item: {
+                id: "task-real-complete",
+                prompt: "Investigate regressions",
+                receiverThreadIds: ["child-thread-1"],
+                agentsStates: {
+                  "child-thread-1": {
+                    status: "completed",
+                  },
+                },
+              },
+            },
+          },
+        }),
+        makeActivity({
+          id: "real-task-complete",
+          kind: "task.completed",
+          summary: "Task completed",
+          tone: "info",
+          payload: {
+            taskId: "task-real-complete",
+            status: "completed",
+            childThreadAttribution: {
+              taskId: "task-real-complete",
+              childProviderThreadId: "child-thread-1",
+            },
+          },
+        }),
+      ],
+      undefined,
+    );
+
+    const completedEntries = entries.filter((entry) => entry.activityKind === "task.completed");
+    expect(completedEntries).toHaveLength(1);
+    expect(completedEntries[0]?.id).toBe("real-task-complete");
+  });
+
+  it("keeps full Claude command output and marks explicit background commands", () => {
+    const longOutput = `${"stdout line\n".repeat(80)}stderr line`;
+    const [entry] = deriveWorkLogEntries(
+      [
+        makeActivity({
+          id: "claude-command",
+          kind: "tool.completed",
+          summary: "Ran command",
+          payload: {
+            itemType: "command_execution",
+            status: "completed",
+            data: {
+              input: {
+                command: "bun run lint",
+                run_in_background: true,
+              },
+              result: {
+                stdout: `${"stdout line\n".repeat(80)}`,
+                stderr: "stderr line",
+                exit_code: 0,
+              },
+            },
+          },
+        }),
+      ],
+      undefined,
+    );
+
+    expect(entry?.output).toBe(longOutput);
+    expect(entry?.outputSource).toBe("final");
+    expect(entry?.isBackgroundCommand).toBe(true);
+  });
+
+  it("keeps full Codex aggregated command output", () => {
+    const output = `${"build line\n".repeat(90)}done`;
+    const [entry] = deriveWorkLogEntries(
+      [
+        makeActivity({
+          id: "codex-command",
+          kind: "tool.completed",
+          summary: "Ran command",
+          payload: {
+            itemType: "command_execution",
+            status: "completed",
+            data: {
+              item: {
+                id: "codex-command-1",
+                command: ["bun", "run", "build"],
+                aggregatedOutput: output,
+                exitCode: 0,
+              },
+            },
+          },
+        }),
+      ],
+      undefined,
+    );
+
+    expect(entry?.output).toBe(output);
+    expect(entry?.outputSource).toBe("final");
+  });
+
+  it("only marks commands as background when run_in_background is explicitly true", () => {
+    const entries = deriveWorkLogEntries(
+      [
+        makeActivity({
+          id: "background-command",
+          kind: "tool.completed",
+          summary: "Ran command",
+          payload: {
+            itemType: "command_execution",
+            data: {
+              input: {
+                command: "bun run build",
+                run_in_background: true,
+              },
+            },
+          },
+        }),
+        makeActivity({
+          id: "foreground-command",
+          kind: "tool.completed",
+          summary: "Ran command",
+          payload: {
+            itemType: "command_execution",
+            data: {
+              input: {
+                command: "bun run test",
+              },
+            },
+          },
+        }),
+      ],
+      undefined,
+    );
+
+    expect(entries.find((entry) => entry.id === "background-command")?.isBackgroundCommand).toBe(
+      true,
+    );
+    expect(
+      entries.find((entry) => entry.id === "foreground-command")?.isBackgroundCommand,
+    ).toBeUndefined();
+  });
+
+  it("falls back to streamed command output when no final output is present", () => {
+    const [entry] = deriveWorkLogEntries(
+      [
+        makeActivity({
+          id: "stream-before-row",
+          createdAt: "2026-04-10T12:00:00.000Z",
+          kind: "tool.output.delta",
+          summary: "Command output updated",
+          payload: {
+            itemId: "command-stream-1",
+            streamKind: "command_output",
+            delta: "[watch] bundling...\n",
+          },
+        }),
+        makeActivity({
+          id: "command-row",
+          createdAt: "2026-04-10T12:00:01.000Z",
+          kind: "tool.updated",
+          summary: "Ran command",
+          payload: {
+            itemType: "command_execution",
+            itemId: "command-stream-1",
+            status: "inProgress",
+            data: {
+              item: {
+                id: "command-stream-1",
+                command: ["bun", "run", "build", "--watch"],
+              },
+            },
+          },
+        }),
+        makeActivity({
+          id: "stream-after-row",
+          createdAt: "2026-04-10T12:00:02.000Z",
+          kind: "tool.output.delta",
+          summary: "Command output updated",
+          payload: {
+            itemId: "command-stream-1",
+            streamKind: "command_output",
+            delta: "[watch] waiting for changes...\n",
+          },
+        }),
+      ],
+      undefined,
+    );
+
+    expect(entry?.output).toBe("[watch] bundling...\n[watch] waiting for changes...\n");
+    expect(entry?.outputSource).toBe("stream");
+  });
+
+  it("derives transient background tray visibility for running and recently completed background commands", () => {
+    const workEntries = deriveWorkLogEntries(
+      [
+        makeActivity({
+          id: "background-running",
+          createdAt: "2026-04-10T12:00:00.000Z",
+          kind: "tool.updated",
+          summary: "Ran command",
+          payload: {
+            itemType: "command_execution",
+            status: "inProgress",
+            data: {
+              input: {
+                command: "bun run build --watch",
+                run_in_background: true,
+              },
+            },
+          },
+        }),
+        makeActivity({
+          id: "background-completed",
+          createdAt: "2026-04-10T12:00:02.000Z",
+          kind: "tool.completed",
+          summary: "Ran command",
+          payload: {
+            itemType: "command_execution",
+            status: "completed",
+            data: {
+              input: {
+                command: "bun run build",
+                run_in_background: true,
+              },
+              result: {
+                output: "done",
+                exit_code: 0,
+              },
+            },
+          },
+        }),
+      ],
+      undefined,
+    );
+
+    const visibleState = deriveBackgroundTrayState(workEntries, "2026-04-10T12:00:06.000Z");
+    expect(visibleState.commandEntries.map((entry) => entry.id)).toEqual([
+      "background-running",
+      "background-completed",
+    ]);
+
+    const expiredState = deriveBackgroundTrayState(workEntries, "2026-04-10T12:00:08.500Z");
+    expect(expiredState.commandEntries.map((entry) => entry.id)).toEqual(["background-running"]);
+  });
+
+  it("filters tray-owned background work from the timeline and restores it after TTL expiry", () => {
+    const workEntries = deriveWorkLogEntries(
+      [
+        makeActivity({
+          id: "background-running",
+          createdAt: "2026-04-10T12:00:00.000Z",
+          kind: "tool.updated",
+          summary: "Ran command",
+          payload: {
+            itemType: "command_execution",
+            status: "inProgress",
+            data: {
+              input: {
+                command: "bun run build --watch",
+                run_in_background: true,
+              },
+            },
+          },
+        }),
+        makeActivity({
+          id: "background-completed",
+          createdAt: "2026-04-10T12:00:02.000Z",
+          kind: "tool.completed",
+          summary: "Ran command",
+          payload: {
+            itemType: "command_execution",
+            status: "completed",
+            data: {
+              input: {
+                command: "bun run build",
+                run_in_background: true,
+              },
+              result: {
+                output: "done",
+                exit_code: 0,
+              },
+            },
+          },
+        }),
+        makeActivity({
+          id: "foreground-command",
+          createdAt: "2026-04-10T12:00:03.000Z",
+          kind: "tool.completed",
+          summary: "Ran command",
+          payload: {
+            itemType: "command_execution",
+            status: "completed",
+            data: {
+              input: {
+                command: "bun run lint",
+              },
+            },
+          },
+        }),
+      ],
+      undefined,
+    );
+
+    const visibleWhileOwned = filterTrayOwnedWorkEntries(
+      workEntries,
+      deriveBackgroundTrayState(workEntries, "2026-04-10T12:00:06.000Z"),
+    );
+    expect(visibleWhileOwned.map((entry) => entry.id)).toEqual(["foreground-command"]);
+
+    const visibleAfterTtl = filterTrayOwnedWorkEntries(
+      workEntries,
+      deriveBackgroundTrayState(workEntries, "2026-04-10T12:00:08.500Z"),
+    );
+    expect(visibleAfterTtl.map((entry) => entry.id)).toEqual([
+      "background-completed",
+      "foreground-command",
+    ]);
   });
 });
 

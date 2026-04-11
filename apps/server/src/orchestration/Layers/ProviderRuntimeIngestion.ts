@@ -954,6 +954,30 @@ function runtimeEventToActivities(
       ];
     }
 
+    case "content.delta": {
+      if (event.payload.streamKind !== "command_output") {
+        return [];
+      }
+      const contentDeltaChildAttr = extractChildThreadAttribution(event.payload);
+      return [
+        {
+          id: event.eventId,
+          createdAt: event.createdAt,
+          tone: "tool",
+          kind: "tool.output.delta",
+          summary: "Command output updated",
+          payload: {
+            ...(event.itemId ? { itemId: event.itemId } : {}),
+            streamKind: event.payload.streamKind,
+            delta: event.payload.delta,
+            ...(contentDeltaChildAttr ? { childThreadAttribution: contentDeltaChildAttr } : {}),
+          },
+          turnId: toTurnId(event.turnId) ?? null,
+          ...maybeSequence,
+        },
+      ];
+    }
+
     case "item.updated": {
       if (!isToolLifecycleItemType(event.payload.itemType)) {
         return [];
@@ -999,6 +1023,7 @@ function runtimeEventToActivities(
           payload: {
             itemType: event.payload.itemType,
             ...(event.itemId ? { itemId: event.itemId } : {}),
+            ...(event.payload.status ? { status: event.payload.status } : {}),
             ...(event.payload.detail ? { detail: truncateDetail(event.payload.detail) } : {}),
             ...(event.payload.data !== undefined ? { data: event.payload.data } : {}),
             ...(options?.inlineDiff ? { inlineDiff: options.inlineDiff } : {}),
@@ -1029,6 +1054,7 @@ function runtimeEventToActivities(
           payload: {
             itemType: event.payload.itemType,
             ...(event.itemId ? { itemId: event.itemId } : {}),
+            ...(event.payload.status ? { status: event.payload.status } : {}),
             ...(event.payload.detail ? { detail: truncateDetail(event.payload.detail) } : {}),
             ...(typeof itemStartedToolName === "string" ? { toolName: itemStartedToolName } : {}),
             ...(itemStartedChildAttr ? { childThreadAttribution: itemStartedChildAttr } : {}),

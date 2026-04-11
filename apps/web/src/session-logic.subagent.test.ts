@@ -1,6 +1,7 @@
+import { EventId, type OrchestrationThreadActivity } from "@forgetools/contracts";
 import { describe, expect, it } from "vitest";
 
-import { groupSubagentEntries, type WorkLogEntry } from "./session-logic";
+import { deriveWorkLogEntries, groupSubagentEntries, type WorkLogEntry } from "./session-logic";
 
 /** Minimal builder — only fills required fields; callers override what matters. */
 function makeEntry(overrides: Partial<WorkLogEntry> & { id: string }): WorkLogEntry {
@@ -9,6 +10,25 @@ function makeEntry(overrides: Partial<WorkLogEntry> & { id: string }): WorkLogEn
     label: "some entry",
     tone: "tool",
     ...overrides,
+  };
+}
+
+function makeActivity(overrides: {
+  id: string;
+  createdAt?: string;
+  kind: string;
+  summary?: string;
+  tone?: OrchestrationThreadActivity["tone"];
+  payload?: Record<string, unknown>;
+}): OrchestrationThreadActivity {
+  return {
+    id: EventId.makeUnsafe(overrides.id),
+    createdAt: overrides.createdAt ?? "2026-04-01T00:00:00.000Z",
+    kind: overrides.kind,
+    summary: overrides.summary ?? "activity",
+    tone: overrides.tone ?? "tool",
+    payload: overrides.payload ?? {},
+    turnId: null,
   };
 }
 
@@ -513,5 +533,89 @@ describe("groupSubagentEntries", () => {
 
     expect(completedGroup.status).toBe("completed");
     expect(runningGroup.status).toBe("running");
+  });
+
+  it("marks a running group as completed from the Codex fallback completion row", () => {
+    const entries = deriveWorkLogEntries(
+      [
+        makeActivity({
+          id: "task-running-start",
+          kind: "task.started",
+          summary: "Task started",
+          tone: "info",
+          payload: {
+            taskId: "task-codex-group",
+            childThreadAttribution: {
+              taskId: "task-codex-group",
+              childProviderThreadId: "child-thread-1",
+              label: "Review parser",
+            },
+          },
+        }),
+        makeActivity({
+          id: "codex-parent-complete",
+          createdAt: "2026-04-01T00:00:05.000Z",
+          kind: "tool.completed",
+          summary: "Subagent task",
+          payload: {
+            itemType: "collab_agent_tool_call",
+            data: {
+              item: {
+                id: "task-codex-group",
+                prompt: "Review parser",
+                receiverThreadIds: ["child-thread-1"],
+                agentsStates: {
+                  "child-thread-1": {
+                    status: "completed",
+                  },
+                },
+              },
+            },
+          },
+        }),
+      ],
+      undefined,
+    );
+
+    const result = groupSubagentEntries(entries);
+    expect(result.standalone).toEqual([]);
+    expect(result.subagentGroups).toHaveLength(1);
+    expect(result.subagentGroups[0]?.status).toBe("completed");
+    expect(result.subagentGroups[0]?.completedAt).toBe("2026-04-01T00:00:05.000Z");
+  });
+
+  it("does not create orphan standalone entries for the Codex fallback completion row", () => {
+    const entries = deriveWorkLogEntries(
+      [
+        makeActivity({
+          id: "codex-parent-failed",
+          createdAt: "2026-04-01T00:00:07.000Z",
+          kind: "tool.completed",
+          summary: "Subagent task",
+          payload: {
+            itemType: "collab_agent_tool_call",
+            data: {
+              item: {
+                id: "task-codex-failed",
+                prompt: "Inspect regressions",
+                receiverThreadIds: ["child-thread-2"],
+                agentsStates: {
+                  "child-thread-2": {
+                    status: "errored",
+                  },
+                },
+              },
+            },
+          },
+        }),
+      ],
+      undefined,
+    );
+
+    const result = groupSubagentEntries(entries);
+    expect(result.standalone).toEqual([]);
+    expect(result.subagentGroups).toHaveLength(1);
+    expect(result.subagentGroups[0]?.status).toBe("failed");
+    expect(result.subagentGroups[0]?.entries).toEqual([]);
   });
 });

@@ -86,6 +86,7 @@ import {
   formatInlineTerminalContextLabel,
   textContainsInlineTerminalContextLabels,
 } from "./userMessageTerminalContexts";
+import { CommandOutputPanel } from "./CommandOutputPanel";
 const ALWAYS_UNVIRTUALIZED_TAIL_ROWS = 8;
 
 interface MessagesTimelineProps {
@@ -155,10 +156,43 @@ export const MessagesTimeline = memo(function MessagesTimeline({
   const [timelineWidthPx, setTimelineWidthPx] = useState<number | null>(null);
   const [expandedInlineDiff, setExpandedInlineDiff] = useState<ExpandedInlineDiffState>(null);
   const [expandedSubagentTaskId, setExpandedSubagentTaskId] = useState<string | null>(null);
+  const [expandedCommandOutputIds, setExpandedCommandOutputIds] = useState<Record<string, boolean>>(
+    () => deriveInitialExpandedCommandOutputIds(timelineEntries),
+  );
   const onToggleSubagent = useCallback((taskId: string) => {
     setExpandedSubagentTaskId((prev) => (prev === taskId ? null : taskId));
   }, []);
+  const onToggleCommandOutput = useCallback((entryId: string) => {
+    setExpandedCommandOutputIds((current) => ({
+      ...current,
+      [entryId]: !(current[entryId] ?? false),
+    }));
+  }, []);
   const settings = useSettings();
+
+  useEffect(() => {
+    const failedCommandIds = timelineEntries.flatMap((entry) => {
+      if (entry.kind !== "work") {
+        return [];
+      }
+      return collectAutoExpandedCommandEntryIds(entry.entry);
+    });
+    if (failedCommandIds.length === 0) {
+      return;
+    }
+    setExpandedCommandOutputIds((current) => {
+      let changed = false;
+      const next = { ...current };
+      for (const entryId of failedCommandIds) {
+        if (next[entryId]) {
+          continue;
+        }
+        next[entryId] = true;
+        changed = true;
+      }
+      return changed ? next : current;
+    });
+  }, [timelineEntries]);
 
   useLayoutEffect(() => {
     const timelineRoot = timelineRootRef.current;
@@ -263,6 +297,7 @@ export const MessagesTimeline = memo(function MessagesTimeline({
       return estimateMessagesTimelineRowHeight(row, {
         expandedWorkGroups,
         expandedInlineDiff,
+        expandedCommandOutputIds,
         expandedSubagentTaskId,
         timelineWidthPx,
         turnDiffSummaryByAssistantMessageId,
@@ -277,6 +312,7 @@ export const MessagesTimeline = memo(function MessagesTimeline({
     rowVirtualizer.measure();
   }, [
     expandedInlineDiff,
+    expandedCommandOutputIds,
     expandedSubagentTaskId,
     expandedWorkGroups,
     rowVirtualizer,
@@ -356,9 +392,11 @@ export const MessagesTimeline = memo(function MessagesTimeline({
         workEntry={entry}
         expandedInlineDiff={expandedInlineDiff}
         onToggleInlineDiff={onToggleInlineDiff}
+        expandedCommandOutputIds={expandedCommandOutputIds}
+        onToggleCommandOutput={onToggleCommandOutput}
       />
     ),
-    [expandedInlineDiff, onToggleInlineDiff],
+    [expandedCommandOutputIds, expandedInlineDiff, onToggleCommandOutput, onToggleInlineDiff],
   );
 
   const renderRowContent = (row: TimelineRow) => (
@@ -376,6 +414,8 @@ export const MessagesTimeline = memo(function MessagesTimeline({
           onToggleWorkGroup={onToggleWorkGroup}
           expandedInlineDiff={expandedInlineDiff}
           onToggleInlineDiff={onToggleInlineDiff}
+          expandedCommandOutputIds={expandedCommandOutputIds}
+          onToggleCommandOutput={onToggleCommandOutput}
         />
       )}
 
@@ -384,6 +424,8 @@ export const MessagesTimeline = memo(function MessagesTimeline({
           workEntry={row.entry}
           expandedInlineDiff={expandedInlineDiff}
           onToggleInlineDiff={onToggleInlineDiff}
+          expandedCommandOutputIds={expandedCommandOutputIds}
+          onToggleCommandOutput={onToggleCommandOutput}
         />
       )}
 
@@ -953,6 +995,34 @@ function workEntryPreview(workEntry: TimelineWorkEntry): string | null {
   return null;
 }
 
+function collectAutoExpandedCommandEntryIds(workEntry: TimelineWorkEntry): string[] {
+  if (
+    workEntry.itemType !== "command_execution" ||
+    !workEntry.output ||
+    !(workEntry.exitCode !== undefined
+      ? workEntry.exitCode !== 0
+      : workEntry.itemStatus === "failed" || workEntry.tone === "error")
+  ) {
+    return [];
+  }
+  return [workEntry.id];
+}
+
+function deriveInitialExpandedCommandOutputIds(
+  timelineEntries: ReadonlyArray<ReturnType<typeof deriveTimelineEntries>[number]>,
+): Record<string, boolean> {
+  const expanded: Record<string, boolean> = {};
+  for (const entry of timelineEntries) {
+    if (entry.kind !== "work") {
+      continue;
+    }
+    for (const entryId of collectAutoExpandedCommandEntryIds(entry.entry)) {
+      expanded[entryId] = true;
+    }
+  }
+  return expanded;
+}
+
 function workEntryIcon(workEntry: TimelineWorkEntry): LucideIcon {
   // Approval-specific overrides
   if (workEntry.requestKind === "command") return TerminalIcon;
@@ -1050,9 +1120,18 @@ const GroupedWorkEntriesRow = memo(function GroupedWorkEntriesRow(props: {
   onToggleWorkGroup: (groupId: string) => void;
   expandedInlineDiff: ExpandedInlineDiffState;
   onToggleInlineDiff: (scope: "tool" | "turn", id: string) => void;
+  expandedCommandOutputIds: Readonly<Record<string, boolean>>;
+  onToggleCommandOutput: (entryId: string) => void;
 }) {
-  const { row, expandedWorkGroups, onToggleWorkGroup, expandedInlineDiff, onToggleInlineDiff } =
-    props;
+  const {
+    row,
+    expandedWorkGroups,
+    onToggleWorkGroup,
+    expandedInlineDiff,
+    onToggleInlineDiff,
+    expandedCommandOutputIds,
+    onToggleCommandOutput,
+  } = props;
   const groupId = row.id;
   const groupedEntries = row.groupedEntries;
   const isExpanded = expandedWorkGroups[groupId] ?? false;
@@ -1089,6 +1168,8 @@ const GroupedWorkEntriesRow = memo(function GroupedWorkEntriesRow(props: {
             workEntry={workEntry}
             expandedInlineDiff={expandedInlineDiff}
             onToggleInlineDiff={onToggleInlineDiff}
+            expandedCommandOutputIds={expandedCommandOutputIds}
+            onToggleCommandOutput={onToggleCommandOutput}
           />
         ))}
       </div>
@@ -1100,6 +1181,8 @@ const StandaloneWorkEntryRow = memo(function StandaloneWorkEntryRow(props: {
   workEntry: TimelineWorkEntry;
   expandedInlineDiff: ExpandedInlineDiffState;
   onToggleInlineDiff: (scope: "tool" | "turn", id: string) => void;
+  expandedCommandOutputIds: Readonly<Record<string, boolean>>;
+  onToggleCommandOutput: (entryId: string) => void;
 }) {
   return (
     <div className="rounded-xl border border-border/45 bg-card/25 px-2 py-1.5">
@@ -1107,6 +1190,8 @@ const StandaloneWorkEntryRow = memo(function StandaloneWorkEntryRow(props: {
         workEntry={props.workEntry}
         expandedInlineDiff={props.expandedInlineDiff}
         onToggleInlineDiff={props.onToggleInlineDiff}
+        expandedCommandOutputIds={props.expandedCommandOutputIds}
+        onToggleCommandOutput={props.onToggleCommandOutput}
       />
     </div>
   );
@@ -1116,8 +1201,16 @@ const SimpleWorkEntryRow = memo(function SimpleWorkEntryRow(props: {
   workEntry: TimelineWorkEntry;
   expandedInlineDiff: ExpandedInlineDiffState;
   onToggleInlineDiff: (scope: "tool" | "turn", id: string) => void;
+  expandedCommandOutputIds: Readonly<Record<string, boolean>>;
+  onToggleCommandOutput: (entryId: string) => void;
 }) {
-  const { workEntry, expandedInlineDiff, onToggleInlineDiff } = props;
+  const {
+    workEntry,
+    expandedInlineDiff,
+    onToggleInlineDiff,
+    expandedCommandOutputIds,
+    onToggleCommandOutput,
+  } = props;
 
   // Agent tool calls get a specialized row with collapsible prompt
   if (workEntry.itemType === "collab_agent_tool_call") {
@@ -1141,6 +1234,9 @@ const SimpleWorkEntryRow = memo(function SimpleWorkEntryRow(props: {
   const toolInlineDiff = workEntry.inlineDiff;
   const isToolDiffExpanded =
     expandedInlineDiff?.scope === "tool" && expandedInlineDiff.id === workEntry.id;
+  const isCommandOutputExpanded = expandedCommandOutputIds[workEntry.id] ?? false;
+  const hasCommandOutput = workEntry.itemType === "command_execution" && Boolean(workEntry.output);
+  const isCommandEntry = workEntry.itemType === "command_execution";
 
   // Determine if preview should be monospace (commands, file paths, search patterns)
   const isMonoPreview =
@@ -1158,10 +1254,43 @@ const SimpleWorkEntryRow = memo(function SimpleWorkEntryRow(props: {
   // Duration
   const durationLabel =
     workEntry.durationMs !== undefined ? formatDuration(workEntry.durationMs) : null;
+  const handleToggleCommandOutput = useCallback(() => {
+    if (hasCommandOutput) {
+      onToggleCommandOutput(workEntry.id);
+    }
+  }, [hasCommandOutput, onToggleCommandOutput, workEntry.id]);
 
   return (
     <div className="rounded-lg px-1 py-1">
-      <div className="flex items-center gap-2 transition-[opacity,translate] duration-200">
+      <div
+        role={hasCommandOutput ? "button" : undefined}
+        tabIndex={hasCommandOutput ? 0 : undefined}
+        aria-expanded={hasCommandOutput ? isCommandOutputExpanded : undefined}
+        onClick={handleToggleCommandOutput}
+        onKeyDown={
+          hasCommandOutput
+            ? (event) => {
+                if (event.key === "Enter" || event.key === " ") {
+                  event.preventDefault();
+                  handleToggleCommandOutput();
+                }
+              }
+            : undefined
+        }
+        className={cn(
+          "flex items-center gap-2 transition-[opacity,translate] duration-200",
+          hasCommandOutput && "cursor-pointer rounded-md hover:bg-muted/30",
+        )}
+      >
+        {isCommandEntry ? (
+          <ChevronRightIcon
+            className={cn(
+              "size-3 shrink-0 text-muted-foreground/50 transition-transform duration-150",
+              isCommandOutputExpanded && "rotate-90",
+              !hasCommandOutput && "opacity-35",
+            )}
+          />
+        ) : null}
         <span
           className={cn("flex size-5 shrink-0 items-center justify-center", iconConfig.className)}
         >
@@ -1211,6 +1340,11 @@ const SimpleWorkEntryRow = memo(function SimpleWorkEntryRow(props: {
           expanded={isToolDiffExpanded}
           onToggle={() => onToggleInlineDiff("tool", workEntry.id)}
         />
+      ) : null}
+      {hasCommandOutput && isCommandOutputExpanded && workEntry.output ? (
+        <div className="ml-7 mt-1.5">
+          <CommandOutputPanel output={workEntry.output} maxHeightPx={320} />
+        </div>
       ) : null}
     </div>
   );

@@ -209,6 +209,143 @@ describe("MessagesTimeline", () => {
     expect(markup).not.toContain("Operations");
   });
 
+  it("renders the command output chevron for command rows but not non-command rows", async () => {
+    const { MessagesTimeline } = await import("./MessagesTimeline");
+    const commandMarkup = renderTimeline(
+      <MessagesTimeline
+        threadId={null}
+        hasMessages
+        isWorking={false}
+        activeTurnInProgress={false}
+        activeTurnStartedAt={null}
+        scrollContainer={null}
+        timelineEntries={[
+          {
+            id: "command-entry",
+            kind: "work",
+            createdAt: "2026-03-17T19:12:28.000Z",
+            entry: {
+              id: "command-1",
+              createdAt: "2026-03-17T19:12:28.000Z",
+              label: "Command",
+              tone: "tool",
+              itemType: "command_execution",
+              command: "bun fmt",
+            },
+          },
+        ]}
+        completionDividerBeforeEntryId={null}
+        completionSummary={null}
+        turnDiffSummaryByAssistantMessageId={new Map()}
+        nowIso="2026-03-17T19:12:30.000Z"
+        expandedWorkGroups={{}}
+        onToggleWorkGroup={() => {}}
+        onOpenTurnDiff={() => {}}
+        revertTurnCountByUserMessageId={new Map()}
+        onRevertUserMessage={() => {}}
+        isRevertingCheckpoint={false}
+        onImageExpand={() => {}}
+        markdownCwd={undefined}
+        resolvedTheme="light"
+        timestampFormat="locale"
+        workspaceRoot={undefined}
+      />,
+    );
+    const fileMarkup = renderTimeline(
+      <MessagesTimeline
+        threadId={null}
+        hasMessages
+        isWorking={false}
+        activeTurnInProgress={false}
+        activeTurnStartedAt={null}
+        scrollContainer={null}
+        timelineEntries={[
+          {
+            id: "file-entry",
+            kind: "work",
+            createdAt: "2026-03-17T19:12:28.000Z",
+            entry: {
+              id: "file-1",
+              createdAt: "2026-03-17T19:12:28.000Z",
+              label: "File change",
+              tone: "tool",
+              itemType: "file_change",
+              changedFiles: ["src/app.ts"],
+            },
+          },
+        ]}
+        completionDividerBeforeEntryId={null}
+        completionSummary={null}
+        turnDiffSummaryByAssistantMessageId={new Map()}
+        nowIso="2026-03-17T19:12:30.000Z"
+        expandedWorkGroups={{}}
+        onToggleWorkGroup={() => {}}
+        onOpenTurnDiff={() => {}}
+        revertTurnCountByUserMessageId={new Map()}
+        onRevertUserMessage={() => {}}
+        isRevertingCheckpoint={false}
+        onImageExpand={() => {}}
+        markdownCwd={undefined}
+        resolvedTheme="light"
+        timestampFormat="locale"
+        workspaceRoot={undefined}
+      />,
+    );
+
+    expect(commandMarkup).toContain("lucide-chevron-right");
+    expect(fileMarkup).not.toContain("lucide-chevron-right");
+  });
+
+  it("auto-expands failed command output on the first render", async () => {
+    const { MessagesTimeline } = await import("./MessagesTimeline");
+    const markup = renderTimeline(
+      <MessagesTimeline
+        threadId={null}
+        hasMessages
+        isWorking={false}
+        activeTurnInProgress={false}
+        activeTurnStartedAt={null}
+        scrollContainer={null}
+        timelineEntries={[
+          {
+            id: "command-entry",
+            kind: "work",
+            createdAt: "2026-03-17T19:12:28.000Z",
+            entry: {
+              id: "command-failed",
+              createdAt: "2026-03-17T19:12:28.000Z",
+              label: "Command",
+              tone: "tool",
+              itemType: "command_execution",
+              command: "bun run test",
+              exitCode: 1,
+              output: "FAIL should reconnect after session drop",
+            },
+          },
+        ]}
+        completionDividerBeforeEntryId={null}
+        completionSummary={null}
+        turnDiffSummaryByAssistantMessageId={new Map()}
+        nowIso="2026-03-17T19:12:30.000Z"
+        expandedWorkGroups={{}}
+        onToggleWorkGroup={() => {}}
+        onOpenTurnDiff={() => {}}
+        revertTurnCountByUserMessageId={new Map()}
+        onRevertUserMessage={() => {}}
+        isRevertingCheckpoint={false}
+        onImageExpand={() => {}}
+        markdownCwd={undefined}
+        resolvedTheme="light"
+        timestampFormat="locale"
+        workspaceRoot={undefined}
+      />,
+    );
+
+    expect(markup).toContain("Output");
+    expect(markup).toContain("Copy");
+    expect(markup).toContain("FAIL should reconnect after session drop");
+  });
+
   it("renders collapsed tool and turn diff blocks inline in chat history", async () => {
     const { MessagesTimeline } = await import("./MessagesTimeline");
     const assistantMessageId = MessageId.makeUnsafe("assistant-1");
