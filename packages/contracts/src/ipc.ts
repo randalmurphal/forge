@@ -42,6 +42,8 @@ import type {
 import type { ServerUpsertKeybindingInput } from "./server";
 import type {
   ClientOrchestrationCommand,
+  OrchestrationGetCommandOutputInput,
+  OrchestrationGetCommandOutputResult,
   ForgeEvent,
   OrchestrationGetFullThreadDiffInput,
   OrchestrationGetFullThreadDiffResult,
@@ -224,6 +226,9 @@ export interface NativeApi {
     getFullThreadDiff: (
       input: OrchestrationGetFullThreadDiffInput,
     ) => Promise<OrchestrationGetFullThreadDiffResult>;
+    getCommandOutput: (
+      input: OrchestrationGetCommandOutputInput,
+    ) => Promise<OrchestrationGetCommandOutputResult>;
     getTurnAgentDiff: (
       input: OrchestrationGetTurnAgentDiffInput,
     ) => Promise<OrchestrationGetTurnAgentDiffResult>;

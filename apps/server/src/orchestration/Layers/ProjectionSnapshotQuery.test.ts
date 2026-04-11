@@ -6,13 +6,14 @@ import {
   MessageId,
   PhaseRunId,
   ProjectId,
+  ProviderItemId,
   ThreadId,
   TurnId,
   WorkflowId,
   WorkflowPhaseId,
 } from "@forgetools/contracts";
 import { assert, it } from "@effect/vitest";
-import { Effect, Layer } from "effect";
+import { Effect, Layer, Option } from "effect";
 import * as SqlClient from "effect/unstable/sql/SqlClient";
 
 import { SqlitePersistenceMemory } from "../../persistence/Layers/Sqlite.ts";
@@ -31,6 +32,71 @@ const projectionSnapshotLayer = it.layer(
 );
 
 projectionSnapshotLayer("ProjectionSnapshotQuery", (it) => {
+  it.effect("loads tailed command output on demand", () =>
+    Effect.gen(function* () {
+      const snapshotQuery = yield* ProjectionSnapshotQuery;
+      const sql = yield* SqlClient.SqlClient;
+
+      yield* sql`DELETE FROM projection_thread_activities`;
+
+      const output = Array.from({ length: 130 }, (_, index) => `line ${index + 1}`).join("\n");
+
+      yield* sql`
+        INSERT INTO projection_thread_activities (
+          activity_id,
+          thread_id,
+          turn_id,
+          tone,
+          kind,
+          summary,
+          payload_json,
+          sequence,
+          created_at
+        )
+        VALUES (
+          'activity-command-1',
+          'thread-command-1',
+          'turn-command-1',
+          'tool',
+          'tool.completed',
+          'Ran command',
+          ${JSON.stringify({
+            itemType: "command_execution",
+            itemId: "tool-command-1",
+            data: {
+              item: {
+                id: "tool-command-1",
+                aggregatedOutput: output,
+              },
+            },
+          })},
+          1,
+          '2026-04-10T00:00:00.000Z'
+        )
+      `;
+
+      const commandOutput = yield* snapshotQuery.getCommandOutput({
+        threadId: ThreadId.makeUnsafe("thread-command-1"),
+        activityId: asEventId("activity-command-1"),
+        toolCallId: ProviderItemId.makeUnsafe("tool-command-1"),
+      });
+
+      assert.isTrue(Option.isSome(commandOutput));
+      if (Option.isSome(commandOutput)) {
+        assert.deepStrictEqual(commandOutput.value, {
+          threadId: ThreadId.makeUnsafe("thread-command-1"),
+          activityId: asEventId("activity-command-1"),
+          toolCallId: ProviderItemId.makeUnsafe("tool-command-1"),
+          output: Array.from({ length: 100 }, (_, index) => `line ${index + 31}`).join("\n"),
+          source: "final",
+          omittedLineCount: 30,
+        });
+      }
+
+      yield* sql`DELETE FROM projection_thread_activities`;
+    }),
+  );
+
   it.effect("hydrates read model from projection tables and computes snapshot sequence", () =>
     Effect.gen(function* () {
       const snapshotQuery = yield* ProjectionSnapshotQuery;

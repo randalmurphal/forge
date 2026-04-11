@@ -16,7 +16,7 @@ import {
 } from "lucide-react";
 
 import { cn } from "~/lib/utils";
-import { CommandOutputPanel } from "./CommandOutputPanel";
+import { LazyCommandOutput } from "./LazyCommandOutput";
 import {
   deriveBackgroundCommandStatus,
   formatDuration,
@@ -144,6 +144,7 @@ export const ComposerBackgroundTaskTray = memo(function ComposerBackgroundTaskTr
               task.kind === "subagent" ? (
                 <BackgroundSubagentTaskRow
                   key={task.id}
+                  threadId={props.threadId}
                   group={task.group}
                   isExpanded={expandedTaskIds[task.id] ?? false}
                   nowIso={props.nowIso}
@@ -152,6 +153,7 @@ export const ComposerBackgroundTaskTray = memo(function ComposerBackgroundTaskTr
               ) : (
                 <BackgroundCommandTaskRow
                   key={task.id}
+                  threadId={props.threadId}
                   entry={task.entry}
                   isExpanded={expandedTaskIds[task.id] ?? false}
                   nowIso={props.nowIso}
@@ -167,13 +169,14 @@ export const ComposerBackgroundTaskTray = memo(function ComposerBackgroundTaskTr
 });
 
 const BackgroundCommandTaskRow = memo(function BackgroundCommandTaskRow(props: {
+  threadId: string;
   entry: WorkLogEntry;
   isExpanded: boolean;
   nowIso: string;
   onToggle: () => void;
 }) {
   const status = deriveBackgroundCommandStatus(props.entry);
-  const hasOutput = Boolean(props.entry.output);
+  const hasOutput = Boolean(props.entry.hasOutput || props.entry.output);
   const elapsed = formatTrayTaskElapsed(
     props.entry.startedAt ?? props.entry.createdAt,
     props.entry.createdAt,
@@ -222,9 +225,15 @@ const BackgroundCommandTaskRow = memo(function BackgroundCommandTaskRow(props: {
           ) : null}
         </div>
       </button>
-      {hasOutput && props.isExpanded && props.entry.output ? (
+      {hasOutput && props.isExpanded ? (
         <div className="ml-7 mr-2 mb-2">
-          <CommandOutputPanel output={props.entry.output} maxHeightPx={240} label="Output" />
+          <LazyCommandOutput
+            threadId={props.threadId}
+            entry={props.entry}
+            expanded={props.isExpanded}
+            maxHeightPx={240}
+            label="Output"
+          />
         </div>
       ) : null}
     </div>
@@ -232,6 +241,7 @@ const BackgroundCommandTaskRow = memo(function BackgroundCommandTaskRow(props: {
 });
 
 const BackgroundSubagentTaskRow = memo(function BackgroundSubagentTaskRow(props: {
+  threadId: string;
   group: SubagentGroup;
   isExpanded: boolean;
   nowIso: string;
@@ -289,7 +299,11 @@ const BackgroundSubagentTaskRow = memo(function BackgroundSubagentTaskRow(props:
             <div className="max-h-60 overflow-y-auto px-2 py-2 [scrollbar-width:thin]">
               <div className="space-y-1">
                 {props.group.entries.map((entry) => (
-                  <TraySubagentWorkEntryRow key={entry.id} entry={entry} />
+                  <TraySubagentWorkEntryRow
+                    key={entry.id}
+                    threadId={props.threadId}
+                    entry={entry}
+                  />
                 ))}
               </div>
             </div>
@@ -305,11 +319,12 @@ const BackgroundSubagentTaskRow = memo(function BackgroundSubagentTaskRow(props:
 });
 
 const TraySubagentWorkEntryRow = memo(function TraySubagentWorkEntryRow(props: {
+  threadId: string | null;
   entry: WorkLogEntry;
 }) {
   const [isExpanded, setIsExpanded] = useState(false);
   const isCommand = props.entry.itemType === "command_execution";
-  const hasOutput = isCommand && Boolean(props.entry.output);
+  const hasOutput = isCommand && Boolean(props.entry.hasOutput || props.entry.output);
   const EntryIcon = isCommand ? TerminalIcon : entryIcon(props.entry);
   const preview = props.entry.command ?? props.entry.filePath ?? props.entry.detail ?? null;
   const heading = props.entry.toolTitle ?? props.entry.toolName ?? props.entry.label;
@@ -351,9 +366,14 @@ const TraySubagentWorkEntryRow = memo(function TraySubagentWorkEntryRow(props: {
           </p>
         </div>
       </button>
-      {hasOutput && isExpanded && props.entry.output ? (
+      {hasOutput && isExpanded ? (
         <div className="ml-7 mt-1">
-          <CommandOutputPanel output={props.entry.output} maxHeightPx={240} />
+          <LazyCommandOutput
+            threadId={props.threadId}
+            entry={props.entry}
+            expanded={isExpanded}
+            maxHeightPx={240}
+          />
         </div>
       ) : null}
     </div>

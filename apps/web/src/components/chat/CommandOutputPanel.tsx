@@ -7,6 +7,7 @@ export const CommandOutputPanel = memo(function CommandOutputPanel(props: {
   output: string;
   maxHeightPx: number;
   label?: string | undefined;
+  notice?: string | undefined;
   className?: string | undefined;
 }) {
   const { copyToClipboard, isCopied } = useCopyToClipboard();
@@ -49,6 +50,11 @@ export const CommandOutputPanel = memo(function CommandOutputPanel(props: {
           {isCopied ? "Copied" : "Copy"}
         </Button>
       </div>
+      {props.notice ? (
+        <div className="border-border/20 border-b px-3 py-1.5 text-[10px] text-muted-foreground/60">
+          {props.notice}
+        </div>
+      ) : null}
       <pre
         ref={scrollRef}
         onScroll={onScroll}

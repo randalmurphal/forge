@@ -296,7 +296,7 @@ describe("MessagesTimeline", () => {
     expect(fileMarkup).not.toContain("lucide-chevron-right");
   });
 
-  it("auto-expands failed command output on the first render", async () => {
+  it("keeps failed command output collapsed by default", async () => {
     const { MessagesTimeline } = await import("./MessagesTimeline");
     const markup = renderTimeline(
       <MessagesTimeline
@@ -319,6 +319,7 @@ describe("MessagesTimeline", () => {
               itemType: "command_execution",
               command: "bun run test",
               exitCode: 1,
+              hasOutput: true,
               output: "FAIL should reconnect after session drop",
             },
           },
@@ -341,9 +342,10 @@ describe("MessagesTimeline", () => {
       />,
     );
 
-    expect(markup).toContain("Output");
-    expect(markup).toContain("Copy");
-    expect(markup).toContain("FAIL should reconnect after session drop");
+    expect(markup).toContain("exit 1");
+    expect(markup).not.toContain("Output");
+    expect(markup).not.toContain("Copy");
+    expect(markup).not.toContain("FAIL should reconnect after session drop");
   });
 
   it("renders collapsed tool and turn diff blocks inline in chat history", async () => {

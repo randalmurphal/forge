@@ -52,6 +52,7 @@ export const ORCHESTRATION_WS_METHODS = {
   dispatchCommand: "orchestration.dispatchCommand",
   getTurnDiff: "orchestration.getTurnDiff",
   getFullThreadDiff: "orchestration.getFullThreadDiff",
+  getCommandOutput: "orchestration.getCommandOutput",
   getTurnAgentDiff: "orchestration.getTurnAgentDiff",
   getFullThreadAgentDiff: "orchestration.getFullThreadAgentDiff",
   replayEvents: "orchestration.replayEvents",
@@ -2734,6 +2735,26 @@ export type OrchestrationGetFullThreadDiffInput = typeof OrchestrationGetFullThr
 export const OrchestrationGetFullThreadDiffResult = ThreadTurnDiff;
 export type OrchestrationGetFullThreadDiffResult = typeof OrchestrationGetFullThreadDiffResult.Type;
 
+export const CommandOutputSource = Schema.Literals(["final", "stream"]);
+export type CommandOutputSource = typeof CommandOutputSource.Type;
+
+export const OrchestrationGetCommandOutputInput = Schema.Struct({
+  threadId: ThreadId,
+  activityId: EventId,
+  toolCallId: Schema.optional(ProviderItemId),
+});
+export type OrchestrationGetCommandOutputInput = typeof OrchestrationGetCommandOutputInput.Type;
+
+export const OrchestrationGetCommandOutputResult = Schema.Struct({
+  threadId: ThreadId,
+  activityId: EventId,
+  toolCallId: ProviderItemId,
+  output: Schema.String,
+  source: CommandOutputSource,
+  omittedLineCount: NonNegativeInt,
+});
+export type OrchestrationGetCommandOutputResult = typeof OrchestrationGetCommandOutputResult.Type;
+
 export const OrchestrationGetTurnAgentDiffInput = Schema.Struct({
   threadId: ThreadId,
   turnId: TurnId,
@@ -2791,6 +2812,10 @@ export const OrchestrationRpcSchemas = {
     input: OrchestrationGetFullThreadDiffInput,
     output: OrchestrationGetFullThreadDiffResult,
   },
+  getCommandOutput: {
+    input: OrchestrationGetCommandOutputInput,
+    output: OrchestrationGetCommandOutputResult,
+  },
   getTurnAgentDiff: {
     input: OrchestrationGetTurnAgentDiffInput,
     output: OrchestrationGetTurnAgentDiffResult,
@@ -2831,6 +2856,14 @@ export class OrchestrationGetTurnDiffError extends Schema.TaggedErrorClass<Orche
 
 export class OrchestrationGetFullThreadDiffError extends Schema.TaggedErrorClass<OrchestrationGetFullThreadDiffError>()(
   "OrchestrationGetFullThreadDiffError",
+  {
+    message: TrimmedNonEmptyString,
+    cause: Schema.optional(Schema.Defect),
+  },
+) {}
+
+export class OrchestrationGetCommandOutputError extends Schema.TaggedErrorClass<OrchestrationGetCommandOutputError>()(
+  "OrchestrationGetCommandOutputError",
   {
     message: TrimmedNonEmptyString,
     cause: Schema.optional(Schema.Defect),

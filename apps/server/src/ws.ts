@@ -6,6 +6,7 @@ import {
   type ForgeEvent as ForgeEventEnvelope,
   type GitActionProgressEvent,
   type GitManagerServiceError,
+  OrchestrationGetCommandOutputError,
   OrchestrationDispatchCommandError,
   type OrchestrationEvent,
   OrchestrationGetFullThreadAgentDiffError,
@@ -42,6 +43,10 @@ import { GitManager } from "./git/Services/GitManager";
 import { Keybindings } from "./keybindings";
 import { Open, resolveAvailableEditors } from "./open";
 import { normalizeDispatchCommand } from "./orchestration/Normalizer";
+import {
+  sanitizeForgeEventForTransport,
+  sanitizeReadModelForTransport,
+} from "./orchestration/threadActivityTransport.ts";
 import { OrchestrationEngineService } from "./orchestration/Services/OrchestrationEngine";
 import { ProjectionSnapshotQuery } from "./orchestration/Services/ProjectionSnapshotQuery";
 import {
@@ -873,12 +878,37 @@ const WsRpcLayer = WsRpcGroup.toLayer(
         observeRpcEffect(
           ORCHESTRATION_WS_METHODS.getSnapshot,
           projectionSnapshotQuery.getSnapshot().pipe(
+            Effect.map(sanitizeReadModelForTransport),
             Effect.mapError(
               (cause) =>
                 new OrchestrationGetSnapshotError({
                   message: "Failed to load orchestration snapshot",
                   cause,
                 }),
+            ),
+          ),
+          { "rpc.aggregate": "orchestration" },
+        ),
+      [ORCHESTRATION_WS_METHODS.getCommandOutput]: (input) =>
+        observeRpcEffect(
+          ORCHESTRATION_WS_METHODS.getCommandOutput,
+          projectionSnapshotQuery.getCommandOutput(input).pipe(
+            Effect.flatMap((outputOption) =>
+              Option.isNone(outputOption)
+                ? Effect.fail(
+                    new OrchestrationGetCommandOutputError({
+                      message: `Failed to load command output for activity '${input.activityId}'.`,
+                    }),
+                  )
+                : Effect.succeed(outputOption.value),
+            ),
+            Effect.mapError((cause) =>
+              Schema.is(OrchestrationGetCommandOutputError)(cause)
+                ? cause
+                : new OrchestrationGetCommandOutputError({
+                    message: "Failed to load command output",
+                    cause,
+                  }),
             ),
           ),
           { "rpc.aggregate": "orchestration" },
@@ -978,7 +1008,7 @@ const WsRpcLayer = WsRpcGroup.toLayer(
               clamp(input.fromSequenceExclusive, { maximum: Number.MAX_SAFE_INTEGER, minimum: 0 }),
             ),
           ).pipe(
-            Effect.map((events) => Array.from(events)),
+            Effect.map((events) => Array.from(events, sanitizeForgeEventForTransport)),
             Effect.mapError(
               (cause) =>
                 new OrchestrationReplayEventsError({
@@ -1366,9 +1396,10 @@ const WsRpcLayer = WsRpcGroup.toLayer(
             const fromSequenceExclusive =
               input.fromSequenceExclusive ??
               (yield* orchestrationEngine.getReadModel()).snapshotSequence;
-            return orchestrationEngine
-              .streamEventsFromSequence(fromSequenceExclusive)
-              .pipe(Stream.catch(() => Stream.empty));
+            return orchestrationEngine.streamEventsFromSequence(fromSequenceExclusive).pipe(
+              Stream.map(sanitizeForgeEventForTransport),
+              Stream.catch(() => Stream.empty),
+            );
           }),
           { "rpc.aggregate": "orchestration" },
         ),

@@ -7,6 +7,8 @@
  * @module ProjectionSnapshotQuery
  */
 import type {
+  OrchestrationGetCommandOutputInput,
+  OrchestrationGetCommandOutputResult,
   OrchestrationCheckpointSummary,
   OrchestrationProject,
   OrchestrationReadModel,
@@ -43,6 +45,13 @@ export interface ProjectionSnapshotQueryShape {
    * projector cursor state.
    */
   readonly getSnapshot: () => Effect.Effect<OrchestrationReadModel, ProjectionRepositoryError>;
+
+  /**
+   * Resolve the full command output for one command activity on demand.
+   */
+  readonly getCommandOutput: (
+    input: OrchestrationGetCommandOutputInput,
+  ) => Effect.Effect<Option.Option<OrchestrationGetCommandOutputResult>, ProjectionRepositoryError>;
 
   /**
    * Read aggregate projection counts without hydrating the full read model.

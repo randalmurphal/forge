@@ -289,6 +289,7 @@ const buildAppUnderTest = (options?: {
       }),
       Layer.mock(ProjectionSnapshotQuery)({
         getSnapshot: () => Effect.succeed(makeDefaultOrchestrationReadModel()),
+        getCommandOutput: () => Effect.succeed(Option.none()),
         ...options?.layers?.projectionSnapshotQuery,
       }),
       Layer.mock(WorkflowRegistry)({

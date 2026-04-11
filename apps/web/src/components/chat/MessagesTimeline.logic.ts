@@ -340,12 +340,12 @@ function estimateExpandedCommandOutputHeight(
 ): number {
   if (
     entry.itemType !== "command_execution" ||
-    !entry.output ||
+    !(entry.hasOutput || entry.output) ||
     !(expandedCommandOutputIds?.[entry.id] ?? false)
   ) {
     return 0;
   }
-  const lineCount = entry.output.split("\n").length;
+  const lineCount = entry.output ? entry.output.split("\n").length : 12;
   const estimatedBodyHeight = Math.min(COMMAND_OUTPUT_TIMELINE_MAX_HEIGHT_PX, lineCount * 17 + 20);
   return 16 + 30 + estimatedBodyHeight;
 }

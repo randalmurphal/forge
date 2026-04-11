@@ -5,6 +5,7 @@ import {
   EventId,
   type ForgeEvent,
   ProjectId,
+  ProviderItemId,
   type ServerConfig,
   type ServerProvider,
   type TerminalEvent,
@@ -79,6 +80,7 @@ const rpcClientMock = {
     dispatchCommand: vi.fn(),
     getTurnDiff: vi.fn(),
     getFullThreadDiff: vi.fn(),
+    getCommandOutput: vi.fn(),
     replayEvents: vi.fn(),
     onDomainEvent: vi.fn((listener: (event: ForgeEvent) => void) =>
       registerListener(orchestrationEventListeners, listener),
@@ -305,6 +307,31 @@ describe("wsNativeApi", () => {
     expect(rpcClientMock.orchestration.getFullThreadDiff).toHaveBeenCalledWith({
       threadId: "thread-1",
       toTurnCount: 1,
+    });
+  });
+
+  it("forwards command output requests to the orchestration RPC", async () => {
+    rpcClientMock.orchestration.getCommandOutput.mockResolvedValue({
+      threadId: ThreadId.makeUnsafe("thread-1"),
+      activityId: EventId.makeUnsafe("activity-1"),
+      toolCallId: ProviderItemId.makeUnsafe("tool-1"),
+      output: "line 1\nline 2",
+      source: "stream",
+      omittedLineCount: 0,
+    });
+    const { createWsNativeApi } = await import("./wsNativeApi");
+
+    const api = createWsNativeApi();
+    await api.orchestration.getCommandOutput({
+      threadId: ThreadId.makeUnsafe("thread-1"),
+      activityId: EventId.makeUnsafe("activity-1"),
+      toolCallId: ProviderItemId.makeUnsafe("tool-1"),
+    });
+
+    expect(rpcClientMock.orchestration.getCommandOutput).toHaveBeenCalledWith({
+      threadId: "thread-1",
+      activityId: "activity-1",
+      toolCallId: "tool-1",
     });
   });
 

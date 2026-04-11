@@ -2047,6 +2047,40 @@ describe("deriveWorkLogEntries", () => {
     expect(entry?.outputSource).toBe("final");
   });
 
+  it("marks sanitized command payloads as having output without requiring the full text", () => {
+    const [entry] = deriveWorkLogEntries(
+      [
+        makeActivity({
+          id: "sanitized-command",
+          kind: "tool.completed",
+          summary: "Ran command",
+          payload: {
+            itemType: "command_execution",
+            status: "completed",
+            outputSummary: {
+              available: true,
+              source: "final",
+              byteLength: 2048,
+            },
+            data: {
+              item: {
+                id: "sanitized-command-1",
+                command: ["bun", "run", "build"],
+                exitCode: 0,
+              },
+            },
+          },
+        }),
+      ],
+      undefined,
+    );
+
+    expect(entry?.hasOutput).toBe(true);
+    expect(entry?.output).toBeUndefined();
+    expect(entry?.outputByteLength).toBe(2048);
+    expect(entry?.outputSource).toBe("final");
+  });
+
   it("marks Codex unified-exec commands as background from the command source", () => {
     const [entry] = deriveWorkLogEntries(
       [
@@ -2334,6 +2368,46 @@ describe("deriveWorkLogEntries", () => {
     );
 
     expect(entry?.output).toBe("[watch] bundling...\n[watch] waiting for changes...\n");
+    expect(entry?.outputSource).toBe("stream");
+  });
+
+  it("marks sanitized streamed command output as available when only delta lengths are present", () => {
+    const [entry] = deriveWorkLogEntries(
+      [
+        makeActivity({
+          id: "sanitized-stream-before-row",
+          createdAt: "2026-04-10T12:00:00.000Z",
+          kind: "tool.output.delta",
+          summary: "Command output updated",
+          payload: {
+            itemId: "command-stream-sanitized-1",
+            streamKind: "command_output",
+            deltaLength: 22,
+          },
+        }),
+        makeActivity({
+          id: "sanitized-command-row",
+          createdAt: "2026-04-10T12:00:01.000Z",
+          kind: "tool.updated",
+          summary: "Ran command",
+          payload: {
+            itemType: "command_execution",
+            itemId: "command-stream-sanitized-1",
+            status: "inProgress",
+            data: {
+              item: {
+                id: "command-stream-sanitized-1",
+                command: ["bun", "run", "build", "--watch"],
+              },
+            },
+          },
+        }),
+      ],
+      undefined,
+    );
+
+    expect(entry?.hasOutput).toBe(true);
+    expect(entry?.output).toBeUndefined();
     expect(entry?.outputSource).toBe("stream");
   });
 

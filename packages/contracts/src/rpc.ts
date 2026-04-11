@@ -50,6 +50,8 @@ import {
   ForgeEvent,
   OrchestrationGetSnapshotError,
   ORCHESTRATION_WS_METHODS,
+  OrchestrationGetCommandOutputError,
+  OrchestrationGetCommandOutputInput,
   OrchestrationDispatchCommandError,
   OrchestrationGetFullThreadDiffError,
   OrchestrationGetFullThreadAgentDiffError,
@@ -398,6 +400,15 @@ export const WsOrchestrationGetFullThreadDiffRpc = Rpc.make(
     payload: OrchestrationGetFullThreadDiffInput,
     success: OrchestrationRpcSchemas.getFullThreadDiff.output,
     error: OrchestrationGetFullThreadDiffError,
+  },
+);
+
+export const WsOrchestrationGetCommandOutputRpc = Rpc.make(
+  ORCHESTRATION_WS_METHODS.getCommandOutput,
+  {
+    payload: OrchestrationGetCommandOutputInput,
+    success: OrchestrationRpcSchemas.getCommandOutput.output,
+    error: OrchestrationGetCommandOutputError,
   },
 );
 
@@ -996,6 +1007,7 @@ export const WsRpcGroup = RpcGroup.make(
   WsOrchestrationDispatchCommandRpc,
   WsOrchestrationGetTurnDiffRpc,
   WsOrchestrationGetFullThreadDiffRpc,
+  WsOrchestrationGetCommandOutputRpc,
   WsOrchestrationGetTurnAgentDiffRpc,
   WsOrchestrationGetFullThreadAgentDiffRpc,
   WsOrchestrationReplayEventsRpc,

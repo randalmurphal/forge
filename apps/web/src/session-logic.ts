@@ -57,6 +57,8 @@ export interface WorkLogEntry {
   exitCode?: number | undefined;
   durationMs?: number | undefined;
   output?: string | undefined;
+  hasOutput?: boolean | undefined;
+  outputByteLength?: number | undefined;
   outputSource?: "final" | "stream" | undefined;
   isBackgroundCommand?: boolean | undefined;
   commandSource?: string | undefined;
@@ -559,6 +561,8 @@ export function deriveWorkLogEntries(
     ...synthesizeCodexSubagentCompletionActivities(scopedActivities),
   ].toSorted(compareActivitiesByOrder);
   const streamedCommandOutputByToolCallId = collectStreamedCommandOutputByToolCallId(ordered);
+  const streamedCommandOutputPresenceByToolCallId =
+    collectStreamedCommandOutputPresenceByToolCallId(ordered);
   const terminalInteractionsByToolCallId = collectTerminalInteractionsByToolCallId(ordered);
   const entries = ordered
     .filter((activity) => !shouldFilterToolStartedActivity(activity))
@@ -584,6 +588,7 @@ export function deriveWorkLogEntries(
   const entriesWithOutput = applyStreamedCommandOutput(
     collapsedEntries,
     streamedCommandOutputByToolCallId,
+    streamedCommandOutputPresenceByToolCallId,
   );
   const entriesWithBackgroundSignals = applyBackgroundCommandSignals(
     entriesWithOutput,
@@ -728,6 +733,28 @@ function collectStreamedCommandOutputByToolCallId(
   return outputByToolCallId;
 }
 
+function collectStreamedCommandOutputPresenceByToolCallId(
+  activities: ReadonlyArray<OrchestrationThreadActivity>,
+): Set<string> {
+  const toolCallIds = new Set<string>();
+  for (const activity of activities) {
+    if (activity.kind !== "tool.output.delta") {
+      continue;
+    }
+    const payload = asRecord(activity.payload);
+    const streamKind = asTrimmedString(payload?.streamKind);
+    const toolCallId = asTrimmedString(payload?.itemId);
+    const hasDelta =
+      (typeof payload?.delta === "string" && payload.delta.length > 0) ||
+      (typeof payload?.deltaLength === "number" && payload.deltaLength > 0);
+    if (streamKind !== "command_output" || !toolCallId || !hasDelta) {
+      continue;
+    }
+    toolCallIds.add(toolCallId);
+  }
+  return toolCallIds;
+}
+
 function collectTerminalInteractionsByToolCallId(
   activities: ReadonlyArray<OrchestrationThreadActivity>,
 ): Set<string> {
@@ -749,25 +776,29 @@ function collectTerminalInteractionsByToolCallId(
 function applyStreamedCommandOutput(
   entries: ReadonlyArray<DerivedWorkLogEntry>,
   streamedCommandOutputByToolCallId: ReadonlyMap<string, string>,
+  streamedCommandOutputPresenceByToolCallId: ReadonlySet<string>,
 ): DerivedWorkLogEntry[] {
   return entries.map((entry) => {
-    if (
-      entry.itemType !== "command_execution" ||
-      entry.output ||
-      entry.toolCallId === undefined ||
-      entry.toolCallId.length === 0
-    ) {
+    if (entry.itemType !== "command_execution" || !entry.toolCallId) {
       return entry;
     }
-    const streamedOutput = streamedCommandOutputByToolCallId.get(entry.toolCallId);
-    if (!streamedOutput || streamedOutput.trim().length === 0) {
+    const streamedOutput = streamedCommandOutputByToolCallId.get(entry.toolCallId) ?? null;
+    const hasStreamedOutput =
+      streamedOutput !== null
+        ? streamedOutput.trim().length > 0
+        : streamedCommandOutputPresenceByToolCallId.has(entry.toolCallId);
+    if (!hasStreamedOutput) {
       return entry;
     }
-    return {
+    const nextEntry: DerivedWorkLogEntry = {
       ...entry,
-      output: streamedOutput,
+      hasOutput: true,
       outputSource: "stream",
     };
+    if (!entry.output && streamedOutput !== null && streamedOutput.trim().length > 0) {
+      nextEntry.output = streamedOutput;
+    }
+    return nextEntry;
   });
 }
 
@@ -951,7 +982,9 @@ interface ToolEnrichments {
   exitCode?: number;
   durationMs?: number;
   output?: string;
-  outputSource?: "final";
+  hasOutput?: boolean;
+  outputByteLength?: number;
+  outputSource?: "final" | "stream";
   isBackgroundCommand?: boolean;
   processId?: string;
   commandSource?: string;
@@ -1031,8 +1064,29 @@ function extractToolEnrichments(payload: Record<string, unknown> | null): ToolEn
       continue;
     }
     enrichments.output = candidate;
+    enrichments.hasOutput = true;
+    enrichments.outputByteLength = candidate.length;
     enrichments.outputSource = "final";
     break;
+  }
+
+  const outputSummary = asRecord(payload.outputSummary);
+  if (outputSummary?.available === true) {
+    const source =
+      outputSummary.source === "final" || outputSummary.source === "stream"
+        ? outputSummary.source
+        : null;
+    const byteLength =
+      typeof outputSummary.byteLength === "number" && Number.isFinite(outputSummary.byteLength)
+        ? outputSummary.byteLength
+        : null;
+    if (source) {
+      enrichments.hasOutput = true;
+      enrichments.outputSource = source;
+    }
+    if (byteLength !== null && byteLength >= 0) {
+      enrichments.outputByteLength = byteLength;
+    }
   }
 
   if (enrichments.exitCode === undefined) {
@@ -1206,6 +1260,9 @@ function toDerivedWorkLogEntry(activity: OrchestrationThreadActivity): DerivedWo
   else if (detailInfo.exitCode !== undefined) entry.exitCode = detailInfo.exitCode;
   if (enrichments.durationMs !== undefined) entry.durationMs = enrichments.durationMs;
   if (enrichments.output) entry.output = enrichments.output;
+  if (enrichments.hasOutput) entry.hasOutput = true;
+  if (enrichments.outputByteLength !== undefined)
+    entry.outputByteLength = enrichments.outputByteLength;
   if (enrichments.outputSource) entry.outputSource = enrichments.outputSource;
   if (enrichments.isBackgroundCommand) entry.isBackgroundCommand = true;
   if (enrichments.processId) entry.processId = enrichments.processId;
@@ -1348,6 +1405,8 @@ function mergeDerivedWorkLogEntries(
   const exitCode = next.exitCode ?? previous.exitCode;
   const durationMs = next.durationMs ?? previous.durationMs;
   const output = next.output ?? previous.output;
+  const hasOutput = Boolean(previous.hasOutput || next.hasOutput || output);
+  const outputByteLength = next.outputByteLength ?? previous.outputByteLength;
   const outputSource = next.outputSource ?? previous.outputSource;
   const startedAt = earliestIsoValue(previous.startedAt, next.startedAt);
   const itemStatus = next.itemStatus ?? previous.itemStatus;
@@ -1374,6 +1433,8 @@ function mergeDerivedWorkLogEntries(
     ...(exitCode !== undefined ? { exitCode } : {}),
     ...(durationMs !== undefined ? { durationMs } : {}),
     ...(output ? { output } : {}),
+    ...(hasOutput ? { hasOutput } : {}),
+    ...(outputByteLength !== undefined ? { outputByteLength } : {}),
     ...(outputSource ? { outputSource } : {}),
     ...(startedAt ? { startedAt } : {}),
     ...(itemStatus ? { itemStatus } : {}),
