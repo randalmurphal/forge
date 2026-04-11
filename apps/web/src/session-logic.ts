@@ -42,6 +42,7 @@ export interface WorkLogEntry {
   startedAt?: string | undefined;
   turnId?: TurnId | undefined;
   toolCallId?: string | undefined;
+  processId?: string | undefined;
   label: string;
   detail?: string;
   command?: string;
@@ -58,6 +59,7 @@ export interface WorkLogEntry {
   output?: string | undefined;
   outputSource?: "final" | "stream" | undefined;
   isBackgroundCommand?: boolean | undefined;
+  commandSource?: string | undefined;
   mcpServer?: string | undefined;
   mcpTool?: string | undefined;
   searchPattern?: string | undefined;
@@ -557,9 +559,11 @@ export function deriveWorkLogEntries(
     ...synthesizeCodexSubagentCompletionActivities(scopedActivities),
   ].toSorted(compareActivitiesByOrder);
   const streamedCommandOutputByToolCallId = collectStreamedCommandOutputByToolCallId(ordered);
+  const terminalInteractionsByToolCallId = collectTerminalInteractionsByToolCallId(ordered);
   const entries = ordered
-    .filter((activity) => activity.kind !== "tool.started")
+    .filter((activity) => !shouldFilterToolStartedActivity(activity))
     .filter((activity) => activity.kind !== "tool.output.delta")
+    .filter((activity) => activity.kind !== "tool.terminal.interaction")
     .filter((activity) => {
       return !isUnattributedCollabAgentToolEnvelope(activity);
     })
@@ -581,9 +585,11 @@ export function deriveWorkLogEntries(
     collapsedEntries,
     streamedCommandOutputByToolCallId,
   );
-  return inferBackgroundCommandEntries(entriesWithOutput).map(
-    ({ collapseKey: _collapseKey, ...entry }) => entry,
+  const entriesWithBackgroundSignals = applyBackgroundCommandSignals(
+    entriesWithOutput,
+    terminalInteractionsByToolCallId,
   );
+  return entriesWithBackgroundSignals.map(({ collapseKey: _collapseKey, ...entry }) => entry);
 }
 
 function synthesizeCodexSubagentCompletionActivities(
@@ -630,7 +636,7 @@ function synthesizeCodexSubagentCompletionActivities(
     const label = asTrimmedString(item?.prompt)?.slice(0, 120);
     const agentModel = asTrimmedString(item?.model) ?? undefined;
     const agentsStates = asRecord(item?.agentsStates);
-    const itemStatus = asTrimmedString(item?.status);
+    const itemStatus = asTrimmedString(item?.status) ?? asTrimmedString(payload.status);
 
     for (const childProviderThreadId of receiverThreadIds) {
       const completionKey = `${taskId}\u001f${childProviderThreadId}`;
@@ -639,8 +645,9 @@ function synthesizeCodexSubagentCompletionActivities(
       }
 
       const agentState = asRecord(agentsStates?.[childProviderThreadId]);
-      const normalizedStatus = normalizeCodexCollabAgentTerminalStatus(
-        asTrimmedString(agentState?.status) ?? itemStatus,
+      const normalizedStatus = resolveCodexCollabAgentTerminalStatus(
+        asTrimmedString(agentState?.status),
+        itemStatus,
       );
       if (normalizedStatus === "running") {
         continue;
@@ -671,6 +678,17 @@ function synthesizeCodexSubagentCompletionActivities(
   }
 
   return syntheticActivities;
+}
+
+function resolveCodexCollabAgentTerminalStatus(
+  agentStatus: string | null,
+  itemStatus: string | null,
+): "running" | "completed" | "failed" {
+  const normalizedAgentStatus = normalizeCodexCollabAgentTerminalStatus(agentStatus);
+  if (normalizedAgentStatus !== "running") {
+    return normalizedAgentStatus;
+  }
+  return normalizeCodexCollabAgentTerminalStatus(itemStatus);
 }
 
 function normalizeCodexCollabAgentTerminalStatus(
@@ -710,6 +728,24 @@ function collectStreamedCommandOutputByToolCallId(
   return outputByToolCallId;
 }
 
+function collectTerminalInteractionsByToolCallId(
+  activities: ReadonlyArray<OrchestrationThreadActivity>,
+): Set<string> {
+  const toolCallIds = new Set<string>();
+  for (const activity of activities) {
+    if (activity.kind !== "tool.terminal.interaction") {
+      continue;
+    }
+    const payload = asRecord(activity.payload);
+    const toolCallId = asTrimmedString(payload?.itemId);
+    if (!toolCallId) {
+      continue;
+    }
+    toolCallIds.add(toolCallId);
+  }
+  return toolCallIds;
+}
+
 function applyStreamedCommandOutput(
   entries: ReadonlyArray<DerivedWorkLogEntry>,
   streamedCommandOutputByToolCallId: ReadonlyMap<string, string>,
@@ -735,14 +771,20 @@ function applyStreamedCommandOutput(
   });
 }
 
-function inferBackgroundCommandEntries(
+function applyBackgroundCommandSignals(
   entries: ReadonlyArray<DerivedWorkLogEntry>,
+  terminalInteractionsByToolCallId: ReadonlySet<string>,
 ): DerivedWorkLogEntry[] {
-  return entries.map((entry, index) => {
-    if (!shouldInferBackgroundCommand(entry)) {
+  return entries.map((entry) => {
+    if (entry.itemType !== "command_execution") {
       return entry;
     }
-    if (!hasOverlappingEntryDuringCommandLifetime(entries, index)) {
+    const hasUnifiedExecSource = isUnifiedExecCommandSource(entry.commandSource);
+    const hasTerminalInteraction =
+      entry.toolCallId !== undefined &&
+      entry.toolCallId.length > 0 &&
+      terminalInteractionsByToolCallId.has(entry.toolCallId);
+    if (!entry.isBackgroundCommand && !hasUnifiedExecSource && !hasTerminalInteraction) {
       return entry;
     }
     return {
@@ -752,55 +794,12 @@ function inferBackgroundCommandEntries(
   });
 }
 
-function shouldInferBackgroundCommand(entry: DerivedWorkLogEntry): boolean {
-  return (
-    entry.itemType === "command_execution" &&
-    !entry.isBackgroundCommand &&
-    !entry.childThreadAttribution
-  );
-}
-
-function hasOverlappingEntryDuringCommandLifetime(
-  entries: ReadonlyArray<DerivedWorkLogEntry>,
-  commandIndex: number,
-): boolean {
-  const commandEntry = entries[commandIndex];
-  if (!commandEntry) {
+function shouldFilterToolStartedActivity(activity: OrchestrationThreadActivity): boolean {
+  if (activity.kind !== "tool.started") {
     return false;
   }
-
-  const commandStartedAt = Date.parse(commandEntry.startedAt ?? commandEntry.createdAt);
-  if (Number.isNaN(commandStartedAt)) {
-    return false;
-  }
-
-  const commandStatus = deriveBackgroundCommandStatus(commandEntry);
-  const commandCompletedAt =
-    commandStatus === "running" ? Number.POSITIVE_INFINITY : Date.parse(commandEntry.createdAt);
-  if (!Number.isFinite(commandCompletedAt) && commandCompletedAt !== Number.POSITIVE_INFINITY) {
-    return false;
-  }
-
-  return entries.some((entry, index) => {
-    if (index === commandIndex || !isSubstantiveOverlappingEntry(commandEntry, entry)) {
-      return false;
-    }
-    const activityAt = Date.parse(entry.createdAt);
-    if (Number.isNaN(activityAt)) {
-      return false;
-    }
-    return activityAt > commandStartedAt && activityAt < commandCompletedAt;
-  });
-}
-
-function isSubstantiveOverlappingEntry(
-  commandEntry: DerivedWorkLogEntry,
-  otherEntry: DerivedWorkLogEntry,
-): boolean {
-  if (commandEntry.toolCallId && commandEntry.toolCallId === otherEntry.toolCallId) {
-    return false;
-  }
-  return true;
+  const payload = asRecord(activity.payload);
+  return payload?.itemType !== "command_execution";
 }
 
 export interface SubagentGroup {
@@ -954,6 +953,8 @@ interface ToolEnrichments {
   output?: string;
   outputSource?: "final";
   isBackgroundCommand?: boolean;
+  processId?: string;
+  commandSource?: string;
   mcpServer?: string;
   mcpTool?: string;
   searchPattern?: string;
@@ -1057,6 +1058,16 @@ function extractToolEnrichments(payload: Record<string, unknown> | null): ToolEn
     data.run_in_background === true
   ) {
     enrichments.isBackgroundCommand = true;
+  }
+
+  const processId = asTrimmedString(codexItem?.processId);
+  if (processId) {
+    enrichments.processId = processId;
+  }
+
+  const commandSource = asTrimmedString(codexItem?.source);
+  if (commandSource) {
+    enrichments.commandSource = commandSource;
   }
 
   // MCP server and tool
@@ -1197,6 +1208,8 @@ function toDerivedWorkLogEntry(activity: OrchestrationThreadActivity): DerivedWo
   if (enrichments.output) entry.output = enrichments.output;
   if (enrichments.outputSource) entry.outputSource = enrichments.outputSource;
   if (enrichments.isBackgroundCommand) entry.isBackgroundCommand = true;
+  if (enrichments.processId) entry.processId = enrichments.processId;
+  if (enrichments.commandSource) entry.commandSource = enrichments.commandSource;
   if (enrichments.mcpServer) entry.mcpServer = enrichments.mcpServer;
   if (enrichments.mcpTool) entry.mcpTool = enrichments.mcpTool;
   if (enrichments.searchPattern) entry.searchPattern = enrichments.searchPattern;
@@ -1234,25 +1247,71 @@ function collapseDerivedWorkLogEntries(
   entries: ReadonlyArray<DerivedWorkLogEntry>,
 ): DerivedWorkLogEntry[] {
   const collapsed: DerivedWorkLogEntry[] = [];
+  const activeLifecycleEntryIndexes = new Map<string, number>();
   for (const entry of entries) {
+    const lifecycleEntryKey = deriveLifecycleEntryKey(entry);
+    const activeIndex =
+      lifecycleEntryKey === undefined
+        ? undefined
+        : activeLifecycleEntryIndexes.get(lifecycleEntryKey);
+    if (activeIndex !== undefined) {
+      const activeEntry = collapsed[activeIndex];
+      if (activeEntry && shouldCollapseToolLifecycleEntries(activeEntry, entry)) {
+        const mergedEntry = mergeDerivedWorkLogEntries(activeEntry, entry);
+        collapsed[activeIndex] = mergedEntry;
+        if (lifecycleEntryKey !== undefined) {
+          if (isLifecycleEntryCompleted(mergedEntry)) {
+            activeLifecycleEntryIndexes.delete(lifecycleEntryKey);
+          } else {
+            activeLifecycleEntryIndexes.set(lifecycleEntryKey, activeIndex);
+          }
+        }
+        continue;
+      }
+    }
+
     const previous = collapsed.at(-1);
     if (previous && shouldCollapseToolLifecycleEntries(previous, entry)) {
-      collapsed[collapsed.length - 1] = mergeDerivedWorkLogEntries(previous, entry);
+      const mergedEntry = mergeDerivedWorkLogEntries(previous, entry);
+      collapsed[collapsed.length - 1] = mergedEntry;
+      const previousLifecycleKey = deriveLifecycleEntryKey(previous);
+      if (previousLifecycleKey !== undefined) {
+        if (isLifecycleEntryCompleted(mergedEntry)) {
+          activeLifecycleEntryIndexes.delete(previousLifecycleKey);
+        } else {
+          activeLifecycleEntryIndexes.set(previousLifecycleKey, collapsed.length - 1);
+        }
+      }
       continue;
     }
+
     collapsed.push(entry);
+    if (lifecycleEntryKey !== undefined && !isLifecycleEntryCompleted(entry)) {
+      activeLifecycleEntryIndexes.set(lifecycleEntryKey, collapsed.length - 1);
+    }
   }
   return collapsed;
+}
+
+function deriveLifecycleEntryKey(entry: DerivedWorkLogEntry): string | undefined {
+  if (!isCollapsibleToolLifecycleEntry(entry)) {
+    return undefined;
+  }
+  return `${entry.turnId ?? ""}\u001f${entry.collapseKey}`;
+}
+
+function isLifecycleEntryCompleted(entry: DerivedWorkLogEntry): boolean {
+  return entry.activityKind === "tool.completed";
 }
 
 function shouldCollapseToolLifecycleEntries(
   previous: DerivedWorkLogEntry,
   next: DerivedWorkLogEntry,
 ): boolean {
-  if (previous.activityKind !== "tool.updated" && previous.activityKind !== "tool.completed") {
+  if (!isCollapsibleToolLifecycleEntry(previous)) {
     return false;
   }
-  if (next.activityKind !== "tool.updated" && next.activityKind !== "tool.completed") {
+  if (!isCollapsibleToolLifecycleEntry(next)) {
     return false;
   }
   if (previous.activityKind === "tool.completed") {
@@ -1262,6 +1321,15 @@ function shouldCollapseToolLifecycleEntries(
     return false;
   }
   return previous.collapseKey !== undefined && previous.collapseKey === next.collapseKey;
+}
+
+function isCollapsibleToolLifecycleEntry(entry: DerivedWorkLogEntry): boolean {
+  return (
+    (entry.activityKind === "tool.started" ||
+      entry.activityKind === "tool.updated" ||
+      entry.activityKind === "tool.completed") &&
+    entry.collapseKey !== undefined
+  );
 }
 
 function mergeDerivedWorkLogEntries(
@@ -1284,6 +1352,8 @@ function mergeDerivedWorkLogEntries(
   const startedAt = earliestIsoValue(previous.startedAt, next.startedAt);
   const itemStatus = next.itemStatus ?? previous.itemStatus;
   const isBackgroundCommand = Boolean(previous.isBackgroundCommand || next.isBackgroundCommand);
+  const processId = next.processId ?? previous.processId;
+  const commandSource = next.commandSource ?? previous.commandSource;
   const mcpServer = next.mcpServer ?? previous.mcpServer;
   const mcpTool = next.mcpTool ?? previous.mcpTool;
   const searchPattern = next.searchPattern ?? previous.searchPattern;
@@ -1308,6 +1378,8 @@ function mergeDerivedWorkLogEntries(
     ...(startedAt ? { startedAt } : {}),
     ...(itemStatus ? { itemStatus } : {}),
     ...(isBackgroundCommand ? { isBackgroundCommand } : {}),
+    ...(processId ? { processId } : {}),
+    ...(commandSource ? { commandSource } : {}),
     ...(mcpServer ? { mcpServer } : {}),
     ...(mcpTool ? { mcpTool } : {}),
     ...(searchPattern ? { searchPattern } : {}),
@@ -1407,7 +1479,14 @@ function summarizeToolInlineDiffFiles(files: ReadonlyArray<TurnDiffFileChange>):
 }
 
 function deriveToolLifecycleCollapseKey(entry: DerivedWorkLogEntry): string | undefined {
-  if (entry.activityKind !== "tool.updated" && entry.activityKind !== "tool.completed") {
+  if (
+    entry.activityKind !== "tool.started" &&
+    entry.activityKind !== "tool.updated" &&
+    entry.activityKind !== "tool.completed"
+  ) {
+    return undefined;
+  }
+  if (entry.activityKind === "tool.started" && entry.itemType !== "command_execution") {
     return undefined;
   }
   const normalizedLabel = normalizeCompactToolLabel(entry.toolTitle ?? entry.label);
@@ -1442,7 +1521,7 @@ function deriveToolLifecycleIdentity(entry: DerivedWorkLogEntry): string {
 }
 
 function normalizeCompactToolLabel(value: string): string {
-  return value.replace(/\s+(?:complete|completed)\s*$/i, "").trim();
+  return value.replace(/\s+(?:started|complete|completed)\s*$/i, "").trim();
 }
 
 function toLatestProposedPlanState(proposedPlan: ProposedPlan): LatestProposedPlanState {
@@ -1653,6 +1732,7 @@ function deriveActivityItemStatus(
   activity: OrchestrationThreadActivity,
 ): WorkLogEntry["itemStatus"] | undefined {
   switch (activity.kind) {
+    case "tool.started":
     case "tool.updated":
     case "task.progress":
     case "task.started":
@@ -1908,9 +1988,7 @@ export function deriveBackgroundTrayState(
   const visibleSubagentGroups = subagentGroups.filter((group) =>
     isSubagentGroupVisibleInTray(group, nowIso),
   );
-  const visibleCommandEntries = standalone.filter((entry) =>
-    isBackgroundCommandVisibleInTray(entry, nowIso),
-  );
+  const visibleCommandEntries = deriveVisibleBackgroundCommandEntries(standalone, nowIso);
 
   return {
     subagentGroups: visibleSubagentGroups,
@@ -1959,6 +2037,17 @@ function isBackgroundCommandVisibleInTray(entry: WorkLogEntry, nowIso: string): 
     return true;
   }
   return isWithinBackgroundTaskRetention(entry.createdAt, nowIso);
+}
+
+function deriveVisibleBackgroundCommandEntries(
+  standaloneEntries: ReadonlyArray<WorkLogEntry>,
+  nowIso: string,
+): WorkLogEntry[] {
+  return standaloneEntries.filter((entry) => isBackgroundCommandVisibleInTray(entry, nowIso));
+}
+
+function isUnifiedExecCommandSource(value: string | undefined): boolean {
+  return value === "unifiedExecStartup" || value === "unifiedExecInteraction";
 }
 
 export function deriveBackgroundCommandStatus(

@@ -4172,6 +4172,41 @@ describe("ProviderRuntimeIngestion", () => {
     });
   });
 
+  it("projects terminal interaction events into thread activities", async () => {
+    const harness = await createHarness();
+    const now = new Date().toISOString();
+
+    harness.emit({
+      type: "terminal.interaction",
+      eventId: asEventId("evt-terminal-interaction"),
+      provider: "codex",
+      createdAt: now,
+      threadId: asThreadId("thread-1"),
+      turnId: asTurnId("turn-terminal"),
+      itemId: asItemId("item-terminal"),
+      payload: {
+        processId: "proc-watch-1",
+        stdin: "",
+      },
+    });
+
+    const thread = await waitForThread(harness.engine, (entry) =>
+      entry.activities.some(
+        (activity: ProviderRuntimeTestActivity) => activity.kind === "tool.terminal.interaction",
+      ),
+    );
+
+    const activity = thread.activities.find(
+      (entry: ProviderRuntimeTestActivity) => entry.id === "evt-terminal-interaction",
+    );
+    expect(activity?.kind).toBe("tool.terminal.interaction");
+    expect(activityPayload(activity)).toMatchObject({
+      itemId: "item-terminal",
+      processId: "proc-watch-1",
+      stdin: "",
+    });
+  });
+
   it("continues processing runtime events after a single event handler failure", async () => {
     const harness = await createHarness();
     const now = new Date().toISOString();

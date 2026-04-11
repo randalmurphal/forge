@@ -85,6 +85,73 @@ describe("deriveMessagesTimelineRows", () => {
 
     expect(rows.map((row) => row.kind)).toEqual(["work-group", "work-entry", "work-group"]);
   });
+
+  it("keeps running subagent groups out of the timeline", () => {
+    const rows = deriveMessagesTimelineRows({
+      timelineEntries: [
+        makeWorkEntry({
+          id: "subagent-running",
+          label: "Subagent task",
+          childThreadAttribution: {
+            taskId: "task-1",
+            childProviderThreadId: "child-1",
+          },
+        }),
+      ],
+      completionDividerBeforeEntryId: null,
+      isWorking: false,
+      activeTurnStartedAt: null,
+    });
+
+    expect(rows).toEqual([]);
+  });
+
+  it("keeps completed subagent groups inline in the timeline", () => {
+    const rows = deriveMessagesTimelineRows({
+      timelineEntries: [
+        makeWorkEntry({
+          id: "task-started",
+          label: "Task started",
+          activityKind: "task.started",
+          detail: "Verify background state",
+          childThreadAttribution: {
+            taskId: "task-2",
+            childProviderThreadId: "child-2",
+          },
+        }),
+        makeWorkEntry({
+          id: "subagent-work",
+          label: "Subagent task",
+          childThreadAttribution: {
+            taskId: "task-2",
+            childProviderThreadId: "child-2",
+          },
+        }),
+        makeWorkEntry({
+          id: "task-completed",
+          label: "Task completed",
+          activityKind: "task.completed",
+          childThreadAttribution: {
+            taskId: "task-2",
+            childProviderThreadId: "child-2",
+          },
+        }),
+      ],
+      completionDividerBeforeEntryId: null,
+      isWorking: false,
+      activeTurnStartedAt: null,
+    });
+
+    expect(rows).toHaveLength(1);
+    expect(rows[0]?.kind).toBe("subagent-section");
+    if (rows[0]?.kind === "subagent-section") {
+      expect(rows[0].subagentGroups).toHaveLength(1);
+      expect(rows[0].subagentGroups[0]?.status).toBe("completed");
+      expect(rows[0].subagentGroups[0]?.entries.map((entry) => entry.id)).toEqual([
+        "subagent-work",
+      ]);
+    }
+  });
 });
 
 function makeWorkEntry(entry: {
@@ -95,6 +162,13 @@ function makeWorkEntry(entry: {
   changedFiles?: string[];
   filePath?: string;
   searchPattern?: string;
+  tone?: "tool" | "info" | "error";
+  activityKind?: string;
+  detail?: string;
+  childThreadAttribution?: {
+    taskId: string;
+    childProviderThreadId: string;
+  };
 }): TimelineEntry {
   return {
     id: entry.id,
@@ -104,12 +178,17 @@ function makeWorkEntry(entry: {
       id: entry.id,
       createdAt: `2026-04-09T01:00:0${entry.id.length}.000Z`,
       label: entry.label,
-      tone: "tool",
+      tone: entry.tone ?? "tool",
       ...(entry.itemType ? { itemType: entry.itemType as never } : {}),
       ...(entry.command ? { command: entry.command } : {}),
       ...(entry.changedFiles ? { changedFiles: entry.changedFiles } : {}),
       ...(entry.filePath ? { filePath: entry.filePath } : {}),
       ...(entry.searchPattern ? { searchPattern: entry.searchPattern } : {}),
+      ...(entry.activityKind ? { activityKind: entry.activityKind } : {}),
+      ...(entry.detail ? { detail: entry.detail } : {}),
+      ...(entry.childThreadAttribution
+        ? { childThreadAttribution: entry.childThreadAttribution }
+        : {}),
     },
   };
 }

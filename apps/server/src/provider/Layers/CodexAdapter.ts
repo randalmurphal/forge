@@ -930,12 +930,29 @@ function mapToRuntimeEvents(
     return completed ? [completed] : [];
   }
 
-  if (
-    event.method === "item/reasoning/summaryPartAdded" ||
-    event.method === "item/commandExecution/terminalInteraction"
-  ) {
+  if (event.method === "item/reasoning/summaryPartAdded") {
     const updated = mapItemLifecycle(event, canonicalThreadId, "item.updated");
     return updated ? [updated] : [];
+  }
+
+  if (event.method === "item/commandExecution/terminalInteraction") {
+    const processId = asString(payload?.processId);
+    const stdin = asString(payload?.stdin);
+    if (!processId || stdin === undefined) {
+      return [];
+    }
+    const childThreadAttribution = asObject(payload?._childThreadAttribution);
+    return [
+      {
+        ...runtimeEventBase(event, canonicalThreadId),
+        type: "terminal.interaction",
+        payload: {
+          processId,
+          stdin,
+          ...(childThreadAttribution ? { childThreadAttribution } : {}),
+        },
+      },
+    ];
   }
 
   if (event.method === "item/plan/delta") {

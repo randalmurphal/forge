@@ -172,6 +172,7 @@ const ProviderRuntimeEventType = Schema.Literals([
   "item.updated",
   "item.completed",
   "content.delta",
+  "terminal.interaction",
   "request.opened",
   "request.resolved",
   "user-input.requested",
@@ -222,6 +223,7 @@ const ItemStartedType = Schema.Literal("item.started");
 const ItemUpdatedType = Schema.Literal("item.updated");
 const ItemCompletedType = Schema.Literal("item.completed");
 const ContentDeltaType = Schema.Literal("content.delta");
+const TerminalInteractionType = Schema.Literal("terminal.interaction");
 const RequestOpenedType = Schema.Literal("request.opened");
 const RequestResolvedType = Schema.Literal("request.resolved");
 const UserInputRequestedType = Schema.Literal("user-input.requested");
@@ -417,6 +419,13 @@ const ContentDeltaPayload = Schema.Struct({
   summaryIndex: Schema.optional(Schema.Int),
 });
 export type ContentDeltaPayload = typeof ContentDeltaPayload.Type;
+
+const TerminalInteractionPayload = Schema.Struct({
+  processId: TrimmedNonEmptyStringSchema,
+  stdin: Schema.String,
+  childThreadAttribution: Schema.optional(Schema.Unknown),
+});
+export type TerminalInteractionPayload = typeof TerminalInteractionPayload.Type;
 
 const RequestOpenedPayload = Schema.Struct({
   requestType: CanonicalRequestType,
@@ -783,6 +792,14 @@ const ProviderRuntimeContentDeltaEvent = Schema.Struct({
 });
 export type ProviderRuntimeContentDeltaEvent = typeof ProviderRuntimeContentDeltaEvent.Type;
 
+const ProviderRuntimeTerminalInteractionEvent = Schema.Struct({
+  ...ProviderRuntimeEventBase.fields,
+  type: TerminalInteractionType,
+  payload: TerminalInteractionPayload,
+});
+export type ProviderRuntimeTerminalInteractionEvent =
+  typeof ProviderRuntimeTerminalInteractionEvent.Type;
+
 const ProviderRuntimeRequestOpenedEvent = Schema.Struct({
   ...ProviderRuntimeEventBase.fields,
   type: RequestOpenedType,
@@ -974,6 +991,7 @@ export const ProviderRuntimeEventV2 = Schema.Union([
   ProviderRuntimeItemUpdatedEvent,
   ProviderRuntimeItemCompletedEvent,
   ProviderRuntimeContentDeltaEvent,
+  ProviderRuntimeTerminalInteractionEvent,
   ProviderRuntimeRequestOpenedEvent,
   ProviderRuntimeRequestResolvedEvent,
   ProviderRuntimeUserInputRequestedEvent,

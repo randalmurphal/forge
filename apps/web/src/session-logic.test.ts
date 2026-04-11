@@ -546,7 +546,7 @@ describe("findSidebarProposedPlan", () => {
 });
 
 describe("deriveWorkLogEntries", () => {
-  it("omits tool started entries and keeps completed entries", () => {
+  it("omits non-command tool started entries and keeps completed entries", () => {
     const activities: OrchestrationThreadActivity[] = [
       makeActivity({
         id: "tool-complete",
@@ -564,6 +564,162 @@ describe("deriveWorkLogEntries", () => {
 
     const entries = deriveWorkLogEntries(activities, undefined);
     expect(entries.map((entry) => entry.id)).toEqual(["tool-complete"]);
+  });
+
+  it("keeps command tool.started entries so running commands are visible", () => {
+    const [entry] = deriveWorkLogEntries(
+      [
+        makeActivity({
+          id: "command-start",
+          createdAt: "2026-02-23T00:00:02.000Z",
+          kind: "tool.started",
+          summary: "Command started",
+          payload: {
+            itemType: "command_execution",
+            itemId: "command-live-1",
+            status: "inProgress",
+            data: {
+              item: {
+                id: "command-live-1",
+                command: ["/bin/zsh", "-lc", "sleep 30"],
+              },
+            },
+          },
+        }),
+      ],
+      undefined,
+    );
+
+    expect(entry).toMatchObject({
+      id: "command-start",
+      activityKind: "tool.started",
+      itemType: "command_execution",
+      itemStatus: "inProgress",
+      toolCallId: "command-live-1",
+      command: "/bin/zsh -lc sleep 30",
+    });
+  });
+
+  it("collapses command tool.started into the later completion entry", () => {
+    const [entry] = deriveWorkLogEntries(
+      [
+        makeActivity({
+          id: "command-start",
+          createdAt: "2026-02-23T00:00:02.000Z",
+          kind: "tool.started",
+          summary: "Command started",
+          payload: {
+            itemType: "command_execution",
+            itemId: "command-collapse-1",
+            status: "inProgress",
+            data: {
+              item: {
+                id: "command-collapse-1",
+                command: ["/bin/zsh", "-lc", "sleep 5"],
+              },
+            },
+          },
+        }),
+        makeActivity({
+          id: "command-complete",
+          createdAt: "2026-02-23T00:00:07.000Z",
+          kind: "tool.completed",
+          summary: "Command",
+          payload: {
+            itemType: "command_execution",
+            itemId: "command-collapse-1",
+            status: "completed",
+            data: {
+              item: {
+                id: "command-collapse-1",
+                command: ["/bin/zsh", "-lc", "sleep 5"],
+                aggregatedOutput: "done",
+                exitCode: 0,
+              },
+            },
+          },
+        }),
+      ],
+      undefined,
+    );
+
+    expect(entry).toMatchObject({
+      id: "command-complete",
+      activityKind: "tool.completed",
+      itemType: "command_execution",
+      itemStatus: "completed",
+      toolCallId: "command-collapse-1",
+      startedAt: "2026-02-23T00:00:02.000Z",
+      output: "done",
+    });
+  });
+
+  it("collapses command lifecycle entries even when other activities are interleaved", () => {
+    const entries = deriveWorkLogEntries(
+      [
+        makeActivity({
+          id: "command-start",
+          createdAt: "2026-02-23T00:00:02.000Z",
+          kind: "tool.started",
+          summary: "Command started",
+          payload: {
+            itemType: "command_execution",
+            itemId: "command-interleaved-1",
+            status: "inProgress",
+            data: {
+              item: {
+                id: "command-interleaved-1",
+                command: ["/bin/zsh", "-lc", "sleep 5"],
+              },
+            },
+          },
+        }),
+        makeActivity({
+          id: "read-file",
+          createdAt: "2026-02-23T00:00:03.000Z",
+          kind: "tool.completed",
+          summary: "Read file",
+          payload: {
+            itemType: "file_read",
+            status: "completed",
+            data: {
+              input: {
+                path: "README.md",
+              },
+            },
+          },
+        }),
+        makeActivity({
+          id: "command-complete",
+          createdAt: "2026-02-23T00:00:07.000Z",
+          kind: "tool.completed",
+          summary: "Command",
+          payload: {
+            itemType: "command_execution",
+            itemId: "command-interleaved-1",
+            status: "completed",
+            data: {
+              item: {
+                id: "command-interleaved-1",
+                command: ["/bin/zsh", "-lc", "sleep 5"],
+                aggregatedOutput: "done",
+                exitCode: 0,
+              },
+            },
+          },
+        }),
+      ],
+      undefined,
+    );
+
+    expect(entries).toHaveLength(2);
+    expect(entries.find((entry) => entry.toolCallId === "command-interleaved-1")).toMatchObject({
+      id: "command-complete",
+      activityKind: "tool.completed",
+      itemStatus: "completed",
+      startedAt: "2026-02-23T00:00:02.000Z",
+    });
+    expect(entries.find((entry) => entry.id === "read-file")?.itemType).toBe("file_read");
   });
 
   it("omits task start and completion lifecycle entries", () => {
@@ -1637,6 +1793,40 @@ describe("deriveWorkLogEntries", () => {
     });
   });
 
+  it("synthesizes a completed Codex subagent lifecycle entry from the top-level payload status", () => {
+    const [entry] = deriveWorkLogEntries(
+      [
+        makeActivity({
+          id: "codex-collab-payload-status-complete",
+          kind: "tool.completed",
+          summary: "Subagent task",
+          payload: {
+            itemType: "collab_agent_tool_call",
+            status: "completed",
+            data: {
+              item: {
+                id: "task-codex-payload-status",
+                prompt: "Review tray rendering",
+                receiverThreadIds: ["child-thread-2"],
+              },
+            },
+          },
+        }),
+      ],
+      undefined,
+    );
+
+    expect(entry).toMatchObject({
+      activityKind: "task.completed",
+      itemStatus: "completed",
+      childThreadAttribution: {
+        taskId: "task-codex-payload-status",
+        childProviderThreadId: "child-thread-2",
+        label: "Review tray rendering",
+      },
+    });
+  });
+
   it.each(["errored", "interrupted", "notFound"] as const)(
     "maps Codex fallback agent state %s to failed",
     (status) => {
@@ -1673,6 +1863,47 @@ describe("deriveWorkLogEntries", () => {
       });
     },
   );
+
+  it("prefers a terminal parent collab status over a non-terminal child agent state", () => {
+    const [entry] = deriveWorkLogEntries(
+      [
+        makeActivity({
+          id: "codex-collab-parent-complete-child-pending",
+          kind: "tool.completed",
+          summary: "Subagent task",
+          payload: {
+            itemType: "collab_agent_tool_call",
+            status: "completed",
+            data: {
+              item: {
+                id: "task-parent-complete-child-pending",
+                tool: "spawnAgent",
+                status: "completed",
+                prompt: "Inspect tray state",
+                receiverThreadIds: ["child-thread-3"],
+                agentsStates: {
+                  "child-thread-3": {
+                    status: "pendingInit",
+                  },
+                },
+              },
+            },
+          },
+        }),
+      ],
+      undefined,
+    );
+
+    expect(entry).toMatchObject({
+      activityKind: "task.completed",
+      itemStatus: "completed",
+      childThreadAttribution: {
+        taskId: "task-parent-complete-child-pending",
+        childProviderThreadId: "child-thread-3",
+        label: "Inspect tray state",
+      },
+    });
+  });
 
   it("prefers a real attributed task.completed over a synthetic Codex fallback completion", () => {
     const entries = deriveWorkLogEntries(
@@ -1816,6 +2047,38 @@ describe("deriveWorkLogEntries", () => {
     expect(entry?.outputSource).toBe("final");
   });
 
+  it("marks Codex unified-exec commands as background from the command source", () => {
+    const [entry] = deriveWorkLogEntries(
+      [
+        makeActivity({
+          id: "codex-unified-exec",
+          kind: "tool.completed",
+          summary: "Ran command",
+          payload: {
+            itemType: "command_execution",
+            status: "completed",
+            itemId: "codex-unified-exec-1",
+            data: {
+              item: {
+                id: "codex-unified-exec-1",
+                command: ["/bin/zsh", "-lc", "bun run build --watch"],
+                source: "unifiedExecStartup",
+                processId: "proc-build-watch",
+                aggregatedOutput: "watching...\n",
+                exitCode: 0,
+              },
+            },
+          },
+        }),
+      ],
+      undefined,
+    );
+
+    expect(entry?.isBackgroundCommand).toBe(true);
+    expect(entry?.commandSource).toBe("unifiedExecStartup");
+    expect(entry?.processId).toBe("proc-build-watch");
+  });
+
   it("only marks commands as background when run_in_background is explicitly true", () => {
     const entries = deriveWorkLogEntries(
       [
@@ -1858,14 +2121,54 @@ describe("deriveWorkLogEntries", () => {
     ).toBeUndefined();
   });
 
-  it("infers a command is background when other work overlaps its lifetime", () => {
+  it("marks a Codex command as background when terminal interaction is observed", () => {
+    const [entry] = deriveWorkLogEntries(
+      [
+        makeActivity({
+          id: "background-command-start",
+          createdAt: "2026-04-10T12:00:00.000Z",
+          kind: "tool.started",
+          summary: "Command started",
+          payload: {
+            itemType: "command_execution",
+            itemId: "background-command-1",
+            status: "inProgress",
+            data: {
+              item: {
+                id: "background-command-1",
+                command: ["/bin/zsh", "-lc", "bun run build --watch"],
+                processId: "proc-watch-1",
+              },
+            },
+          },
+        }),
+        makeActivity({
+          id: "background-command-terminal-interaction",
+          createdAt: "2026-04-10T12:00:01.000Z",
+          kind: "tool.terminal.interaction",
+          summary: "Background terminal waited",
+          payload: {
+            itemId: "background-command-1",
+            processId: "proc-watch-1",
+            stdin: "",
+          },
+        }),
+      ],
+      undefined,
+    );
+
+    expect(entry?.toolCallId).toBe("background-command-1");
+    expect(entry?.isBackgroundCommand).toBe(true);
+  });
+
+  it("does not mark overlapping commands as background during work-log derivation", () => {
     const entries = deriveWorkLogEntries(
       [
         makeActivity({
           id: "long-command-start",
           createdAt: "2026-04-10T12:00:00.000Z",
-          kind: "tool.updated",
-          summary: "Ran command",
+          kind: "tool.started",
+          summary: "Command started",
           payload: {
             itemType: "command_execution",
             itemId: "command-overlap-1",
@@ -1918,7 +2221,7 @@ describe("deriveWorkLogEntries", () => {
 
     expect(
       entries.find((entry) => entry.toolCallId === "command-overlap-1")?.isBackgroundCommand,
-    ).toBe(true);
+    ).toBeUndefined();
   });
 
   it("keeps a top-level command inline when later work starts after it completes", () => {
@@ -1927,8 +2230,8 @@ describe("deriveWorkLogEntries", () => {
         makeActivity({
           id: "foreground-command-start",
           createdAt: "2026-04-10T12:00:00.000Z",
-          kind: "tool.updated",
-          summary: "Ran command",
+          kind: "tool.started",
+          summary: "Command started",
           payload: {
             itemType: "command_execution",
             itemId: "foreground-command-1",
@@ -2085,6 +2388,51 @@ describe("deriveWorkLogEntries", () => {
 
     const expiredState = deriveBackgroundTrayState(workEntries, "2026-04-10T12:00:08.500Z");
     expect(expiredState.commandEntries.map((entry) => entry.id)).toEqual(["background-running"]);
+  });
+
+  it("does not infer background tray ownership from overlap alone", () => {
+    const workEntries = deriveWorkLogEntries(
+      [
+        makeActivity({
+          id: "long-command-start",
+          createdAt: "2026-04-10T12:00:00.000Z",
+          kind: "tool.started",
+          summary: "Command started",
+          payload: {
+            itemType: "command_execution",
+            itemId: "command-overlap-2",
+            status: "inProgress",
+            data: {
+              item: {
+                id: "command-overlap-2",
+                command: ["/bin/zsh", "-lc", "sleep 30"],
+              },
+            },
+          },
+        }),
+        makeActivity({
+          id: "subagent-start",
+          createdAt: "2026-04-10T12:00:05.000Z",
+          kind: "task.started",
+          summary: "Task started",
+          tone: "info",
+          payload: {
+            taskId: "spawned-child",
+            childThreadAttribution: {
+              taskId: "spawned-child",
+              childProviderThreadId: "child-thread-1",
+              label: "Inspect parser",
+            },
+          },
+        }),
+      ],
+      undefined,
+    );
+
+    const trayState = deriveBackgroundTrayState(workEntries, "2026-04-10T12:00:06.500Z");
+    expect(trayState.commandEntries.map((entry) => entry.toolCallId)).not.toContain(
+      "command-overlap-2",
+    );
   });
 
   it("filters tray-owned background work from the timeline and restores it after TTL expiry", () => {

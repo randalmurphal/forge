@@ -439,17 +439,6 @@ export const MessagesTimeline = memo(function MessagesTimeline({
         />
       )}
 
-      {row.kind === "running-subagents" && (
-        <SubagentSection
-          groups={row.subagentGroups}
-          expandedGroupId={expandedSubagentGroupId}
-          onToggle={onToggleSubagent}
-          renderWorkEntry={renderSubagentWorkEntry}
-          nowIso={nowIso}
-          sectionLabel={`Running (${row.subagentGroups.length})`}
-        />
-      )}
-
       {row.kind === "message" &&
         row.message.role === "user" &&
         (() => {

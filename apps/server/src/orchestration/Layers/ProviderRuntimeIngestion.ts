@@ -978,6 +978,32 @@ function runtimeEventToActivities(
       ];
     }
 
+    case "terminal.interaction": {
+      const terminalInteractionChildAttr = extractChildThreadAttribution(event.payload);
+      return [
+        {
+          id: event.eventId,
+          createdAt: event.createdAt,
+          tone: "tool",
+          kind: "tool.terminal.interaction",
+          summary:
+            event.payload.stdin.length === 0
+              ? "Background terminal waited"
+              : "Background terminal updated",
+          payload: {
+            ...(event.itemId ? { itemId: event.itemId } : {}),
+            processId: event.payload.processId,
+            stdin: event.payload.stdin,
+            ...(terminalInteractionChildAttr
+              ? { childThreadAttribution: terminalInteractionChildAttr }
+              : {}),
+          },
+          turnId: toTurnId(event.turnId) ?? null,
+          ...maybeSequence,
+        },
+      ];
+    }
+
     case "item.updated": {
       if (!isToolLifecycleItemType(event.payload.itemType)) {
         return [];

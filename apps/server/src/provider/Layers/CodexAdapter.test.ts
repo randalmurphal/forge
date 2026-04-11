@@ -966,6 +966,46 @@ lifecycleLayer("CodexAdapterLive lifecycle", (it) => {
     }),
   );
 
+  it.effect("maps Codex terminal interaction notifications into canonical runtime events", () =>
+    Effect.gen(function* () {
+      const adapter = yield* CodexAdapter;
+      const firstEventFiber = yield* Stream.runHead(adapter.streamEvents).pipe(Effect.forkChild);
+
+      lifecycleManager.emit("event", {
+        id: asEventId("evt-codex-terminal-interaction"),
+        kind: "notification",
+        provider: "codex",
+        threadId: asThreadId("thread-1"),
+        turnId: asTurnId("turn-terminal"),
+        itemId: asItemId("item-terminal"),
+        createdAt: new Date().toISOString(),
+        method: "item/commandExecution/terminalInteraction",
+        payload: {
+          threadId: "provider-thread-1",
+          turnId: "turn-terminal",
+          itemId: "item-terminal",
+          processId: "proc-watch-1",
+          stdin: "",
+        },
+      } satisfies ProviderEvent);
+
+      const firstEvent = yield* Fiber.join(firstEventFiber);
+      assert.equal(firstEvent._tag, "Some");
+      if (firstEvent._tag !== "Some") {
+        return;
+      }
+      assert.equal(firstEvent.value.type, "terminal.interaction");
+      if (firstEvent.value.type !== "terminal.interaction") {
+        return;
+      }
+      assert.equal(firstEvent.value.itemId, "item-terminal");
+      assert.deepEqual(firstEvent.value.payload, {
+        processId: "proc-watch-1",
+        stdin: "",
+      });
+    }),
+  );
+
   it.effect("prefers manager-assigned turn ids for Codex task events", () =>
     Effect.gen(function* () {
       const adapter = yield* CodexAdapter;

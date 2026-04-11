@@ -54,12 +54,6 @@ export type MessagesTimelineRow =
       subagentGroups: SubagentGroup[];
     }
   | {
-      kind: "running-subagents";
-      id: string;
-      createdAt: string;
-      subagentGroups: SubagentGroup[];
-    }
-  | {
       kind: "working";
       id: string;
       createdAt: string | null;
@@ -100,8 +94,6 @@ export function deriveMessagesTimelineRows(input: {
   const durationStartByMessageId = computeMessageDurationStart(
     input.timelineEntries.flatMap((entry) => (entry.kind === "message" ? [entry.message] : [])),
   );
-
-  const allRunningGroups: SubagentGroup[] = [];
 
   for (let index = 0; index < input.timelineEntries.length; index += 1) {
     const timelineEntry = input.timelineEntries[index];
@@ -155,9 +147,8 @@ export function deriveMessagesTimelineRows(input: {
         standaloneIndex = groupCursor;
       }
 
-      // Split subagent groups into completed (rendered inline) and running (pinned to bottom)
+      // Completed subagent groups stay in the timeline. Running groups belong to the composer tray.
       const completedGroups = subagentGroups.filter((g) => g.status !== "running");
-      const runningGroups = subagentGroups.filter((g) => g.status === "running");
 
       if (completedGroups.length > 0) {
         nextRows.push({
@@ -167,8 +158,6 @@ export function deriveMessagesTimelineRows(input: {
           subagentGroups: completedGroups,
         });
       }
-
-      allRunningGroups.push(...runningGroups);
 
       index = cursor - 1;
       continue;
@@ -194,15 +183,6 @@ export function deriveMessagesTimelineRows(input: {
       showCompletionDivider:
         timelineEntry.message.role === "assistant" &&
         input.completionDividerBeforeEntryId === timelineEntry.id,
-    });
-  }
-
-  if (allRunningGroups.length > 0) {
-    nextRows.push({
-      kind: "running-subagents",
-      id: "running-subagents-section",
-      createdAt: allRunningGroups[0]!.startedAt,
-      subagentGroups: allRunningGroups,
     });
   }
 
@@ -235,8 +215,6 @@ export function estimateMessagesTimelineRowHeight(
     case "work-entry":
       return estimateStandaloneWorkRowHeight(row, input);
     case "subagent-section":
-      return estimateSubagentSectionHeight(row, input);
-    case "running-subagents":
       return estimateSubagentSectionHeight(row, input);
     case "proposed-plan":
       return estimateTimelineProposedPlanHeight(row.proposedPlan);
@@ -310,9 +288,7 @@ function estimateStandaloneWorkRowHeight(
 }
 
 function estimateSubagentSectionHeight(
-  row:
-    | Extract<MessagesTimelineRow, { kind: "subagent-section" }>
-    | Extract<MessagesTimelineRow, { kind: "running-subagents" }>,
+  row: Extract<MessagesTimelineRow, { kind: "subagent-section" }>,
   input: {
     expandedSubagentGroupId?: string | null;
     expandedInlineDiff?: ExpandedInlineDiffState;
