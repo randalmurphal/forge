@@ -148,7 +148,9 @@ export function deriveMessagesTimelineRows(input: {
       }
 
       // Completed subagent groups stay in the timeline. Running groups belong to the composer tray.
-      const completedGroups = subagentGroups.filter((g) => g.status !== "running");
+      const completedGroups = subagentGroups
+        .filter((group) => group.status !== "running")
+        .map((group) => Object.assign({}, group, { entries: [] as never[] }));
 
       if (completedGroups.length > 0) {
         nextRows.push({
@@ -303,7 +305,7 @@ function estimateSubagentSectionHeight(
     totalHeight += 44;
     if (isExpanded) {
       // Calculate uncapped content height
-      let expandedContentHeight = group.entries.length * 32;
+      let expandedContentHeight = group.recordedActionCount * 32;
       for (const entry of group.entries) {
         expandedContentHeight += estimateExpandedCommandOutputHeight(
           entry,
@@ -353,6 +355,7 @@ function estimateExpandedCommandOutputHeight(
 function shouldRenderStandaloneWorkEntry(entry: WorkLogEntry): boolean {
   return (
     entry.itemType === "command_execution" ||
+    entry.itemType === "collab_agent_tool_call" ||
     entry.itemType === "file_change" ||
     entry.inlineDiff !== undefined ||
     Boolean(entry.command)

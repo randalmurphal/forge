@@ -17,6 +17,7 @@ import {
 
 import { cn } from "~/lib/utils";
 import { LazyCommandOutput } from "./LazyCommandOutput";
+import { LazySubagentEntries } from "./LazySubagentEntries";
 import {
   deriveBackgroundCommandStatus,
   formatDuration,
@@ -253,7 +254,11 @@ const BackgroundSubagentTaskRow = memo(function BackgroundSubagentTaskRow(props:
     props.group.status,
     props.nowIso,
   );
-  const identity = [props.group.agentType, props.group.agentModel].filter(Boolean).join(", ");
+  const metadata = [props.group.agentType, props.group.agentModel].filter(Boolean).join(" · ");
+  const renderEntry = useCallback(
+    (entry: WorkLogEntry) => <TraySubagentWorkEntryRow threadId={props.threadId} entry={entry} />,
+    [props.threadId],
+  );
 
   return (
     <div className="rounded-lg border border-border/30 bg-background/20">
@@ -273,13 +278,12 @@ const BackgroundSubagentTaskRow = memo(function BackgroundSubagentTaskRow(props:
           <BoxIcon className="size-3" />
         </span>
         <div className="min-w-0 flex-1">
-          <p className="truncate text-[11px] text-foreground/80">
-            <span>{identity || "Agent"}</span>
-            <span className="text-muted-foreground/55">
-              {" – "}
-              {props.group.label}
-            </span>
-          </p>
+          <p className="truncate text-[11px] text-foreground/80">{props.group.label}</p>
+          {metadata ? (
+            <p className="truncate text-[10px] text-muted-foreground/55">{metadata}</p>
+          ) : (
+            <p className="truncate text-[10px] text-muted-foreground/45">Agent</p>
+          )}
         </div>
         <div className="flex shrink-0 items-center gap-2">
           <BackgroundTaskStatusBadge status={props.group.status} />
@@ -295,23 +299,15 @@ const BackgroundSubagentTaskRow = memo(function BackgroundSubagentTaskRow(props:
               Activity
             </p>
           </div>
-          {props.group.entries.length > 0 ? (
-            <div className="max-h-60 overflow-y-auto px-2 py-2 [scrollbar-width:thin]">
-              <div className="space-y-1">
-                {props.group.entries.map((entry) => (
-                  <TraySubagentWorkEntryRow
-                    key={entry.id}
-                    threadId={props.threadId}
-                    entry={entry}
-                  />
-                ))}
-              </div>
-            </div>
-          ) : (
-            <div className="px-3 py-2 text-[10px] italic text-muted-foreground/45">
-              No recorded actions
-            </div>
-          )}
+          <LazySubagentEntries
+            threadId={props.threadId}
+            childProviderThreadId={props.group.childProviderThreadId}
+            expanded={props.isExpanded}
+            isRunning={props.group.status === "running"}
+            fallbackEntries={props.group.entries}
+            renderEntry={renderEntry}
+            maxHeightPx={240}
+          />
         </div>
       ) : null}
     </div>

@@ -87,6 +87,7 @@ export interface WorkLogEntry {
   agentType?: string | undefined;
   agentModel?: string | undefined;
   agentPrompt?: string | undefined;
+  receiverThreadIds?: string[] | undefined;
   childThreadAttribution?:
     | {
         taskId: string;
@@ -594,9 +595,7 @@ export function deriveWorkLogEntries(
     .filter((activity) => !shouldFilterToolStartedActivity(activity))
     .filter((activity) => activity.kind !== "tool.output.delta")
     .filter((activity) => activity.kind !== "tool.terminal.interaction")
-    .filter((activity) => {
-      return !isUnattributedCollabAgentToolEnvelope(activity);
-    })
+    .filter((activity) => !isUnattributedCollabAgentToolEnvelope(activity))
     .filter((activity) => {
       if (activity.kind === "task.started" || activity.kind === "task.completed") {
         const activityPayload =
@@ -1199,6 +1198,11 @@ function shouldFilterToolStartedActivity(activity: OrchestrationThreadActivity):
     return false;
   }
   const payload = asRecord(activity.payload);
+  if (payload?.itemType === "collab_agent_tool_call") {
+    const data = asRecord(payload.data);
+    const item = asRecord(data?.item);
+    return !isCodexVisibleCollabTool(asTrimmedString(item?.tool));
+  }
   return payload?.itemType !== "command_execution";
 }
 
@@ -1208,6 +1212,7 @@ export interface SubagentGroup {
   childProviderThreadId: string;
   label: string;
   entries: WorkLogEntry[];
+  recordedActionCount: number;
   status: "running" | "completed" | "failed";
   startedAt: string;
   completedAt?: string | undefined;
@@ -1224,11 +1229,23 @@ function isUnattributedCollabAgentToolEnvelope(activity: OrchestrationThreadActi
     return false;
   }
   const payload = asRecord(activity.payload);
-  return payload?.itemType === "collab_agent_tool_call" && !payload.childThreadAttribution;
+  if (payload?.itemType !== "collab_agent_tool_call" || payload.childThreadAttribution) {
+    return false;
+  }
+  const data = asRecord(payload.data);
+  const item = asRecord(data?.item);
+  // Most unattributed collab envelopes are parent-thread bookkeeping noise and should stay out of
+  // the timeline. Keep the user-visible control calls (spawn/wait/sendInput/etc.) inline so the
+  // history reflects that those tools were actually invoked.
+  return !isCodexVisibleCollabTool(asTrimmedString(item?.tool));
 }
 
 function isCodexControlCollabTool(toolName: string | null): boolean {
   return toolName === "sendInput" || toolName === "wait";
+}
+
+function isCodexVisibleCollabTool(toolName: string | null): boolean {
+  return toolName === "spawnAgent" || isCodexControlCollabTool(toolName);
 }
 
 export function groupSubagentEntries(workEntries: ReadonlyArray<WorkLogEntry>): {
@@ -1323,6 +1340,7 @@ export function groupSubagentEntries(workEntries: ReadonlyArray<WorkLogEntry>): 
       childProviderThreadId: group.childProviderThreadId,
       label: group.label ?? `Subagent ${group.taskId.slice(0, 8)}`,
       entries: group.entries,
+      recordedActionCount: group.entries.length,
       status: group.status,
       startedAt: group.startedAt,
       completedAt: group.completedAt,
@@ -1366,6 +1384,7 @@ interface ToolEnrichments {
   agentType?: string;
   agentModel?: string;
   agentPrompt?: string;
+  receiverThreadIds?: string[];
 }
 
 function extractToolEnrichments(payload: Record<string, unknown> | null): ToolEnrichments {
@@ -1394,6 +1413,11 @@ function extractToolEnrichments(payload: Record<string, unknown> | null): ToolEn
   const codexItem = asRecord(data.item);
   const codexResult = asRecord(codexItem?.result);
   const codexInput = asRecord(codexItem?.input);
+  const codexToolName = asTrimmedString(codexItem?.tool);
+
+  if (codexToolName && !enrichments.toolName) {
+    enrichments.toolName = codexToolName;
+  }
 
   // Exit code
   const exitCodeCandidates = [
@@ -1555,13 +1579,20 @@ function extractToolEnrichments(payload: Record<string, unknown> | null): ToolEn
   if (agentType) {
     enrichments.agentType = agentType;
   }
-  const agentModel = asTrimmedString(claudeInput?.model);
+  const agentModel = asTrimmedString(claudeInput?.model) ?? asTrimmedString(codexItem?.model);
   if (agentModel) {
     enrichments.agentModel = agentModel;
   }
   const agentPrompt = asTrimmedString(claudeInput?.prompt) ?? asTrimmedString(codexItem?.prompt);
   if (agentPrompt) {
     enrichments.agentPrompt = agentPrompt;
+  }
+  const receiverThreadIds =
+    asArray(codexItem?.receiverThreadIds)
+      ?.map((value) => asTrimmedString(value))
+      .filter((value): value is string => value !== null) ?? [];
+  if (receiverThreadIds.length > 0) {
+    enrichments.receiverThreadIds = receiverThreadIds;
   }
 
   return enrichments;
@@ -1646,6 +1677,7 @@ function toDerivedWorkLogEntry(activity: OrchestrationThreadActivity): DerivedWo
   if (enrichments.agentType) entry.agentType = enrichments.agentType;
   if (enrichments.agentModel) entry.agentModel = enrichments.agentModel;
   if (enrichments.agentPrompt) entry.agentPrompt = enrichments.agentPrompt;
+  if (enrichments.receiverThreadIds) entry.receiverThreadIds = enrichments.receiverThreadIds;
 
   // Extract child thread attribution for subagent grouping
   const childThreadAttribution = extractChildThreadAttribution(payload);
@@ -1787,6 +1819,11 @@ function mergeDerivedWorkLogEntries(
   const searchPattern = next.searchPattern ?? previous.searchPattern;
   const searchResultCount = next.searchResultCount ?? previous.searchResultCount;
   const filePath = next.filePath ?? previous.filePath;
+  const agentDescription = next.agentDescription ?? previous.agentDescription;
+  const agentType = next.agentType ?? previous.agentType;
+  const agentModel = next.agentModel ?? previous.agentModel;
+  const agentPrompt = next.agentPrompt ?? previous.agentPrompt;
+  const receiverThreadIds = next.receiverThreadIds ?? previous.receiverThreadIds;
   return {
     ...previous,
     ...next,
@@ -1815,6 +1852,11 @@ function mergeDerivedWorkLogEntries(
     ...(searchPattern ? { searchPattern } : {}),
     ...(searchResultCount !== undefined ? { searchResultCount } : {}),
     ...(filePath ? { filePath } : {}),
+    ...(agentDescription ? { agentDescription } : {}),
+    ...(agentType ? { agentType } : {}),
+    ...(agentModel ? { agentModel } : {}),
+    ...(agentPrompt ? { agentPrompt } : {}),
+    ...(receiverThreadIds ? { receiverThreadIds } : {}),
   };
 }
 
@@ -1916,7 +1958,11 @@ function deriveToolLifecycleCollapseKey(entry: DerivedWorkLogEntry): string | un
   ) {
     return undefined;
   }
-  if (entry.activityKind === "tool.started" && entry.itemType !== "command_execution") {
+  if (
+    entry.activityKind === "tool.started" &&
+    entry.itemType !== "command_execution" &&
+    !isVisibleCollabControlWorkEntry(entry)
+  ) {
     return undefined;
   }
   const normalizedLabel = normalizeCompactToolLabel(entry.toolTitle ?? entry.label);
@@ -1926,6 +1972,14 @@ function deriveToolLifecycleCollapseKey(entry: DerivedWorkLogEntry): string | un
     return undefined;
   }
   return [itemType, normalizedLabel, stableIdentity].join("\u001f");
+}
+
+function isVisibleCollabControlWorkEntry(
+  entry: Pick<DerivedWorkLogEntry, "itemType" | "toolName">,
+): boolean {
+  return (
+    entry.itemType === "collab_agent_tool_call" && isCodexVisibleCollabTool(entry.toolName ?? null)
+  );
 }
 
 function deriveToolLifecycleIdentity(entry: DerivedWorkLogEntry): string {
@@ -2415,8 +2469,11 @@ export function deriveBackgroundTrayState(
   nowIso: string,
 ): BackgroundTrayState {
   const { standalone, subagentGroups } = groupSubagentEntries(workEntries);
-  const visibleSubagentGroups = subagentGroups.filter((group) =>
-    isSubagentGroupVisibleInTray(group, nowIso),
+  const visibleSubagentGroups = compactSubagentGroups(
+    enrichSubagentGroupsWithControlMetadata(
+      subagentGroups.filter((group) => isSubagentGroupVisibleInTray(group, nowIso)),
+      standalone,
+    ),
   );
   const visibleCommandEntries = deriveVisibleBackgroundCommandEntries(standalone, nowIso);
 
@@ -2450,7 +2507,11 @@ export function deriveBackgroundTrayState(
     subagentGroups: visibleSubagentGroups,
     commandEntries: visibleCommandEntries,
     hiddenSubagentGroupIds: visibleSubagentGroups.map((group) => group.groupId),
-    hiddenWorkEntryIds: [],
+    // Keep live background commands in the composer tray only. Once they complete they can show up
+    // inline in history immediately while the tray keeps a short-lived completed badge.
+    hiddenWorkEntryIds: visibleCommandEntries
+      .filter((entry) => deriveBackgroundCommandStatus(entry) === "running")
+      .map((entry) => entry.id),
     hasRunningTasks:
       visibleSubagentGroups.some((group) => group.status === "running") ||
       visibleCommandEntries.some((entry) => deriveBackgroundCommandStatus(entry) === "running"),
@@ -2463,8 +2524,12 @@ export function filterTrayOwnedWorkEntries(
   backgroundTrayState: BackgroundTrayState,
 ): WorkLogEntry[] {
   const hiddenSubagentGroupIds = new Set(backgroundTrayState.hiddenSubagentGroupIds);
+  const hiddenWorkEntryIds = new Set(backgroundTrayState.hiddenWorkEntryIds);
 
   return workEntries.filter((entry) => {
+    if (hiddenWorkEntryIds.has(entry.id)) {
+      return false;
+    }
     const groupId = entry.childThreadAttribution?.childProviderThreadId;
     if (groupId && hiddenSubagentGroupIds.has(groupId)) {
       return false;
@@ -2496,6 +2561,58 @@ function deriveVisibleBackgroundCommandEntries(
   nowIso: string,
 ): WorkLogEntry[] {
   return standaloneEntries.filter((entry) => isBackgroundCommandVisibleInTray(entry, nowIso));
+}
+
+function enrichSubagentGroupsWithControlMetadata(
+  subagentGroups: ReadonlyArray<SubagentGroup>,
+  standaloneEntries: ReadonlyArray<WorkLogEntry>,
+): SubagentGroup[] {
+  const metadataByChildThreadId = new Map<
+    string,
+    {
+      label?: string;
+      agentType?: string;
+      agentModel?: string;
+    }
+  >();
+
+  for (const entry of standaloneEntries) {
+    if (entry.itemType !== "collab_agent_tool_call") {
+      continue;
+    }
+    for (const childThreadId of entry.receiverThreadIds ?? []) {
+      const current = metadataByChildThreadId.get(childThreadId) ?? {};
+      const label = current.label ?? entry.agentDescription ?? entry.agentPrompt ?? entry.detail;
+      const agentType = current.agentType ?? entry.agentType;
+      const agentModel = current.agentModel ?? entry.agentModel;
+      metadataByChildThreadId.set(childThreadId, {
+        ...(label ? { label } : {}),
+        ...(agentType ? { agentType } : {}),
+        ...(agentModel ? { agentModel } : {}),
+      });
+    }
+  }
+
+  return subagentGroups.map((group) => {
+    const metadata = metadataByChildThreadId.get(group.childProviderThreadId);
+    if (!metadata) {
+      return group;
+    }
+    const shouldReplacePlaceholderLabel = group.label.startsWith("Subagent ");
+    return {
+      ...group,
+      label: shouldReplacePlaceholderLabel && metadata.label ? metadata.label : group.label,
+      agentType: group.agentType ?? metadata.agentType,
+      agentModel: group.agentModel ?? metadata.agentModel,
+    };
+  });
+}
+
+function compactSubagentGroups(subagentGroups: ReadonlyArray<SubagentGroup>): SubagentGroup[] {
+  return subagentGroups.map((group) => ({
+    ...group,
+    entries: [],
+  }));
 }
 
 function isUnifiedExecCommandSource(value: string | undefined): boolean {

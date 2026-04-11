@@ -147,9 +147,8 @@ describe("deriveMessagesTimelineRows", () => {
     if (rows[0]?.kind === "subagent-section") {
       expect(rows[0].subagentGroups).toHaveLength(1);
       expect(rows[0].subagentGroups[0]?.status).toBe("completed");
-      expect(rows[0].subagentGroups[0]?.entries.map((entry) => entry.id)).toEqual([
-        "subagent-work",
-      ]);
+      expect(rows[0].subagentGroups[0]?.recordedActionCount).toBe(1);
+      expect(rows[0].subagentGroups[0]?.entries).toEqual([]);
     }
   });
 });

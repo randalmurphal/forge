@@ -9,6 +9,8 @@
 import type {
   OrchestrationGetCommandOutputInput,
   OrchestrationGetCommandOutputResult,
+  OrchestrationGetSubagentActivityFeedInput,
+  OrchestrationGetSubagentActivityFeedResult,
   OrchestrationCheckpointSummary,
   OrchestrationProject,
   OrchestrationReadModel,
@@ -52,6 +54,13 @@ export interface ProjectionSnapshotQueryShape {
   readonly getCommandOutput: (
     input: OrchestrationGetCommandOutputInput,
   ) => Effect.Effect<Option.Option<OrchestrationGetCommandOutputResult>, ProjectionRepositoryError>;
+
+  /**
+   * Resolve a capped feed of recorded child-thread activities for one subagent on demand.
+   */
+  readonly getSubagentActivityFeed: (
+    input: OrchestrationGetSubagentActivityFeedInput,
+  ) => Effect.Effect<OrchestrationGetSubagentActivityFeedResult, ProjectionRepositoryError>;
 
   /**
    * Read aggregate projection counts without hydrating the full read model.

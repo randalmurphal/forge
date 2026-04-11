@@ -52,6 +52,7 @@ import {
   ORCHESTRATION_WS_METHODS,
   OrchestrationGetCommandOutputError,
   OrchestrationGetCommandOutputInput,
+  OrchestrationGetSubagentActivityFeedError,
   OrchestrationDispatchCommandError,
   OrchestrationGetFullThreadDiffError,
   OrchestrationGetFullThreadAgentDiffError,
@@ -409,6 +410,15 @@ export const WsOrchestrationGetCommandOutputRpc = Rpc.make(
     payload: OrchestrationGetCommandOutputInput,
     success: OrchestrationRpcSchemas.getCommandOutput.output,
     error: OrchestrationGetCommandOutputError,
+  },
+);
+
+export const WsOrchestrationGetSubagentActivityFeedRpc = Rpc.make(
+  ORCHESTRATION_WS_METHODS.getSubagentActivityFeed,
+  {
+    payload: OrchestrationRpcSchemas.getSubagentActivityFeed.input,
+    success: OrchestrationRpcSchemas.getSubagentActivityFeed.output,
+    error: OrchestrationGetSubagentActivityFeedError,
   },
 );
 
@@ -1008,6 +1018,7 @@ export const WsRpcGroup = RpcGroup.make(
   WsOrchestrationGetTurnDiffRpc,
   WsOrchestrationGetFullThreadDiffRpc,
   WsOrchestrationGetCommandOutputRpc,
+  WsOrchestrationGetSubagentActivityFeedRpc,
   WsOrchestrationGetTurnAgentDiffRpc,
   WsOrchestrationGetFullThreadAgentDiffRpc,
   WsOrchestrationReplayEventsRpc,

@@ -2,6 +2,7 @@ import {
   DEFAULT_SERVER_SETTINGS,
   FORGE_DAEMON_LIFECYCLE_PROTOCOL_VERSION,
   ProjectId,
+  type RateLimitsSnapshot,
   ThreadId,
   type ServerConfig,
   type ServerConfigStreamEvent,
@@ -13,6 +14,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   getServerLifecycleCompatibilityIssue,
   getServerConfig,
+  getRateLimits,
   onProvidersUpdated,
   onServerConfigUpdated,
   onWelcome,
@@ -416,6 +418,53 @@ describe("serverState", () => {
       expect(getServerConfig()?.issues).toEqual([
         { kind: "keybindings.malformed-config", message: "bad keybindings" },
       ]);
+    });
+
+    stop();
+  });
+
+  it("clears cached rate limits when a fresh config snapshot arrives", async () => {
+    serverApi.getConfig.mockResolvedValueOnce(baseServerConfig);
+    const stop = startServerStateSync(serverApi);
+
+    const rateLimits: RateLimitsSnapshot = {
+      provider: "codex",
+      updatedAt: "2026-04-10T00:00:00.000Z",
+      limits: [
+        {
+          limitId: "codex",
+          limitName: null,
+          primary: {
+            usedPercent: 81,
+            windowDurationMins: 300,
+            resetsAt: 1_775_803_864,
+          },
+          secondary: null,
+        },
+      ],
+    };
+
+    emitServerConfigEvent({
+      version: 1,
+      type: "rateLimitsUpdated",
+      payload: { rateLimits },
+    });
+
+    await waitFor(() => {
+      expect(getRateLimits()).toEqual(rateLimits);
+    });
+
+    emitServerConfigEvent({
+      version: 1,
+      type: "snapshot",
+      config: {
+        ...baseServerConfig,
+        cwd: "/tmp/after-reconnect",
+      },
+    });
+
+    await waitFor(() => {
+      expect(getRateLimits()).toBeNull();
     });
 
     stop();

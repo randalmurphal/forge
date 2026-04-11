@@ -1,4 +1,4 @@
-import { memo, useCallback, useLayoutEffect, useRef, type ReactNode } from "react";
+import { memo, useCallback, useRef, type ReactNode } from "react";
 import {
   AlertCircleIcon,
   BoxIcon,
@@ -6,11 +6,14 @@ import {
   ChevronRightIcon,
   LoaderIcon,
 } from "lucide-react";
+
 import { cn } from "../../lib/utils";
 import { formatDuration, type SubagentGroup, type WorkLogEntry } from "../../session-logic";
 import { SUBAGENT_ENTRIES_MAX_HEIGHT_PX } from "./MessagesTimeline.logic";
+import { LazySubagentEntries } from "./LazySubagentEntries";
 
 interface SubagentSectionProps {
+  threadId: string | null;
   groups: ReadonlyArray<SubagentGroup>;
   expandedGroupId: string | null;
   onToggle: (groupId: string) => void;
@@ -20,7 +23,8 @@ interface SubagentSectionProps {
 }
 
 export const SubagentSection = memo(function SubagentSection(props: SubagentSectionProps) {
-  const { groups, expandedGroupId, onToggle, renderWorkEntry, nowIso, sectionLabel } = props;
+  const { threadId, groups, expandedGroupId, onToggle, renderWorkEntry, nowIso, sectionLabel } =
+    props;
 
   return (
     <div className="rounded-xl border border-border/45 bg-card/25 px-2 py-1.5">
@@ -33,6 +37,7 @@ export const SubagentSection = memo(function SubagentSection(props: SubagentSect
         {groups.map((group) => (
           <SubagentGroupRow
             key={group.groupId}
+            threadId={threadId}
             group={group}
             isExpanded={expandedGroupId === group.groupId}
             onToggle={onToggle}
@@ -46,13 +51,14 @@ export const SubagentSection = memo(function SubagentSection(props: SubagentSect
 });
 
 const SubagentGroupRow = memo(function SubagentGroupRow(props: {
+  threadId: string | null;
   group: SubagentGroup;
   isExpanded: boolean;
   onToggle: (groupId: string) => void;
   renderWorkEntry: (entry: WorkLogEntry) => ReactNode;
   nowIso: string;
 }) {
-  const { group, isExpanded, onToggle, renderWorkEntry, nowIso } = props;
+  const { threadId, group, isExpanded, onToggle, renderWorkEntry, nowIso } = props;
 
   const handleToggle = useCallback(() => {
     onToggle(group.groupId);
@@ -60,7 +66,6 @@ const SubagentGroupRow = memo(function SubagentGroupRow(props: {
 
   const StatusIcon = statusIcon(group.status);
   const statusColor = statusColorClass(group.status);
-
   const maxDurationRef = useRef(0);
 
   const rawDurationMs = group.completedAt
@@ -115,61 +120,28 @@ const SubagentGroupRow = memo(function SubagentGroupRow(props: {
             <StatusIcon className={cn("size-2.5", group.status === "running" && "animate-spin")} />
             {group.status}
           </span>
-          {durationMs !== undefined && durationMs > 0 && (
+          {durationMs !== undefined && durationMs > 0 ? (
             <span className="text-[9px] tabular-nums text-muted-foreground/40">
               {formatDuration(durationMs)}
             </span>
-          )}
+          ) : null}
         </div>
       </button>
-      {isExpanded && group.entries.length > 0 && (
-        <SubagentEntriesScrollArea entries={group.entries} renderWorkEntry={renderWorkEntry} />
-      )}
-      {isExpanded && group.entries.length === 0 && (
-        <div className="px-4 pb-2">
-          <p className="text-[10px] italic text-muted-foreground/40">No recorded actions</p>
+      {isExpanded ? (
+        <div className="ml-5 border-l border-border/30 pb-2 pl-3">
+          <div className="pt-1">
+            <LazySubagentEntries
+              threadId={threadId}
+              childProviderThreadId={group.childProviderThreadId}
+              expanded={isExpanded}
+              isRunning={group.status === "running"}
+              fallbackEntries={group.entries}
+              renderEntry={renderWorkEntry}
+              maxHeightPx={SUBAGENT_ENTRIES_MAX_HEIGHT_PX}
+            />
+          </div>
         </div>
-      )}
-    </div>
-  );
-});
-
-const SubagentEntriesScrollArea = memo(function SubagentEntriesScrollArea(props: {
-  entries: ReadonlyArray<WorkLogEntry>;
-  renderWorkEntry: (entry: WorkLogEntry) => ReactNode;
-}) {
-  const { entries, renderWorkEntry } = props;
-  const scrollRef = useRef<HTMLDivElement>(null);
-  const isAtBottomRef = useRef(true);
-
-  useLayoutEffect(() => {
-    const el = scrollRef.current;
-    if (isAtBottomRef.current && el) {
-      el.scrollTop = el.scrollHeight;
-    }
-  }, [entries.length]);
-
-  const handleScroll = useCallback(() => {
-    const el = scrollRef.current;
-    if (!el) return;
-    const distanceFromBottom = el.scrollHeight - el.clientHeight - el.scrollTop;
-    isAtBottomRef.current = distanceFromBottom <= 32;
-  }, []);
-
-  return (
-    <div className="ml-5 border-l border-border/30 pb-2 pl-3">
-      <div
-        ref={scrollRef}
-        onScroll={handleScroll}
-        className="overflow-y-auto pt-1"
-        style={{ maxHeight: SUBAGENT_ENTRIES_MAX_HEIGHT_PX }}
-      >
-        <div className="space-y-0.5">
-          {entries.map((entry) => (
-            <div key={entry.id}>{renderWorkEntry(entry)}</div>
-          ))}
-        </div>
-      </div>
+      ) : null}
     </div>
   );
 });

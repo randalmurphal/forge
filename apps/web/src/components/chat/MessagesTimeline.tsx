@@ -420,6 +420,7 @@ export const MessagesTimeline = memo(function MessagesTimeline({
 
       {row.kind === "subagent-section" && (
         <SubagentSection
+          threadId={threadId}
           groups={row.subagentGroups}
           expandedGroupId={expandedSubagentGroupId}
           onToggle={onToggleSubagent}
@@ -947,6 +948,12 @@ function workEntryPreview(workEntry: TimelineWorkEntry): string | null {
         ? `${workEntry.agentPrompt.slice(0, 117)}...`
         : workEntry.agentPrompt;
     }
+    const [firstReceiverThreadId] = workEntry.receiverThreadIds ?? [];
+    if (firstReceiverThreadId) {
+      return workEntry.receiverThreadIds!.length === 1
+        ? `target ${firstReceiverThreadId}`
+        : `${workEntry.receiverThreadIds!.length} targets`;
+    }
     return extractSubagentPreview(workEntry.detail) ?? null;
   }
 
@@ -1020,6 +1027,11 @@ function capitalizePhrase(value: string): string {
 function normalizeAgentToolName(toolName: string | undefined): string {
   if (!toolName) return "Agent";
   const lower = toolName.toLowerCase();
+  if (lower === "spawnagent") return "Spawn agent";
+  if (lower === "wait") return "Wait agent";
+  if (lower === "sendinput") return "Send input";
+  if (lower === "closeagent") return "Close agent";
+  if (lower === "resumeagent") return "Resume agent";
   // Codex sends "collabAgentToolCall" — normalize to "Agent"
   if (lower.includes("collab")) return "Agent";
   // Claude sends "Agent", "Task", "dispatch_agent", etc. — capitalize

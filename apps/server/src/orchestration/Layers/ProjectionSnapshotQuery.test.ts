@@ -97,6 +97,126 @@ projectionSnapshotLayer("ProjectionSnapshotQuery", (it) => {
     }),
   );
 
+  it.effect("loads recorded subagent activities on demand without task boundary noise", () =>
+    Effect.gen(function* () {
+      const snapshotQuery = yield* ProjectionSnapshotQuery;
+      const sql = yield* SqlClient.SqlClient;
+
+      yield* sql`DELETE FROM projection_thread_activities`;
+
+      const childThreadAttribution = {
+        taskId: "task-child-1",
+        childProviderThreadId: "child-provider-1",
+      };
+
+      yield* sql`
+        INSERT INTO projection_thread_activities (
+          activity_id,
+          thread_id,
+          turn_id,
+          tone,
+          kind,
+          summary,
+          payload_json,
+          sequence,
+          created_at
+        )
+        VALUES
+          (
+            'activity-child-start',
+            'thread-subagent-1',
+            'turn-subagent-1',
+            'info',
+            'task.started',
+            'Task started',
+            ${JSON.stringify({
+              taskId: "task-child-1",
+              childThreadAttribution,
+            })},
+            1,
+            '2026-04-10T00:00:00.000Z'
+          ),
+          (
+            'activity-child-command',
+            'thread-subagent-1',
+            'turn-subagent-1',
+            'tool',
+            'tool.completed',
+            'Ran command',
+            ${JSON.stringify({
+              itemType: "command_execution",
+              itemId: "tool-child-1",
+              childThreadAttribution,
+              data: {
+                item: {
+                  id: "tool-child-1",
+                  command: ["/bin/zsh", "-lc", "sleep 30"],
+                  aggregatedOutput: "started\nfinished",
+                },
+              },
+            })},
+            2,
+            '2026-04-10T00:00:01.000Z'
+          ),
+          (
+            'activity-child-complete',
+            'thread-subagent-1',
+            'turn-subagent-1',
+            'info',
+            'task.completed',
+            'Task completed',
+            ${JSON.stringify({
+              taskId: "task-child-1",
+              status: "completed",
+              childThreadAttribution,
+            })},
+            3,
+            '2026-04-10T00:00:02.000Z'
+          )
+      `;
+
+      const feed = yield* snapshotQuery.getSubagentActivityFeed({
+        threadId: ThreadId.makeUnsafe("thread-subagent-1"),
+        childProviderThreadId: "child-provider-1",
+      });
+
+      assert.deepStrictEqual(feed, {
+        threadId: ThreadId.makeUnsafe("thread-subagent-1"),
+        childProviderThreadId: "child-provider-1",
+        activities: [
+          {
+            id: asEventId("activity-child-command"),
+            kind: "tool.completed",
+            tone: "tool",
+            summary: "Ran command",
+            payload: {
+              itemType: "command_execution",
+              itemId: "tool-child-1",
+              childThreadAttribution,
+              outputSummary: {
+                available: true,
+                source: "final",
+                byteLength: Buffer.byteLength("started\nfinished", "utf8"),
+              },
+              data: {
+                item: {
+                  id: "tool-child-1",
+                  command: ["/bin/zsh", "-lc", "sleep 30"],
+                },
+              },
+            },
+            turnId: asTurnId("turn-subagent-1"),
+            createdAt: "2026-04-10T00:00:01.000Z",
+            sequence: 2,
+          },
+        ],
+        omittedActivityCount: 0,
+      });
+
+      yield* sql`DELETE FROM projection_thread_activities`;
+    }),
+  );
+
   it.effect("hydrates read model from projection tables and computes snapshot sequence", () =>
     Effect.gen(function* () {
       const snapshotQuery = yield* ProjectionSnapshotQuery;

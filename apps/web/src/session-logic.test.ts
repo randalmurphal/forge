@@ -1669,9 +1669,9 @@ describe("deriveWorkLogEntries", () => {
     expect(entry?.agentPrompt).toBeUndefined();
   });
 
-  it("filters out unattributed collab_agent_tool_call envelope entries", () => {
+  it("filters out generic unattributed collab envelopes while keeping visible control calls", () => {
     const activities: OrchestrationThreadActivity[] = [
-      // Should be filtered out: collab_agent_tool_call without attribution
+      // Should be retained: visible control call without attribution
       makeActivity({
         id: "orphaned-started",
         kind: "tool.started",
@@ -1680,6 +1680,14 @@ describe("deriveWorkLogEntries", () => {
           itemType: "collab_agent_tool_call",
           title: "Subagent task",
           toolName: "Agent",
+          data: {
+            item: {
+              tool: "spawnAgent",
+              model: "gpt-5.4-mini",
+              prompt: "Inspect the parser",
+              receiverThreadIds: ["child-thread-control"],
+            },
+          },
         },
       }),
       // Should be filtered out: collab_agent_tool_call without attribution
@@ -1743,12 +1751,78 @@ describe("deriveWorkLogEntries", () => {
     const entries = deriveWorkLogEntries(activities, undefined);
     const ids = entries.map((e) => e.id);
 
-    expect(ids).not.toContain("orphaned-started");
+    expect(ids).toContain("orphaned-started");
     expect(ids).not.toContain("orphaned-updated");
     expect(ids).not.toContain("orphaned-completed");
     expect(ids).toContain("attributed-updated");
     expect(ids).toContain("attributed-completed");
     expect(ids).toContain("regular-tool");
+  });
+
+  it("preserves visible collab control call metadata for inline rendering", () => {
+    const [entry] = deriveWorkLogEntries(
+      [
+        makeActivity({
+          id: "spawn-inline",
+          kind: "tool.completed",
+          summary: "Subagent task",
+          payload: {
+            itemType: "collab_agent_tool_call",
+            data: {
+              item: {
+                id: "spawn-inline",
+                tool: "spawnAgent",
+                model: "gpt-5.4-mini",
+                prompt: "Inspect the parser",
+                receiverThreadIds: ["child-thread-inline"],
+              },
+            },
+          },
+        }),
+      ],
+      undefined,
+    );
+
+    expect(entry).toMatchObject({
+      itemType: "collab_agent_tool_call",
+      toolName: "spawnAgent",
+      agentModel: "gpt-5.4-mini",
+      agentPrompt: "Inspect the parser",
+      receiverThreadIds: ["child-thread-inline"],
+    });
+  });
+
+  it("keeps visible wait_agent start events inline before completion", () => {
+    const [entry] = deriveWorkLogEntries(
+      [
+        makeActivity({
+          id: "wait-started-inline",
+          kind: "tool.started",
+          summary: "Subagent wait",
+          payload: {
+            itemType: "collab_agent_tool_call",
+            status: "inProgress",
+            data: {
+              item: {
+                id: "wait-inline",
+                tool: "wait",
+                prompt: "Wait for child completion",
+                receiverThreadIds: ["child-thread-inline"],
+              },
+            },
+          },
+        }),
+      ],
+      undefined,
+    );
+
+    expect(entry).toMatchObject({
+      id: "wait-started-inline",
+      activityKind: "tool.started",
+      itemType: "collab_agent_tool_call",
+      toolName: "wait",
+      itemStatus: "inProgress",
+    });
   });
 
   it("synthesizes a completed Codex subagent lifecycle entry when only the parent collab item completes", () => {
@@ -1886,7 +1960,14 @@ describe("deriveWorkLogEntries", () => {
       undefined,
     );
 
-    expect(entries).toEqual([]);
+    expect(entries).toHaveLength(1);
+    expect(entries[0]).toMatchObject({
+      id: "codex-collab-parent-complete-child-pending",
+      itemType: "collab_agent_tool_call",
+      toolName: "spawnAgent",
+      receiverThreadIds: ["child-thread-3"],
+      itemStatus: "completed",
+    });
   });
 
   it("prefers a real attributed task.completed over a synthetic Codex fallback completion", () => {
@@ -1965,7 +2046,13 @@ describe("deriveWorkLogEntries", () => {
         undefined,
       );
 
-      expect(entries).toEqual([]);
+      expect(entries).toHaveLength(1);
+      expect(entries[0]).toMatchObject({
+        id: `codex-control-${tool}`,
+        itemType: "collab_agent_tool_call",
+        toolName: tool,
+        receiverThreadIds: ["child-thread-1"],
+      });
     },
   );
 
@@ -1992,7 +2079,13 @@ describe("deriveWorkLogEntries", () => {
       undefined,
     );
 
-    expect(entries).toEqual([]);
+    expect(entries).toHaveLength(1);
+    expect(entries[0]).toMatchObject({
+      id: "timed-out-wait",
+      itemType: "collab_agent_tool_call",
+      toolName: "wait",
+      itemStatus: "completed",
+    });
   });
 
   it("synthesizes a fallback subagent completion from wait_agent when a known child reaches a terminal state", () => {
@@ -2668,11 +2761,11 @@ describe("deriveWorkLogEntries", () => {
       "background-running",
       "background-completed",
     ]);
-    expect(visibleState.hiddenWorkEntryIds).toEqual([]);
+    expect(visibleState.hiddenWorkEntryIds).toEqual(["background-running"]);
 
     const expiredState = deriveBackgroundTrayState(workEntries, "2026-04-10T12:00:08.500Z");
     expect(expiredState.commandEntries.map((entry) => entry.id)).toEqual(["background-running"]);
-    expect(expiredState.hiddenWorkEntryIds).toEqual([]);
+    expect(expiredState.hiddenWorkEntryIds).toEqual(["background-running"]);
   });
 
   it("does not infer background tray ownership from overlap alone", () => {
@@ -2720,7 +2813,62 @@ describe("deriveWorkLogEntries", () => {
     );
   });
 
-  it("keeps background commands inline while still filtering running subagent work", () => {
+  it("carries spawn agent metadata into background tray subagent groups", () => {
+    const workEntries = deriveWorkLogEntries(
+      [
+        makeActivity({
+          id: "spawn-agent-completed",
+          createdAt: "2026-04-10T12:00:00.000Z",
+          kind: "tool.completed",
+          summary: "Subagent task",
+          payload: {
+            itemType: "collab_agent_tool_call",
+            data: {
+              item: {
+                id: "spawn-agent-call",
+                tool: "spawnAgent",
+                prompt: "Inspect the parser",
+                model: "gpt-5.4-mini",
+                receiverThreadIds: ["child-thread-meta"],
+              },
+            },
+          },
+        }),
+        makeActivity({
+          id: "child-command-start",
+          createdAt: "2026-04-10T12:00:01.000Z",
+          kind: "tool.started",
+          summary: "Command started",
+          payload: {
+            itemType: "command_execution",
+            itemId: "child-command-meta",
+            status: "inProgress",
+            data: {
+              item: {
+                id: "child-command-meta",
+                command: ["/bin/zsh", "-lc", "sleep 120"],
+              },
+            },
+            childThreadAttribution: {
+              taskId: "spawn-agent-call",
+              childProviderThreadId: "child-thread-meta",
+            },
+          },
+        }),
+      ],
+      undefined,
+    );
+
+    const trayState = deriveBackgroundTrayState(workEntries, "2026-04-10T12:00:03.000Z");
+    expect(trayState.subagentGroups).toHaveLength(1);
+    expect(trayState.subagentGroups[0]).toMatchObject({
+      childProviderThreadId: "child-thread-meta",
+      label: "Inspect the parser",
+      agentModel: "gpt-5.4-mini",
+    });
+  });
+
+  it("keeps running background commands in the tray until they complete, then returns them to history", () => {
     const workEntries = deriveWorkLogEntries(
       [
         makeActivity({
@@ -2783,7 +2931,6 @@ describe("deriveWorkLogEntries", () => {
       deriveBackgroundTrayState(workEntries, "2026-04-10T12:00:06.000Z"),
     );
     expect(visibleWhileOwned.map((entry) => entry.id)).toEqual([
-      "background-running",
       "background-completed",
       "foreground-command",
     ]);
@@ -2793,7 +2940,6 @@ describe("deriveWorkLogEntries", () => {
       deriveBackgroundTrayState(workEntries, "2026-04-10T12:00:08.500Z"),
     );
     expect(visibleAfterTtl.map((entry) => entry.id)).toEqual([
-      "background-running",
       "background-completed",
       "foreground-command",
     ]);

@@ -54,7 +54,10 @@ import { ProjectionThreadMessage } from "../../persistence/Services/ProjectionTh
 import { ProjectionThreadProposedPlan } from "../../persistence/Services/ProjectionThreadProposedPlans.ts";
 import { ProjectionThreadSession } from "../../persistence/Services/ProjectionThreadSessions.ts";
 import { ORCHESTRATION_PROJECTOR_NAMES } from "./ProjectionPipeline.ts";
-import { resolveCommandOutputForActivities } from "../threadActivityTransport.ts";
+import {
+  resolveCommandOutputForActivities,
+  resolveSubagentActivityFeedForActivities,
+} from "../threadActivityTransport.ts";
 import {
   ProjectionSnapshotQuery,
   type ProjectionSnapshotCounts,
@@ -1154,6 +1157,42 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
       }),
     );
 
+  const getSubagentActivityFeed: ProjectionSnapshotQueryShape["getSubagentActivityFeed"] = (
+    input,
+  ) =>
+    listThreadActivityRowsByThreadId({ threadId: input.threadId }).pipe(
+      Effect.mapError(
+        toPersistenceSqlOrDecodeError(
+          "ProjectionSnapshotQuery.getSubagentActivityFeed:listThreadActivities:query",
+          "ProjectionSnapshotQuery.getSubagentActivityFeed:listThreadActivities:decodeRows",
+        ),
+      ),
+      Effect.map((activities) => {
+        const resolved = resolveSubagentActivityFeedForActivities(
+          activities.map((activity) => ({
+            id: activity.activityId,
+            kind: activity.kind,
+            tone: activity.tone,
+            summary: activity.summary,
+            payload: activity.payload,
+            turnId: activity.turnId,
+            createdAt: activity.createdAt,
+            ...(activity.sequence !== null ? { sequence: activity.sequence } : {}),
+          })),
+          {
+            childProviderThreadId: input.childProviderThreadId,
+          },
+        );
+
+        return {
+          threadId: input.threadId,
+          childProviderThreadId: input.childProviderThreadId,
+          activities: [...resolved.activities],
+          omittedActivityCount: resolved.omittedActivityCount,
+        };
+      }),
+    );
+
   const getCounts: ProjectionSnapshotQueryShape["getCounts"] = () =>
     readProjectionCounts(undefined).pipe(
       Effect.mapError(
@@ -1254,6 +1293,7 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
   return {
     getSnapshot,
     getCommandOutput,
+    getSubagentActivityFeed,
     getCounts,
     getActiveProjectByWorkspaceRoot,
     getFirstActiveThreadIdByProjectId,

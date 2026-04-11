@@ -108,6 +108,10 @@ export function getServerConfigUpdatedNotification(): ServerConfigUpdatedNotific
   return appAtomRegistry.get(serverConfigUpdatedAtom);
 }
 
+export function getRateLimits(): RateLimitsSnapshot | null {
+  return appAtomRegistry.get(rateLimitsAtom);
+}
+
 export function setServerConfigSnapshot(config: ServerConfig): void {
   resolveServerConfig(config);
   emitProvidersUpdated({ providers: config.providers });
@@ -147,6 +151,7 @@ async function mergeDesktopBridgeEditors(config: ServerConfig): Promise<void> {
 export function applyServerConfigEvent(event: ServerConfigStreamEvent): void {
   switch (event.type) {
     case "snapshot": {
+      appAtomRegistry.set(rateLimitsAtom, null);
       setServerConfigSnapshot(event.config);
       return;
     }

@@ -45,6 +45,8 @@ import type {
   OrchestrationGetCommandOutputInput,
   OrchestrationGetCommandOutputResult,
   ForgeEvent,
+  OrchestrationGetSubagentActivityFeedInput,
+  OrchestrationGetSubagentActivityFeedResult,
   OrchestrationGetFullThreadDiffInput,
   OrchestrationGetFullThreadDiffResult,
   OrchestrationGetFullThreadAgentDiffInput,
@@ -229,6 +231,9 @@ export interface NativeApi {
     getCommandOutput: (
       input: OrchestrationGetCommandOutputInput,
     ) => Promise<OrchestrationGetCommandOutputResult>;
+    getSubagentActivityFeed: (
+      input: OrchestrationGetSubagentActivityFeedInput,
+    ) => Promise<OrchestrationGetSubagentActivityFeedResult>;
     getTurnAgentDiff: (
       input: OrchestrationGetTurnAgentDiffInput,
     ) => Promise<OrchestrationGetTurnAgentDiffResult>;

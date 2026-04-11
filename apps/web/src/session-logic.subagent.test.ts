@@ -688,7 +688,12 @@ describe("groupSubagentEntries", () => {
     );
 
     const result = groupSubagentEntries(entries);
-    expect(result.standalone).toEqual([]);
+    expect(result.standalone.map((entry) => entry.id)).toEqual(["spawn-agent-completed"]);
+    expect(result.standalone[0]).toMatchObject({
+      itemType: "collab_agent_tool_call",
+      toolName: "spawnAgent",
+      receiverThreadIds: ["child-thread-running"],
+    });
     expect(result.subagentGroups).toHaveLength(1);
     expect(result.subagentGroups[0]?.status).toBe("running");
     expect(result.subagentGroups[0]?.completedAt).toBeUndefined();
@@ -750,7 +755,12 @@ describe("groupSubagentEntries", () => {
     );
 
     const result = groupSubagentEntries(entries);
-    expect(result.standalone).toEqual([]);
+    expect(result.standalone.map((entry) => entry.id)).toEqual(["wait-agent-completed"]);
+    expect(result.standalone[0]).toMatchObject({
+      itemType: "collab_agent_tool_call",
+      toolName: "wait",
+      receiverThreadIds: ["child-thread-known-completion"],
+    });
     expect(result.subagentGroups).toHaveLength(1);
     expect(result.subagentGroups[0]?.status).toBe("completed");
     expect(result.subagentGroups[0]?.completedAt).toBe("2026-04-01T00:02:00.000Z");
@@ -823,7 +833,11 @@ describe("groupSubagentEntries", () => {
       );
 
       const result = groupSubagentEntries(entries);
-      expect(result.standalone).toEqual([]);
+      expect(result.standalone.map((entry) => entry.id)).toEqual([`control-${tool}`]);
+      expect(result.standalone[0]).toMatchObject({
+        itemType: "collab_agent_tool_call",
+        toolName: tool,
+      });
       expect(result.subagentGroups).toEqual([]);
     },
   );

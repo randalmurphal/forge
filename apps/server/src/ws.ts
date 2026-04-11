@@ -7,6 +7,7 @@ import {
   type GitActionProgressEvent,
   type GitManagerServiceError,
   OrchestrationGetCommandOutputError,
+  OrchestrationGetSubagentActivityFeedError,
   OrchestrationDispatchCommandError,
   type OrchestrationEvent,
   OrchestrationGetFullThreadAgentDiffError,
@@ -105,6 +106,13 @@ type ChannelPushStreamState = {
     Extract<ChannelPushEvent, { channel: "channel.message" }>["channelId"],
     Extract<ChannelPushEvent, { channel: "channel.message" }>["threadId"]
   >;
+};
+type RateLimitRuntimeEvent = {
+  readonly provider: RateLimitsSnapshot["provider"];
+  readonly createdAt: string;
+  readonly payload: {
+    readonly rateLimits: unknown;
+  };
 };
 
 function paginateEntries<T>(
@@ -618,6 +626,59 @@ const WsRpcLayer = WsRpcGroup.toLayer(
     const threadMessages = yield* ProjectionThreadMessageRepository;
     const threadSessions = yield* ProjectionThreadSessionRepository;
     const interactiveRequests = yield* ProjectionInteractiveRequestRepository;
+    const latestRateLimitsByProvider = yield* Ref.make(
+      new Map<RateLimitsSnapshot["provider"], RateLimitsSnapshot>(),
+    );
+    const latestRateLimitsSnapshot = yield* Ref.make<RateLimitsSnapshot | null>(null);
+
+    const applyRateLimitEvent = Effect.fn("ws.applyRateLimitEvent")(function* (
+      event: RateLimitRuntimeEvent,
+    ) {
+      const snapshot = yield* Ref.modify(latestRateLimitsByProvider, (current) => {
+        const previous = current.get(event.provider) ?? null;
+        let nextSnapshot: RateLimitsSnapshot | null;
+
+        switch (event.provider) {
+          case "codex":
+            nextSnapshot = normalizeCodexRateLimits(event.payload.rateLimits, event.createdAt);
+            break;
+          case "claudeAgent":
+            nextSnapshot = mergeClaudeRateLimitEvent(
+              event.payload.rateLimits,
+              previous,
+              event.createdAt,
+            );
+            break;
+          default:
+            nextSnapshot = null;
+            break;
+        }
+
+        if (!nextSnapshot) {
+          return [null, current] as const;
+        }
+
+        const next = new Map(current);
+        next.set(event.provider, nextSnapshot);
+        return [nextSnapshot, next] as const;
+      });
+
+      if (snapshot) {
+        yield* Ref.set(latestRateLimitsSnapshot, snapshot);
+      }
+
+      return snapshot;
+    });
+
+    yield* providerService.streamEvents.pipe(
+      Stream.filter(
+        (event): event is typeof event & { type: "account.rate-limits.updated" } =>
+          event.type === "account.rate-limits.updated",
+      ),
+      Stream.mapEffect(applyRateLimitEvent),
+      Stream.runDrain,
+      Effect.forkScoped,
+    );
 
     const toSessionSummary = Effect.fn("ws.toSessionSummary")(function* (
       thread: ProjectionThread,
@@ -907,6 +968,21 @@ const WsRpcLayer = WsRpcGroup.toLayer(
                 ? cause
                 : new OrchestrationGetCommandOutputError({
                     message: "Failed to load command output",
+                    cause,
+                  }),
+            ),
+          ),
+          { "rpc.aggregate": "orchestration" },
+        ),
+      [ORCHESTRATION_WS_METHODS.getSubagentActivityFeed]: (input) =>
+        observeRpcEffect(
+          ORCHESTRATION_WS_METHODS.getSubagentActivityFeed,
+          projectionSnapshotQuery.getSubagentActivityFeed(input).pipe(
+            Effect.mapError((cause) =>
+              Schema.is(OrchestrationGetSubagentActivityFeedError)(cause)
+                ? cause
+                : new OrchestrationGetSubagentActivityFeedError({
+                    message: "Failed to load subagent activity feed",
                     cause,
                   }),
             ),
@@ -1697,46 +1773,36 @@ const WsRpcLayer = WsRpcGroup.toLayer(
               })),
             );
 
-            const rateLimitsStream = providerService.streamEvents.pipe(
+            const cachedRateLimitsStream = Stream.unwrap(
+              Ref.get(latestRateLimitsSnapshot).pipe(
+                Effect.map((snapshot) =>
+                  snapshot
+                    ? Stream.succeed({
+                        version: 1 as const,
+                        type: "rateLimitsUpdated" as const,
+                        payload: { rateLimits: snapshot },
+                      })
+                    : Stream.empty,
+                ),
+              ),
+            );
+            const liveRateLimitsStream = providerService.streamEvents.pipe(
               Stream.filter(
                 (event): event is typeof event & { type: "account.rate-limits.updated" } =>
                   event.type === "account.rate-limits.updated",
               ),
-              Stream.mapAccum(
-                () => new Map<string, RateLimitsSnapshot>(),
-                (acc, event) => {
-                  const prev = acc.get(event.provider) ?? null;
-                  let snapshot: RateLimitsSnapshot | null;
-                  switch (event.provider) {
-                    case "codex":
-                      snapshot = normalizeCodexRateLimits(
-                        event.payload.rateLimits,
-                        event.createdAt,
-                      );
-                      break;
-                    case "claudeAgent":
-                      snapshot = mergeClaudeRateLimitEvent(
-                        event.payload.rateLimits,
-                        prev,
-                        event.createdAt,
-                      );
-                      break;
-                    default:
-                      snapshot = null;
-                      break;
-                  }
-                  if (!snapshot) return [acc, []] as const;
-                  const next = new Map(acc);
-                  next.set(event.provider, snapshot);
-                  return [next, [snapshot]] as const;
-                },
+              Stream.mapEffect(applyRateLimitEvent),
+              Stream.flatMap((snapshot) =>
+                snapshot
+                  ? Stream.succeed({
+                      version: 1 as const,
+                      type: "rateLimitsUpdated" as const,
+                      payload: { rateLimits: snapshot },
+                    })
+                  : Stream.empty,
               ),
-              Stream.map((snapshot) => ({
-                version: 1 as const,
-                type: "rateLimitsUpdated" as const,
-                payload: { rateLimits: snapshot },
-              })),
             );
+            const rateLimitsStream = Stream.concat(cachedRateLimitsStream, liveRateLimitsStream);
 
             return Stream.concat(
               Stream.make({

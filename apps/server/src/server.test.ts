@@ -264,6 +264,7 @@ const buildAppUnderTest = (options?: {
         getSettingsState: Effect.succeed({ settings: DEFAULT_SERVER_SETTINGS, issues: [] }),
         updateSettings: () => Effect.succeed(DEFAULT_SERVER_SETTINGS),
         streamChanges: Stream.empty,
+        streamStateChanges: Stream.empty,
         ...options?.layers?.serverSettings,
       }),
       Layer.mock(Open)({
@@ -290,6 +291,7 @@ const buildAppUnderTest = (options?: {
       Layer.mock(ProjectionSnapshotQuery)({
         getSnapshot: () => Effect.succeed(makeDefaultOrchestrationReadModel()),
         getCommandOutput: () => Effect.succeed(Option.none()),
+        getSubagentActivityFeed: () => Effect.die("unexpected getSubagentActivityFeed"),
         ...options?.layers?.projectionSnapshotQuery,
       }),
       Layer.mock(WorkflowRegistry)({

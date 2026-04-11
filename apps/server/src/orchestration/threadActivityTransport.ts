@@ -8,6 +8,7 @@ import {
 type CommandOutputSource = "final" | "stream";
 
 const MAX_TRANSPORT_OUTPUT_LINES = 100;
+const MAX_TRANSPORT_SUBAGENT_ACTIVITIES = 100;
 
 type CommandOutputResolution = {
   readonly toolCallId: string;
@@ -20,6 +21,11 @@ type CommandOutputSummary = {
   readonly available: true;
   readonly source: CommandOutputSource;
   readonly byteLength: number;
+};
+
+type SubagentActivityFeedResolution = {
+  readonly activities: ReadonlyArray<OrchestrationThreadActivity>;
+  readonly omittedActivityCount: number;
 };
 
 export function sanitizeReadModelForTransport(
@@ -131,6 +137,30 @@ export function resolveCommandOutputForActivities(
   return null;
 }
 
+export function resolveSubagentActivityFeedForActivities(
+  activities: ReadonlyArray<OrchestrationThreadActivity>,
+  input: {
+    readonly childProviderThreadId: string;
+  },
+): SubagentActivityFeedResolution {
+  const relevantActivities = activities.filter((activity) =>
+    isRecordedSubagentActivity(activity, input.childProviderThreadId),
+  );
+  const omittedActivityCount = Math.max(
+    0,
+    relevantActivities.length - MAX_TRANSPORT_SUBAGENT_ACTIVITIES,
+  );
+  const tailActivities =
+    omittedActivityCount > 0
+      ? relevantActivities.slice(-MAX_TRANSPORT_SUBAGENT_ACTIVITIES)
+      : relevantActivities;
+
+  return {
+    activities: tailActivities.map(sanitizeThreadActivityForTransport),
+    omittedActivityCount,
+  };
+}
+
 function buildTailResolution(input: {
   readonly toolCallId: string;
   readonly output: string;
@@ -145,6 +175,24 @@ function buildTailResolution(input: {
     source: input.source,
     omittedLineCount,
   };
+}
+
+function isRecordedSubagentActivity(
+  activity: OrchestrationThreadActivity,
+  childProviderThreadId: string,
+): boolean {
+  if (
+    activity.kind === "task.started" ||
+    activity.kind === "task.completed" ||
+    activity.kind === "tool.output.delta" ||
+    activity.kind === "tool.terminal.interaction"
+  ) {
+    return false;
+  }
+
+  const payload = asRecord(activity.payload);
+  const childAttr = asRecord(payload?.childThreadAttribution);
+  return asTrimmedString(childAttr?.childProviderThreadId) === childProviderThreadId;
 }
 
 function sanitizeCommandOutputDeltaPayload(

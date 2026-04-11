@@ -53,6 +53,7 @@ export const ORCHESTRATION_WS_METHODS = {
   getTurnDiff: "orchestration.getTurnDiff",
   getFullThreadDiff: "orchestration.getFullThreadDiff",
   getCommandOutput: "orchestration.getCommandOutput",
+  getSubagentActivityFeed: "orchestration.getSubagentActivityFeed",
   getTurnAgentDiff: "orchestration.getTurnAgentDiff",
   getFullThreadAgentDiff: "orchestration.getFullThreadAgentDiff",
   replayEvents: "orchestration.replayEvents",
@@ -2755,6 +2756,22 @@ export const OrchestrationGetCommandOutputResult = Schema.Struct({
 });
 export type OrchestrationGetCommandOutputResult = typeof OrchestrationGetCommandOutputResult.Type;
 
+export const OrchestrationGetSubagentActivityFeedInput = Schema.Struct({
+  threadId: ThreadId,
+  childProviderThreadId: TrimmedNonEmptyString,
+});
+export type OrchestrationGetSubagentActivityFeedInput =
+  typeof OrchestrationGetSubagentActivityFeedInput.Type;
+
+export const OrchestrationGetSubagentActivityFeedResult = Schema.Struct({
+  threadId: ThreadId,
+  childProviderThreadId: TrimmedNonEmptyString,
+  activities: Schema.Array(Schema.suspend(() => OrchestrationThreadActivity)),
+  omittedActivityCount: NonNegativeInt,
+});
+export type OrchestrationGetSubagentActivityFeedResult =
+  typeof OrchestrationGetSubagentActivityFeedResult.Type;
+
 export const OrchestrationGetTurnAgentDiffInput = Schema.Struct({
   threadId: ThreadId,
   turnId: TurnId,
@@ -2816,6 +2833,10 @@ export const OrchestrationRpcSchemas = {
     input: OrchestrationGetCommandOutputInput,
     output: OrchestrationGetCommandOutputResult,
   },
+  getSubagentActivityFeed: {
+    input: OrchestrationGetSubagentActivityFeedInput,
+    output: OrchestrationGetSubagentActivityFeedResult,
+  },
   getTurnAgentDiff: {
     input: OrchestrationGetTurnAgentDiffInput,
     output: OrchestrationGetTurnAgentDiffResult,
@@ -2864,6 +2885,14 @@ export class OrchestrationGetFullThreadDiffError extends Schema.TaggedErrorClass
 
 export class OrchestrationGetCommandOutputError extends Schema.TaggedErrorClass<OrchestrationGetCommandOutputError>()(
   "OrchestrationGetCommandOutputError",
+  {
+    message: TrimmedNonEmptyString,
+    cause: Schema.optional(Schema.Defect),
+  },
+) {}
+
+export class OrchestrationGetSubagentActivityFeedError extends Schema.TaggedErrorClass<OrchestrationGetSubagentActivityFeedError>()(
+  "OrchestrationGetSubagentActivityFeedError",
   {
     message: TrimmedNonEmptyString,
     cause: Schema.optional(Schema.Defect),
