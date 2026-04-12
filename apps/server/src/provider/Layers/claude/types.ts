@@ -17,17 +17,23 @@ import type {
   ApprovalRequestId,
   CanonicalItemType,
   CanonicalRequestType,
+  EventId,
   ProviderApprovalDecision,
+  ProviderRuntimeEvent,
   ProviderSession,
   ProviderUserInputAnswers,
   RuntimeContentStreamKind,
+  ThreadId,
   ThreadTokenUsageSnapshot,
   UserInputQuestion,
 } from "@forgetools/contracts";
-import { ThreadId, TurnId } from "@forgetools/contracts";
-import type { Deferred, Fiber, Queue } from "effect";
+import { TurnId } from "@forgetools/contracts";
+import type { Deferred, Effect, Fiber, FileSystem, Queue } from "effect";
 
+import type { ServerConfigShape } from "../../../config.ts";
+import type { ServerSettingsShape } from "../../../serverSettings.ts";
 import type { EventNdjsonLogger } from "../EventNdjsonLogger.ts";
+import type { PendingMcpServerConfig } from "../../pendingMcpServers.ts";
 
 export const PROVIDER = "claudeAgent" as const;
 
@@ -151,4 +157,49 @@ export interface ClaudeAdapterLiveOptions {
   }) => ClaudeQueryRuntime;
   readonly nativeEventLogPath?: string;
   readonly nativeEventLogger?: EventNdjsonLogger;
+}
+
+// ---------------------------------------------------------------------------
+// Adapter context — shared mutable state + event infrastructure
+// ---------------------------------------------------------------------------
+
+export type OAuthResolver = {
+  readonly getToken: Effect.Effect<string | undefined>;
+};
+
+export type CreateQueryFn = (input: {
+  readonly prompt: AsyncIterable<SDKUserMessage>;
+  readonly options: ClaudeQueryOptions;
+}) => ClaudeQueryRuntime;
+
+export type RegisterMcpServerFn = (threadId: string, mcpConfig: PendingMcpServerConfig) => void;
+
+/**
+ * Core shared context passed explicitly to all extracted adapter functions.
+ *
+ * Contains the shared mutable state and event infrastructure that the
+ * closure-based architecture previously captured implicitly.
+ */
+export interface ClaudeAdapterContext {
+  readonly nativeEventLogger: EventNdjsonLogger | undefined;
+  readonly sessions: Map<ThreadId, ClaudeSessionContext>;
+  readonly offerRuntimeEvent: (event: ProviderRuntimeEvent) => Effect.Effect<void>;
+  readonly makeEventStamp: () => Effect.Effect<{ eventId: EventId; createdAt: string }>;
+  readonly nowIso: Effect.Effect<string>;
+}
+
+/**
+ * Service dependencies needed by `startSession` and `sendTurn`.
+ *
+ * Kept separate from `ClaudeAdapterContext` because only session-bootstrap
+ * and turn-send paths need these — most stream handlers only need the core
+ * context.
+ */
+export interface StartSessionServices {
+  readonly fileSystem: FileSystem.FileSystem;
+  readonly oauthResolver: OAuthResolver;
+  readonly serverConfig: ServerConfigShape;
+  readonly serverSettingsService: ServerSettingsShape;
+  readonly createQuery: CreateQueryFn;
+  readonly registerMcpServer: RegisterMcpServerFn;
 }
