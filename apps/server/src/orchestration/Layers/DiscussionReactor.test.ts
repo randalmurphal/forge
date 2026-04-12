@@ -5,14 +5,12 @@ import path from "node:path";
 
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import type { ForgeEvent, ThreadId } from "@forgetools/contracts";
-import {
-  DEFAULT_PROVIDER_INTERACTION_MODE,
-  ProjectId,
-  ThreadId as ThreadIdSchema,
-} from "@forgetools/contracts";
+import { DEFAULT_PROVIDER_INTERACTION_MODE, ProjectId } from "@forgetools/contracts";
 import { Effect, Exit, Layer, ManagedRuntime, Option, PubSub, Scope, Stream } from "effect";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
+import { asThreadId } from "../../__test__/ids.ts";
+import { waitFor } from "../../__test__/waitFor.ts";
 import { ServerConfig } from "../../config.ts";
 import { invokeSharedChatBridge } from "../../discussion/sharedChatBridge.ts";
 import { DiscussionRegistry } from "../../discussion/Services/DiscussionRegistry.ts";
@@ -20,10 +18,6 @@ import { getPendingMcpServer } from "../../provider/pendingMcpServers.ts";
 import { DiscussionReactor } from "../Services/DiscussionReactor.ts";
 import { OrchestrationEngineService } from "../Services/OrchestrationEngine.ts";
 import { DiscussionReactorLive } from "./DiscussionReactor.ts";
-
-function asThreadId(value: string): ThreadId {
-  return ThreadIdSchema.makeUnsafe(value);
-}
 
 function extractSharedChatBridgeToken(threadId: ThreadId): string {
   const pendingMcpServer = getPendingMcpServer(threadId);
@@ -38,20 +32,6 @@ function extractSharedChatBridgeToken(threadId: ThreadId): string {
     throw new Error(`Expected shared chat bridge token for ${threadId}.`);
   }
   return token;
-}
-
-async function waitFor(
-  predicate: () => boolean | Promise<boolean>,
-  timeoutMs = 2_000,
-): Promise<void> {
-  const deadline = Date.now() + timeoutMs;
-  while (Date.now() < deadline) {
-    if (await predicate()) {
-      return;
-    }
-    await new Promise((resolve) => setTimeout(resolve, 10));
-  }
-  throw new Error("Timed out waiting for expectation.");
 }
 
 describe("DiscussionReactor", () => {

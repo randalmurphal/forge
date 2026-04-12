@@ -14,11 +14,8 @@ import {
   DEFAULT_PROVIDER_INTERACTION_MODE,
   EventId,
   MessageId,
-  ProjectId,
-  ProviderItemId,
   type ServerSettings,
   ThreadId,
-  TurnId,
 } from "@forgetools/contracts";
 import { Effect, Exit, Layer, ManagedRuntime, PubSub, Scope, Stream } from "effect";
 import { afterEach, describe, expect, it } from "vitest";
@@ -46,17 +43,18 @@ import { CheckpointStoreLive } from "../../checkpointing/Layers/CheckpointStore.
 import { CheckpointStore } from "../../checkpointing/Services/CheckpointStore.ts";
 import { checkpointRefForThreadTurn } from "../../checkpointing/Utils.ts";
 import { GitCoreLive } from "../../git/Layers/GitCore.ts";
+import {
+  asEventId,
+  asItemId,
+  asMessageId,
+  asProjectId,
+  asThreadId,
+  asTurnId,
+} from "../../__test__/ids.ts";
 
 function makeTestServerSettingsLayer(overrides: Partial<ServerSettings> = {}) {
   return ServerSettingsService.layerTest(overrides);
 }
-
-const asProjectId = (value: string): ProjectId => ProjectId.makeUnsafe(value);
-const asItemId = (value: string): ProviderItemId => ProviderItemId.makeUnsafe(value);
-const asEventId = (value: string): EventId => EventId.makeUnsafe(value);
-const asMessageId = (value: string): MessageId => MessageId.makeUnsafe(value);
-const asThreadId = (value: string): ThreadId => ThreadId.makeUnsafe(value);
-const asTurnId = (value: string): TurnId => TurnId.makeUnsafe(value);
 
 type LegacyProviderRuntimeEvent = {
   readonly type: string;

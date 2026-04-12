@@ -1,14 +1,9 @@
 import {
   ChannelId,
-  CheckpointRef,
-  EventId,
   InteractiveRequestId,
-  MessageId,
   PhaseRunId,
-  ProjectId,
   ProviderItemId,
   ThreadId,
-  TurnId,
   WorkflowId,
   WorkflowPhaseId,
 } from "@forgetools/contracts";
@@ -16,16 +11,17 @@ import { assert, it } from "@effect/vitest";
 import { Effect, Layer, Option } from "effect";
 import * as SqlClient from "effect/unstable/sql/SqlClient";
 
+import {
+  asCheckpointRef,
+  asEventId,
+  asMessageId,
+  asProjectId,
+  asTurnId,
+} from "../../__test__/ids.ts";
 import { SqlitePersistenceMemory } from "../../persistence/Layers/Sqlite.ts";
 import { ORCHESTRATION_PROJECTOR_NAMES } from "./ProjectionPipeline.ts";
 import { OrchestrationProjectionSnapshotQueryLive } from "./ProjectionSnapshotQuery.ts";
 import { ProjectionSnapshotQuery } from "../Services/ProjectionSnapshotQuery.ts";
-
-const asProjectId = (value: string): ProjectId => ProjectId.makeUnsafe(value);
-const asTurnId = (value: string): TurnId => TurnId.makeUnsafe(value);
-const asMessageId = (value: string): MessageId => MessageId.makeUnsafe(value);
-const asEventId = (value: string): EventId => EventId.makeUnsafe(value);
-const asCheckpointRef = (value: string): CheckpointRef => CheckpointRef.makeUnsafe(value);
 
 const projectionSnapshotLayer = it.layer(
   OrchestrationProjectionSnapshotQueryLive.pipe(Layer.provideMerge(SqlitePersistenceMemory)),

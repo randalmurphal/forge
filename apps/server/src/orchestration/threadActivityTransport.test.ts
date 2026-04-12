@@ -1,7 +1,6 @@
 import { describe, expect, it } from "vitest";
 
 import {
-  EventId,
   ProjectId,
   ThreadId,
   TurnId,
@@ -9,14 +8,13 @@ import {
   type OrchestrationThreadActivity,
 } from "@forgetools/contracts";
 
+import { asEventId } from "../__test__/ids.ts";
 import {
   resolveCommandOutputForActivities,
   sanitizeForgeEventForTransport,
   sanitizeReadModelForTransport,
   sanitizeThreadActivityForTransport,
 } from "./threadActivityTransport.ts";
-
-const asEventId = (value: string): EventId => EventId.makeUnsafe(value);
 
 describe("threadActivityTransport", () => {
   it("strips final command output from transport activities and keeps summary metadata", () => {

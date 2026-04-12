@@ -1,20 +1,10 @@
-import {
-  CommandId,
-  DEFAULT_PROVIDER_INTERACTION_MODE,
-  EventId,
-  MessageId,
-  ProjectId,
-  ThreadId,
-} from "@forgetools/contracts";
+import { CommandId, DEFAULT_PROVIDER_INTERACTION_MODE, ThreadId } from "@forgetools/contracts";
 import { describe, expect, it } from "vitest";
 import { Effect } from "effect";
 
+import { asEventId, asMessageId, asProjectId } from "../__test__/ids.ts";
 import { decideOrchestrationCommand } from "./decider.ts";
 import { createEmptyReadModel, projectEvent } from "./projector.ts";
-
-const asEventId = (value: string): EventId => EventId.makeUnsafe(value);
-const asProjectId = (value: string): ProjectId => ProjectId.makeUnsafe(value);
-const asMessageId = (value: string): MessageId => MessageId.makeUnsafe(value);
 
 describe("decider project scripts", () => {
   it("emits empty scripts on project.create", async () => {

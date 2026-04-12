@@ -3,8 +3,9 @@ import { randomUUID } from "node:crypto";
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { ApprovalRequestId, ThreadId } from "@forgetools/contracts";
+import { ApprovalRequestId, type ThreadId } from "@forgetools/contracts";
 
+import { asThreadId } from "./__test__/ids.ts";
 import {
   buildCodexInitializeParams,
   CODEX_DEFAULT_MODE_DEVELOPER_INSTRUCTIONS,
@@ -16,8 +17,6 @@ import {
   readCodexAccountSnapshot,
   resolveCodexModelForAccount,
 } from "./codexAppServerManager";
-
-const asThreadId = (value: string): ThreadId => ThreadId.makeUnsafe(value);
 
 function createSendTurnHarness() {
   const manager = new CodexAppServerManager();

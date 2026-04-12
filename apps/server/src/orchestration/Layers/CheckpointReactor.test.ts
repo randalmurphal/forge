@@ -9,9 +9,7 @@ import {
   DEFAULT_PROVIDER_INTERACTION_MODE,
   EventId,
   MessageId,
-  ProjectId,
   ThreadId,
-  TurnId,
 } from "@forgetools/contracts";
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import { Effect, Exit, Layer, ManagedRuntime, PubSub, Scope, Stream } from "effect";
@@ -41,9 +39,7 @@ import { checkpointRefForThreadTurn } from "../../checkpointing/Utils.ts";
 import { ServerConfig } from "../../config.ts";
 import { WorkspaceEntriesLive } from "../../workspace/Layers/WorkspaceEntries.ts";
 import { WorkspacePathsLive } from "../../workspace/Layers/WorkspacePaths.ts";
-
-const asProjectId = (value: string): ProjectId => ProjectId.makeUnsafe(value);
-const asTurnId = (value: string): TurnId => TurnId.makeUnsafe(value);
+import { asProjectId, asTurnId } from "../../__test__/ids.ts";
 
 type LegacyProviderRuntimeEvent = {
   readonly type: string;

@@ -8,6 +8,8 @@ import type { ForgeEvent, ThreadId } from "@forgetools/contracts";
 import { Effect, Exit, Layer, ManagedRuntime, Option, PubSub, Scope, Stream } from "effect";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
+import { asThreadId } from "../__test__/ids.ts";
+import { waitFor } from "../__test__/waitFor.ts";
 import { ServerConfig } from "../config.ts";
 import { OrchestrationEngineService } from "../orchestration/Services/OrchestrationEngine.ts";
 import { DesignModeReactor } from "../orchestration/Services/DesignModeReactor.ts";
@@ -15,10 +17,6 @@ import { ProjectionInteractiveRequestRepository } from "../persistence/Services/
 import { getPendingMcpServer } from "../provider/pendingMcpServers.ts";
 import { DesignModeReactorLive } from "./DesignModeReactor.ts";
 import { hasDesignBridge, invokeDesignBridge } from "./designBridge.ts";
-
-function asThreadId(value: string): ThreadId {
-  return value as ThreadId;
-}
 
 function extractDesignBridgeToken(threadId: ThreadId): string {
   const pendingMcpServer = getPendingMcpServer(threadId);
@@ -33,20 +31,6 @@ function extractDesignBridgeToken(threadId: ThreadId): string {
     throw new Error(`Expected bridge token for ${threadId}.`);
   }
   return token;
-}
-
-async function waitFor(
-  predicate: () => boolean | Promise<boolean>,
-  timeoutMs = 2_000,
-): Promise<void> {
-  const deadline = Date.now() + timeoutMs;
-  while (Date.now() < deadline) {
-    if (await predicate()) {
-      return;
-    }
-    await new Promise((resolve) => setTimeout(resolve, 10));
-  }
-  throw new Error("Timed out waiting for expectation.");
 }
 
 describe("DesignModeReactor", () => {

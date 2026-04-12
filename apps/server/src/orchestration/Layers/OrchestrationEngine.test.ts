@@ -1,16 +1,13 @@
 import {
-  CheckpointRef,
   CommandId,
   DEFAULT_PROVIDER_INTERACTION_MODE,
-  MessageId,
-  ProjectId,
   ThreadId,
-  TurnId,
   type OrchestrationEvent,
 } from "@forgetools/contracts";
 import { Effect, Layer, ManagedRuntime, Metric, Option, Queue, Stream } from "effect";
 import { describe, expect, it } from "vitest";
 
+import { asCheckpointRef, asMessageId, asProjectId, asTurnId } from "../../__test__/ids.ts";
 import { PersistenceSqlError } from "../../persistence/Errors.ts";
 import { OrchestrationCommandReceiptRepositoryLive } from "../../persistence/Layers/OrchestrationCommandReceipts.ts";
 import { OrchestrationEventStoreLive } from "../../persistence/Layers/OrchestrationEventStore.ts";
@@ -30,11 +27,6 @@ import {
 import { ProjectionSnapshotQuery } from "../Services/ProjectionSnapshotQuery.ts";
 import { ServerConfig } from "../../config.ts";
 import * as NodeServices from "@effect/platform-node/NodeServices";
-
-const asProjectId = (value: string): ProjectId => ProjectId.makeUnsafe(value);
-const asMessageId = (value: string): MessageId => MessageId.makeUnsafe(value);
-const asTurnId = (value: string): TurnId => TurnId.makeUnsafe(value);
-const asCheckpointRef = (value: string): CheckpointRef => CheckpointRef.makeUnsafe(value);
 
 async function createOrchestrationSystem() {
   const ServerConfigLayer = ServerConfig.layerTest(process.cwd(), {

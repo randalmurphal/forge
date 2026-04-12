@@ -1,8 +1,6 @@
 import assert from "node:assert/strict";
 import {
   ApprovalRequestId,
-  EventId,
-  ProviderItemId,
   type ProviderApprovalDecision,
   type ProviderEvent,
   type ProviderSession,
@@ -16,6 +14,7 @@ import { afterAll, it, vi } from "@effect/vitest";
 
 import { Effect, Fiber, Layer, Option, Stream } from "effect";
 
+import { asEventId, asItemId, asThreadId, asTurnId } from "../../__test__/ids.ts";
 import {
   CodexAppServerManager,
   type CodexAppServerStartSessionInput,
@@ -28,11 +27,6 @@ import { ProviderAdapterValidationError } from "../Errors.ts";
 import { CodexAdapter } from "../Services/CodexAdapter.ts";
 import { ProviderSessionDirectory } from "../Services/ProviderSessionDirectory.ts";
 import { makeCodexAdapterLive } from "./CodexAdapter.ts";
-
-const asThreadId = (value: string): ThreadId => ThreadId.makeUnsafe(value);
-const asTurnId = (value: string): TurnId => TurnId.makeUnsafe(value);
-const asEventId = (value: string): EventId => EventId.makeUnsafe(value);
-const asItemId = (value: string): ProviderItemId => ProviderItemId.makeUnsafe(value);
 
 class FakeCodexManager extends CodexAppServerManager {
   public startSessionImpl = vi.fn(

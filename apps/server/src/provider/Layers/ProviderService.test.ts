@@ -10,7 +10,6 @@ import type {
   ProviderTurnStartResult,
 } from "@forgetools/contracts";
 import {
-  ApprovalRequestId,
   EventId,
   type ProviderKind,
   ProviderSessionStartInput,
@@ -23,6 +22,7 @@ import { assertFailure } from "@effect/vitest/utils";
 import { Effect, Fiber, Layer, Metric, Option, PubSub, Ref, Stream } from "effect";
 import * as SqlClient from "effect/unstable/sql/SqlClient";
 
+import { asApprovalRequestId, asEventId, asThreadId, asTurnId } from "../../__test__/ids.ts";
 import {
   ProviderAdapterSessionNotFoundError,
   ProviderUnsupportedError,
@@ -46,11 +46,6 @@ import { ServerSettingsService } from "../../serverSettings.ts";
 import { AnalyticsService } from "../../telemetry/Services/AnalyticsService.ts";
 
 const defaultServerSettingsLayer = ServerSettingsService.layerTest();
-
-const asRequestId = (value: string): ApprovalRequestId => ApprovalRequestId.makeUnsafe(value);
-const asEventId = (value: string): EventId => EventId.makeUnsafe(value);
-const asThreadId = (value: string): ThreadId => ThreadId.makeUnsafe(value);
-const asTurnId = (value: string): TurnId => TurnId.makeUnsafe(value);
 
 type LegacyProviderRuntimeEvent = {
   readonly type: string;
@@ -546,16 +541,16 @@ routing.layer("ProviderServiceLive routing", (it) => {
 
       yield* provider.respondToRequest({
         threadId: session.threadId,
-        requestId: asRequestId("req-1"),
+        requestId: asApprovalRequestId("req-1"),
         decision: "accept",
       });
       assert.deepEqual(routing.codex.respondToRequest.mock.calls, [
-        [session.threadId, asRequestId("req-1"), "accept"],
+        [session.threadId, asApprovalRequestId("req-1"), "accept"],
       ]);
 
       yield* provider.respondToUserInput({
         threadId: session.threadId,
-        requestId: asRequestId("req-user-input-1"),
+        requestId: asApprovalRequestId("req-user-input-1"),
         answers: {
           sandbox_mode: "workspace-write",
         },
@@ -563,7 +558,7 @@ routing.layer("ProviderServiceLive routing", (it) => {
       assert.deepEqual(routing.codex.respondToUserInput.mock.calls, [
         [
           session.threadId,
-          asRequestId("req-user-input-1"),
+          asApprovalRequestId("req-user-input-1"),
           {
             sandbox_mode: "workspace-write",
           },
@@ -1090,12 +1085,12 @@ fanout.layer("ProviderServiceLive fanout", (it) => {
       yield* provider.interruptTurn({ threadId: session.threadId });
       yield* provider.respondToRequest({
         threadId: session.threadId,
-        requestId: asRequestId("req-metrics-1"),
+        requestId: asApprovalRequestId("req-metrics-1"),
         decision: "accept",
       });
       yield* provider.respondToUserInput({
         threadId: session.threadId,
-        requestId: asRequestId("req-metrics-2"),
+        requestId: asApprovalRequestId("req-metrics-2"),
         answers: {
           sandbox_mode: "workspace-write",
         },

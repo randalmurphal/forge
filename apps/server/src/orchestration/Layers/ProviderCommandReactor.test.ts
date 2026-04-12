@@ -4,18 +4,16 @@ import path from "node:path";
 
 import type { ModelSelection, ProviderRuntimeEvent, ProviderSession } from "@forgetools/contracts";
 import {
-  ApprovalRequestId,
   CommandId,
   DEFAULT_PROVIDER_INTERACTION_MODE,
   EventId,
-  MessageId,
-  ProjectId,
   ThreadId,
-  TurnId,
 } from "@forgetools/contracts";
 import { Effect, Exit, Layer, ManagedRuntime, Option, PubSub, Scope, Stream } from "effect";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
+import { asApprovalRequestId, asMessageId, asProjectId, asTurnId } from "../../__test__/ids.ts";
+import { waitFor } from "../../__test__/waitFor.ts";
 import { deriveServerPaths, ServerConfig } from "../../config.ts";
 import { TextGenerationError } from "@forgetools/contracts";
 import { ProviderAdapterRequestError } from "../../provider/Errors.ts";
@@ -39,33 +37,8 @@ import { ProviderCommandReactor } from "../Services/ProviderCommandReactor.ts";
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import { ServerSettingsService } from "../../serverSettings.ts";
 
-const asProjectId = (value: string): ProjectId => ProjectId.makeUnsafe(value);
-const asApprovalRequestId = (value: string): ApprovalRequestId =>
-  ApprovalRequestId.makeUnsafe(value);
-const asMessageId = (value: string): MessageId => MessageId.makeUnsafe(value);
-const asTurnId = (value: string): TurnId => TurnId.makeUnsafe(value);
-
 const deriveServerPathsSync = (baseDir: string, devUrl: URL | undefined) =>
   Effect.runSync(deriveServerPaths(baseDir, devUrl).pipe(Effect.provide(NodeServices.layer)));
-
-async function waitFor(
-  predicate: () => boolean | Promise<boolean>,
-  timeoutMs = 2000,
-): Promise<void> {
-  const deadline = Date.now() + timeoutMs;
-  const poll = async (): Promise<void> => {
-    if (await predicate()) {
-      return;
-    }
-    if (Date.now() >= deadline) {
-      throw new Error("Timed out waiting for expectation.");
-    }
-    await new Promise((resolve) => setTimeout(resolve, 10));
-    return poll();
-  };
-
-  return poll();
-}
 
 describe("ProviderCommandReactor", () => {
   let runtime: ManagedRuntime.ManagedRuntime<
