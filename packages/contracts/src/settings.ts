@@ -7,7 +7,7 @@ import {
   CodexModelOptions,
   DEFAULT_GIT_TEXT_GENERATION_MODEL_BY_PROVIDER,
 } from "./model";
-import { ModelSelection } from "./orchestration";
+import { ModelSelection } from "./providerSchemas";
 
 // ── Client Settings (local-only) ───────────────────────────────
 

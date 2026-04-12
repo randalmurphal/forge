@@ -12,11 +12,8 @@ import {
   TrimmedNonEmptyString,
   TurnId,
 } from "./baseSchemas";
-import {
-  OrchestrationAgentDiffCoverage,
-  OrchestrationAgentDiffSource,
-  ProviderKind,
-} from "./orchestration";
+import { ProviderKind } from "./providerSchemas";
+import { OrchestrationAgentDiffCoverage, OrchestrationAgentDiffSource } from "./orchestration";
 
 const TrimmedNonEmptyStringSchema = TrimmedNonEmptyString;
 const UnknownRecordSchema = Schema.Record(Schema.String, Schema.Unknown);

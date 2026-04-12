@@ -10,7 +10,7 @@ import {
 import { KeybindingRule, ResolvedKeybindingsConfig } from "./keybindings";
 import { EditorId } from "./editor";
 import { ModelCapabilities } from "./model";
-import { ProviderKind } from "./orchestration";
+import { ProviderKind } from "./providerSchemas";
 import { ServerSettings } from "./settings";
 
 const KeybindingsMalformedConfigIssue = Schema.Struct({
