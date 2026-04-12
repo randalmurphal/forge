@@ -303,13 +303,12 @@ describe("groupSubagentEntries", () => {
     expect(group.status).toBe("completed");
   });
 
-  it("falls back to 'Subagent {taskId.slice(0,8)}' when no label is available", () => {
-    const taskId = "abcdef1234567890";
+  it("falls back to a generic 'Subagent' label when no label is available", () => {
     const entries = [
       makeEntry({
         id: "w1",
         childThreadAttribution: {
-          taskId,
+          taskId: "abcdef1234567890",
           childProviderThreadId: "t",
           // no label
         },
@@ -318,7 +317,7 @@ describe("groupSubagentEntries", () => {
 
     const result = groupSubagentEntries(entries);
 
-    expect(result.subagentGroups[0]!.label).toBe(`Subagent ${taskId.slice(0, 8)}`);
+    expect(result.subagentGroups[0]!.label).toBe("Subagent");
   });
 
   it("prefers attribution label over detail for group label", () => {
@@ -510,6 +509,36 @@ describe("groupSubagentEntries", () => {
 
     expect(group.agentType).toBe("Reviewer");
     expect(group.agentModel).toBe("opus");
+  });
+
+  it("propagates agent description and instructions from recorded subagent entries", () => {
+    const entries = [
+      makeEntry({
+        id: "spawn-entry",
+        itemType: "collab_agent_tool_call",
+        agentDescription: "Inspect the parser",
+        agentPrompt: "Run exactly these steps and report only final completion",
+        childThreadAttribution: {
+          taskId: "task-prompt",
+          childProviderThreadId: "child-prompt",
+        },
+      }),
+      makeEntry({
+        id: "started",
+        activityKind: "task.started",
+        detail: "Run exactly these steps and report only final completion",
+        childThreadAttribution: {
+          taskId: "task-prompt",
+          childProviderThreadId: "child-prompt",
+        },
+      }),
+    ];
+
+    const result = groupSubagentEntries(entries);
+    const group = result.subagentGroups[0]!;
+
+    expect(group.agentDescription).toBe("Inspect the parser");
+    expect(group.agentPrompt).toBe("Run exactly these steps and report only final completion");
   });
 
   it("defaults agentType and agentModel to undefined when attribution lacks them", () => {

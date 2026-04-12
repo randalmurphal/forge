@@ -11,6 +11,7 @@ import { cn } from "../../lib/utils";
 import { formatDuration, type SubagentGroup, type WorkLogEntry } from "../../session-logic";
 import { SUBAGENT_ENTRIES_MAX_HEIGHT_PX } from "./MessagesTimeline.logic";
 import { LazySubagentEntries } from "./LazySubagentEntries";
+import { deriveSubagentPresentation } from "./subagentPresentation";
 
 interface SubagentSectionProps {
   threadId: string | null;
@@ -67,6 +68,12 @@ const SubagentGroupRow = memo(function SubagentGroupRow(props: {
   const StatusIcon = statusIcon(group.status);
   const statusColor = statusColorClass(group.status);
   const maxDurationRef = useRef(0);
+  const presentation = deriveSubagentPresentation({
+    agentModel: group.agentModel,
+    agentDescription: group.agentDescription,
+    agentPrompt: group.agentPrompt,
+    fallbackLabel: group.label,
+  });
 
   const rawDurationMs = group.completedAt
     ? new Date(group.completedAt).getTime() - new Date(group.startedAt).getTime()
@@ -98,22 +105,14 @@ const SubagentGroupRow = memo(function SubagentGroupRow(props: {
         <span className="flex size-4 shrink-0 items-center justify-center text-foreground/70">
           <BoxIcon className="size-3" />
         </span>
-        <span className="min-w-0 flex-1 truncate text-[11px] text-foreground/80">
-          {group.agentType || group.agentModel ? (
-            <>
-              <span className="font-medium">
-                {[group.agentType, group.agentModel].filter(Boolean).join(", ")}
-              </span>
-              {group.label ? (
-                <span className="text-muted-foreground/60">
-                  {" — "}
-                  {group.label}
-                </span>
-              ) : null}
-            </>
-          ) : (
-            group.label
-          )}
+        <span className="min-w-0 flex-1 truncate text-[11px] leading-5">
+          <span className="text-foreground/80">{presentation.heading}</span>
+          {presentation.preview ? (
+            <span className="text-muted-foreground/55">
+              {" - "}
+              {presentation.preview}
+            </span>
+          ) : null}
         </span>
         <div className="flex shrink-0 items-center gap-1.5">
           <span className={cn("flex items-center gap-0.5 text-[9px]", statusColor)}>

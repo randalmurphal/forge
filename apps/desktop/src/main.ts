@@ -34,6 +34,7 @@ import {
   resolveDesktopStateDir,
 } from "./daemonState";
 import { resolveDaemonProcessEnv } from "./daemonEnv";
+import { resolveDesktopBackendLaunchSpec } from "./daemonLaunch";
 import {
   buildDesktopWindowUrl,
   buildDetachedDaemonLaunchPlan,
@@ -44,8 +45,10 @@ import {
   isDesktopUiReady,
   launchDetachedDaemon,
   parseSessionProtocolUrl,
+  pingDaemon,
   registerProtocolClient,
   requestSingleInstanceOrQuit,
+  stopDesktopDaemon,
 } from "./daemonLifecycle";
 import {
   resolveConnectionMode,
@@ -433,7 +436,17 @@ function resolveAboutCommitHash(): string | null {
 }
 
 function resolveBackendEntry(): string {
-  return Path.join(resolveAppRoot(), "apps/server/dist/bin.mjs");
+  return resolveDesktopBackendLaunchSpec({
+    appRoot: resolveAppRoot(),
+    isDevelopment,
+  }).entryScriptPath;
+}
+
+function resolveBackendExecPath(): string {
+  return resolveDesktopBackendLaunchSpec({
+    appRoot: resolveAppRoot(),
+    isDevelopment,
+  }).execPath;
 }
 
 function resolveBackendCwd(): string {
@@ -1095,6 +1108,16 @@ async function ensureDaemonReady(): Promise<void> {
   updateDaemonStatus(DAEMON_STATUS_STARTING);
   writeDesktopLogHeader(`resolving daemon connection baseDir=${BASE_DIR}`);
 
+  if (isDevelopment && (await pingDaemon(DAEMON_PATHS.socketPath))) {
+    writeDesktopLogHeader("development startup stopping existing detached daemon before reconnect");
+    const stopped = await stopDesktopDaemon({
+      paths: DAEMON_PATHS,
+    });
+    if (!stopped) {
+      throw new Error("Existing Forge daemon did not stop during desktop development startup.");
+    }
+  }
+
   const daemon = await ensureDaemonConnection({
     paths: DAEMON_PATHS,
     spawnDetachedDaemon: async () => {
@@ -1102,7 +1125,7 @@ async function ensureDaemonReady(): Promise<void> {
         baseDir: BASE_DIR,
         entryScriptPath: backendEntry,
         cwd: resolveBackendCwd(),
-        execPath: "node",
+        execPath: resolveBackendExecPath(),
         env: resolveDaemonProcessEnv(process.env, INITIAL_PROCESS_ENV),
       });
       writeDesktopLogHeader(

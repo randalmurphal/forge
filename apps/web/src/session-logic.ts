@@ -1269,8 +1269,17 @@ export interface SubagentGroup {
   status: "running" | "completed" | "failed";
   startedAt: string;
   completedAt?: string | undefined;
+  agentDescription?: string | undefined;
+  agentPrompt?: string | undefined;
   agentType?: string | undefined;
   agentModel?: string | undefined;
+}
+
+function isGenericSubagentLabel(label: string | undefined): boolean {
+  if (!label) {
+    return false;
+  }
+  return label === "Subagent" || label.startsWith("Subagent ");
 }
 
 function isUnattributedCollabAgentToolEnvelope(activity: OrchestrationThreadActivity): boolean {
@@ -1317,6 +1326,8 @@ export function groupSubagentEntries(workEntries: ReadonlyArray<WorkLogEntry>): 
       startedAt: string;
       completedAt?: string;
       status: SubagentGroup["status"];
+      agentDescription?: string | undefined;
+      agentPrompt?: string | undefined;
       agentType?: string | undefined;
       agentModel?: string | undefined;
     }
@@ -1341,6 +1352,8 @@ export function groupSubagentEntries(workEntries: ReadonlyArray<WorkLogEntry>): 
         label: childThreadAttribution.label ?? undefined,
         startedAt: entry.startedAt ?? entry.createdAt,
         status: "running",
+        agentDescription: undefined,
+        agentPrompt: undefined,
         agentType: childThreadAttribution.agentType,
         agentModel: childThreadAttribution.agentModel,
       };
@@ -1357,6 +1370,9 @@ export function groupSubagentEntries(workEntries: ReadonlyArray<WorkLogEntry>): 
       group.startedAt = entry.startedAt ?? entry.createdAt;
       if (!group.label && entry.detail) {
         group.label = entry.detail;
+      }
+      if (!group.agentPrompt && entry.detail) {
+        group.agentPrompt = entry.detail;
       }
     } else if (entry.activityKind === "task.completed") {
       group.completedAt =
@@ -1377,6 +1393,12 @@ export function groupSubagentEntries(workEntries: ReadonlyArray<WorkLogEntry>): 
     if (childThreadAttribution.label && !group.label) {
       group.label = childThreadAttribution.label;
     }
+    if (!group.agentDescription && entry.agentDescription) {
+      group.agentDescription = entry.agentDescription;
+    }
+    if (!group.agentPrompt && entry.agentPrompt) {
+      group.agentPrompt = entry.agentPrompt;
+    }
     if (!group.agentType && childThreadAttribution.agentType) {
       group.agentType = childThreadAttribution.agentType;
     }
@@ -1391,12 +1413,16 @@ export function groupSubagentEntries(workEntries: ReadonlyArray<WorkLogEntry>): 
       groupId: group.groupId,
       taskId: group.taskId,
       childProviderThreadId: group.childProviderThreadId,
-      label: group.label ?? `Subagent ${group.taskId.slice(0, 8)}`,
+      // Provider task ids like `call_xxx` are implementation noise. Keep a generic fallback here
+      // and let control-call metadata replace it when we have real description/prompt context.
+      label: group.label ?? "Subagent",
       entries: group.entries,
       recordedActionCount: group.entries.length,
       status: group.status,
       startedAt: group.startedAt,
       completedAt: group.completedAt,
+      agentDescription: group.agentDescription,
+      agentPrompt: group.agentPrompt,
       agentType: group.agentType,
       agentModel: group.agentModel,
     });
@@ -2632,10 +2658,12 @@ export function enrichSubagentGroupsWithControlMetadata(
     if (!metadata) {
       return group;
     }
-    const shouldReplacePlaceholderLabel = group.label.startsWith("Subagent ");
+    const shouldReplacePlaceholderLabel = isGenericSubagentLabel(group.label);
     return {
       ...group,
       label: shouldReplacePlaceholderLabel && metadata.label ? metadata.label : group.label,
+      agentDescription: group.agentDescription ?? metadata.description,
+      agentPrompt: group.agentPrompt ?? metadata.prompt,
       agentType: group.agentType ?? metadata.agentType,
       agentModel: group.agentModel ?? metadata.agentModel,
     };
@@ -2666,6 +2694,7 @@ function enrichVisibleCollabControlEntriesWithTargetMetadata(
     return {
       ...entry,
       agentDescription: entry.agentDescription ?? metadata.label,
+      agentPrompt: entry.agentPrompt ?? metadata.prompt,
       agentType: entry.agentType ?? metadata.agentType,
       agentModel: entry.agentModel ?? metadata.agentModel,
     };
@@ -2686,12 +2715,22 @@ function collectChildThreadMetadata(
     >
   >,
   subagentGroups: ReadonlyArray<
-    Pick<SubagentGroup, "childProviderThreadId" | "label" | "agentType" | "agentModel">
+    Pick<
+      SubagentGroup,
+      | "childProviderThreadId"
+      | "label"
+      | "agentDescription"
+      | "agentPrompt"
+      | "agentType"
+      | "agentModel"
+    >
   >,
 ): Map<
   string,
   {
     label?: string;
+    description?: string;
+    prompt?: string;
     agentType?: string;
     agentModel?: string;
   }
@@ -2700,6 +2739,8 @@ function collectChildThreadMetadata(
     string,
     {
       label?: string;
+      description?: string;
+      prompt?: string;
       agentType?: string;
       agentModel?: string;
     }
@@ -2708,6 +2749,8 @@ function collectChildThreadMetadata(
   for (const group of subagentGroups) {
     metadataByChildThreadId.set(group.childProviderThreadId, {
       ...(group.label ? { label: group.label } : {}),
+      ...(group.agentDescription ? { description: group.agentDescription } : {}),
+      ...(group.agentPrompt ? { prompt: group.agentPrompt } : {}),
       ...(group.agentType ? { agentType: group.agentType } : {}),
       ...(group.agentModel ? { agentModel: group.agentModel } : {}),
     });
@@ -2720,11 +2763,15 @@ function collectChildThreadMetadata(
 
     for (const childThreadId of entry.receiverThreadIds ?? []) {
       const current = metadataByChildThreadId.get(childThreadId) ?? {};
-      const label = current.label ?? entry.agentDescription ?? entry.agentPrompt ?? entry.detail;
+      const description = current.description ?? entry.agentDescription;
+      const prompt = current.prompt ?? entry.agentPrompt;
+      const label = current.label ?? description ?? prompt ?? entry.detail;
       const agentType = current.agentType ?? entry.agentType;
       const agentModel = current.agentModel ?? entry.agentModel;
       metadataByChildThreadId.set(childThreadId, {
         ...(label ? { label } : {}),
+        ...(description ? { description } : {}),
+        ...(prompt ? { prompt } : {}),
         ...(agentType ? { agentType } : {}),
         ...(agentModel ? { agentModel } : {}),
       });

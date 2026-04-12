@@ -2936,6 +2936,7 @@ describe("deriveWorkLogEntries", () => {
               item: {
                 id: "spawn-agent-call",
                 tool: "spawnAgent",
+                description: "Inspect the parser",
                 prompt: "Inspect the parser",
                 model: "gpt-5.4-mini",
                 receiverThreadIds: ["child-thread-meta"],
@@ -2973,6 +2974,8 @@ describe("deriveWorkLogEntries", () => {
     expect(trayState.subagentGroups[0]).toMatchObject({
       childProviderThreadId: "child-thread-meta",
       label: "Inspect the parser",
+      agentDescription: "Inspect the parser",
+      agentPrompt: "Inspect the parser",
       agentModel: "gpt-5.4-mini",
     });
   });

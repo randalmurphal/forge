@@ -3,6 +3,7 @@ import * as Http from "node:http";
 import * as Net from "node:net";
 import * as OS from "node:os";
 import * as Path from "node:path";
+import * as readline from "node:readline";
 
 import { afterEach, describe, expect, it, vi } from "vitest";
 
@@ -22,6 +23,8 @@ import {
   pingDaemon,
   registerProtocolClient,
   requestSingleInstanceOrQuit,
+  stopDesktopDaemon,
+  stopDaemon,
 } from "./daemonLifecycle";
 
 const daemonInfo: DesktopDaemonInfo = {
@@ -39,6 +42,17 @@ const makeTempDir = (prefix: string): string => {
   tempDirs.push(dir);
   return dir;
 };
+
+const closeServer = (server: Net.Server): Promise<void> =>
+  new Promise((resolve, reject) => {
+    server.close((error) => {
+      if (error) {
+        reject(error);
+        return;
+      }
+      resolve();
+    });
+  });
 
 afterEach(() => {
   for (const dir of tempDirs.splice(0, tempDirs.length)) {
@@ -383,6 +397,68 @@ describe("pingDaemon", () => {
       });
       FS.rmSync(socketPath, { force: true });
     }
+  });
+});
+
+describe("stopDaemon", () => {
+  it("returns false when the daemon socket is missing", async () => {
+    await expect(stopDaemon("/tmp/definitely-missing-forge.sock")).resolves.toBe(false);
+  });
+
+  it("sends daemon.stop and waits for the socket to go away", async () => {
+    const baseDir = makeTempDir("forge-desktop-daemon-stop-");
+    const socketPath = Path.join(baseDir, "forge.sock");
+    const requests: Array<{ method?: string; id?: string }> = [];
+    let stopped = false;
+    const server = Net.createServer((socket) => {
+      const rl = readline.createInterface({ input: socket, crlfDelay: Infinity });
+      rl.on("line", (line) => {
+        const request = JSON.parse(line) as { method?: string; id?: string };
+        requests.push(request);
+        socket.write(`${JSON.stringify({ jsonrpc: "2.0", id: request.id, result: null })}\n`);
+        setTimeout(() => {
+          stopped = true;
+          socket.destroy();
+          void closeServer(server);
+          FS.rmSync(socketPath, { force: true });
+        }, 5);
+      });
+    });
+
+    await new Promise<void>((resolve, reject) => {
+      server.once("error", reject);
+      server.listen(socketPath, () => {
+        FS.chmodSync(socketPath, 0o600);
+        resolve();
+      });
+    });
+
+    await expect(
+      stopDaemon(socketPath, {
+        timeoutMs: 100,
+        pollIntervalMs: 0,
+        ping: async () => !stopped,
+      }),
+    ).resolves.toBe(true);
+    expect(requests[0]?.method).toBe("daemon.stop");
+  });
+});
+
+describe("stopDesktopDaemon", () => {
+  it("falls back to the manifest pid when daemon.stop does not finish cleanly", async () => {
+    const result = await stopDesktopDaemon({
+      paths: {
+        baseDir: "/tmp/forge",
+        socketPath: "/tmp/forge.sock",
+        daemonInfoPath: "/tmp/daemon.json",
+      },
+      stopDaemon: async () => false,
+      readDaemonInfo: async () => daemonInfo,
+      isProcessAlive: async () => true,
+      terminateProcess: async (pid) => pid === daemonInfo.pid,
+    });
+
+    expect(result).toBe(true);
   });
 });
 

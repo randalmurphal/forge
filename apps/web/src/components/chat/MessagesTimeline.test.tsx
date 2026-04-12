@@ -233,8 +233,9 @@ describe("MessagesTimeline", () => {
               tone: "tool",
               itemType: "collab_agent_tool_call",
               toolName: "spawnAgent",
+              agentDescription: "Inspect the parser",
               agentModel: "gpt-5.4-mini",
-              agentPrompt: "Inspect the parser",
+              agentPrompt: "Run exactly these parser checks and report only final completion",
               receiverThreadIds: ["child-thread-inline"],
             },
           },
@@ -257,9 +258,112 @@ describe("MessagesTimeline", () => {
       />,
     );
 
-    expect(markup).toContain("Spawn agent (gpt-5.4-mini)");
+    expect(markup).toContain("gpt-5.4-mini");
     expect(markup).toContain("Inspect the parser");
+    expect(markup).not.toContain("gpt-5.4-mini * Inspect the parser");
     expect(markup).not.toContain("Operations");
+  });
+
+  it("renders a spawned badge for completed spawn agent calls", async () => {
+    const { MessagesTimeline } = await import("./MessagesTimeline");
+    const markup = renderTimeline(
+      <MessagesTimeline
+        threadId={null}
+        hasMessages
+        isWorking={false}
+        activeTurnInProgress={false}
+        activeTurnStartedAt={null}
+        scrollContainer={null}
+        timelineEntries={[
+          {
+            id: "spawn-entry",
+            kind: "work",
+            createdAt: "2026-03-17T19:12:28.000Z",
+            entry: {
+              id: "spawn-1",
+              createdAt: "2026-03-17T19:12:28.000Z",
+              label: "Subagent task",
+              tone: "tool",
+              itemType: "collab_agent_tool_call",
+              toolName: "spawnAgent",
+              itemStatus: "completed",
+              agentDescription: "Inspect the parser",
+              agentModel: "gpt-5.4-mini",
+              agentPrompt: "Run exactly these parser checks and report only final completion",
+              receiverThreadIds: ["child-thread-inline"],
+            },
+          },
+        ]}
+        completionDividerBeforeEntryId={null}
+        completionSummary={null}
+        turnDiffSummaryByAssistantMessageId={new Map()}
+        nowIso="2026-03-17T19:12:30.000Z"
+        expandedWorkGroups={{}}
+        onToggleWorkGroup={() => {}}
+        onOpenTurnDiff={() => {}}
+        revertTurnCountByUserMessageId={new Map()}
+        onRevertUserMessage={() => {}}
+        isRevertingCheckpoint={false}
+        onImageExpand={() => {}}
+        markdownCwd={undefined}
+        resolvedTheme="light"
+        timestampFormat="locale"
+        workspaceRoot={undefined}
+      />,
+    );
+
+    expect(markup).toContain("spawned");
+  });
+
+  it("renders a completed badge for finished wait agent calls", async () => {
+    const { MessagesTimeline } = await import("./MessagesTimeline");
+    const markup = renderTimeline(
+      <MessagesTimeline
+        threadId={null}
+        hasMessages
+        isWorking={false}
+        activeTurnInProgress={false}
+        activeTurnStartedAt={null}
+        scrollContainer={null}
+        timelineEntries={[
+          {
+            id: "wait-entry",
+            kind: "work",
+            createdAt: "2026-03-17T19:12:28.000Z",
+            entry: {
+              id: "wait-1",
+              createdAt: "2026-03-17T19:12:28.000Z",
+              label: "Wait agent",
+              tone: "tool",
+              itemType: "collab_agent_tool_call",
+              toolName: "wait",
+              itemStatus: "completed",
+              agentDescription: "Inspect the parser",
+              agentModel: "gpt-5.4-mini",
+              receiverThreadIds: ["child-thread-inline"],
+            },
+          },
+        ]}
+        completionDividerBeforeEntryId={null}
+        completionSummary={null}
+        turnDiffSummaryByAssistantMessageId={new Map()}
+        nowIso="2026-03-17T19:12:30.000Z"
+        expandedWorkGroups={{}}
+        onToggleWorkGroup={() => {}}
+        onOpenTurnDiff={() => {}}
+        revertTurnCountByUserMessageId={new Map()}
+        onRevertUserMessage={() => {}}
+        isRevertingCheckpoint={false}
+        onImageExpand={() => {}}
+        markdownCwd={undefined}
+        resolvedTheme="light"
+        timestampFormat="locale"
+        workspaceRoot={undefined}
+      />,
+    );
+
+    expect(markup).toContain("completed");
+    expect(markup).toContain("lucide-check");
   });
 
   it("renders the command output chevron for command rows but not non-command rows", async () => {

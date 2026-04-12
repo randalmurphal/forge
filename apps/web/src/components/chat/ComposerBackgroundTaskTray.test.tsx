@@ -90,6 +90,8 @@ describe("ComposerBackgroundTaskTray", () => {
               taskId: "task-1",
               childProviderThreadId: "child-thread-1",
               label: "Inspect the parser",
+              agentDescription: "Inspect the parser",
+              agentPrompt: "Run exactly these parser checks and report only final completion",
               entries: [],
               recordedActionCount: 0,
               status: "running",
@@ -103,9 +105,9 @@ describe("ComposerBackgroundTaskTray", () => {
       />,
     );
 
-    expect(markup).toContain("Inspect the parser");
-    expect(markup).toContain("explorer");
     expect(markup).toContain("gpt-5.4-mini");
+    expect(markup).toContain("Inspect the parser");
+    expect(markup).not.toContain("gpt-5.4-mini * Inspect the parser");
   });
 });
 

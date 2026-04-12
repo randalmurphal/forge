@@ -18,6 +18,7 @@ import {
 import { cn } from "~/lib/utils";
 import { LazyCommandOutput } from "./LazyCommandOutput";
 import { LazySubagentEntries } from "./LazySubagentEntries";
+import { deriveSubagentPresentation } from "./subagentPresentation";
 import {
   deriveBackgroundCommandStatus,
   formatDuration,
@@ -254,7 +255,12 @@ const BackgroundSubagentTaskRow = memo(function BackgroundSubagentTaskRow(props:
     props.group.status,
     props.nowIso,
   );
-  const metadata = [props.group.agentType, props.group.agentModel].filter(Boolean).join(" · ");
+  const presentation = deriveSubagentPresentation({
+    agentModel: props.group.agentModel,
+    agentDescription: props.group.agentDescription,
+    agentPrompt: props.group.agentPrompt,
+    fallbackLabel: props.group.label,
+  });
   const renderEntry = useCallback(
     (entry: WorkLogEntry) => <TraySubagentWorkEntryRow threadId={props.threadId} entry={entry} />,
     [props.threadId],
@@ -278,9 +284,9 @@ const BackgroundSubagentTaskRow = memo(function BackgroundSubagentTaskRow(props:
           <BoxIcon className="size-3" />
         </span>
         <div className="min-w-0 flex-1">
-          <p className="truncate text-[11px] text-foreground/80">{props.group.label}</p>
-          {metadata ? (
-            <p className="truncate text-[10px] text-muted-foreground/55">{metadata}</p>
+          <p className="truncate text-[11px] text-foreground/80">{presentation.heading}</p>
+          {presentation.preview ? (
+            <p className="truncate text-[10px] text-muted-foreground/55">{presentation.preview}</p>
           ) : (
             <p className="truncate text-[10px] text-muted-foreground/45">Agent</p>
           )}

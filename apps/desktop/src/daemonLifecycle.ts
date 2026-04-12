@@ -43,6 +43,27 @@ export interface EnsureDaemonConnectionInput {
   readonly isProcessAlive?: (pid: number) => boolean | Promise<boolean>;
 }
 
+export interface StopDesktopDaemonInput {
+  readonly paths: DesktopDaemonPaths;
+  readonly timeoutMs?: number;
+  readonly pollIntervalMs?: number;
+  readonly readDaemonInfo?: (
+    daemonInfoPath: string,
+    options?: DesktopDaemonReadOptions,
+  ) => Promise<DesktopDaemonInfo | undefined>;
+  readonly stopDaemon?: (
+    socketPath: string,
+    input?: {
+      readonly timeoutMs?: number;
+      readonly pollIntervalMs?: number;
+      readonly ping?: (socketPath: string) => Promise<boolean>;
+    },
+  ) => Promise<boolean>;
+  readonly pingDaemon?: (socketPath: string) => Promise<boolean>;
+  readonly isProcessAlive?: (pid: number) => boolean | Promise<boolean>;
+  readonly terminateProcess?: (pid: number) => Promise<boolean>;
+}
+
 export interface SingleInstanceAppLike {
   readonly requestSingleInstanceLock: () => boolean;
   readonly quit: () => void;
@@ -67,7 +88,10 @@ export interface DesktopUiReadinessInput {
 const DEFAULT_DAEMON_TIMEOUT_MS = 5_000;
 const DEFAULT_POLL_INTERVAL_MS = 100;
 const DEFAULT_PING_TIMEOUT_MS = 1_000;
+const DEFAULT_STOP_TIMEOUT_MS = 5_000;
+const DEFAULT_FORCE_TERMINATE_TIMEOUT_MS = 2_000;
 const DESKTOP_DAEMON_PING_REQUEST_ID = "forge-desktop-ping";
+const DESKTOP_DAEMON_STOP_REQUEST_ID = "forge-desktop-stop";
 
 const sleep = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms));
 const noop = () => {};
@@ -83,6 +107,49 @@ const isProcessAlive = (pid: number): boolean => {
   } catch (cause) {
     const code = cause && typeof cause === "object" && "code" in cause ? cause.code : undefined;
     if (code === "EPERM") {
+      return true;
+    }
+    return false;
+  }
+};
+
+const waitForProcessExit = async (pid: number, timeoutMs: number): Promise<boolean> => {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    if (!isProcessAlive(pid)) {
+      return true;
+    }
+    await sleep(50);
+  }
+  return !isProcessAlive(pid);
+};
+
+const terminateProcess = async (pid: number): Promise<boolean> => {
+  if (!Number.isInteger(pid) || pid <= 0 || !isProcessAlive(pid)) {
+    return true;
+  }
+
+  try {
+    if (process.platform === "win32") {
+      const result = ChildProcess.spawnSync("taskkill", ["/pid", String(pid), "/T", "/F"], {
+        stdio: "ignore",
+      });
+      if (result.error && result.status !== 0) {
+        return false;
+      }
+      return await waitForProcessExit(pid, DEFAULT_FORCE_TERMINATE_TIMEOUT_MS);
+    }
+
+    process.kill(pid, "SIGTERM");
+    if (await waitForProcessExit(pid, DEFAULT_FORCE_TERMINATE_TIMEOUT_MS)) {
+      return true;
+    }
+
+    process.kill(pid, "SIGKILL");
+    return await waitForProcessExit(pid, DEFAULT_FORCE_TERMINATE_TIMEOUT_MS);
+  } catch (cause) {
+    const code = cause && typeof cause === "object" && "code" in cause ? cause.code : undefined;
+    if (code === "ESRCH") {
       return true;
     }
     return false;
@@ -158,6 +225,125 @@ export const pingDaemon = async (
       }
     });
   });
+};
+
+export const stopDaemon = async (
+  socketPath: string,
+  input?: {
+    readonly timeoutMs?: number;
+    readonly pollIntervalMs?: number;
+    readonly ping?: (socketPath: string) => Promise<boolean>;
+  },
+): Promise<boolean> => {
+  const ping = input?.ping ?? ((nextSocketPath: string) => pingDaemon(nextSocketPath));
+  const timeoutMs = input?.timeoutMs ?? DEFAULT_STOP_TIMEOUT_MS;
+  const pollIntervalMs = input?.pollIntervalMs ?? DEFAULT_POLL_INTERVAL_MS;
+  const trustedSocket = await readTrustedDaemonSocketStat(socketPath, {
+    requireOwnerOnlyPermissions: true,
+  });
+  if (trustedSocket === undefined) {
+    return false;
+  }
+
+  const acknowledged = await new Promise<boolean>((resolve) => {
+    const socket = new Net.Socket();
+    const lines = readline.createInterface({
+      input: socket,
+      crlfDelay: Infinity,
+    });
+    let settled = false;
+
+    const finish = (result: boolean) => {
+      if (settled) {
+        return;
+      }
+      settled = true;
+      clearTimeout(timeout);
+      lines.removeAllListeners();
+      socket.removeAllListeners();
+      socket.on("error", noop);
+      lines.close();
+      socket.destroy();
+      resolve(result);
+    };
+
+    const timeout = setTimeout(() => finish(false), Math.min(timeoutMs, DEFAULT_PING_TIMEOUT_MS));
+
+    socket.once("error", () => finish(false));
+    lines.once("error", () => finish(false));
+    socket.once("connect", () => {
+      socket.write(
+        `${JSON.stringify({
+          jsonrpc: "2.0",
+          id: DESKTOP_DAEMON_STOP_REQUEST_ID,
+          method: "daemon.stop",
+          params: {},
+        })}\n`,
+      );
+    });
+    socket.connect(socketPath);
+
+    lines.once("line", (line) => {
+      try {
+        const parsed = JSON.parse(line) as {
+          readonly jsonrpc?: string;
+          readonly id?: string;
+          readonly result?: unknown;
+        };
+        finish(parsed.jsonrpc === "2.0" && parsed.id === DESKTOP_DAEMON_STOP_REQUEST_ID);
+      } catch {
+        finish(false);
+      }
+    });
+  });
+
+  if (!acknowledged) {
+    return false;
+  }
+
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    if (!(await ping(socketPath))) {
+      return true;
+    }
+    await sleep(pollIntervalMs);
+  }
+
+  return !(await ping(socketPath));
+};
+
+export const stopDesktopDaemon = async (input: StopDesktopDaemonInput): Promise<boolean> => {
+  const timeoutMs = input.timeoutMs ?? DEFAULT_STOP_TIMEOUT_MS;
+  const pollIntervalMs = input.pollIntervalMs ?? DEFAULT_POLL_INTERVAL_MS;
+  const ping = input.pingDaemon ?? ((socketPath: string) => pingDaemon(socketPath));
+  const stop = input.stopDaemon ?? stopDaemon;
+  const readInfo = input.readDaemonInfo ?? readDaemonInfo;
+  const checkProcessAlive = input.isProcessAlive ?? isProcessAlive;
+  const killProcess = input.terminateProcess ?? terminateProcess;
+
+  if (
+    await stop(input.paths.socketPath, {
+      timeoutMs,
+      pollIntervalMs,
+      ping,
+    })
+  ) {
+    return true;
+  }
+
+  const daemonInfo = await readInfo(input.paths.daemonInfoPath, {
+    expectedSocketPath: input.paths.socketPath,
+    requireOwnerOnlyPermissions: true,
+  });
+  if (!daemonInfo) {
+    return !(await ping(input.paths.socketPath));
+  }
+
+  if (!(await checkProcessAlive(daemonInfo.pid))) {
+    return true;
+  }
+
+  return await killProcess(daemonInfo.pid);
 };
 
 export const buildDetachedDaemonLaunchPlan = (input: {

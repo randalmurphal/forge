@@ -81,6 +81,7 @@ import { CompactDiffEntryRow } from "../diff/CompactDiffEntryRow";
 import { CompactDiffHeader } from "../diff/CompactDiffHeader";
 import { CompactDiffPreview } from "../diff/CompactDiffPreview";
 import { CompactDiffSummaryFallback } from "../diff/CompactDiffSummaryFallback";
+import { deriveSubagentPresentation } from "./subagentPresentation";
 import {
   buildInlineTerminalContextText,
   formatInlineTerminalContextLabel,
@@ -1364,12 +1365,21 @@ const AgentWorkEntryRow = memo(function AgentWorkEntryRow(props: { workEntry: Ti
   const { workEntry } = props;
   const [isExpanded, setIsExpanded] = useState(false);
   const iconConfig = workToneIcon(workEntry.tone);
-  const heading = toolWorkEntryHeading(workEntry);
-  const preview = workEntryPreview(workEntry);
   const hasPrompt = Boolean(workEntry.agentPrompt);
+  const isSpawnAgent = workEntry.toolName?.toLowerCase() === "spawnagent";
+  const isWaitAgent = workEntry.toolName?.toLowerCase() === "wait";
+  const spawnAgentPresentation = deriveSubagentPresentation({
+    agentModel: workEntry.agentModel,
+    agentDescription: workEntry.agentDescription,
+    agentPrompt: workEntry.agentPrompt,
+  });
+  const heading = isSpawnAgent ? spawnAgentPresentation.heading : toolWorkEntryHeading(workEntry);
+  const preview = isSpawnAgent ? spawnAgentPresentation.preview : workEntryPreview(workEntry);
 
   const durationLabel =
     workEntry.durationMs !== undefined ? formatDuration(workEntry.durationMs) : null;
+  const isCompleted = workEntry.itemStatus === "completed";
+  const isFailed = workEntry.itemStatus === "failed" || workEntry.tone === "error";
 
   const handleToggle = useCallback(() => {
     if (hasPrompt) setIsExpanded((prev) => !prev);
@@ -1426,6 +1436,23 @@ const AgentWorkEntryRow = memo(function AgentWorkEntryRow(props: { workEntry: Ti
           </p>
         </div>
         <div className="flex shrink-0 items-center gap-1.5">
+          {isSpawnAgent && isCompleted ? (
+            <span className="inline-flex items-center rounded px-1 py-px text-[9px] font-medium uppercase tracking-[0.12em] text-primary/70 ring-1 ring-inset ring-primary/20">
+              spawned
+            </span>
+          ) : null}
+          {isWaitAgent && isCompleted ? (
+            <span className="inline-flex items-center gap-1 rounded px-1 py-px text-[9px] font-medium leading-none text-emerald-400/80 bg-emerald-500/10">
+              <CheckIcon className="size-2.5" />
+              completed
+            </span>
+          ) : null}
+          {isFailed ? (
+            <span className="inline-flex items-center gap-1 rounded px-1 py-px text-[9px] font-medium leading-none text-rose-400/80 bg-rose-500/10">
+              <CircleAlertIcon className="size-2.5" />
+              failed
+            </span>
+          ) : null}
           {durationLabel && (
             <span className="text-[9px] tabular-nums text-muted-foreground/40">
               {durationLabel}
