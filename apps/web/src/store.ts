@@ -1224,6 +1224,7 @@ export function applyOrchestrationEvent(state: AppState, event: ForgeEvent): App
             : event.payload.content,
           turnId: event.payload.turnId,
           createdAt: event.payload.createdAt,
+          ...(event.sequence !== undefined ? { sequence: event.sequence } : {}),
           streaming: event.payload.streaming,
           ...(event.payload.streaming ? {} : { completedAt: messageUpdatedAt }),
           ...(attachments !== undefined ? { attachments } : {}),
@@ -1245,6 +1246,11 @@ export function applyOrchestrationEvent(state: AppState, event: ForgeEvent): App
                         : entry.text,
                     streaming: message.streaming,
                     ...(message.turnId !== undefined ? { turnId: message.turnId } : {}),
+                    ...(entry.sequence !== undefined
+                      ? { sequence: entry.sequence }
+                      : message.sequence !== undefined
+                        ? { sequence: message.sequence }
+                        : {}),
                     ...(message.streaming
                       ? entry.completedAt !== undefined
                         ? { completedAt: entry.completedAt }

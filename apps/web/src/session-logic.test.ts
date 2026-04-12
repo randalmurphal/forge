@@ -1208,7 +1208,8 @@ describe("deriveWorkLogEntries", () => {
     expect(entries).toHaveLength(1);
     expect(entries[0]).toMatchObject({
       id: "tool-complete",
-      createdAt: "2026-02-23T00:00:03.000Z",
+      createdAt: "2026-02-23T00:00:01.000Z",
+      completedAt: "2026-02-23T00:00:03.000Z",
       label: "Tool call completed",
       detail: '{"file_path":"/tmp/app.ts"}',
       command: "sed -n 1,40p /tmp/app.ts",
@@ -1835,6 +1836,60 @@ describe("deriveWorkLogEntries", () => {
       itemType: "collab_agent_tool_call",
       toolName: "wait",
       itemStatus: "inProgress",
+    });
+  });
+
+  it("keeps wait_agent rows anchored at the start timestamp after completion", () => {
+    const [entry] = deriveWorkLogEntries(
+      [
+        makeActivity({
+          id: "wait-started-stable",
+          createdAt: "2026-04-10T12:00:00.000Z",
+          kind: "tool.started",
+          summary: "Subagent wait",
+          payload: {
+            itemType: "collab_agent_tool_call",
+            status: "inProgress",
+            data: {
+              item: {
+                id: "wait-stable",
+                tool: "wait",
+                prompt: "Wait for child completion",
+                receiverThreadIds: ["child-thread-stable"],
+              },
+            },
+          },
+        }),
+        makeActivity({
+          id: "wait-completed-stable",
+          createdAt: "2026-04-10T12:00:15.000Z",
+          kind: "tool.completed",
+          summary: "Subagent wait",
+          payload: {
+            itemType: "collab_agent_tool_call",
+            status: "completed",
+            data: {
+              item: {
+                id: "wait-stable",
+                tool: "wait",
+                prompt: "Wait for child completion",
+                receiverThreadIds: ["child-thread-stable"],
+              },
+            },
+          },
+        }),
+      ],
+      undefined,
+    );
+
+    expect(entry).toMatchObject({
+      id: "wait-completed-stable",
+      createdAt: "2026-04-10T12:00:00.000Z",
+      completedAt: "2026-04-10T12:00:15.000Z",
+      activityKind: "tool.completed",
+      itemType: "collab_agent_tool_call",
+      toolName: "wait",
+      itemStatus: "completed",
     });
   });
 
@@ -2466,6 +2521,91 @@ describe("deriveWorkLogEntries", () => {
 
     expect(entry?.toolCallId).toBe("background-command-1");
     expect(entry?.isBackgroundCommand).toBe(true);
+  });
+
+  it("keeps a Codex background launch row separate from the later terminal completion", () => {
+    const entries = deriveWorkLogEntries(
+      [
+        makeActivity({
+          id: "codex-background-launch",
+          createdAt: "2026-04-10T12:00:00.000Z",
+          kind: "tool.started",
+          summary: "Command started",
+          sequence: 11,
+          payload: {
+            itemType: "command_execution",
+            itemId: "codex-background-2",
+            status: "inProgress",
+            data: {
+              item: {
+                id: "codex-background-2",
+                command: ["/bin/zsh", "-lc", "sleep 20"],
+                source: "unifiedExecStartup",
+                processId: "proc-background-2",
+              },
+            },
+          },
+        }),
+        makeActivity({
+          id: "codex-background-terminal-interaction",
+          createdAt: "2026-04-10T12:00:01.000Z",
+          kind: "tool.terminal.interaction",
+          summary: "Background terminal waited",
+          sequence: 12,
+          payload: {
+            itemId: "codex-background-2",
+            processId: "proc-background-2",
+            stdin: "",
+          },
+        }),
+        makeActivity({
+          id: "codex-background-complete",
+          createdAt: "2026-04-10T12:00:20.000Z",
+          kind: "tool.completed",
+          summary: "Ran command",
+          sequence: 19,
+          payload: {
+            itemType: "command_execution",
+            itemId: "codex-background-2",
+            status: "completed",
+            data: {
+              item: {
+                id: "codex-background-2",
+                command: ["/bin/zsh", "-lc", "sleep 20"],
+                source: "unifiedExecStartup",
+                processId: "proc-background-2",
+                aggregatedOutput: "done\n",
+                exitCode: 0,
+              },
+            },
+          },
+        }),
+      ],
+      undefined,
+    );
+
+    expect(entries.map((entry) => entry.id)).toEqual([
+      "codex-background-launch",
+      "codex-background-complete",
+    ]);
+    expect(entries[0]).toMatchObject({
+      id: "codex-background-launch",
+      activityKind: "tool.started",
+      isBackgroundCommand: true,
+      backgroundLifecycleRole: "launch",
+      itemStatus: "inProgress",
+      backgroundTaskStatus: "completed",
+      backgroundCompletedAt: "2026-04-10T12:00:20.000Z",
+    });
+    expect(entries[1]).toMatchObject({
+      id: "codex-background-complete",
+      activityKind: "tool.completed",
+      isBackgroundCommand: true,
+      backgroundLifecycleRole: "completion",
+      itemStatus: "completed",
+      output: "done\n",
+      exitCode: 0,
+    });
   });
 
   it("marks a Codex unified-exec command as background when later work begins while it is still running", () => {
@@ -4150,6 +4290,69 @@ describe("deriveTimelineEntries", () => {
         }),
       ],
     });
+  });
+
+  it("orders completion-time subagent sections by runtime sequence before timestamps", () => {
+    const entries = deriveTimelineEntries(
+      [
+        {
+          id: MessageId.makeUnsafe("assistant-response"),
+          role: "assistant",
+          text: "The child finished.",
+          createdAt: "2026-02-23T00:00:03.000Z",
+          completedAt: "2026-02-23T00:00:03.000Z",
+          sequence: 30,
+          streaming: false,
+        },
+      ],
+      [],
+      [
+        {
+          id: "spawn-agent-sequenced",
+          createdAt: "2026-02-23T00:00:01.000Z",
+          sequence: 10,
+          label: "Spawn agent",
+          tone: "tool",
+          itemType: "collab_agent_tool_call",
+          receiverThreadIds: ["child-sequenced"],
+          agentModel: "gpt-5.4-mini",
+          agentPrompt: "Wait for child completion",
+        },
+        {
+          id: "child-started-sequenced",
+          createdAt: "2026-02-23T00:00:01.100Z",
+          sequence: 11,
+          startedAt: "2026-02-23T00:00:01.100Z",
+          label: "Task started",
+          tone: "info",
+          activityKind: "task.started",
+          childThreadAttribution: {
+            taskId: "task-sequenced",
+            childProviderThreadId: "child-sequenced",
+          },
+        },
+        {
+          id: "child-completed-sequenced",
+          createdAt: "2026-02-23T00:00:02.000Z",
+          sequence: 31,
+          completedAt: "2026-02-23T00:00:02.000Z",
+          label: "Task completed",
+          tone: "info",
+          activityKind: "task.completed",
+          itemStatus: "completed",
+          childThreadAttribution: {
+            taskId: "task-sequenced",
+            childProviderThreadId: "child-sequenced",
+          },
+        },
+      ],
+    );
+
+    expect(entries.map((entry) => entry.id)).toEqual([
+      "spawn-agent-sequenced",
+      "assistant-response",
+      "subagent-section:child-sequenced:2026-02-23T00:00:02.000Z",
+    ]);
   });
 
   it("anchors the completion divider to latestTurn.assistantMessageId before timestamp fallback", () => {

@@ -54,6 +54,7 @@ export interface ChatMessage {
   turnId?: TurnId | null;
   createdAt: string;
   completedAt?: string | undefined;
+  sequence?: number | undefined;
   streaming: boolean;
 }
 

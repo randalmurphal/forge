@@ -42,6 +42,7 @@ export const PROVIDER_OPTIONS: Array<{
 export interface WorkLogEntry {
   id: string;
   createdAt: string;
+  sequence?: number | undefined;
   startedAt?: string | undefined;
   completedAt?: string | undefined;
   turnId?: TurnId | undefined;
@@ -65,9 +66,11 @@ export interface WorkLogEntry {
   outputByteLength?: number | undefined;
   outputSource?: "final" | "stream" | undefined;
   isBackgroundCommand?: boolean | undefined;
+  backgroundLifecycleRole?: "launch" | "completion" | undefined;
   backgroundTaskId?: string | undefined;
   backgroundTaskStatus?: "running" | "completed" | "failed" | undefined;
   backgroundCompletedAt?: string | undefined;
+  backgroundCompletedSequence?: number | undefined;
   commandSource?: string | undefined;
   mcpServer?: string | undefined;
   mcpTool?: string | undefined;
@@ -175,24 +178,28 @@ export type TimelineEntry =
       id: string;
       kind: "message";
       createdAt: string;
+      sequence?: number | undefined;
       message: ChatMessage;
     }
   | {
       id: string;
       kind: "proposed-plan";
       createdAt: string;
+      sequence?: number | undefined;
       proposedPlan: ProposedPlan;
     }
   | {
       id: string;
       kind: "work";
       createdAt: string;
+      sequence?: number | undefined;
       entry: WorkLogEntry;
     }
   | {
       id: string;
       kind: "subagent-section";
       createdAt: string;
+      sequence?: number | undefined;
       subagentGroups: SubagentGroup[];
     };
 
@@ -595,7 +602,12 @@ export function deriveWorkLogEntries(
   const streamedCommandOutputByToolCallId = collectStreamedCommandOutputByToolCallId(ordered);
   const streamedCommandOutputPresenceByToolCallId =
     collectStreamedCommandOutputPresenceByToolCallId(ordered);
-  const entries = ordered
+  const codexBackgroundSignals = deriveCodexBackgroundCommandSignals({
+    activities: ordered,
+    messages,
+    latestTurn: latestTurn ?? null,
+  });
+  const rawEntries = ordered
     .filter((activity) => !shouldFilterToolStartedActivity(activity))
     .filter((activity) => activity.kind !== "tool.output.delta")
     .filter((activity) => activity.kind !== "tool.terminal.interaction")
@@ -613,6 +625,7 @@ export function deriveWorkLogEntries(
       return true;
     })
     .map(toDerivedWorkLogEntry);
+  const entries = applyPreCollapseBackgroundCommandSignals(rawEntries, codexBackgroundSignals);
   if (DEBUG_BACKGROUND_TASKS) {
     const relevantEntries = entries
       .map(summarizeBackgroundRelevantEntry)
@@ -647,8 +660,7 @@ export function deriveWorkLogEntries(
   );
   const entriesWithBackgroundSignals = applyBackgroundCommandSignals(entriesWithOutput, {
     activities: ordered,
-    messages,
-    latestTurn,
+    codexBackgroundSignals,
   });
   const entriesWithBackgroundCompletionRows = appendBackgroundCommandCompletionEntries(
     entriesWithBackgroundSignals,
@@ -1007,6 +1019,85 @@ function collectStreamedCommandOutputPresenceByToolCallId(
   return toolCallIds;
 }
 
+function applyPreCollapseBackgroundCommandSignals(
+  entries: ReadonlyArray<DerivedWorkLogEntry>,
+  codexBackgroundSignals: {
+    backgroundedToolCallIds: ReadonlySet<string>;
+    reasonsByToolCallId: ReadonlyMap<string, string>;
+  },
+): DerivedWorkLogEntry[] {
+  void codexBackgroundSignals.reasonsByToolCallId;
+
+  const lifecycleIndexesByToolCallId = new Map<string, number[]>();
+  for (let index = 0; index < entries.length; index += 1) {
+    const entry = entries[index];
+    if (
+      !entry ||
+      entry.itemType !== "command_execution" ||
+      !entry.toolCallId ||
+      !codexBackgroundSignals.backgroundedToolCallIds.has(entry.toolCallId)
+    ) {
+      continue;
+    }
+    const indexes = lifecycleIndexesByToolCallId.get(entry.toolCallId) ?? [];
+    indexes.push(index);
+    lifecycleIndexesByToolCallId.set(entry.toolCallId, indexes);
+  }
+
+  if (lifecycleIndexesByToolCallId.size === 0) {
+    return [...entries];
+  }
+
+  const nextEntries = [...entries];
+  for (const [toolCallId, indexes] of lifecycleIndexesByToolCallId.entries()) {
+    const firstIndex = indexes[0];
+    if (firstIndex === undefined) {
+      continue;
+    }
+
+    const lastCompletionIndex = indexes
+      .toReversed()
+      .find((index) => nextEntries[index]?.activityKind === "tool.completed");
+
+    for (const index of indexes) {
+      const entry = nextEntries[index];
+      if (!entry) {
+        continue;
+      }
+      const backgroundLifecycleRole =
+        lastCompletionIndex !== undefined &&
+        indexes.length > 1 &&
+        index === lastCompletionIndex &&
+        entry.activityKind === "tool.completed"
+          ? "completion"
+          : "launch";
+      nextEntries[index] = {
+        ...entry,
+        isBackgroundCommand: true,
+        backgroundLifecycleRole,
+        // Codex unified exec can emit a terminal tool.completed long after the launch row went
+        // inline. Marking the lifecycle before collapse lets us keep the launch row stable and
+        // surface the later terminal completion as its own history event.
+        ...(backgroundLifecycleRole === "launch" ? { itemStatus: "inProgress" } : {}),
+      };
+    }
+
+    const launchEntry = nextEntries[firstIndex];
+    if (
+      launchEntry &&
+      launchEntry.commandSource === undefined &&
+      launchEntry.toolCallId === toolCallId
+    ) {
+      nextEntries[firstIndex] = {
+        ...launchEntry,
+        backgroundLifecycleRole: "launch",
+      };
+    }
+  }
+
+  return nextEntries;
+}
+
 function applyStreamedCommandOutput(
   entries: ReadonlyArray<DerivedWorkLogEntry>,
   streamedCommandOutputByToolCallId: ReadonlyMap<string, string>,
@@ -1040,16 +1131,14 @@ function applyBackgroundCommandSignals(
   entries: ReadonlyArray<DerivedWorkLogEntry>,
   input: {
     activities: ReadonlyArray<OrchestrationThreadActivity>;
-    messages?: ReadonlyArray<ChatMessage> | undefined;
-    latestTurn?: LatestTurnTiming | null | undefined;
+    codexBackgroundSignals: {
+      backgroundedToolCallIds: ReadonlySet<string>;
+      reasonsByToolCallId: ReadonlyMap<string, string>;
+    };
   },
 ): DerivedWorkLogEntry[] {
-  const codexBackgroundSignals = deriveCodexBackgroundCommandSignals({
-    activities: input.activities,
-    messages: input.messages,
-    latestTurn: input.latestTurn ?? null,
-  });
   const providerBackgroundTaskSignals = deriveProviderBackgroundTaskSignals(input.activities);
+  const backgroundCompletionByToolCallId = collectBackgroundCommandCompletionSignals(entries);
 
   const nextEntries = entries.map((entry) => {
     if (entry.itemType !== "command_execution") {
@@ -1060,30 +1149,59 @@ function applyBackgroundCommandSignals(
       entry,
       providerBackgroundTaskSignals,
     );
+    const backgroundCompletionSignal =
+      toolCallId !== null ? backgroundCompletionByToolCallId.get(toolCallId) : undefined;
     const isBackgroundCommand =
       entry.isBackgroundCommand === true ||
-      (toolCallId !== null && codexBackgroundSignals.backgroundedToolCallIds.has(toolCallId));
+      (toolCallId !== null && input.codexBackgroundSignals.backgroundedToolCallIds.has(toolCallId));
     if (!isBackgroundCommand) {
       return entry;
     }
+    const backgroundLifecycleRole =
+      entry.backgroundLifecycleRole ??
+      (entry.activityKind === "task.completed" ||
+      (entry.activityKind === "tool.completed" &&
+        providerTaskSignal === undefined &&
+        !entry.backgroundTaskId)
+        ? "completion"
+        : "launch");
     const backgroundTaskStatus =
-      // Claude background Bash returns a completed tool call immediately and continues under a
-      // separate task id. Treat the presence of that task id as "still running" until task.*
-      // events tell us otherwise, so the row stays tray-owned instead of flashing inline.
-      providerTaskSignal?.status ?? (entry.backgroundTaskId ? "running" : undefined);
+      providerTaskSignal?.status ??
+      backgroundCompletionSignal?.status ??
+      (backgroundLifecycleRole === "launch" ? "running" : undefined);
     const backgroundTaskId = entry.backgroundTaskId ?? providerTaskSignal?.taskId;
-    const backgroundCompletedAt = providerTaskSignal?.completedAt;
-    return {
+    const backgroundCompletedAt =
+      providerTaskSignal?.completedAt ?? backgroundCompletionSignal?.completedAt;
+    const backgroundCompletedSequence =
+      providerTaskSignal?.completedSequence ?? backgroundCompletionSignal?.sequence;
+    const nextEntry: DerivedWorkLogEntry = {
       ...entry,
       isBackgroundCommand: true,
-      ...(backgroundTaskId ? { backgroundTaskId } : {}),
-      ...(backgroundTaskStatus ? { backgroundTaskStatus } : {}),
-      ...(backgroundCompletedAt
-        ? { backgroundCompletedAt, completedAt: backgroundCompletedAt }
-        : backgroundTaskStatus === "running"
-          ? { completedAt: undefined }
-          : {}),
+      backgroundLifecycleRole,
     };
+    if (backgroundTaskId) {
+      nextEntry.backgroundTaskId = backgroundTaskId;
+    }
+    if (backgroundTaskStatus) {
+      nextEntry.backgroundTaskStatus = backgroundTaskStatus;
+    }
+    if (backgroundCompletedSequence !== undefined) {
+      nextEntry.backgroundCompletedSequence = backgroundCompletedSequence;
+    }
+    if (backgroundCompletedAt) {
+      nextEntry.backgroundCompletedAt = backgroundCompletedAt;
+      if (backgroundLifecycleRole === "completion") {
+        nextEntry.completedAt = backgroundCompletedAt;
+      } else {
+        nextEntry.completedAt = undefined;
+      }
+    } else if (backgroundLifecycleRole === "launch") {
+      nextEntry.completedAt = undefined;
+    }
+    if (backgroundLifecycleRole === "launch") {
+      nextEntry.itemStatus = "inProgress";
+    }
+    return nextEntry;
   });
 
   const ownedBackgroundToolCallIds = new Set(
@@ -1092,6 +1210,7 @@ function applyBackgroundCommandSignals(
         (entry): entry is DerivedWorkLogEntry & { toolCallId: string } =>
           entry.itemType === "command_execution" &&
           entry.isBackgroundCommand === true &&
+          entry.backgroundLifecycleRole !== "completion" &&
           typeof entry.toolCallId === "string",
       )
       .map((entry) => entry.toolCallId),
@@ -1102,6 +1221,7 @@ function applyBackgroundCommandSignals(
         (entry): entry is DerivedWorkLogEntry & { backgroundTaskId: string } =>
           entry.itemType === "command_execution" &&
           entry.isBackgroundCommand === true &&
+          entry.backgroundLifecycleRole !== "completion" &&
           typeof entry.backgroundTaskId === "string",
       )
       .map((entry) => entry.backgroundTaskId),
@@ -1136,7 +1256,7 @@ function applyBackgroundCommandSignals(
         summarizeBackgroundCommandClassification(
           entry,
           nextEntries[index] ?? entry,
-          codexBackgroundSignals.reasonsByToolCallId,
+          input.codexBackgroundSignals.reasonsByToolCallId,
         ),
       )
       .filter((entry): entry is NonNullable<typeof entry> => entry !== null);
@@ -1157,17 +1277,30 @@ function appendBackgroundCommandCompletionEntries(
   entries: ReadonlyArray<DerivedWorkLogEntry>,
 ): DerivedWorkLogEntry[] {
   const completionEntries: DerivedWorkLogEntry[] = [];
+  const existingCompletionKeys = new Set(
+    entries
+      .filter(
+        (entry): entry is DerivedWorkLogEntry & { itemType: "command_execution" } =>
+          entry.itemType === "command_execution" &&
+          entry.isBackgroundCommand === true &&
+          entry.backgroundLifecycleRole === "completion",
+      )
+      .map((entry) => backgroundCommandCompletionKey(entry)),
+  );
 
   for (const entry of entries) {
     if (entry.itemType !== "command_execution" || entry.isBackgroundCommand !== true) {
       continue;
     }
-    if (entry.activityKind === "task.completed") {
+    if (entry.backgroundLifecycleRole === "completion" || entry.activityKind === "task.completed") {
       continue;
     }
 
     const status = deriveBackgroundCommandStatus(entry);
     if (status === "running" || !entry.backgroundCompletedAt) {
+      continue;
+    }
+    if (existingCompletionKeys.has(backgroundCommandCompletionKey(entry))) {
       continue;
     }
 
@@ -1185,12 +1318,16 @@ function appendBackgroundCommandCompletionEntries(
       ...baseEntry,
       id: `${entry.id}:background-task-completed`,
       createdAt: entry.backgroundCompletedAt,
+      ...(entry.backgroundCompletedSequence !== undefined
+        ? { sequence: entry.backgroundCompletedSequence }
+        : {}),
       startedAt: entry.startedAt ?? entry.createdAt,
       completedAt: entry.backgroundCompletedAt,
       label: status === "failed" ? "Background command failed" : "Background command completed",
       tone: status === "failed" ? "error" : "tool",
       activityKind: "task.completed",
       itemStatus: status === "failed" ? "failed" : "completed",
+      backgroundLifecycleRole: "completion",
       // Keep the launch row's preview command, but do not inherit launch-only output or exit code.
       // Claude background launches often complete the tool call with "background started" text,
       // which is not the same thing as the terminal task output.
@@ -1216,12 +1353,32 @@ function appendBackgroundCommandCompletionEntries(
   return orderedEntries;
 }
 
+function backgroundCommandCompletionKey(
+  entry: Pick<WorkLogEntry, "toolCallId" | "backgroundTaskId" | "id">,
+): string {
+  if (entry.toolCallId) {
+    return `tool:${entry.toolCallId}`;
+  }
+  if (entry.backgroundTaskId) {
+    return `task:${entry.backgroundTaskId}`;
+  }
+  return `entry:${entry.id}`;
+}
+
 interface ProviderBackgroundTaskSignal {
   taskId?: string | undefined;
   toolUseId?: string | undefined;
   status: "running" | "completed" | "failed";
   startedAt: string;
+  startedSequence?: number | undefined;
   completedAt?: string | undefined;
+  completedSequence?: number | undefined;
+}
+
+interface BackgroundCommandCompletionSignal {
+  status: "completed" | "failed";
+  completedAt: string;
+  sequence?: number | undefined;
 }
 
 function deriveProviderBackgroundTaskSignals(
@@ -1268,7 +1425,15 @@ function deriveProviderBackgroundTaskSignals(
       startedAt:
         existing?.startedAt ??
         (activity.kind === "task.completed" ? activity.createdAt : activity.createdAt),
+      ...(existing?.startedSequence !== undefined
+        ? { startedSequence: existing.startedSequence }
+        : activity.sequence !== undefined
+          ? { startedSequence: activity.sequence }
+          : {}),
       ...(status !== "running" ? { completedAt: activity.createdAt } : {}),
+      ...(status !== "running" && activity.sequence !== undefined
+        ? { completedSequence: activity.sequence }
+        : {}),
     };
 
     if (existing?.startedAt) {
@@ -1278,8 +1443,17 @@ function deriveProviderBackgroundTaskSignals(
     if (existing?.completedAt && status === "running") {
       signal.completedAt = existing.completedAt;
     }
+    if (existing?.completedSequence !== undefined && status === "running") {
+      signal.completedSequence = existing.completedSequence;
+    }
     if (existing?.completedAt && status !== "running") {
       signal.completedAt = latestIsoValue(existing.completedAt, activity.createdAt);
+    }
+    if (existing?.completedSequence !== undefined && status !== "running") {
+      signal.completedSequence =
+        activity.sequence !== undefined
+          ? Math.max(existing.completedSequence, activity.sequence)
+          : existing.completedSequence;
     }
 
     if (signal.taskId) {
@@ -1291,6 +1465,38 @@ function deriveProviderBackgroundTaskSignals(
   }
 
   return { byTaskId, byToolUseId };
+}
+
+function collectBackgroundCommandCompletionSignals(
+  entries: ReadonlyArray<DerivedWorkLogEntry>,
+): Map<string, BackgroundCommandCompletionSignal> {
+  const completionByToolCallId = new Map<string, BackgroundCommandCompletionSignal>();
+
+  for (const entry of entries) {
+    if (
+      entry.itemType !== "command_execution" ||
+      entry.isBackgroundCommand !== true ||
+      entry.backgroundLifecycleRole !== "completion" ||
+      !entry.toolCallId
+    ) {
+      continue;
+    }
+
+    const status =
+      entry.itemStatus === "failed" ||
+      entry.itemStatus === "declined" ||
+      entry.tone === "error" ||
+      (entry.exitCode !== undefined && entry.exitCode !== 0)
+        ? "failed"
+        : "completed";
+    completionByToolCallId.set(entry.toolCallId, {
+      status,
+      completedAt: entry.completedAt ?? entry.createdAt,
+      ...(entry.sequence !== undefined ? { sequence: entry.sequence } : {}),
+    });
+  }
+
+  return completionByToolCallId;
 }
 
 function findProviderBackgroundTaskSignal(
@@ -1656,7 +1862,9 @@ export interface SubagentGroup {
   recordedActionCount: number;
   status: "running" | "completed" | "failed";
   startedAt: string;
+  startedSequence?: number | undefined;
   completedAt?: string | undefined;
+  completedSequence?: number | undefined;
   agentDescription?: string | undefined;
   agentPrompt?: string | undefined;
   agentType?: string | undefined;
@@ -1744,7 +1952,9 @@ export function groupSubagentEntries(workEntries: ReadonlyArray<WorkLogEntry>): 
       entries: WorkLogEntry[];
       label: string | undefined;
       startedAt: string;
+      startedSequence?: number;
       completedAt?: string;
+      completedSequence?: number;
       status: SubagentGroup["status"];
       agentDescription?: string | undefined;
       agentPrompt?: string | undefined;
@@ -1764,7 +1974,22 @@ export function groupSubagentEntries(workEntries: ReadonlyArray<WorkLogEntry>): 
 
     let group = groupsByChildThreadId.get(groupId);
     if (!group) {
-      group = {
+      const nextGroup: {
+        groupId: string;
+        taskId: string;
+        childProviderThreadId: string;
+        entries: WorkLogEntry[];
+        label: string | undefined;
+        startedAt: string;
+        startedSequence?: number;
+        completedAt?: string;
+        completedSequence?: number;
+        status: SubagentGroup["status"];
+        agentDescription?: string | undefined;
+        agentPrompt?: string | undefined;
+        agentType?: string | undefined;
+        agentModel?: string | undefined;
+      } = {
         groupId,
         taskId,
         childProviderThreadId: childThreadAttribution.childProviderThreadId,
@@ -1772,22 +1997,32 @@ export function groupSubagentEntries(workEntries: ReadonlyArray<WorkLogEntry>): 
         label: childThreadAttribution.label ?? undefined,
         startedAt: entry.startedAt ?? entry.createdAt,
         status: "running",
-        agentDescription: undefined,
-        agentPrompt: undefined,
-        agentType: childThreadAttribution.agentType,
-        agentModel: childThreadAttribution.agentModel,
+        ...(entry.sequence !== undefined ? { startedSequence: entry.sequence } : {}),
+        ...(childThreadAttribution.agentType
+          ? { agentType: childThreadAttribution.agentType }
+          : {}),
+        ...(childThreadAttribution.agentModel
+          ? { agentModel: childThreadAttribution.agentModel }
+          : {}),
       };
-      groupsByChildThreadId.set(groupId, group);
+      groupsByChildThreadId.set(groupId, nextGroup);
+      group = nextGroup;
     } else if (
       group.taskId === group.childProviderThreadId &&
       taskId !== group.childProviderThreadId
     ) {
       group.taskId = taskId;
     }
+    if (!group) {
+      continue;
+    }
 
     // Update group metadata from task lifecycle entries
     if (entry.activityKind === "task.started") {
       group.startedAt = entry.startedAt ?? entry.createdAt;
+      if (entry.sequence !== undefined) {
+        group.startedSequence = entry.sequence;
+      }
       if (!group.label && entry.detail) {
         group.label = entry.detail;
       }
@@ -1799,6 +2034,12 @@ export function groupSubagentEntries(workEntries: ReadonlyArray<WorkLogEntry>): 
         group.completedAt && group.completedAt > entry.createdAt
           ? group.completedAt
           : entry.createdAt;
+      if (entry.sequence !== undefined) {
+        group.completedSequence =
+          group.completedSequence !== undefined
+            ? Math.max(group.completedSequence, entry.sequence)
+            : entry.sequence;
+      }
       const completedStatus =
         entry.itemStatus === "failed" || entry.itemStatus === "declined" || entry.tone === "error"
           ? "failed"
@@ -1840,7 +2081,9 @@ export function groupSubagentEntries(workEntries: ReadonlyArray<WorkLogEntry>): 
       recordedActionCount: group.entries.length,
       status: group.status,
       startedAt: group.startedAt,
+      startedSequence: group.startedSequence,
       completedAt: group.completedAt,
+      completedSequence: group.completedSequence,
       agentDescription: group.agentDescription,
       agentPrompt: group.agentPrompt,
       agentType: group.agentType,
@@ -2122,6 +2365,7 @@ function toDerivedWorkLogEntry(activity: OrchestrationThreadActivity): DerivedWo
   const entry: DerivedWorkLogEntry = {
     id: activity.id,
     createdAt: activity.createdAt,
+    ...(activity.sequence !== undefined ? { sequence: activity.sequence } : {}),
     startedAt: activity.createdAt,
     ...(activity.kind === "tool.completed" || activity.kind === "task.completed"
       ? { completedAt: activity.createdAt }
@@ -2291,6 +2535,14 @@ function shouldCollapseToolLifecycleEntries(
   if (previous.turnId !== next.turnId) {
     return false;
   }
+  if (
+    previous.itemType === "command_execution" &&
+    next.itemType === "command_execution" &&
+    (previous.isBackgroundCommand === true || next.isBackgroundCommand === true) &&
+    next.backgroundLifecycleRole === "completion"
+  ) {
+    return false;
+  }
   return previous.collapseKey !== undefined && previous.collapseKey === next.collapseKey;
 }
 
@@ -2307,6 +2559,7 @@ function mergeDerivedWorkLogEntries(
   previous: DerivedWorkLogEntry,
   next: DerivedWorkLogEntry,
 ): DerivedWorkLogEntry {
+  const createdAt = earliestIsoValue(previous.createdAt, next.createdAt) ?? next.createdAt;
   const changedFiles = mergeChangedFiles(previous.changedFiles, next.changedFiles);
   const detail = next.detail ?? previous.detail;
   const command = next.command ?? previous.command;
@@ -2326,12 +2579,15 @@ function mergeDerivedWorkLogEntries(
   const completedAt = latestIsoValue(previous.completedAt, next.completedAt);
   const itemStatus = next.itemStatus ?? previous.itemStatus;
   const isBackgroundCommand = Boolean(previous.isBackgroundCommand || next.isBackgroundCommand);
+  const backgroundLifecycleRole = next.backgroundLifecycleRole ?? previous.backgroundLifecycleRole;
   const backgroundTaskId = next.backgroundTaskId ?? previous.backgroundTaskId;
   const backgroundTaskStatus = next.backgroundTaskStatus ?? previous.backgroundTaskStatus;
   const backgroundCompletedAt = latestIsoValue(
     previous.backgroundCompletedAt,
     next.backgroundCompletedAt,
   );
+  const backgroundCompletedSequence =
+    next.backgroundCompletedSequence ?? previous.backgroundCompletedSequence;
   const processId = next.processId ?? previous.processId;
   const commandSource = next.commandSource ?? previous.commandSource;
   const mcpServer = next.mcpServer ?? previous.mcpServer;
@@ -2347,6 +2603,7 @@ function mergeDerivedWorkLogEntries(
   return {
     ...previous,
     ...next,
+    createdAt,
     ...(detail ? { detail } : {}),
     ...(command ? { command } : {}),
     ...(changedFiles.length > 0 ? { changedFiles } : {}),
@@ -2366,9 +2623,11 @@ function mergeDerivedWorkLogEntries(
     ...(completedAt ? { completedAt } : {}),
     ...(itemStatus ? { itemStatus } : {}),
     ...(isBackgroundCommand ? { isBackgroundCommand } : {}),
+    ...(backgroundLifecycleRole ? { backgroundLifecycleRole } : {}),
     ...(backgroundTaskId ? { backgroundTaskId } : {}),
     ...(backgroundTaskStatus ? { backgroundTaskStatus } : {}),
     ...(backgroundCompletedAt ? { backgroundCompletedAt } : {}),
+    ...(backgroundCompletedSequence !== undefined ? { backgroundCompletedSequence } : {}),
     ...(processId ? { processId } : {}),
     ...(commandSource ? { commandSource } : {}),
     ...(mcpServer ? { mcpServer } : {}),
@@ -2935,6 +3194,7 @@ export function deriveTimelineEntries(
     id: message.id,
     kind: "message",
     createdAt: message.createdAt,
+    ...(message.sequence !== undefined ? { sequence: message.sequence } : {}),
     message,
   }));
   const proposedPlanRows: TimelineEntry[] = proposedPlans.map((proposedPlan) => ({
@@ -2947,6 +3207,7 @@ export function deriveTimelineEntries(
     id: entry.id,
     kind: "work",
     createdAt: entry.createdAt,
+    ...(entry.sequence !== undefined ? { sequence: entry.sequence } : {}),
     entry,
   }));
   const subagentSectionRows: TimelineEntry[] = enrichSubagentGroupsWithControlMetadata(
@@ -2954,18 +3215,41 @@ export function deriveTimelineEntries(
     standalone,
   )
     .filter((group) => group.status !== "running" && group.completedAt)
-    .map((group) => ({
-      id: `subagent-section:${group.groupId}:${group.completedAt}`,
-      kind: "subagent-section" as const,
-      // Completed subagents belong in history when the child task actually finishes, not when the
-      // earliest nested child activity started. Using completedAt here keeps history append-stable
-      // instead of backfilling old rows once the tray TTL expires.
-      createdAt: group.completedAt!,
-      subagentGroups: [retainCompletedSubagentEntryTail(group)],
-    }));
+    .map((group) => {
+      const row: TimelineEntry = {
+        id: `subagent-section:${group.groupId}:${group.completedAt}`,
+        kind: "subagent-section",
+        // Completed subagents belong in history when the child task actually finishes, not when the
+        // earliest nested child activity started. Using completedAt here keeps history append-stable
+        // instead of backfilling old rows once the tray TTL expires.
+        createdAt: group.completedAt!,
+        subagentGroups: [retainCompletedSubagentEntryTail(group)],
+      };
+      if (group.completedSequence !== undefined) {
+        row.sequence = group.completedSequence;
+      }
+      return row;
+    });
   return [...messageRows, ...proposedPlanRows, ...workRows, ...subagentSectionRows].toSorted(
-    (a, b) => a.createdAt.localeCompare(b.createdAt),
+    compareTimelineEntries,
   );
+}
+
+function compareTimelineEntries(left: TimelineEntry, right: TimelineEntry): number {
+  if (
+    left.sequence !== undefined &&
+    right.sequence !== undefined &&
+    left.sequence !== right.sequence
+  ) {
+    return left.sequence - right.sequence;
+  }
+
+  const createdAtComparison = left.createdAt.localeCompare(right.createdAt);
+  if (createdAtComparison !== 0) {
+    return createdAtComparison;
+  }
+
+  return left.id.localeCompare(right.id);
 }
 
 export function deriveCompletionDividerBeforeEntryId(
@@ -3124,11 +3408,18 @@ function isSubagentGroupVisibleInTray(group: SubagentGroup, nowIso: string): boo
   return isWithinBackgroundTaskRetention(group.completedAt ?? group.startedAt, nowIso);
 }
 
-function isBackgroundCommandVisibleInTray(entry: WorkLogEntry, nowIso: string): boolean {
+function isBackgroundCommandVisibleInTray(
+  entry: WorkLogEntry,
+  nowIso: string,
+  input?: { hasSeparateLaunchRow?: boolean | undefined },
+): boolean {
   if (entry.itemType !== "command_execution" || !entry.isBackgroundCommand) {
     return false;
   }
-  if (entry.activityKind === "task.completed") {
+  if (
+    entry.activityKind === "task.completed" ||
+    (entry.backgroundLifecycleRole === "completion" && input?.hasSeparateLaunchRow)
+  ) {
     return false;
   }
   const status = deriveBackgroundCommandStatus(entry);
@@ -3145,7 +3436,24 @@ function deriveVisibleBackgroundCommandEntries(
   standaloneEntries: ReadonlyArray<WorkLogEntry>,
   nowIso: string,
 ): WorkLogEntry[] {
-  return standaloneEntries.filter((entry) => isBackgroundCommandVisibleInTray(entry, nowIso));
+  const launchKeys = new Set(
+    standaloneEntries
+      .filter(
+        (entry): entry is WorkLogEntry & { itemType: "command_execution" } =>
+          entry.itemType === "command_execution" &&
+          entry.isBackgroundCommand === true &&
+          entry.backgroundLifecycleRole !== "completion",
+      )
+      .map((entry) => backgroundCommandCompletionKey(entry)),
+  );
+
+  return standaloneEntries.filter((entry) =>
+    isBackgroundCommandVisibleInTray(entry, nowIso, {
+      hasSeparateLaunchRow:
+        entry.backgroundLifecycleRole === "completion" &&
+        launchKeys.has(backgroundCommandCompletionKey(entry)),
+    }),
+  );
 }
 
 export function enrichSubagentGroupsWithControlMetadata(
@@ -3471,6 +3779,9 @@ export function deriveBackgroundCommandStatus(
 ): "running" | "completed" | "failed" {
   if (entry.backgroundTaskStatus) {
     return entry.backgroundTaskStatus;
+  }
+  if (entry.isBackgroundCommand === true && entry.backgroundLifecycleRole !== "completion") {
+    return "running";
   }
   if (entry.backgroundTaskId) {
     return "running";
