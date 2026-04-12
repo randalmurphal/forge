@@ -23,7 +23,7 @@ import {
   type UserInputQuestion,
 } from "@forgetools/contracts";
 import { resolveApiModelId, resolveEffort } from "@forgetools/shared/model";
-import { Cause, Deferred, Effect, Exit, Fiber, Queue, Random, Ref, Stream } from "effect";
+import { Cause, Deferred, Effect, Exit, Fiber, Queue, Random, Stream } from "effect";
 
 import {
   ProviderAdapterProcessError,
@@ -253,6 +253,11 @@ export const startSession = (
       existingResumeSessionId === undefined ? yield* Random.nextUUIDv4 : undefined;
     const sessionId = existingResumeSessionId ?? newSessionId;
 
+    // Capture the runtime services so the SDK's Promise-based canUseTool
+    // callback can bridge back into the Effect runtime. These are safe to
+    // hold because the session scope's finalizer (stopSessionInternal)
+    // cancels the stream fiber and drains pending approvals before the
+    // runtime is released.
     const runtimeServices = yield* Effect.services();
     const runFork = Effect.runForkWith(runtimeServices);
     const runPromise = Effect.runPromiseWith(runtimeServices);
@@ -272,7 +277,7 @@ export const startSession = (
     const inFlightTools = new Map<number, ToolInFlight>();
     const activeSubagentTools = new Map<string, ActiveSubagentTool>();
 
-    const contextRef = yield* Ref.make<ClaudeSessionContext | undefined>(undefined);
+    let sessionContext: ClaudeSessionContext | undefined;
 
     /**
      * Handle AskUserQuestion tool calls by emitting a `user-input.requested`
@@ -391,7 +396,7 @@ export const startSession = (
       toolInput: Parameters<CanUseTool>[1],
       callbackOptions: Parameters<CanUseTool>[2],
     ) {
-      const context = yield* Ref.get(contextRef);
+      const context = sessionContext;
       if (!context) {
         return {
           behavior: "deny",
@@ -653,7 +658,7 @@ export const startSession = (
       lastThreadStartedId: undefined,
       stopped: false,
     };
-    yield* Ref.set(contextRef, context);
+    sessionContext = context;
     ctx.sessions.set(threadId, context);
 
     const sessionStartedStamp = yield* ctx.makeEventStamp();
