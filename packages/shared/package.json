@@ -8,6 +8,10 @@
       "types": "./src/model.ts",
       "import": "./src/model.ts"
     },
+    "./narrowing": {
+      "types": "./src/narrowing.ts",
+      "import": "./src/narrowing.ts"
+    },
     "./git": {
       "types": "./src/git.ts",
       "import": "./src/git.ts"

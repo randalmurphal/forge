@@ -4,6 +4,7 @@ import {
   type OrchestrationThreadActivity,
   type EventId,
 } from "@forgetools/contracts";
+import { asRecord, asString, asTrimmedString } from "@forgetools/shared/narrowing";
 
 type CommandOutputSource = "final" | "stream";
 
@@ -320,7 +321,7 @@ function collectSubagentAttributionHints(activities: ReadonlyArray<Orchestration
   return { byItemId, byProcessId };
 }
 
-function normalizeChildThreadAttribution(value: Record<string, unknown> | null): {
+function normalizeChildThreadAttribution(value: Record<string, unknown> | undefined): {
   taskId?: string;
   childProviderThreadId: string;
   label?: string;
@@ -397,7 +398,7 @@ function sanitizeCommandLifecyclePayload(
     const nextResult = { ...result };
     const inferredExitCode =
       readExplicitExitCode(nextResult) ??
-      inferExitCodeFromOutputCandidate(asMaybeString(nextResult.output));
+      inferExitCodeFromOutputCandidate(asString(nextResult.output));
     if (inferredExitCode !== undefined && readExplicitExitCode(nextResult) === undefined) {
       nextResult.exitCode = inferredExitCode;
     }
@@ -417,7 +418,7 @@ function sanitizeCommandLifecyclePayload(
       const nextItemResult = { ...itemResult };
       const inferredExitCode =
         readExplicitExitCode(nextItemResult) ??
-        inferExitCodeFromOutputCandidate(asMaybeString(nextItemResult.output));
+        inferExitCodeFromOutputCandidate(asString(nextItemResult.output));
       if (inferredExitCode !== undefined && readExplicitExitCode(nextItemResult) === undefined) {
         nextItemResult.exitCode = inferredExitCode;
       }
@@ -447,7 +448,7 @@ function findToolCallIdForActivity(
   return extractToolCallId(asRecord(activity.payload));
 }
 
-function extractToolCallId(payload: Record<string, unknown> | null): string | null {
+function extractToolCallId(payload: Record<string, unknown> | null | undefined): string | null {
   const data = asRecord(payload?.data);
   const item = asRecord(data?.item);
   const itemResult = asRecord(item?.result);
@@ -461,10 +462,10 @@ function extractToolCallId(payload: Record<string, unknown> | null): string | nu
     asTrimmedString(itemResult?.tool_use_id),
     asTrimmedString(itemResult?.toolUseId),
   ];
-  return candidates.find((candidate) => candidate !== null) ?? null;
+  return candidates.find((candidate) => candidate != null) ?? null;
 }
 
-function extractProcessId(payload: Record<string, unknown> | null): string | null {
+function extractProcessId(payload: Record<string, unknown> | null | undefined): string | null {
   const data = asRecord(payload?.data);
   const item = asRecord(data?.item);
   const candidates = [
@@ -472,10 +473,12 @@ function extractProcessId(payload: Record<string, unknown> | null): string | nul
     asTrimmedString(data?.processId),
     asTrimmedString(item?.processId),
   ];
-  return candidates.find((candidate) => candidate !== null) ?? null;
+  return candidates.find((candidate) => candidate != null) ?? null;
 }
 
-function extractFinalCommandOutput(payload: Record<string, unknown> | null): string | null {
+function extractFinalCommandOutput(
+  payload: Record<string, unknown> | null | undefined,
+): string | null {
   const data = asRecord(payload?.data);
   if (!data) {
     return null;
@@ -541,7 +544,7 @@ function readOutputSummary(payload: Record<string, unknown>): CommandOutputSumma
   };
 }
 
-function inferExitCodeFromOutputCandidate(value: string | null): number | undefined {
+function inferExitCodeFromOutputCandidate(value: string | undefined): number | undefined {
   if (!value) {
     return undefined;
   }
@@ -561,20 +564,4 @@ function readExplicitExitCode(payload: Record<string, unknown>): number | undefi
     }
   }
   return undefined;
-}
-
-function asRecord(value: unknown): Record<string, unknown> | null {
-  return value && typeof value === "object" ? (value as Record<string, unknown>) : null;
-}
-
-function asTrimmedString(value: unknown): string | null {
-  if (typeof value !== "string") {
-    return null;
-  }
-  const trimmed = value.trim();
-  return trimmed.length > 0 ? trimmed : null;
-}
-
-function asMaybeString(value: unknown): string | null {
-  return typeof value === "string" ? value : null;
 }

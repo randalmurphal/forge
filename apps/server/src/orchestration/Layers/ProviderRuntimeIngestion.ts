@@ -20,6 +20,7 @@ import {
 } from "@forgetools/contracts";
 import { Cache, Cause, Duration, Effect, Layer, Option, Stream } from "effect";
 import { makeDrainableWorker } from "@forgetools/shared/DrainableWorker";
+import { asRecord, asTrimmedString, truncateDetail } from "@forgetools/shared/narrowing";
 
 import { parseTurnDiffFilesFromUnifiedDiff } from "../../checkpointing/Diffs.ts";
 import { CheckpointStore } from "../../checkpointing/Services/CheckpointStore.ts";
@@ -46,11 +47,8 @@ import {
   parseSupportedShellMutationCommand,
   type CapturedShellMutationOperation,
 } from "../commandInlineDiffArtifacts.ts";
-import {
-  appendServerDebugRecord,
-  isServerDebugEnabled,
-  resolveServerDebugLogPath,
-} from "../../debug.ts";
+import { appendServerDebugRecord, resolveServerDebugLogPath } from "../../debug.ts";
+import { DEBUG_BACKGROUND_TASKS, logBackgroundDebug } from "../../provider/adapterUtils.ts";
 
 const providerTurnKey = (threadId: ThreadId, turnId: TurnId) => `${threadId}:${turnId}`;
 const providerCommandId = (event: ProviderRuntimeEvent, tag: string): CommandId =>
@@ -64,7 +62,6 @@ const BUFFERED_PROPOSED_PLAN_BY_ID_CACHE_CAPACITY = 10_000;
 const BUFFERED_PROPOSED_PLAN_BY_ID_TTL = Duration.minutes(120);
 const MAX_BUFFERED_ASSISTANT_CHARS = 24_000;
 const STRICT_PROVIDER_LIFECYCLE_GUARD = process.env.FORGE_STRICT_PROVIDER_LIFECYCLE_GUARD !== "0";
-const DEBUG_BACKGROUND_TASKS = isServerDebugEnabled("background");
 
 appendServerDebugRecord({
   topic: "background",
@@ -114,23 +111,6 @@ function sameId(left: string | null | undefined, right: string | null | undefine
     return false;
   }
   return left === right;
-}
-
-function truncateDetail(value: string, limit = 180): string {
-  return value.length > limit ? `${value.slice(0, limit - 3)}...` : value;
-}
-
-function logBackgroundIngestionDebug(label: string, details: Record<string, unknown>): void {
-  if (!DEBUG_BACKGROUND_TASKS) {
-    return;
-  }
-
-  appendServerDebugRecord({
-    topic: "background",
-    source: "ingestion",
-    label,
-    details,
-  });
 }
 
 function normalizeProposedPlanMarkdown(planMarkdown: string | undefined): string | undefined {
@@ -199,14 +179,6 @@ function mapUnifiedDiffToCheckpointFiles(diff: string) {
       deletions: file.deletions,
     })),
   );
-}
-
-function asRecord(value: unknown): Record<string, unknown> | undefined {
-  return value && typeof value === "object" ? (value as Record<string, unknown>) : undefined;
-}
-
-function asTrimmedString(value: unknown): string | undefined {
-  return typeof value === "string" && value.trim().length > 0 ? value.trim() : undefined;
 }
 
 function extractBackgroundDebugItemRecord(value: unknown): Record<string, unknown> | undefined {
@@ -877,7 +849,7 @@ function runtimeEventToActivities(
 
     case "task.started": {
       const taskStartedChildAttr = extractChildThreadAttribution(event.payload);
-      logBackgroundIngestionDebug("runtime.task.started", {
+      logBackgroundDebug("ingestion", "runtime.task.started", {
         threadId: event.threadId,
         turnId: event.turnId ?? null,
         taskId: event.payload.taskId,
@@ -937,7 +909,7 @@ function runtimeEventToActivities(
 
     case "task.completed": {
       const taskCompletedChildAttr = extractChildThreadAttribution(event.payload);
-      logBackgroundIngestionDebug("runtime.task.completed", {
+      logBackgroundDebug("ingestion", "runtime.task.completed", {
         threadId: event.threadId,
         turnId: event.turnId ?? null,
         taskId: event.payload.taskId,
@@ -1068,7 +1040,7 @@ function runtimeEventToActivities(
         return [];
       }
       const contentDeltaChildAttr = extractChildThreadAttribution(event.payload);
-      logBackgroundIngestionDebug("runtime.content.delta", {
+      logBackgroundDebug("ingestion", "runtime.content.delta", {
         threadId: event.threadId,
         turnId: event.turnId ?? null,
         itemId: event.itemId ?? null,
@@ -1097,7 +1069,7 @@ function runtimeEventToActivities(
 
     case "terminal.interaction": {
       const terminalInteractionChildAttr = extractChildThreadAttribution(event.payload);
-      logBackgroundIngestionDebug("runtime.terminal.interaction", {
+      logBackgroundDebug("ingestion", "runtime.terminal.interaction", {
         threadId: event.threadId,
         turnId: event.turnId ?? null,
         itemId: event.itemId ?? null,
@@ -1139,7 +1111,7 @@ function runtimeEventToActivities(
         event.payload.itemType === "command_execution" ||
         event.payload.itemType === "collab_agent_tool_call"
       ) {
-        logBackgroundIngestionDebug("runtime.item.updated", {
+        logBackgroundDebug("ingestion", "runtime.item.updated", {
           threadId: event.threadId,
           turnId: event.turnId ?? null,
           itemType: event.payload.itemType,
@@ -1185,7 +1157,7 @@ function runtimeEventToActivities(
         event.payload.itemType === "collab_agent_tool_call"
       ) {
         const projectedData = event.payload.data;
-        logBackgroundIngestionDebug("runtime.item.completed", {
+        logBackgroundDebug("ingestion", "runtime.item.completed", {
           threadId: event.threadId,
           turnId: event.turnId ?? null,
           itemType: event.payload.itemType,
@@ -1241,7 +1213,7 @@ function runtimeEventToActivities(
         event.payload.itemType === "command_execution" ||
         event.payload.itemType === "collab_agent_tool_call"
       ) {
-        logBackgroundIngestionDebug("runtime.item.started", {
+        logBackgroundDebug("ingestion", "runtime.item.started", {
           threadId: event.threadId,
           turnId: event.turnId ?? null,
           itemType: event.payload.itemType,

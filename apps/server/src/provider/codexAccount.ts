@@ -1,4 +1,5 @@
 import type { ServerProviderModel } from "@forgetools/contracts";
+import { asRecord, asString } from "@forgetools/shared/narrowing";
 
 export type CodexPlanType =
   | "free"
@@ -21,20 +22,9 @@ export const CODEX_DEFAULT_MODEL = "gpt-5.3-codex";
 export const CODEX_SPARK_MODEL = "gpt-5.3-codex-spark";
 const CODEX_SPARK_ENABLED_PLAN_TYPES = new Set<CodexPlanType>(["pro"]);
 
-function asObject(value: unknown): Record<string, unknown> | undefined {
-  if (!value || typeof value !== "object") {
-    return undefined;
-  }
-  return value as Record<string, unknown>;
-}
-
-function asString(value: unknown): string | undefined {
-  return typeof value === "string" ? value : undefined;
-}
-
 export function readCodexAccountSnapshot(response: unknown): CodexAccountSnapshot {
-  const record = asObject(response);
-  const account = asObject(record?.account) ?? record;
+  const record = asRecord(response);
+  const account = asRecord(record?.account) ?? record;
   const accountType = asString(account?.type);
 
   if (accountType === "apiKey") {

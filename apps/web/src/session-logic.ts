@@ -14,6 +14,7 @@ import {
   type TurnId,
 } from "@forgetools/contracts";
 
+import { asArray, asRecord, asTrimmedString } from "@forgetools/shared/narrowing";
 import { debugLog, isWebDebugEnabled } from "./debug";
 import type {
   ChatMessage,
@@ -336,7 +337,7 @@ export function derivePendingApprovals(
 }
 
 function parseUserInputQuestions(
-  payload: Record<string, unknown> | null,
+  payload: Record<string, unknown> | null | undefined,
 ): ReadonlyArray<UserInputQuestion> | null {
   const questions = payload?.questions;
   if (!Array.isArray(questions)) {
@@ -736,7 +737,7 @@ function synthesizeCodexSubagentLifecycleActivities(
     const receiverThreadIds =
       asArray(item?.receiverThreadIds)
         ?.map((value) => asTrimmedString(value))
-        .filter((value): value is string => value !== null) ?? [];
+        .filter((value): value is string => value != null) ?? [];
     if (!taskId || receiverThreadIds.length === 0) {
       continue;
     }
@@ -961,7 +962,7 @@ function normalizeClaudeTaskOutputTaskStatus(status: string): "running" | "compl
 }
 
 function normalizeCodexCollabAgentTerminalStatus(
-  status: string | null,
+  status: string | null | undefined,
 ): "running" | "completed" | "failed" {
   switch (status) {
     case "completed":
@@ -1520,7 +1521,7 @@ function findProviderBackgroundTaskSignal(
 
 function normalizeProviderBackgroundTaskStatus(
   activityKind: OrchestrationThreadActivity["kind"],
-  payload: Record<string, unknown> | null,
+  payload: Record<string, unknown> | null | undefined,
 ): "running" | "completed" | "failed" {
   if (activityKind !== "task.completed") {
     return "running";
@@ -1554,12 +1555,9 @@ function deriveCodexBackgroundCommandSignals(input: {
   for (const activity of input.activities) {
     const payload = asRecord(activity.payload);
     const itemType = extractWorkLogItemType(payload);
-    const toolCallId =
-      itemType === "command_execution" ? (extractToolCallId(payload) ?? undefined) : undefined;
+    const toolCallId = itemType === "command_execution" ? extractToolCallId(payload) : undefined;
     const processId =
-      itemType === "command_execution"
-        ? (extractCommandProcessId(payload) ?? undefined)
-        : undefined;
+      itemType === "command_execution" ? extractCommandProcessId(payload) : undefined;
     const commandSource =
       itemType === "command_execution" ? (extractCommandSource(payload) ?? undefined) : undefined;
 
@@ -1710,7 +1708,7 @@ function markCodexBackgroundCandidatesForTurnAdvance(
 }
 
 function markCodexBackgroundCandidatesFromTerminalInteraction(
-  payload: Record<string, unknown> | null,
+  payload: Record<string, unknown> | null | undefined,
   candidatesByToolCallId: Map<string, CodexBackgroundCommandCandidate>,
   openCandidateIdsByProcessId: Map<string, Set<string>>,
   reasonsByToolCallId: Map<string, string>,
@@ -1830,13 +1828,17 @@ function markCodexBackgroundCandidate(
   reasonsByToolCallId.set(candidate.toolCallId, reason);
 }
 
-function extractCommandSource(payload: Record<string, unknown> | null): string | null {
+function extractCommandSource(
+  payload: Record<string, unknown> | null | undefined,
+): string | null | undefined {
   const data = asRecord(payload?.data);
   const item = asRecord(data?.item);
   return asTrimmedString(item?.source) ?? asTrimmedString(payload?.source);
 }
 
-function extractCommandProcessId(payload: Record<string, unknown> | null): string | null {
+function extractCommandProcessId(
+  payload: Record<string, unknown> | null | undefined,
+): string | undefined {
   const data = asRecord(payload?.data);
   const item = asRecord(data?.item);
   return asTrimmedString(item?.processId) ?? asTrimmedString(payload?.processId);
@@ -1896,11 +1898,13 @@ function isUnattributedCollabAgentToolEnvelope(activity: OrchestrationThreadActi
   return !isVisibleCollabControlTool(extractCollabControlToolName(payload));
 }
 
-function isCodexControlCollabTool(toolName: string | null): boolean {
+function isCodexControlCollabTool(toolName: string | null | undefined): boolean {
   return toolName === "sendInput" || toolName === "wait";
 }
 
-function extractCollabControlToolName(payload: Record<string, unknown> | null): string | null {
+function extractCollabControlToolName(
+  payload: Record<string, unknown> | null | undefined,
+): string | null | undefined {
   if (!payload) {
     return null;
   }
@@ -1920,7 +1924,7 @@ function extractCollabControlToolName(payload: Record<string, unknown> | null): 
   return asTrimmedString(item?.tool);
 }
 
-function isVisibleCollabControlTool(toolName: string | null): boolean {
+function isVisibleCollabControlTool(toolName: string | null | undefined): boolean {
   if (!toolName) {
     return false;
   }
@@ -2130,7 +2134,9 @@ interface ToolEnrichments {
   receiverThreadIds?: string[];
 }
 
-function extractToolEnrichments(payload: Record<string, unknown> | null): ToolEnrichments {
+function extractToolEnrichments(
+  payload: Record<string, unknown> | null | undefined,
+): ToolEnrichments {
   const enrichments: ToolEnrichments = {};
   if (!payload) return enrichments;
 
@@ -2342,7 +2348,7 @@ function extractToolEnrichments(payload: Record<string, unknown> | null): ToolEn
   const receiverThreadIds =
     asArray(codexItem?.receiverThreadIds)
       ?.map((value) => asTrimmedString(value))
-      .filter((value): value is string => value !== null) ?? [];
+      .filter((value): value is string => value != null) ?? [];
   if (receiverThreadIds.length > 0) {
     enrichments.receiverThreadIds = receiverThreadIds;
   }
@@ -2816,22 +2822,6 @@ function toLatestProposedPlanState(proposedPlan: ProposedPlan): LatestProposedPl
   };
 }
 
-function asRecord(value: unknown): Record<string, unknown> | null {
-  return value && typeof value === "object" ? (value as Record<string, unknown>) : null;
-}
-
-function asArray(value: unknown): unknown[] | null {
-  return Array.isArray(value) ? value : null;
-}
-
-function asTrimmedString(value: unknown): string | null {
-  if (typeof value !== "string") {
-    return null;
-  }
-  const trimmed = value.trim();
-  return trimmed.length > 0 ? trimmed : null;
-}
-
 /**
  * Strip leading tool name prefix from detail strings.
  * Claude adapter produces detail like "Read: /some/file.ts" or "Bash: git status".
@@ -2856,11 +2846,11 @@ function normalizeCommandValue(value: unknown): string | null {
   }
   const parts = value
     .map((entry) => asTrimmedString(entry))
-    .filter((entry): entry is string => entry !== null);
+    .filter((entry): entry is string => entry != null);
   return parts.length > 0 ? parts.join(" ") : null;
 }
 
-function extractToolCommand(payload: Record<string, unknown> | null): string | null {
+function extractToolCommand(payload: Record<string, unknown> | null | undefined): string | null {
   const data = asRecord(payload?.data);
   const item = asRecord(data?.item);
   const itemResult = asRecord(item?.result);
@@ -2873,7 +2863,7 @@ function extractToolCommand(payload: Record<string, unknown> | null): string | n
     normalizeCommandValue(itemResult?.command),
     normalizeCommandValue(data?.command),
   ];
-  return candidates.find((candidate) => candidate !== null) ?? null;
+  return candidates.find((candidate) => candidate != null) ?? null;
 }
 
 function normalizeCommandOutputValue(value: unknown): string | null {
@@ -2903,11 +2893,13 @@ function joinCommandOutputParts(stdout: string | null, stderr: string | null): s
   return `${stdout}\n${stderr}`;
 }
 
-function extractToolTitle(payload: Record<string, unknown> | null): string | null {
+function extractToolTitle(payload: Record<string, unknown> | null | undefined): string | undefined {
   return asTrimmedString(payload?.title);
 }
 
-function extractToolCallId(payload: Record<string, unknown> | null): string | null {
+function extractToolCallId(
+  payload: Record<string, unknown> | null | undefined,
+): string | undefined {
   const data = asRecord(payload?.data);
   const item = asRecord(data?.item);
   const itemResult = asRecord(item?.result);
@@ -2921,7 +2913,7 @@ function extractToolCallId(payload: Record<string, unknown> | null): string | nu
     asTrimmedString(itemResult?.tool_use_id),
     asTrimmedString(itemResult?.toolUseId),
   ];
-  return candidates.find((candidate) => candidate !== null) ?? null;
+  return candidates.find((candidate) => candidate != null) ?? undefined;
 }
 
 function stripTrailingExitCode(value: string): {
@@ -2963,7 +2955,7 @@ function stripTrailingExitCodePreservingOutput(value: string): {
 }
 
 function extractWorkLogItemType(
-  payload: Record<string, unknown> | null,
+  payload: Record<string, unknown> | null | undefined,
 ): WorkLogEntry["itemType"] | undefined {
   if (typeof payload?.itemType === "string" && isToolLifecycleItemType(payload.itemType)) {
     return payload.itemType;
@@ -2972,7 +2964,7 @@ function extractWorkLogItemType(
 }
 
 function extractWorkLogRequestKind(
-  payload: Record<string, unknown> | null,
+  payload: Record<string, unknown> | null | undefined,
 ): WorkLogEntry["requestKind"] | undefined {
   if (
     payload?.requestKind === "command" ||
@@ -3026,7 +3018,7 @@ function deriveActivityItemStatus(
 }
 
 function extractChildThreadAttribution(
-  payload: Record<string, unknown> | null,
+  payload: Record<string, unknown> | null | undefined,
 ): WorkLogEntry["childThreadAttribution"] {
   if (!payload) return undefined;
   const attr = payload.childThreadAttribution;
@@ -3074,7 +3066,7 @@ function extractPersistedToolInlineDiffSummary(input: {
   activityId: string;
   turnId?: TurnId | undefined;
   toolCallId?: string | undefined;
-  payload: Record<string, unknown> | null;
+  payload: Record<string, unknown> | null | undefined;
   title: string;
 }): ToolInlineDiffSummary | undefined {
   const inlineDiff = asRecord(input.payload?.inlineDiff);

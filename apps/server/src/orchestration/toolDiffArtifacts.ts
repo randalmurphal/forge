@@ -3,20 +3,9 @@ import type {
   OrchestrationToolInlineDiff,
   ProviderKind,
 } from "@forgetools/contracts";
+import { asRecord, asTrimmedString } from "@forgetools/shared/narrowing";
 
 import { classifyToolDiffPaths } from "./toolDiffPaths.ts";
-
-function asRecord(value: unknown): Record<string, unknown> | null {
-  return value && typeof value === "object" ? (value as Record<string, unknown>) : null;
-}
-
-function asTrimmedString(value: unknown): string | undefined {
-  if (typeof value !== "string") {
-    return undefined;
-  }
-  const trimmed = value.trim();
-  return trimmed.length > 0 ? trimmed : undefined;
-}
 
 function normalizeStatValue(value: unknown): number | undefined {
   return typeof value === "number" && Number.isFinite(value) && value >= 0 ? value : undefined;
@@ -534,7 +523,7 @@ function extractCodexChangeRecords(payloadData: unknown): ReadonlyArray<Record<s
 
   return changes
     .map((entry) => asRecord(entry))
-    .filter((entry): entry is Record<string, unknown> => entry !== null);
+    .filter((entry): entry is Record<string, unknown> => entry != null);
 }
 
 function buildCodexStructuredToolUnifiedDiff(

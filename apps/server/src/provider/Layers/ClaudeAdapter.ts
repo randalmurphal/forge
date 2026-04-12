@@ -47,6 +47,7 @@ import {
   resolveEffort,
   trimOrNull,
 } from "@forgetools/shared/model";
+import { asRecord } from "@forgetools/shared/narrowing";
 import {
   Cause,
   DateTime,
@@ -81,6 +82,7 @@ import {
   type ProviderAdapterError,
 } from "../Errors.ts";
 import { ClaudeAdapter, type ClaudeAdapterShape } from "../Services/ClaudeAdapter.ts";
+import { CLAUDE_SESSION_ERROR_MATCHERS, toMessage, toRequestError } from "../adapterUtils.ts";
 import { makeClaudeOAuthTokenResolver } from "../claudeOAuthCredential.ts";
 import { type EventNdjsonLogger, makeEventNdjsonLogger } from "./EventNdjsonLogger.ts";
 
@@ -209,13 +211,6 @@ function isUuid(value: string): boolean {
 
 function isSyntheticClaudeThreadId(value: string): boolean {
   return value.startsWith("claude-thread-");
-}
-
-function toMessage(cause: unknown, fallback: string): string {
-  if (cause instanceof Error && cause.message.length > 0) {
-    return cause.message;
-  }
-  return fallback;
 }
 
 function toError(cause: unknown, fallback: string): Error {
@@ -832,10 +827,6 @@ function extractTextContent(value: unknown): string {
   return extractTextContent(record.content);
 }
 
-function asRecord(value: unknown): Record<string, unknown> | undefined {
-  return value && typeof value === "object" ? (value as Record<string, unknown>) : undefined;
-}
-
 function readToolUseResultId(value: unknown): string | undefined {
   const record = asRecord(value);
   if (!record) {
@@ -1093,41 +1084,6 @@ function toolResultBlocksFromUserMessage(message: SDKMessage): Array<{
   }
 
   return blocks;
-}
-
-function toSessionError(
-  threadId: ThreadId,
-  cause: unknown,
-): ProviderAdapterSessionNotFoundError | ProviderAdapterSessionClosedError | undefined {
-  const normalized = toMessage(cause, "").toLowerCase();
-  if (normalized.includes("unknown session") || normalized.includes("not found")) {
-    return new ProviderAdapterSessionNotFoundError({
-      provider: PROVIDER,
-      threadId,
-      cause,
-    });
-  }
-  if (normalized.includes("closed")) {
-    return new ProviderAdapterSessionClosedError({
-      provider: PROVIDER,
-      threadId,
-      cause,
-    });
-  }
-  return undefined;
-}
-
-function toRequestError(threadId: ThreadId, method: string, cause: unknown): ProviderAdapterError {
-  const sessionError = toSessionError(threadId, cause);
-  if (sessionError) {
-    return sessionError;
-  }
-  return new ProviderAdapterRequestError({
-    provider: PROVIDER,
-    method,
-    detail: toMessage(cause, `${method} failed`),
-    cause,
-  });
 }
 
 function sdkMessageType(value: unknown): string | undefined {
@@ -3341,7 +3297,14 @@ const makeClaudeAdapter = Effect.fn("makeClaudeAdapter")(function* (
       if (context.currentApiModelId !== apiModelId) {
         yield* Effect.tryPromise({
           try: () => context.query.setModel(apiModelId),
-          catch: (cause) => toRequestError(input.threadId, "turn/setModel", cause),
+          catch: (cause) =>
+            toRequestError(
+              PROVIDER,
+              input.threadId,
+              "turn/setModel",
+              cause,
+              CLAUDE_SESSION_ERROR_MATCHERS,
+            ),
         });
         context.currentApiModelId = apiModelId;
       }
@@ -3358,13 +3321,27 @@ const makeClaudeAdapter = Effect.fn("makeClaudeAdapter")(function* (
     if (input.interactionMode === "plan") {
       yield* Effect.tryPromise({
         try: () => context.query.setPermissionMode("plan"),
-        catch: (cause) => toRequestError(input.threadId, "turn/setPermissionMode", cause),
+        catch: (cause) =>
+          toRequestError(
+            PROVIDER,
+            input.threadId,
+            "turn/setPermissionMode",
+            cause,
+            CLAUDE_SESSION_ERROR_MATCHERS,
+          ),
       });
     } else if (input.interactionMode === "default") {
       yield* Effect.tryPromise({
         try: () =>
           context.query.setPermissionMode(context.basePermissionMode ?? "bypassPermissions"),
-        catch: (cause) => toRequestError(input.threadId, "turn/setPermissionMode", cause),
+        catch: (cause) =>
+          toRequestError(
+            PROVIDER,
+            input.threadId,
+            "turn/setPermissionMode",
+            cause,
+            CLAUDE_SESSION_ERROR_MATCHERS,
+          ),
       });
     }
 
@@ -3411,7 +3388,17 @@ const makeClaudeAdapter = Effect.fn("makeClaudeAdapter")(function* (
     yield* Queue.offer(context.promptQueue, {
       type: "message",
       message,
-    }).pipe(Effect.mapError((cause) => toRequestError(input.threadId, "turn/start", cause)));
+    }).pipe(
+      Effect.mapError((cause) =>
+        toRequestError(
+          PROVIDER,
+          input.threadId,
+          "turn/start",
+          cause,
+          CLAUDE_SESSION_ERROR_MATCHERS,
+        ),
+      ),
+    );
 
     return {
       threadId: context.session.threadId,
@@ -3427,7 +3414,14 @@ const makeClaudeAdapter = Effect.fn("makeClaudeAdapter")(function* (
       const context = yield* requireSession(threadId);
       yield* Effect.tryPromise({
         try: () => context.query.interrupt(),
-        catch: (cause) => toRequestError(threadId, "turn/interrupt", cause),
+        catch: (cause) =>
+          toRequestError(
+            PROVIDER,
+            threadId,
+            "turn/interrupt",
+            cause,
+            CLAUDE_SESSION_ERROR_MATCHERS,
+          ),
       });
     },
   );
@@ -3502,7 +3496,14 @@ const makeClaudeAdapter = Effect.fn("makeClaudeAdapter")(function* (
 
     const result = yield* Effect.tryPromise({
       try: () => forkSession(sourceSessionId),
-      catch: (cause) => toRequestError(input.sourceThreadId, "forkSession", cause),
+      catch: (cause) =>
+        toRequestError(
+          PROVIDER,
+          input.sourceThreadId,
+          "forkSession",
+          cause,
+          CLAUDE_SESSION_ERROR_MATCHERS,
+        ),
     });
     return {
       resumeCursor: { resume: result.sessionId },
