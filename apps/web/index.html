@@ -12,6 +12,20 @@
       rel="stylesheet"
     />
     <title>Forge (Alpha)</title>
+    <script>
+      // Apply theme class before first paint to prevent white flash.
+      // Reads the stored preference; falls back to OS preference.
+      (function () {
+        var theme = localStorage.getItem("forge:theme");
+        if (!theme || theme === "system") {
+          if (window.matchMedia("(prefers-color-scheme: dark)").matches) {
+            document.documentElement.classList.add("dark");
+          }
+        } else if (theme === "dark") {
+          document.documentElement.classList.add("dark");
+        }
+      })();
+    </script>
   </head>
   <body>
     <div id="root"></div>

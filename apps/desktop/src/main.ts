@@ -1663,6 +1663,7 @@ function createWindow(): BrowserWindow {
     minWidth: 840,
     minHeight: 620,
     show: false,
+    backgroundColor: nativeTheme.shouldUseDarkColors ? "#171717" : "#ffffff",
     autoHideMenuBar: true,
     ...getIconOption(),
     title: APP_DISPLAY_NAME,
