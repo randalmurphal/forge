@@ -2608,6 +2608,80 @@ describe("deriveWorkLogEntries", () => {
     });
   });
 
+  it("keeps the Codex background launch row non-terminal even after the completion row exists", () => {
+    const entries = deriveWorkLogEntries(
+      [
+        makeActivity({
+          id: "codex-background-launch-status",
+          createdAt: "2026-04-10T12:00:00.000Z",
+          kind: "tool.started",
+          summary: "Command started",
+          payload: {
+            itemType: "command_execution",
+            itemId: "codex-background-status-1",
+            status: "inProgress",
+            data: {
+              item: {
+                id: "codex-background-status-1",
+                command: ["/bin/zsh", "-lc", "sleep 20"],
+                source: "unifiedExecStartup",
+                processId: "proc-background-status-1",
+              },
+            },
+          },
+        }),
+        makeActivity({
+          id: "codex-background-terminal-wait-status",
+          createdAt: "2026-04-10T12:00:01.000Z",
+          kind: "tool.terminal.interaction",
+          summary: "Background terminal waited",
+          payload: {
+            itemId: "codex-background-status-1",
+            processId: "proc-background-status-1",
+            stdin: "",
+          },
+        }),
+        makeActivity({
+          id: "codex-background-complete-status",
+          createdAt: "2026-04-10T12:00:20.000Z",
+          kind: "tool.completed",
+          summary: "Ran command",
+          payload: {
+            itemType: "command_execution",
+            itemId: "codex-background-status-1",
+            status: "completed",
+            data: {
+              item: {
+                id: "codex-background-status-1",
+                command: ["/bin/zsh", "-lc", "sleep 20"],
+                source: "unifiedExecStartup",
+                processId: "proc-background-status-1",
+                aggregatedOutput: "done\n",
+                exitCode: 0,
+              },
+            },
+          },
+        }),
+      ],
+      undefined,
+    );
+
+    expect(entries[0]).toMatchObject({
+      id: "codex-background-launch-status",
+      activityKind: "tool.started",
+      backgroundLifecycleRole: "launch",
+      itemStatus: "inProgress",
+      completedAt: undefined,
+    });
+    expect(entries[1]).toMatchObject({
+      id: "codex-background-complete-status",
+      activityKind: "tool.completed",
+      backgroundLifecycleRole: "completion",
+      itemStatus: "completed",
+      completedAt: "2026-04-10T12:00:20.000Z",
+    });
+  });
+
   it("marks a Codex unified-exec command as background when later work begins while it is still running", () => {
     const turnId = TurnId.makeUnsafe("turn-overlap-1");
     const entries = deriveWorkLogEntries(
@@ -4352,6 +4426,60 @@ describe("deriveTimelineEntries", () => {
       "spawn-agent-sequenced",
       "assistant-response",
       "subagent-section:child-sequenced:2026-02-23T00:00:02.000Z",
+    ]);
+  });
+
+  it("keeps background command completion rows ordered by runtime sequence instead of backfilling", () => {
+    const entries = deriveTimelineEntries(
+      [
+        {
+          id: MessageId.makeUnsafe("assistant-after-command"),
+          role: "assistant",
+          text: "The watcher completed.",
+          createdAt: "2026-02-23T00:00:05.000Z",
+          completedAt: "2026-02-23T00:00:05.000Z",
+          sequence: 40,
+          streaming: false,
+        },
+      ],
+      [],
+      [
+        {
+          id: "bg-launch-sequenced",
+          createdAt: "2026-02-23T00:00:01.000Z",
+          sequence: 10,
+          label: "Command started",
+          tone: "tool",
+          activityKind: "tool.started",
+          itemType: "command_execution",
+          command: "sleep 20",
+          toolCallId: "bg-sequenced-1",
+          isBackgroundCommand: true,
+          backgroundLifecycleRole: "launch",
+          itemStatus: "inProgress",
+        },
+        {
+          id: "bg-complete-sequenced",
+          createdAt: "2026-02-23T00:00:02.000Z",
+          completedAt: "2026-02-23T00:00:02.000Z",
+          sequence: 41,
+          label: "Background command completed",
+          tone: "tool",
+          activityKind: "task.completed",
+          itemType: "command_execution",
+          command: "sleep 20",
+          toolCallId: "bg-sequenced-1",
+          isBackgroundCommand: true,
+          backgroundLifecycleRole: "completion",
+          itemStatus: "completed",
+        },
+      ],
+    );
+
+    expect(entries.map((entry) => entry.id)).toEqual([
+      "bg-launch-sequenced",
+      "assistant-after-command",
+      "bg-complete-sequenced",
     ]);
   });
 
