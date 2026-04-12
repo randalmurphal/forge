@@ -181,7 +181,7 @@ const BackgroundCommandTaskRow = memo(function BackgroundCommandTaskRow(props: {
   const hasOutput = Boolean(props.entry.hasOutput || props.entry.output);
   const elapsed = formatTrayTaskElapsed(
     props.entry.startedAt ?? props.entry.createdAt,
-    props.entry.createdAt,
+    props.entry.backgroundCompletedAt ?? props.entry.completedAt ?? props.entry.createdAt,
     status,
     props.nowIso,
   );

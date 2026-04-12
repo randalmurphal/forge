@@ -899,6 +899,7 @@ function runtimeEventToActivities(
           payload: {
             taskId: event.payload.taskId,
             ...(event.payload.taskType ? { taskType: event.payload.taskType } : {}),
+            ...(event.payload.toolUseId ? { toolUseId: event.payload.toolUseId } : {}),
             ...(event.payload.description
               ? { detail: truncateDetail(event.payload.description) }
               : {}),
@@ -921,6 +922,7 @@ function runtimeEventToActivities(
           summary: "Reasoning update",
           payload: {
             taskId: event.payload.taskId,
+            ...(event.payload.toolUseId ? { toolUseId: event.payload.toolUseId } : {}),
             detail: truncateDetail(event.payload.summary ?? event.payload.description),
             ...(event.payload.summary ? { summary: truncateDetail(event.payload.summary) } : {}),
             ...(event.payload.lastToolName ? { lastToolName: event.payload.lastToolName } : {}),
@@ -957,8 +959,10 @@ function runtimeEventToActivities(
           payload: {
             taskId: event.payload.taskId,
             status: event.payload.status,
+            ...(event.payload.toolUseId ? { toolUseId: event.payload.toolUseId } : {}),
             ...(event.payload.summary ? { detail: truncateDetail(event.payload.summary) } : {}),
             ...(event.payload.usage !== undefined ? { usage: event.payload.usage } : {}),
+            ...(event.payload.outputFile ? { outputFile: event.payload.outputFile } : {}),
             ...(taskCompletedChildAttr ? { childThreadAttribution: taskCompletedChildAttr } : {}),
           },
           turnId: toTurnId(event.turnId) ?? null,

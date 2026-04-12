@@ -470,6 +470,7 @@ export type UserInputResolvedPayload = typeof UserInputResolvedPayload.Type;
 
 const TaskStartedPayload = Schema.Struct({
   taskId: RuntimeTaskId,
+  toolUseId: Schema.optional(TrimmedNonEmptyStringSchema),
   description: Schema.optional(TrimmedNonEmptyStringSchema),
   taskType: Schema.optional(TrimmedNonEmptyStringSchema),
 });
@@ -477,6 +478,7 @@ export type TaskStartedPayload = typeof TaskStartedPayload.Type;
 
 const TaskProgressPayload = Schema.Struct({
   taskId: RuntimeTaskId,
+  toolUseId: Schema.optional(TrimmedNonEmptyStringSchema),
   description: TrimmedNonEmptyStringSchema,
   summary: Schema.optional(TrimmedNonEmptyStringSchema),
   usage: Schema.optional(Schema.Unknown),
@@ -486,7 +488,9 @@ export type TaskProgressPayload = typeof TaskProgressPayload.Type;
 
 const TaskCompletedPayload = Schema.Struct({
   taskId: RuntimeTaskId,
+  toolUseId: Schema.optional(TrimmedNonEmptyStringSchema),
   status: Schema.Literals(["completed", "failed", "stopped"]),
+  outputFile: Schema.optional(TrimmedNonEmptyStringSchema),
   summary: Schema.optional(TrimmedNonEmptyStringSchema),
   usage: Schema.optional(Schema.Unknown),
 });

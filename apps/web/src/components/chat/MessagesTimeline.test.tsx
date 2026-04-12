@@ -315,6 +315,158 @@ describe("MessagesTimeline", () => {
     expect(markup).toContain("spawned");
   });
 
+  it("renders a spawned badge for completed Claude Agent launch calls", async () => {
+    const { MessagesTimeline } = await import("./MessagesTimeline");
+    const markup = renderTimeline(
+      <MessagesTimeline
+        threadId={null}
+        hasMessages
+        isWorking={false}
+        activeTurnInProgress={false}
+        activeTurnStartedAt={null}
+        scrollContainer={null}
+        timelineEntries={[
+          {
+            id: "agent-entry",
+            kind: "work",
+            createdAt: "2026-03-17T19:12:28.000Z",
+            entry: {
+              id: "agent-1",
+              createdAt: "2026-03-17T19:12:28.000Z",
+              label: "Subagent task",
+              tone: "tool",
+              itemType: "collab_agent_tool_call",
+              toolName: "Agent",
+              itemStatus: "completed",
+              agentDescription: "Inspect the parser",
+              agentModel: "claude-opus-4-6",
+              agentPrompt: "Run exactly these parser checks and report only final completion",
+            },
+          },
+        ]}
+        completionDividerBeforeEntryId={null}
+        completionSummary={null}
+        turnDiffSummaryByAssistantMessageId={new Map()}
+        nowIso="2026-03-17T19:12:30.000Z"
+        expandedWorkGroups={{}}
+        onToggleWorkGroup={() => {}}
+        onOpenTurnDiff={() => {}}
+        revertTurnCountByUserMessageId={new Map()}
+        onRevertUserMessage={() => {}}
+        isRevertingCheckpoint={false}
+        onImageExpand={() => {}}
+        markdownCwd={undefined}
+        resolvedTheme="light"
+        timestampFormat="locale"
+        workspaceRoot={undefined}
+      />,
+    );
+
+    expect(markup).toContain("spawned");
+  });
+
+  it("renders a completed badge for finished background commands", async () => {
+    const { MessagesTimeline } = await import("./MessagesTimeline");
+    const markup = renderTimeline(
+      <MessagesTimeline
+        threadId={null}
+        hasMessages
+        isWorking={false}
+        activeTurnInProgress={false}
+        activeTurnStartedAt={null}
+        scrollContainer={null}
+        timelineEntries={[
+          {
+            id: "background-command-entry",
+            kind: "work",
+            createdAt: "2026-03-17T19:12:28.000Z",
+            entry: {
+              id: "background-command-1",
+              createdAt: "2026-03-17T19:12:28.000Z",
+              label: "Command",
+              tone: "tool",
+              activityKind: "task.completed",
+              itemType: "command_execution",
+              command: "sleep 20 && echo done",
+              isBackgroundCommand: true,
+              backgroundTaskStatus: "completed",
+            },
+          },
+        ]}
+        completionDividerBeforeEntryId={null}
+        completionSummary={null}
+        turnDiffSummaryByAssistantMessageId={new Map()}
+        nowIso="2026-03-17T19:12:30.000Z"
+        expandedWorkGroups={{}}
+        onToggleWorkGroup={() => {}}
+        onOpenTurnDiff={() => {}}
+        revertTurnCountByUserMessageId={new Map()}
+        onRevertUserMessage={() => {}}
+        isRevertingCheckpoint={false}
+        onImageExpand={() => {}}
+        markdownCwd={undefined}
+        resolvedTheme="light"
+        timestampFormat="locale"
+        workspaceRoot={undefined}
+      />,
+    );
+
+    expect(markup).toContain("background");
+    expect(markup).toContain("completed");
+    expect(markup).toContain("lucide-check");
+  });
+
+  it("does not render a completed badge on the launch row for a finished background command", async () => {
+    const { MessagesTimeline } = await import("./MessagesTimeline");
+    const markup = renderTimeline(
+      <MessagesTimeline
+        threadId={null}
+        hasMessages
+        isWorking={false}
+        activeTurnInProgress={false}
+        activeTurnStartedAt={null}
+        scrollContainer={null}
+        timelineEntries={[
+          {
+            id: "launch-row-entry",
+            kind: "work",
+            createdAt: "2026-02-23T00:00:00.000Z",
+            entry: {
+              id: "launch-row",
+              createdAt: "2026-02-23T00:00:00.000Z",
+              label: "Command",
+              tone: "tool",
+              activityKind: "tool.completed",
+              itemType: "command_execution",
+              command: "sleep 20 && echo done",
+              isBackgroundCommand: true,
+              backgroundTaskStatus: "completed",
+            },
+          },
+        ]}
+        completionDividerBeforeEntryId={null}
+        completionSummary={null}
+        turnDiffSummaryByAssistantMessageId={new Map()}
+        nowIso="2026-02-23T00:00:02.000Z"
+        expandedWorkGroups={{}}
+        onToggleWorkGroup={() => {}}
+        onOpenTurnDiff={() => {}}
+        revertTurnCountByUserMessageId={new Map()}
+        onRevertUserMessage={() => {}}
+        isRevertingCheckpoint={false}
+        onImageExpand={() => {}}
+        markdownCwd={undefined}
+        resolvedTheme="light"
+        timestampFormat="locale"
+        workspaceRoot={undefined}
+      />,
+    );
+
+    expect(markup).toContain("background");
+    expect(markup).not.toContain("lucide-check");
+    expect(markup).not.toContain("completed");
+  });
+
   it("renders a completed badge for finished wait agent calls", async () => {
     const { MessagesTimeline } = await import("./MessagesTimeline");
     const markup = renderTimeline(

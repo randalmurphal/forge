@@ -1422,6 +1422,541 @@ describe("ClaudeAdapterLive", () => {
     );
   });
 
+  it.effect("preserves Claude background bash task metadata on command results", () => {
+    const harness = makeHarness();
+    return Effect.gen(function* () {
+      const services = yield* Effect.services();
+      const runFork = Effect.runForkWith(services);
+      const adapter = yield* ClaudeAdapter;
+      const runtimeEvents: Array<ProviderRuntimeEvent> = [];
+      const runtimeEventsFiber = runFork(
+        Stream.runForEach(adapter.streamEvents, (event) =>
+          Effect.sync(() => {
+            runtimeEvents.push(event);
+          }),
+        ),
+      );
+
+      yield* adapter.startSession({
+        threadId: THREAD_ID,
+        provider: "claudeAgent",
+        runtimeMode: "full-access",
+      });
+
+      yield* adapter.sendTurn({
+        threadId: THREAD_ID,
+        input: "run a background bash command",
+        attachments: [],
+      });
+
+      harness.query.emit({
+        type: "stream_event",
+        session_id: "sdk-session-bg-bash",
+        uuid: "stream-bg-bash-tool",
+        parent_tool_use_id: null,
+        event: {
+          type: "content_block_start",
+          index: 0,
+          content_block: {
+            type: "tool_use",
+            id: "tool-bash-bg-1",
+            name: "Bash",
+            input: {
+              command: "sleep 20",
+              run_in_background: true,
+            },
+          },
+        },
+      } as unknown as SDKMessage);
+
+      harness.query.emit({
+        type: "user",
+        session_id: "sdk-session-bg-bash",
+        uuid: "user-bg-bash-result",
+        parent_tool_use_id: null,
+        tool_use_result: {
+          stdout: "",
+          stderr: "",
+          interrupted: false,
+          backgroundTaskId: "task-bash-bg-1",
+        },
+        message: {
+          role: "user",
+          content: [
+            {
+              type: "tool_result",
+              tool_use_id: "tool-bash-bg-1",
+              content: "",
+            },
+          ],
+        },
+      } as unknown as SDKMessage);
+
+      harness.query.emit({
+        type: "result",
+        subtype: "success",
+        is_error: false,
+        errors: [],
+        session_id: "sdk-session-bg-bash",
+        uuid: "result-bg-bash",
+      } as unknown as SDKMessage);
+      harness.query.finish();
+
+      yield* Effect.yieldNow;
+      yield* Effect.yieldNow;
+      yield* Effect.promise(() => new Promise((resolve) => setTimeout(resolve, 25)));
+      runtimeEventsFiber.interruptUnsafe();
+      const completedEvent = runtimeEvents.find((event) => event.type === "item.completed");
+      assert.equal(completedEvent?.type, "item.completed");
+      if (completedEvent?.type === "item.completed") {
+        const payloadData = completedEvent.payload.data as Record<string, unknown> | undefined;
+        const toolUseResult = payloadData?.toolUseResult as Record<string, unknown> | undefined;
+        assert.equal(completedEvent.payload.itemType, "command_execution");
+        assert.equal(toolUseResult?.backgroundTaskId, "task-bash-bg-1");
+      }
+    }).pipe(
+      Effect.provideService(Random.Random, makeDeterministicRandomService()),
+      Effect.provide(harness.layer),
+    );
+  });
+
+  it.effect("preserves Claude task toolUseId on parent-thread task lifecycle events", () => {
+    const harness = makeHarness();
+    return Effect.gen(function* () {
+      const services = yield* Effect.services();
+      const runFork = Effect.runForkWith(services);
+      const adapter = yield* ClaudeAdapter;
+      const runtimeEvents: Array<ProviderRuntimeEvent> = [];
+      const runtimeEventsFiber = runFork(
+        Stream.runForEach(adapter.streamEvents, (event) =>
+          Effect.sync(() => {
+            runtimeEvents.push(event);
+          }),
+        ),
+      );
+
+      yield* adapter.startSession({
+        threadId: THREAD_ID,
+        provider: "claudeAgent",
+        runtimeMode: "full-access",
+      });
+
+      harness.query.emit({
+        type: "system",
+        subtype: "task_started",
+        task_id: "task-bash-bg-2",
+        tool_use_id: "tool-bash-bg-2",
+        description: "Background bash is running",
+        session_id: "sdk-session-task-started",
+        uuid: "task-started-bg-1",
+      } as unknown as SDKMessage);
+
+      harness.query.emit({
+        type: "system",
+        subtype: "task_progress",
+        task_id: "task-bash-bg-2",
+        tool_use_id: "tool-bash-bg-2",
+        description: "Background bash is still running",
+        usage: {
+          total_tokens: 42,
+          tool_uses: 1,
+          duration_ms: 500,
+        },
+        session_id: "sdk-session-task-progress",
+        uuid: "task-progress-bg-1",
+      } as unknown as SDKMessage);
+
+      harness.query.emit({
+        type: "system",
+        subtype: "task_notification",
+        task_id: "task-bash-bg-2",
+        tool_use_id: "tool-bash-bg-2",
+        status: "completed",
+        output_file: "/tmp/task-bash-bg-2.txt",
+        summary: "Background bash completed",
+        session_id: "sdk-session-task-completed",
+        uuid: "task-completed-bg-1",
+      } as unknown as SDKMessage);
+      harness.query.finish();
+
+      yield* Effect.yieldNow;
+      yield* Effect.yieldNow;
+      yield* Effect.promise(() => new Promise((resolve) => setTimeout(resolve, 25)));
+      runtimeEventsFiber.interruptUnsafe();
+      const startedEvent = runtimeEvents.find((event) => event.type === "task.started");
+      const progressEvent = runtimeEvents.find((event) => event.type === "task.progress");
+      const completedEvent = runtimeEvents.find((event) => event.type === "task.completed");
+
+      assert.equal(startedEvent?.type, "task.started");
+      if (startedEvent?.type === "task.started") {
+        assert.equal(startedEvent.payload.toolUseId, "tool-bash-bg-2");
+      }
+
+      assert.equal(progressEvent?.type, "task.progress");
+      if (progressEvent?.type === "task.progress") {
+        assert.equal(progressEvent.payload.toolUseId, "tool-bash-bg-2");
+      }
+
+      assert.equal(completedEvent?.type, "task.completed");
+      if (completedEvent?.type === "task.completed") {
+        assert.equal(completedEvent.payload.toolUseId, "tool-bash-bg-2");
+      }
+    }).pipe(
+      Effect.provideService(Random.Random, makeDeterministicRandomService()),
+      Effect.provide(harness.layer),
+    );
+  });
+
+  it.effect(
+    "keeps Claude background agent attribution alive until task notification completes",
+    () => {
+      const harness = makeHarness();
+      return Effect.gen(function* () {
+        const services = yield* Effect.services();
+        const runFork = Effect.runForkWith(services);
+        const adapter = yield* ClaudeAdapter;
+        const runtimeEvents: Array<ProviderRuntimeEvent> = [];
+        const runtimeEventsFiber = runFork(
+          Stream.runForEach(adapter.streamEvents, (event) =>
+            Effect.sync(() => {
+              runtimeEvents.push(event);
+            }),
+          ),
+        );
+
+        yield* adapter.startSession({
+          threadId: THREAD_ID,
+          provider: "claudeAgent",
+          runtimeMode: "full-access",
+        });
+
+        yield* adapter.sendTurn({
+          threadId: THREAD_ID,
+          input: "launch a background agent",
+          attachments: [],
+        });
+
+        harness.query.emit({
+          type: "stream_event",
+          session_id: "sdk-session-bg-agent",
+          uuid: "stream-bg-agent-tool",
+          parent_tool_use_id: null,
+          event: {
+            type: "content_block_start",
+            index: 0,
+            content_block: {
+              type: "tool_use",
+              id: "tool-agent-bg-1",
+              name: "Agent",
+              input: {
+                description: "Sleep 20 seconds subagent",
+                prompt: "Run sleep 20 and report completion.",
+                model: "sonnet",
+                run_in_background: true,
+              },
+            },
+          },
+        } as unknown as SDKMessage);
+
+        harness.query.emit({
+          type: "user",
+          session_id: "sdk-session-bg-agent",
+          uuid: "user-bg-agent-result",
+          parent_tool_use_id: null,
+          tool_use_result: {
+            status: "async_launched",
+            agentId: "agent-bg-1",
+            description: "Sleep 20 seconds subagent",
+            prompt: "Run sleep 20 and report completion.",
+            outputFile: "/tmp/agent-bg-1.log",
+          },
+          message: {
+            role: "user",
+            content: [
+              {
+                type: "tool_result",
+                tool_use_id: "tool-agent-bg-1",
+                content: "",
+              },
+            ],
+          },
+        } as unknown as SDKMessage);
+
+        harness.query.emit({
+          type: "system",
+          subtype: "task_started",
+          task_id: "task-agent-bg-1",
+          tool_use_id: "tool-agent-bg-1",
+          description: "Sleep 20 seconds subagent",
+          task_type: "agent",
+          session_id: "sdk-session-bg-agent",
+          uuid: "task-started-agent-1",
+        } as unknown as SDKMessage);
+
+        harness.query.emit({
+          type: "system",
+          subtype: "task_progress",
+          task_id: "task-agent-bg-1",
+          tool_use_id: "tool-agent-bg-1",
+          description: "Sleep 20 seconds subagent",
+          summary: "The spawned agent is still sleeping.",
+          usage: {
+            total_tokens: 12,
+            tool_uses: 1,
+            duration_ms: 1000,
+          },
+          session_id: "sdk-session-bg-agent",
+          uuid: "task-progress-agent-1",
+        } as unknown as SDKMessage);
+
+        harness.query.emit({
+          type: "system",
+          subtype: "task_notification",
+          task_id: "task-agent-bg-1",
+          tool_use_id: "tool-agent-bg-1",
+          status: "completed",
+          output_file: "/tmp/agent-bg-1.log",
+          summary: "Sleep 20 seconds subagent completed",
+          session_id: "sdk-session-bg-agent",
+          uuid: "task-completed-agent-1",
+        } as unknown as SDKMessage);
+        harness.query.finish();
+
+        yield* Effect.yieldNow;
+        yield* Effect.yieldNow;
+        yield* Effect.promise(() => new Promise((resolve) => setTimeout(resolve, 25)));
+        runtimeEventsFiber.interruptUnsafe();
+
+        const expectedAttribution = {
+          taskId: "tool-agent-bg-1",
+          childProviderThreadId: "tool-agent-bg-1",
+          label: "Sleep 20 seconds subagent",
+          agentModel: "sonnet",
+        };
+
+        const startedEvent = runtimeEvents.find((event) => event.type === "task.started");
+        const progressEvent = runtimeEvents.find((event) => event.type === "task.progress");
+        const completedEvent = runtimeEvents.find((event) => event.type === "task.completed");
+
+        assert.equal(startedEvent?.type, "task.started");
+        if (startedEvent?.type === "task.started") {
+          assert.deepEqual(
+            (startedEvent.payload as Record<string, unknown>).childThreadAttribution,
+            expectedAttribution,
+          );
+        }
+
+        assert.equal(progressEvent?.type, "task.progress");
+        if (progressEvent?.type === "task.progress") {
+          assert.deepEqual(
+            (progressEvent.payload as Record<string, unknown>).childThreadAttribution,
+            expectedAttribution,
+          );
+        }
+
+        assert.equal(completedEvent?.type, "task.completed");
+        if (completedEvent?.type === "task.completed") {
+          assert.deepEqual(
+            (completedEvent.payload as Record<string, unknown>).childThreadAttribution,
+            expectedAttribution,
+          );
+        }
+      }).pipe(
+        Effect.provideService(Random.Random, makeDeterministicRandomService()),
+        Effect.provide(harness.layer),
+      );
+    },
+  );
+
+  it.effect(
+    "maps Claude local_command_output into assistant text instead of runtime warnings",
+    () => {
+      const harness = makeHarness();
+      return Effect.gen(function* () {
+        const services = yield* Effect.services();
+        const runFork = Effect.runForkWith(services);
+        const adapter = yield* ClaudeAdapter;
+        const runtimeEvents: Array<ProviderRuntimeEvent> = [];
+        const runtimeEventsFiber = runFork(
+          Stream.runForEach(adapter.streamEvents, (event) =>
+            Effect.sync(() => {
+              runtimeEvents.push(event);
+            }),
+          ),
+        );
+
+        yield* adapter.startSession({
+          threadId: THREAD_ID,
+          provider: "claudeAgent",
+          runtimeMode: "full-access",
+        });
+
+        yield* adapter.sendTurn({
+          threadId: THREAD_ID,
+          input: "show a local command output message",
+          attachments: [],
+        });
+
+        harness.query.emit({
+          type: "system",
+          subtype: "local_command_output",
+          content: "Slash command output",
+          session_id: "sdk-session-local-command-output",
+          uuid: "local-command-output-1",
+        } as unknown as SDKMessage);
+
+        harness.query.emit({
+          type: "result",
+          subtype: "success",
+          is_error: false,
+          errors: [],
+          session_id: "sdk-session-local-command-output",
+          uuid: "result-local-command-output-1",
+        } as unknown as SDKMessage);
+        harness.query.finish();
+
+        yield* Effect.yieldNow;
+        yield* Effect.yieldNow;
+        yield* Effect.promise(() => new Promise((resolve) => setTimeout(resolve, 25)));
+        runtimeEventsFiber.interruptUnsafe();
+
+        const warningEvent = runtimeEvents.find((event) => event.type === "runtime.warning");
+        const deltaEvent = runtimeEvents.find(
+          (event) =>
+            event.type === "content.delta" && event.payload.streamKind === "assistant_text",
+        );
+
+        assert.isUndefined(warningEvent);
+        assert.equal(deltaEvent?.type, "content.delta");
+        if (deltaEvent?.type === "content.delta") {
+          assert.equal(deltaEvent.payload.delta, "Slash command output");
+        }
+      }).pipe(
+        Effect.provideService(Random.Random, makeDeterministicRandomService()),
+        Effect.provide(harness.layer),
+      );
+    },
+  );
+
+  it.effect("ignores Claude task_updated patches when task_notification follows", () => {
+    const harness = makeHarness();
+    return Effect.gen(function* () {
+      const services = yield* Effect.services();
+      const runFork = Effect.runForkWith(services);
+      const adapter = yield* ClaudeAdapter;
+      const runtimeEvents: Array<ProviderRuntimeEvent> = [];
+      const runtimeEventsFiber = runFork(
+        Stream.runForEach(adapter.streamEvents, (event) =>
+          Effect.sync(() => {
+            runtimeEvents.push(event);
+          }),
+        ),
+      );
+
+      yield* adapter.startSession({
+        threadId: THREAD_ID,
+        provider: "claudeAgent",
+        runtimeMode: "full-access",
+      });
+
+      harness.query.emit({
+        type: "system",
+        subtype: "task_updated",
+        task_id: "task-bash-bg-3",
+        patch: {
+          status: "completed",
+          end_time: 1_775_969_368_152,
+        },
+        session_id: "sdk-session-task-updated",
+        uuid: "task-updated-bg-1",
+      } as unknown as SDKMessage);
+
+      harness.query.emit({
+        type: "system",
+        subtype: "task_notification",
+        task_id: "task-bash-bg-3",
+        tool_use_id: "tool-bash-bg-3",
+        status: "completed",
+        output_file: "/tmp/task-bash-bg-3.txt",
+        summary: "Background bash completed",
+        session_id: "sdk-session-task-notification",
+        uuid: "task-notification-bg-1",
+      } as unknown as SDKMessage);
+      harness.query.finish();
+
+      yield* Effect.yieldNow;
+      yield* Effect.yieldNow;
+      yield* Effect.promise(() => new Promise((resolve) => setTimeout(resolve, 25)));
+      runtimeEventsFiber.interruptUnsafe();
+
+      const warningEvents = runtimeEvents.filter((event) => event.type === "runtime.warning");
+      const completedEvents = runtimeEvents.filter((event) => event.type === "task.completed");
+
+      assert.deepEqual(warningEvents, []);
+      assert.equal(completedEvents.length, 1);
+      const completedEvent = completedEvents[0];
+      assert.equal(completedEvent?.type, "task.completed");
+      if (completedEvent?.type === "task.completed") {
+        assert.equal(completedEvent.payload.taskId, "task-bash-bg-3");
+        assert.equal(completedEvent.payload.toolUseId, "tool-bash-bg-3");
+        assert.equal(completedEvent.payload.status, "completed");
+      }
+    }).pipe(
+      Effect.provideService(Random.Random, makeDeterministicRandomService()),
+      Effect.provide(harness.layer),
+    );
+  });
+
+  it.effect("does not emit terminal task events from Claude task_updated alone", () => {
+    const harness = makeHarness();
+    return Effect.gen(function* () {
+      const services = yield* Effect.services();
+      const runFork = Effect.runForkWith(services);
+      const adapter = yield* ClaudeAdapter;
+      const runtimeEvents: Array<ProviderRuntimeEvent> = [];
+      const runtimeEventsFiber = runFork(
+        Stream.runForEach(adapter.streamEvents, (event) =>
+          Effect.sync(() => {
+            runtimeEvents.push(event);
+          }),
+        ),
+      );
+
+      yield* adapter.startSession({
+        threadId: THREAD_ID,
+        provider: "claudeAgent",
+        runtimeMode: "full-access",
+      });
+
+      harness.query.emit({
+        type: "system",
+        subtype: "task_updated",
+        task_id: "task-bash-bg-no-notification",
+        patch: {
+          status: "completed",
+          end_time: 1_775_969_368_152,
+        },
+        session_id: "sdk-session-task-updated-only",
+        uuid: "task-updated-only-1",
+      } as unknown as SDKMessage);
+      harness.query.finish();
+
+      yield* Effect.yieldNow;
+      yield* Effect.yieldNow;
+      yield* Effect.promise(() => new Promise((resolve) => setTimeout(resolve, 25)));
+      runtimeEventsFiber.interruptUnsafe();
+
+      const warningEvents = runtimeEvents.filter((event) => event.type === "runtime.warning");
+      const terminalTaskEvents = runtimeEvents.filter((event) => event.type === "task.completed");
+
+      assert.deepEqual(warningEvents, []);
+      assert.deepEqual(terminalTaskEvents, []);
+    }).pipe(
+      Effect.provideService(Random.Random, makeDeterministicRandomService()),
+      Effect.provide(harness.layer),
+    );
+  });
+
   it.effect("emits thread token usage updates from Claude task progress", () => {
     const harness = makeHarness();
     return Effect.gen(function* () {

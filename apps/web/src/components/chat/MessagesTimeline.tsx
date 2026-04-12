@@ -1223,6 +1223,14 @@ const SimpleWorkEntryRow = memo(function SimpleWorkEntryRow(props: {
   const exitSuccess = workEntry.exitCode === 0;
   const showBackgroundBadge =
     workEntry.itemType === "command_execution" && workEntry.isBackgroundCommand === true;
+  const backgroundCommandStatus =
+    workEntry.itemType === "command_execution" && workEntry.isBackgroundCommand === true
+      ? workEntry.backgroundTaskStatus
+      : undefined;
+  const isBackgroundCommandTerminalEntry =
+    workEntry.itemType === "command_execution" &&
+    workEntry.isBackgroundCommand === true &&
+    workEntry.activityKind === "task.completed";
 
   // Duration
   const durationLabel =
@@ -1292,6 +1300,18 @@ const SimpleWorkEntryRow = memo(function SimpleWorkEntryRow(props: {
               background
             </span>
           )}
+          {isBackgroundCommandTerminalEntry && backgroundCommandStatus === "completed" ? (
+            <span className="inline-flex items-center gap-1 rounded px-1 py-px text-[9px] font-medium leading-none bg-emerald-500/10 text-emerald-400/80">
+              <CheckIcon className="size-2.5" />
+              completed
+            </span>
+          ) : null}
+          {isBackgroundCommandTerminalEntry && backgroundCommandStatus === "failed" ? (
+            <span className="inline-flex items-center gap-1 rounded px-1 py-px text-[9px] font-medium leading-none bg-rose-500/10 text-rose-400/80">
+              <CircleAlertIcon className="size-2.5" />
+              failed
+            </span>
+          ) : null}
           {showExitCode && (
             <span
               className={cn(
@@ -1366,7 +1386,8 @@ const AgentWorkEntryRow = memo(function AgentWorkEntryRow(props: { workEntry: Ti
   const [isExpanded, setIsExpanded] = useState(false);
   const iconConfig = workToneIcon(workEntry.tone);
   const hasPrompt = Boolean(workEntry.agentPrompt);
-  const isSpawnAgent = workEntry.toolName?.toLowerCase() === "spawnagent";
+  const normalizedToolName = workEntry.toolName?.toLowerCase();
+  const isSpawnAgent = normalizedToolName === "spawnagent" || normalizedToolName === "agent";
   const isWaitAgent = workEntry.toolName?.toLowerCase() === "wait";
   const spawnAgentPresentation = deriveSubagentPresentation({
     agentModel: workEntry.agentModel,

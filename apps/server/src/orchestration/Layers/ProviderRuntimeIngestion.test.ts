@@ -3989,6 +3989,7 @@ describe("ProviderRuntimeIngestion", () => {
       payload: {
         taskId: "turn-task-1",
         taskType: "plan",
+        toolUseId: "tool-plan-1",
       },
     });
 
@@ -4001,6 +4002,7 @@ describe("ProviderRuntimeIngestion", () => {
       turnId: asTurnId("turn-task-1"),
       payload: {
         taskId: "turn-task-1",
+        toolUseId: "tool-plan-1",
         description: "Comparing the desktop rollout chunks to the app-server stream.",
         summary: "Code reviewer is validating the desktop rollout chunks.",
       },
@@ -4015,7 +4017,9 @@ describe("ProviderRuntimeIngestion", () => {
       turnId: asTurnId("turn-task-1"),
       payload: {
         taskId: "turn-task-1",
+        toolUseId: "tool-plan-1",
         status: "completed",
+        outputFile: "/tmp/turn-task-1.out",
         summary: "<proposed_plan>\n# Plan title\n</proposed_plan>",
       },
     });
@@ -4064,12 +4068,18 @@ describe("ProviderRuntimeIngestion", () => {
 
     expect(started?.kind).toBe("task.started");
     expect(started?.summary).toBe("Plan task started");
+    expect((started?.payload as Record<string, unknown> | undefined)?.toolUseId).toBe(
+      "tool-plan-1",
+    );
     expect(progress?.kind).toBe("task.progress");
+    expect(progressPayload?.toolUseId).toBe("tool-plan-1");
     expect(progressPayload?.detail).toBe("Code reviewer is validating the desktop rollout chunks.");
     expect(progressPayload?.summary).toBe(
       "Code reviewer is validating the desktop rollout chunks.",
     );
     expect(completed?.kind).toBe("task.completed");
+    expect(completedPayload?.toolUseId).toBe("tool-plan-1");
+    expect(completedPayload?.outputFile).toBe("/tmp/turn-task-1.out");
     expect(completedPayload?.detail).toBe("<proposed_plan>\n# Plan title\n</proposed_plan>");
     expect(
       thread.proposedPlans.find(

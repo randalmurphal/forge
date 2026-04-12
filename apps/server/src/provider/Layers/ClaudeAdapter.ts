@@ -563,6 +563,22 @@ function classifyRequestType(toolName: string): CanonicalRequestType {
 }
 
 function summarizeToolRequest(toolName: string, input: Record<string, unknown>): string {
+  const description =
+    typeof input.description === "string" && input.description.trim().length > 0
+      ? input.description.trim()
+      : undefined;
+  if (description) {
+    return `${toolName}: ${description.slice(0, 400)}`;
+  }
+
+  const prompt =
+    typeof input.prompt === "string" && input.prompt.trim().length > 0
+      ? input.prompt.trim()
+      : undefined;
+  if (prompt) {
+    return `${toolName}: ${prompt.slice(0, 400)}`;
+  }
+
   const commandValue = input.command ?? input.cmd;
   const command = typeof commandValue === "string" ? commandValue : undefined;
   if (command && command.trim().length > 0) {
@@ -570,6 +586,9 @@ function summarizeToolRequest(toolName: string, input: Record<string, unknown>):
   }
 
   const serialized = JSON.stringify(input);
+  if (serialized === "{}") {
+    return toolName;
+  }
   if (serialized.length <= 400) {
     return `${toolName}: ${serialized}`;
   }
@@ -919,11 +938,18 @@ function buildClaudeToolResultData(input: {
     result: input.toolResultBlock,
   };
 
-  if (input.tool.itemType !== "file_change" || input.sdkToolUseResult === undefined) {
+  if (input.sdkToolUseResult === undefined) {
     return data;
   }
 
+  // Claude's structured tool_use_result carries background task ids for Bash and terminal
+  // metadata that is not present on the text-only tool_result block. Keep it for every tool so
+  // the web layer can correlate later task_* lifecycle events back to the originating tool call.
   data.toolUseResult = input.sdkToolUseResult;
+
+  if (input.tool.itemType !== "file_change") {
+    return data;
+  }
 
   const unifiedDiff = buildClaudeToolResultPatch({
     sdkToolUseResult: input.sdkToolUseResult,
@@ -934,6 +960,27 @@ function buildClaudeToolResultData(input: {
   }
 
   return data;
+}
+
+function readClaudeToolResultStatus(value: unknown): string | undefined {
+  const record = asRecord(value);
+  return typeof record?.status === "string" ? record.status : undefined;
+}
+
+function shouldKeepClaudeSubagentTrackingAfterToolResult(input: {
+  readonly tool: ToolInFlight;
+  readonly sdkToolUseResult: unknown;
+}): boolean {
+  if (input.tool.itemType !== "collab_agent_tool_call") {
+    return false;
+  }
+
+  // Claude background Agent calls complete the launch tool immediately with
+  // `status: "async_launched"`, then continue emitting task_* lifecycle and child
+  // events keyed by the original tool_use_id. Keep this tool_use_id registered until
+  // the later terminal task_notification arrives, otherwise the web layer loses the
+  // childThreadAttribution it needs to move the spawned agent from running to completed.
+  return readClaudeToolResultStatus(input.sdkToolUseResult) === "async_launched";
 }
 
 function extractExitPlanModePlan(value: unknown): string | undefined {
@@ -2170,9 +2217,14 @@ const makeClaudeAdapter = Effect.fn("makeClaudeAdapter")(function* (
         },
       });
 
-      // Remove completed collab agent tools from the active tracking map
       if (tool.itemType === "collab_agent_tool_call") {
-        context.activeSubagentTools.delete(tool.itemId);
+        const keepTracking = shouldKeepClaudeSubagentTrackingAfterToolResult({
+          tool,
+          sdkToolUseResult: toolData.toolUseResult,
+        });
+        if (!keepTracking) {
+          context.activeSubagentTools.delete(tool.itemId);
+        }
       }
 
       context.inFlightTools.delete(index);
@@ -2311,6 +2363,22 @@ const makeClaudeAdapter = Effect.fn("makeClaudeAdapter")(function* (
       },
     };
 
+    if ((message as { subtype?: string }).subtype === "task_updated") {
+      // Claude Code 2.1.101 emits `task_updated` terminal patches ahead of the richer
+      // `task_notification` payload that carries tool_use_id, summary, output_file, and usage.
+      // The direct SDK probe in `/tmp/claude-sdk-probe.mjs` showed background Bash and Agent
+      // completions both following this sequence:
+      //   task_updated({ patch: { status, end_time } }) -> task_notification(...)
+      //
+      // We intentionally do not treat `task_updated` as a terminal fallback. The same raw SDK
+      // probes also showed nested subagent bash work receiving terminal-looking `task_updated`
+      // patches like `status: "killed"` that are implementation detail, not the parent-facing
+      // completion signal we want to render. Trust `task_notification` for visible completion;
+      // ignore this lower-fidelity patch so it cannot surface as a bogus warning or duplicate
+      // terminal task event.
+      return;
+    }
+
     switch (message.subtype) {
       case "init":
         yield* offerRuntimeEvent({
@@ -2387,6 +2455,7 @@ const makeClaudeAdapter = Effect.fn("makeClaudeAdapter")(function* (
           payload: {
             taskId: RuntimeTaskId.makeUnsafe(message.task_id),
             description: message.description,
+            ...(message.tool_use_id ? { toolUseId: message.tool_use_id } : {}),
             ...(message.task_type ? { taskType: message.task_type } : {}),
             ...(taskStartedAttribution ? { childThreadAttribution: taskStartedAttribution } : {}),
           },
@@ -2420,6 +2489,7 @@ const makeClaudeAdapter = Effect.fn("makeClaudeAdapter")(function* (
           payload: {
             taskId: RuntimeTaskId.makeUnsafe(message.task_id),
             description: message.description,
+            ...(message.tool_use_id ? { toolUseId: message.tool_use_id } : {}),
             ...(message.summary ? { summary: message.summary } : {}),
             ...(message.usage ? { usage: message.usage } : {}),
             ...(message.last_tool_name ? { lastToolName: message.last_tool_name } : {}),
@@ -2458,6 +2528,7 @@ const makeClaudeAdapter = Effect.fn("makeClaudeAdapter")(function* (
           payload: {
             taskId: RuntimeTaskId.makeUnsafe(message.task_id),
             status: message.status,
+            ...(message.tool_use_id ? { toolUseId: message.tool_use_id } : {}),
             ...(message.summary ? { summary: message.summary } : {}),
             ...(message.usage ? { usage: message.usage } : {}),
             ...(taskCompletedAttribution
@@ -2465,6 +2536,20 @@ const makeClaudeAdapter = Effect.fn("makeClaudeAdapter")(function* (
               : {}),
           },
         });
+        if (message.tool_use_id) {
+          context.activeSubagentTools.delete(message.tool_use_id);
+        }
+        return;
+      }
+      case "local_command_output": {
+        const syntheticBlock = yield* createSyntheticAssistantTextBlock(context, message.content);
+        if (syntheticBlock) {
+          yield* completeAssistantTextBlock(context, syntheticBlock.block, {
+            force: true,
+            rawMethod: "claude/system/local_command_output",
+            rawPayload: message,
+          });
+        }
         return;
       }
       case "files_persisted":
