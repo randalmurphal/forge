@@ -15,7 +15,6 @@ import {
 import { ProviderKind } from "./providerSchemas";
 import { OrchestrationAgentDiffCoverage, OrchestrationAgentDiffSource } from "./orchestration";
 
-const TrimmedNonEmptyStringSchema = TrimmedNonEmptyString;
 const UnknownRecordSchema = Schema.Record(Schema.String, Schema.Unknown);
 
 const RuntimeEventRawSource = Schema.Literals([
@@ -30,17 +29,17 @@ export type RuntimeEventRawSource = typeof RuntimeEventRawSource.Type;
 
 export const RuntimeEventRaw = Schema.Struct({
   source: RuntimeEventRawSource,
-  method: Schema.optional(TrimmedNonEmptyStringSchema),
-  messageType: Schema.optional(TrimmedNonEmptyStringSchema),
+  method: Schema.optional(TrimmedNonEmptyString),
+  messageType: Schema.optional(TrimmedNonEmptyString),
   payload: Schema.Unknown,
 });
 export type RuntimeEventRaw = typeof RuntimeEventRaw.Type;
 
-const ProviderRequestId = TrimmedNonEmptyStringSchema;
+const ProviderRequestId = TrimmedNonEmptyString;
 export type ProviderRequestId = typeof ProviderRequestId.Type;
 
 const ProviderRefs = Schema.Struct({
-  providerTurnId: Schema.optional(TrimmedNonEmptyStringSchema),
+  providerTurnId: Schema.optional(TrimmedNonEmptyString),
   providerItemId: Schema.optional(ProviderItemId),
   providerRequestId: Schema.optional(ProviderRequestId),
 });
@@ -259,7 +258,7 @@ const ProviderRuntimeEventBase = Schema.Struct({
 export type ProviderRuntimeEventBase = typeof ProviderRuntimeEventBase.Type;
 
 const SessionStartedPayload = Schema.Struct({
-  message: Schema.optional(TrimmedNonEmptyStringSchema),
+  message: Schema.optional(TrimmedNonEmptyString),
   resume: Schema.optional(Schema.Unknown),
 });
 export type SessionStartedPayload = typeof SessionStartedPayload.Type;
@@ -271,20 +270,20 @@ export type SessionConfiguredPayload = typeof SessionConfiguredPayload.Type;
 
 const SessionStateChangedPayload = Schema.Struct({
   state: RuntimeSessionState,
-  reason: Schema.optional(TrimmedNonEmptyStringSchema),
+  reason: Schema.optional(TrimmedNonEmptyString),
   detail: Schema.optional(Schema.Unknown),
 });
 export type SessionStateChangedPayload = typeof SessionStateChangedPayload.Type;
 
 const SessionExitedPayload = Schema.Struct({
-  reason: Schema.optional(TrimmedNonEmptyStringSchema),
+  reason: Schema.optional(TrimmedNonEmptyString),
   recoverable: Schema.optional(Schema.Boolean),
   exitKind: Schema.optional(RuntimeSessionExitKind),
 });
 export type SessionExitedPayload = typeof SessionExitedPayload.Type;
 
 const ThreadStartedPayload = Schema.Struct({
-  providerThreadId: Schema.optional(TrimmedNonEmptyStringSchema),
+  providerThreadId: Schema.optional(TrimmedNonEmptyString),
 });
 export type ThreadStartedPayload = typeof ThreadStartedPayload.Type;
 
@@ -295,7 +294,7 @@ const ThreadStateChangedPayload = Schema.Struct({
 export type ThreadStateChangedPayload = typeof ThreadStateChangedPayload.Type;
 
 const ThreadMetadataUpdatedPayload = Schema.Struct({
-  name: Schema.optional(TrimmedNonEmptyStringSchema),
+  name: Schema.optional(TrimmedNonEmptyString),
   metadata: Schema.optional(UnknownRecordSchema),
 });
 export type ThreadMetadataUpdatedPayload = typeof ThreadMetadataUpdatedPayload.Type;
@@ -325,7 +324,7 @@ const ThreadTokenUsageUpdatedPayload = Schema.Struct({
 export type ThreadTokenUsageUpdatedPayload = typeof ThreadTokenUsageUpdatedPayload.Type;
 
 const ThreadRealtimeStartedPayload = Schema.Struct({
-  realtimeSessionId: Schema.optional(TrimmedNonEmptyStringSchema),
+  realtimeSessionId: Schema.optional(TrimmedNonEmptyString),
 });
 export type ThreadRealtimeStartedPayload = typeof ThreadRealtimeStartedPayload.Type;
 
@@ -340,44 +339,44 @@ const ThreadRealtimeAudioDeltaPayload = Schema.Struct({
 export type ThreadRealtimeAudioDeltaPayload = typeof ThreadRealtimeAudioDeltaPayload.Type;
 
 const ThreadRealtimeErrorPayload = Schema.Struct({
-  message: TrimmedNonEmptyStringSchema,
+  message: TrimmedNonEmptyString,
 });
 export type ThreadRealtimeErrorPayload = typeof ThreadRealtimeErrorPayload.Type;
 
 const ThreadRealtimeClosedPayload = Schema.Struct({
-  reason: Schema.optional(TrimmedNonEmptyStringSchema),
+  reason: Schema.optional(TrimmedNonEmptyString),
 });
 export type ThreadRealtimeClosedPayload = typeof ThreadRealtimeClosedPayload.Type;
 
 const TurnStartedPayload = Schema.Struct({
-  model: Schema.optional(TrimmedNonEmptyStringSchema),
-  effort: Schema.optional(TrimmedNonEmptyStringSchema),
+  model: Schema.optional(TrimmedNonEmptyString),
+  effort: Schema.optional(TrimmedNonEmptyString),
 });
 export type TurnStartedPayload = typeof TurnStartedPayload.Type;
 
 const TurnCompletedPayload = Schema.Struct({
   state: RuntimeTurnState,
-  stopReason: Schema.optional(Schema.NullOr(TrimmedNonEmptyStringSchema)),
+  stopReason: Schema.optional(Schema.NullOr(TrimmedNonEmptyString)),
   usage: Schema.optional(Schema.Unknown),
   modelUsage: Schema.optional(UnknownRecordSchema),
   totalCostUsd: Schema.optional(Schema.Number),
-  errorMessage: Schema.optional(TrimmedNonEmptyStringSchema),
+  errorMessage: Schema.optional(TrimmedNonEmptyString),
 });
 export type TurnCompletedPayload = typeof TurnCompletedPayload.Type;
 
 const TurnAbortedPayload = Schema.Struct({
-  reason: TrimmedNonEmptyStringSchema,
+  reason: TrimmedNonEmptyString,
 });
 export type TurnAbortedPayload = typeof TurnAbortedPayload.Type;
 
 const RuntimePlanStep = Schema.Struct({
-  step: TrimmedNonEmptyStringSchema,
+  step: TrimmedNonEmptyString,
   status: RuntimePlanStepStatus,
 });
 export type RuntimePlanStep = typeof RuntimePlanStep.Type;
 
 const TurnPlanUpdatedPayload = Schema.Struct({
-  explanation: Schema.optional(Schema.NullOr(TrimmedNonEmptyStringSchema)),
+  explanation: Schema.optional(Schema.NullOr(TrimmedNonEmptyString)),
   plan: Schema.Array(RuntimePlanStep),
 });
 export type TurnPlanUpdatedPayload = typeof TurnPlanUpdatedPayload.Type;
@@ -388,7 +387,7 @@ const TurnProposedDeltaPayload = Schema.Struct({
 export type TurnProposedDeltaPayload = typeof TurnProposedDeltaPayload.Type;
 
 const TurnProposedCompletedPayload = Schema.Struct({
-  planMarkdown: TrimmedNonEmptyStringSchema,
+  planMarkdown: TrimmedNonEmptyString,
 });
 export type TurnProposedCompletedPayload = typeof TurnProposedCompletedPayload.Type;
 
@@ -402,9 +401,9 @@ export type TurnDiffUpdatedPayload = typeof TurnDiffUpdatedPayload.Type;
 export const ItemLifecyclePayload = Schema.Struct({
   itemType: CanonicalItemType,
   status: Schema.optional(RuntimeItemStatus),
-  title: Schema.optional(TrimmedNonEmptyStringSchema),
-  toolName: Schema.optional(TrimmedNonEmptyStringSchema),
-  detail: Schema.optional(TrimmedNonEmptyStringSchema),
+  title: Schema.optional(TrimmedNonEmptyString),
+  toolName: Schema.optional(TrimmedNonEmptyString),
+  detail: Schema.optional(TrimmedNonEmptyString),
   data: Schema.optional(Schema.Unknown),
 });
 export type ItemLifecyclePayload = typeof ItemLifecyclePayload.Type;
@@ -418,7 +417,7 @@ const ContentDeltaPayload = Schema.Struct({
 export type ContentDeltaPayload = typeof ContentDeltaPayload.Type;
 
 const TerminalInteractionPayload = Schema.Struct({
-  processId: TrimmedNonEmptyStringSchema,
+  processId: TrimmedNonEmptyString,
   stdin: Schema.String,
   childThreadAttribution: Schema.optional(Schema.Unknown),
 });
@@ -426,28 +425,28 @@ export type TerminalInteractionPayload = typeof TerminalInteractionPayload.Type;
 
 const RequestOpenedPayload = Schema.Struct({
   requestType: CanonicalRequestType,
-  detail: Schema.optional(TrimmedNonEmptyStringSchema),
+  detail: Schema.optional(TrimmedNonEmptyString),
   args: Schema.optional(Schema.Unknown),
 });
 export type RequestOpenedPayload = typeof RequestOpenedPayload.Type;
 
 const RequestResolvedPayload = Schema.Struct({
   requestType: CanonicalRequestType,
-  decision: Schema.optional(TrimmedNonEmptyStringSchema),
+  decision: Schema.optional(TrimmedNonEmptyString),
   resolution: Schema.optional(Schema.Unknown),
 });
 export type RequestResolvedPayload = typeof RequestResolvedPayload.Type;
 
 const UserInputQuestionOption = Schema.Struct({
-  label: TrimmedNonEmptyStringSchema,
-  description: TrimmedNonEmptyStringSchema,
+  label: TrimmedNonEmptyString,
+  description: TrimmedNonEmptyString,
 });
 export type UserInputQuestionOption = typeof UserInputQuestionOption.Type;
 
 export const UserInputQuestion = Schema.Struct({
-  id: TrimmedNonEmptyStringSchema,
-  header: TrimmedNonEmptyStringSchema,
-  question: TrimmedNonEmptyStringSchema,
+  id: TrimmedNonEmptyString,
+  header: TrimmedNonEmptyString,
+  question: TrimmedNonEmptyString,
   options: Schema.Array(UserInputQuestionOption),
   multiSelect: Schema.optional(Schema.Boolean).pipe(
     Schema.withConstructorDefault(() => Option.some(false)),
@@ -467,41 +466,41 @@ export type UserInputResolvedPayload = typeof UserInputResolvedPayload.Type;
 
 const TaskStartedPayload = Schema.Struct({
   taskId: RuntimeTaskId,
-  toolUseId: Schema.optional(TrimmedNonEmptyStringSchema),
-  description: Schema.optional(TrimmedNonEmptyStringSchema),
-  taskType: Schema.optional(TrimmedNonEmptyStringSchema),
+  toolUseId: Schema.optional(TrimmedNonEmptyString),
+  description: Schema.optional(TrimmedNonEmptyString),
+  taskType: Schema.optional(TrimmedNonEmptyString),
 });
 export type TaskStartedPayload = typeof TaskStartedPayload.Type;
 
 const TaskProgressPayload = Schema.Struct({
   taskId: RuntimeTaskId,
-  toolUseId: Schema.optional(TrimmedNonEmptyStringSchema),
-  description: TrimmedNonEmptyStringSchema,
-  summary: Schema.optional(TrimmedNonEmptyStringSchema),
+  toolUseId: Schema.optional(TrimmedNonEmptyString),
+  description: TrimmedNonEmptyString,
+  summary: Schema.optional(TrimmedNonEmptyString),
   usage: Schema.optional(Schema.Unknown),
-  lastToolName: Schema.optional(TrimmedNonEmptyStringSchema),
+  lastToolName: Schema.optional(TrimmedNonEmptyString),
 });
 export type TaskProgressPayload = typeof TaskProgressPayload.Type;
 
 const TaskCompletedPayload = Schema.Struct({
   taskId: RuntimeTaskId,
-  toolUseId: Schema.optional(TrimmedNonEmptyStringSchema),
+  toolUseId: Schema.optional(TrimmedNonEmptyString),
   status: Schema.Literals(["completed", "failed", "stopped"]),
-  outputFile: Schema.optional(TrimmedNonEmptyStringSchema),
-  summary: Schema.optional(TrimmedNonEmptyStringSchema),
+  outputFile: Schema.optional(TrimmedNonEmptyString),
+  summary: Schema.optional(TrimmedNonEmptyString),
   usage: Schema.optional(Schema.Unknown),
 });
 export type TaskCompletedPayload = typeof TaskCompletedPayload.Type;
 
 const HookStartedPayload = Schema.Struct({
-  hookId: TrimmedNonEmptyStringSchema,
-  hookName: TrimmedNonEmptyStringSchema,
-  hookEvent: TrimmedNonEmptyStringSchema,
+  hookId: TrimmedNonEmptyString,
+  hookName: TrimmedNonEmptyString,
+  hookEvent: TrimmedNonEmptyString,
 });
 export type HookStartedPayload = typeof HookStartedPayload.Type;
 
 const HookProgressPayload = Schema.Struct({
-  hookId: TrimmedNonEmptyStringSchema,
+  hookId: TrimmedNonEmptyString,
   output: Schema.optional(Schema.String),
   stdout: Schema.optional(Schema.String),
   stderr: Schema.optional(Schema.String),
@@ -509,7 +508,7 @@ const HookProgressPayload = Schema.Struct({
 export type HookProgressPayload = typeof HookProgressPayload.Type;
 
 const HookCompletedPayload = Schema.Struct({
-  hookId: TrimmedNonEmptyStringSchema,
+  hookId: TrimmedNonEmptyString,
   outcome: Schema.Literals(["success", "error", "cancelled"]),
   output: Schema.optional(Schema.String),
   stdout: Schema.optional(Schema.String),
@@ -519,23 +518,23 @@ const HookCompletedPayload = Schema.Struct({
 export type HookCompletedPayload = typeof HookCompletedPayload.Type;
 
 const ToolProgressPayload = Schema.Struct({
-  toolUseId: Schema.optional(TrimmedNonEmptyStringSchema),
-  toolName: Schema.optional(TrimmedNonEmptyStringSchema),
-  summary: Schema.optional(TrimmedNonEmptyStringSchema),
+  toolUseId: Schema.optional(TrimmedNonEmptyString),
+  toolName: Schema.optional(TrimmedNonEmptyString),
+  summary: Schema.optional(TrimmedNonEmptyString),
   elapsedSeconds: Schema.optional(Schema.Number),
 });
 export type ToolProgressPayload = typeof ToolProgressPayload.Type;
 
 const ToolSummaryPayload = Schema.Struct({
-  summary: TrimmedNonEmptyStringSchema,
-  precedingToolUseIds: Schema.optional(Schema.Array(TrimmedNonEmptyStringSchema)),
+  summary: TrimmedNonEmptyString,
+  precedingToolUseIds: Schema.optional(Schema.Array(TrimmedNonEmptyString)),
 });
 export type ToolSummaryPayload = typeof ToolSummaryPayload.Type;
 
 const AuthStatusPayload = Schema.Struct({
   isAuthenticating: Schema.optional(Schema.Boolean),
   output: Schema.optional(Schema.Array(Schema.String)),
-  error: Schema.optional(TrimmedNonEmptyStringSchema),
+  error: Schema.optional(TrimmedNonEmptyString),
 });
 export type AuthStatusPayload = typeof AuthStatusPayload.Type;
 
@@ -556,44 +555,44 @@ export type McpStatusUpdatedPayload = typeof McpStatusUpdatedPayload.Type;
 
 const McpOauthCompletedPayload = Schema.Struct({
   success: Schema.Boolean,
-  name: Schema.optional(TrimmedNonEmptyStringSchema),
-  error: Schema.optional(TrimmedNonEmptyStringSchema),
+  name: Schema.optional(TrimmedNonEmptyString),
+  error: Schema.optional(TrimmedNonEmptyString),
 });
 export type McpOauthCompletedPayload = typeof McpOauthCompletedPayload.Type;
 
 const ModelReroutedPayload = Schema.Struct({
-  fromModel: TrimmedNonEmptyStringSchema,
-  toModel: TrimmedNonEmptyStringSchema,
-  reason: TrimmedNonEmptyStringSchema,
+  fromModel: TrimmedNonEmptyString,
+  toModel: TrimmedNonEmptyString,
+  reason: TrimmedNonEmptyString,
 });
 export type ModelReroutedPayload = typeof ModelReroutedPayload.Type;
 
 const ConfigWarningPayload = Schema.Struct({
-  summary: TrimmedNonEmptyStringSchema,
-  details: Schema.optional(TrimmedNonEmptyStringSchema),
-  path: Schema.optional(TrimmedNonEmptyStringSchema),
+  summary: TrimmedNonEmptyString,
+  details: Schema.optional(TrimmedNonEmptyString),
+  path: Schema.optional(TrimmedNonEmptyString),
   range: Schema.optional(Schema.Unknown),
 });
 export type ConfigWarningPayload = typeof ConfigWarningPayload.Type;
 
 const DeprecationNoticePayload = Schema.Struct({
-  summary: TrimmedNonEmptyStringSchema,
-  details: Schema.optional(TrimmedNonEmptyStringSchema),
+  summary: TrimmedNonEmptyString,
+  details: Schema.optional(TrimmedNonEmptyString),
 });
 export type DeprecationNoticePayload = typeof DeprecationNoticePayload.Type;
 
 const FilesPersistedPayload = Schema.Struct({
   files: Schema.Array(
     Schema.Struct({
-      filename: TrimmedNonEmptyStringSchema,
-      fileId: TrimmedNonEmptyStringSchema,
+      filename: TrimmedNonEmptyString,
+      fileId: TrimmedNonEmptyString,
     }),
   ),
   failed: Schema.optional(
     Schema.Array(
       Schema.Struct({
-        filename: TrimmedNonEmptyStringSchema,
-        error: TrimmedNonEmptyStringSchema,
+        filename: TrimmedNonEmptyString,
+        error: TrimmedNonEmptyString,
       }),
     ),
   ),
@@ -601,13 +600,13 @@ const FilesPersistedPayload = Schema.Struct({
 export type FilesPersistedPayload = typeof FilesPersistedPayload.Type;
 
 const RuntimeWarningPayload = Schema.Struct({
-  message: TrimmedNonEmptyStringSchema,
+  message: TrimmedNonEmptyString,
   detail: Schema.optional(Schema.Unknown),
 });
 export type RuntimeWarningPayload = typeof RuntimeWarningPayload.Type;
 
 const RuntimeErrorPayload = Schema.Struct({
-  message: TrimmedNonEmptyStringSchema,
+  message: TrimmedNonEmptyString,
   class: Schema.optional(RuntimeErrorClass),
   detail: Schema.optional(Schema.Unknown),
 });
@@ -1022,23 +1021,6 @@ export type ProviderRuntimeEventV2 = typeof ProviderRuntimeEventV2.Type;
 export const ProviderRuntimeEvent = ProviderRuntimeEventV2;
 export type ProviderRuntimeEvent = ProviderRuntimeEventV2;
 
-// Compatibility aliases for call sites still importing legacy names.
-const ProviderRuntimeMessageDeltaEvent = ProviderRuntimeContentDeltaEvent;
-export type ProviderRuntimeMessageDeltaEvent = ProviderRuntimeContentDeltaEvent;
-const ProviderRuntimeMessageCompletedEvent = ProviderRuntimeItemCompletedEvent;
-export type ProviderRuntimeMessageCompletedEvent = ProviderRuntimeItemCompletedEvent;
-const ProviderRuntimeToolStartedEvent = ProviderRuntimeItemStartedEvent;
-export type ProviderRuntimeToolStartedEvent = ProviderRuntimeItemStartedEvent;
-const ProviderRuntimeToolCompletedEvent = ProviderRuntimeItemCompletedEvent;
-export type ProviderRuntimeToolCompletedEvent = ProviderRuntimeItemCompletedEvent;
-const ProviderRuntimeApprovalRequestedEvent = ProviderRuntimeRequestOpenedEvent;
-export type ProviderRuntimeApprovalRequestedEvent = ProviderRuntimeRequestOpenedEvent;
-const ProviderRuntimeApprovalResolvedEvent = ProviderRuntimeRequestResolvedEvent;
-export type ProviderRuntimeApprovalResolvedEvent = ProviderRuntimeRequestResolvedEvent;
-
-// Legacy helper aliases retained for adapters/tests.
-const ProviderRuntimeToolKind = Schema.Literals(["command", "file-read", "file-change", "other"]);
-export type ProviderRuntimeToolKind = typeof ProviderRuntimeToolKind.Type;
-
+// Legacy alias retained for adapters/tests.
 export const ProviderRuntimeTurnStatus = RuntimeTurnState;
 export type ProviderRuntimeTurnStatus = RuntimeTurnState;

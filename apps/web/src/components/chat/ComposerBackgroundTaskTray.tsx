@@ -1,21 +1,8 @@
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
-import {
-  AlertCircleIcon,
-  BoxIcon,
-  CheckCircle2Icon,
-  ChevronRightIcon,
-  EyeIcon,
-  FolderSearchIcon,
-  GlobeIcon,
-  LoaderIcon,
-  NetworkIcon,
-  SquarePenIcon,
-  TerminalIcon,
-  type LucideIcon,
-  WrenchIcon,
-} from "lucide-react";
+import { BoxIcon, ChevronRightIcon, TerminalIcon } from "lucide-react";
 
 import { cn } from "~/lib/utils";
+import { statusPresentation, workEntryIcon } from "./backgroundStatusPresentation";
 import { LazyCommandOutput } from "./LazyCommandOutput";
 import { LazySubagentEntries } from "./LazySubagentEntries";
 import { deriveSubagentPresentation } from "./subagentPresentation";
@@ -327,7 +314,7 @@ const TraySubagentWorkEntryRow = memo(function TraySubagentWorkEntryRow(props: {
   const [isExpanded, setIsExpanded] = useState(false);
   const isCommand = props.entry.itemType === "command_execution";
   const hasOutput = isCommand && Boolean(props.entry.hasOutput || props.entry.output);
-  const EntryIcon = isCommand ? TerminalIcon : entryIcon(props.entry);
+  const EntryIcon = isCommand ? TerminalIcon : workEntryIcon(props.entry);
   const preview = props.entry.command ?? props.entry.filePath ?? props.entry.detail ?? null;
   const heading = props.entry.toolTitle ?? props.entry.toolName ?? props.entry.label;
 
@@ -406,50 +393,4 @@ function formatTrayTaskElapsed(
     return null;
   }
   return formatDuration(completedAtMs - startedAtMs);
-}
-
-function entryIcon(entry: WorkLogEntry): LucideIcon {
-  switch (entry.itemType) {
-    case "file_change":
-      return SquarePenIcon;
-    case "file_read":
-      return EyeIcon;
-    case "search":
-      return FolderSearchIcon;
-    case "mcp_tool_call":
-      return NetworkIcon;
-    case "web_search":
-      return GlobeIcon;
-    case "image_view":
-      return EyeIcon;
-    case "collab_agent_tool_call":
-      return BoxIcon;
-    case "dynamic_tool_call":
-      return WrenchIcon;
-    default:
-      return TerminalIcon;
-  }
-}
-
-function statusPresentation(status: "running" | "completed" | "failed"): {
-  icon: LucideIcon;
-  className: string;
-} {
-  switch (status) {
-    case "running":
-      return {
-        icon: LoaderIcon,
-        className: "text-primary/80",
-      };
-    case "completed":
-      return {
-        icon: CheckCircle2Icon,
-        className: "text-success/80",
-      };
-    case "failed":
-      return {
-        icon: AlertCircleIcon,
-        className: "text-destructive/80",
-      };
-  }
 }

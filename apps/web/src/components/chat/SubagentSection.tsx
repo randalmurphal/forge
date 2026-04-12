@@ -1,14 +1,9 @@
 import { memo, useCallback, useRef, type ReactNode } from "react";
-import {
-  AlertCircleIcon,
-  BoxIcon,
-  CheckCircle2Icon,
-  ChevronRightIcon,
-  LoaderIcon,
-} from "lucide-react";
+import { BoxIcon, ChevronRightIcon } from "lucide-react";
 
 import { cn } from "../../lib/utils";
 import { formatDuration, type SubagentGroup, type WorkLogEntry } from "../../session-logic";
+import { statusPresentation } from "./backgroundStatusPresentation";
 import { SUBAGENT_ENTRIES_MAX_HEIGHT_PX } from "./MessagesTimeline.logic";
 import { LazySubagentEntries } from "./LazySubagentEntries";
 import { deriveSubagentPresentation } from "./subagentPresentation";
@@ -65,8 +60,7 @@ const SubagentGroupRow = memo(function SubagentGroupRow(props: {
     onToggle(group.groupId);
   }, [group.groupId, onToggle]);
 
-  const StatusIcon = statusIcon(group.status);
-  const statusColor = statusColorClass(group.status);
+  const { icon: StatusIcon, className: statusColor } = statusPresentation(group.status);
   const maxDurationRef = useRef(0);
   const presentation = deriveSubagentPresentation({
     agentModel: group.agentModel,
@@ -144,25 +138,3 @@ const SubagentGroupRow = memo(function SubagentGroupRow(props: {
     </div>
   );
 });
-
-function statusIcon(status: SubagentGroup["status"]) {
-  switch (status) {
-    case "running":
-      return LoaderIcon;
-    case "completed":
-      return CheckCircle2Icon;
-    case "failed":
-      return AlertCircleIcon;
-  }
-}
-
-function statusColorClass(status: SubagentGroup["status"]): string {
-  switch (status) {
-    case "running":
-      return "text-primary/80";
-    case "completed":
-      return "text-success/80";
-    case "failed":
-      return "text-destructive/80";
-  }
-}

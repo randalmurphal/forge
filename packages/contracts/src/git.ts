@@ -1,7 +1,6 @@
 import { Schema } from "effect";
 import { NonNegativeInt, PositiveInt, TrimmedNonEmptyString } from "./baseSchemas";
 
-const TrimmedNonEmptyStringSchema = TrimmedNonEmptyString;
 const GIT_LIST_BRANCHES_MAX_LIMIT = 200;
 
 // Domain Types
@@ -41,7 +40,7 @@ const GitPushStepStatus = Schema.Literals([
 const GitBranchStepStatus = Schema.Literals(["created", "skipped_not_requested"]);
 const GitPrStepStatus = Schema.Literals(["created", "opened_existing", "skipped_not_requested"]);
 const GitStatusPrState = Schema.Literals(["open", "closed", "merged"]);
-const GitPullRequestReference = TrimmedNonEmptyStringSchema;
+const GitPullRequestReference = TrimmedNonEmptyString;
 const GitPullRequestState = Schema.Literals(["open", "closed", "merged"]);
 const GitPreparePullRequestThreadMode = Schema.Literals(["local", "worktree"]);
 export const GitRunStackedActionToastRunAction = Schema.Struct({
@@ -54,43 +53,43 @@ const GitRunStackedActionToastCta = Schema.Union([
   }),
   Schema.Struct({
     kind: Schema.Literal("open_pr"),
-    label: TrimmedNonEmptyStringSchema,
+    label: TrimmedNonEmptyString,
     url: Schema.String,
   }),
   Schema.Struct({
     kind: Schema.Literal("run_action"),
-    label: TrimmedNonEmptyStringSchema,
+    label: TrimmedNonEmptyString,
     action: GitRunStackedActionToastRunAction,
   }),
 ]);
 export type GitRunStackedActionToastCta = typeof GitRunStackedActionToastCta.Type;
 const GitRunStackedActionToast = Schema.Struct({
-  title: TrimmedNonEmptyStringSchema,
-  description: Schema.optional(TrimmedNonEmptyStringSchema),
+  title: TrimmedNonEmptyString,
+  description: Schema.optional(TrimmedNonEmptyString),
   cta: GitRunStackedActionToastCta,
 });
 export type GitRunStackedActionToast = typeof GitRunStackedActionToast.Type;
 
 export const GitBranch = Schema.Struct({
-  name: TrimmedNonEmptyStringSchema,
+  name: TrimmedNonEmptyString,
   isRemote: Schema.optional(Schema.Boolean),
-  remoteName: Schema.optional(TrimmedNonEmptyStringSchema),
+  remoteName: Schema.optional(TrimmedNonEmptyString),
   current: Schema.Boolean,
   isDefault: Schema.Boolean,
-  worktreePath: TrimmedNonEmptyStringSchema.pipe(Schema.NullOr),
+  worktreePath: TrimmedNonEmptyString.pipe(Schema.NullOr),
 });
 export type GitBranch = typeof GitBranch.Type;
 
 const GitWorktree = Schema.Struct({
-  path: TrimmedNonEmptyStringSchema,
-  branch: TrimmedNonEmptyStringSchema,
+  path: TrimmedNonEmptyString,
+  branch: TrimmedNonEmptyString,
 });
 const GitResolvedPullRequest = Schema.Struct({
   number: PositiveInt,
-  title: TrimmedNonEmptyStringSchema,
+  title: TrimmedNonEmptyString,
   url: Schema.String,
-  baseBranch: TrimmedNonEmptyStringSchema,
-  headBranch: TrimmedNonEmptyStringSchema,
+  baseBranch: TrimmedNonEmptyString,
+  headBranch: TrimmedNonEmptyString,
   state: GitPullRequestState,
 });
 export type GitResolvedPullRequest = typeof GitResolvedPullRequest.Type;
@@ -98,35 +97,33 @@ export type GitResolvedPullRequest = typeof GitResolvedPullRequest.Type;
 // RPC Inputs
 
 export const GitStatusInput = Schema.Struct({
-  cwd: TrimmedNonEmptyStringSchema,
+  cwd: TrimmedNonEmptyString,
 });
 export type GitStatusInput = typeof GitStatusInput.Type;
 
 export const GitWorkingTreeDiffInput = Schema.Struct({
-  cwd: TrimmedNonEmptyStringSchema,
+  cwd: TrimmedNonEmptyString,
 });
 export type GitWorkingTreeDiffInput = typeof GitWorkingTreeDiffInput.Type;
 
 export const GitPullInput = Schema.Struct({
-  cwd: TrimmedNonEmptyStringSchema,
+  cwd: TrimmedNonEmptyString,
 });
 export type GitPullInput = typeof GitPullInput.Type;
 
 export const GitRunStackedActionInput = Schema.Struct({
-  actionId: TrimmedNonEmptyStringSchema,
-  cwd: TrimmedNonEmptyStringSchema,
+  actionId: TrimmedNonEmptyString,
+  cwd: TrimmedNonEmptyString,
   action: GitStackedAction,
-  commitMessage: Schema.optional(TrimmedNonEmptyStringSchema.check(Schema.isMaxLength(10_000))),
+  commitMessage: Schema.optional(TrimmedNonEmptyString.check(Schema.isMaxLength(10_000))),
   featureBranch: Schema.optional(Schema.Boolean),
-  filePaths: Schema.optional(
-    Schema.Array(TrimmedNonEmptyStringSchema).check(Schema.isMinLength(1)),
-  ),
+  filePaths: Schema.optional(Schema.Array(TrimmedNonEmptyString).check(Schema.isMinLength(1))),
 });
 export type GitRunStackedActionInput = typeof GitRunStackedActionInput.Type;
 
 export const GitListBranchesInput = Schema.Struct({
-  cwd: TrimmedNonEmptyStringSchema,
-  query: Schema.optional(TrimmedNonEmptyStringSchema.check(Schema.isMaxLength(256))),
+  cwd: TrimmedNonEmptyString,
+  query: Schema.optional(TrimmedNonEmptyString.check(Schema.isMaxLength(256))),
   cursor: Schema.optional(NonNegativeInt),
   limit: Schema.optional(
     PositiveInt.check(Schema.isLessThanOrEqualTo(GIT_LIST_BRANCHES_MAX_LIMIT)),
@@ -135,47 +132,47 @@ export const GitListBranchesInput = Schema.Struct({
 export type GitListBranchesInput = typeof GitListBranchesInput.Type;
 
 export const GitCreateWorktreeInput = Schema.Struct({
-  cwd: TrimmedNonEmptyStringSchema,
-  branch: TrimmedNonEmptyStringSchema,
-  newBranch: Schema.optional(TrimmedNonEmptyStringSchema),
-  path: Schema.NullOr(TrimmedNonEmptyStringSchema),
+  cwd: TrimmedNonEmptyString,
+  branch: TrimmedNonEmptyString,
+  newBranch: Schema.optional(TrimmedNonEmptyString),
+  path: Schema.NullOr(TrimmedNonEmptyString),
 });
 export type GitCreateWorktreeInput = typeof GitCreateWorktreeInput.Type;
 
 export const GitPullRequestRefInput = Schema.Struct({
-  cwd: TrimmedNonEmptyStringSchema,
+  cwd: TrimmedNonEmptyString,
   reference: GitPullRequestReference,
 });
 export type GitPullRequestRefInput = typeof GitPullRequestRefInput.Type;
 
 export const GitPreparePullRequestThreadInput = Schema.Struct({
-  cwd: TrimmedNonEmptyStringSchema,
+  cwd: TrimmedNonEmptyString,
   reference: GitPullRequestReference,
   mode: GitPreparePullRequestThreadMode,
 });
 export type GitPreparePullRequestThreadInput = typeof GitPreparePullRequestThreadInput.Type;
 
 export const GitRemoveWorktreeInput = Schema.Struct({
-  cwd: TrimmedNonEmptyStringSchema,
-  path: TrimmedNonEmptyStringSchema,
+  cwd: TrimmedNonEmptyString,
+  path: TrimmedNonEmptyString,
   force: Schema.optional(Schema.Boolean),
 });
 export type GitRemoveWorktreeInput = typeof GitRemoveWorktreeInput.Type;
 
 export const GitCreateBranchInput = Schema.Struct({
-  cwd: TrimmedNonEmptyStringSchema,
-  branch: TrimmedNonEmptyStringSchema,
+  cwd: TrimmedNonEmptyString,
+  branch: TrimmedNonEmptyString,
 });
 export type GitCreateBranchInput = typeof GitCreateBranchInput.Type;
 
 export const GitCheckoutInput = Schema.Struct({
-  cwd: TrimmedNonEmptyStringSchema,
-  branch: TrimmedNonEmptyStringSchema,
+  cwd: TrimmedNonEmptyString,
+  branch: TrimmedNonEmptyString,
 });
 export type GitCheckoutInput = typeof GitCheckoutInput.Type;
 
 export const GitInitInput = Schema.Struct({
-  cwd: TrimmedNonEmptyStringSchema,
+  cwd: TrimmedNonEmptyString,
 });
 export type GitInitInput = typeof GitInitInput.Type;
 
@@ -183,10 +180,10 @@ export type GitInitInput = typeof GitInitInput.Type;
 
 const GitStatusPr = Schema.Struct({
   number: PositiveInt,
-  title: TrimmedNonEmptyStringSchema,
+  title: TrimmedNonEmptyString,
   url: Schema.String,
-  baseBranch: TrimmedNonEmptyStringSchema,
-  headBranch: TrimmedNonEmptyStringSchema,
+  baseBranch: TrimmedNonEmptyString,
+  headBranch: TrimmedNonEmptyString,
   state: GitStatusPrState,
 });
 
@@ -194,12 +191,12 @@ export const GitStatusResult = Schema.Struct({
   isRepo: Schema.Boolean,
   hasOriginRemote: Schema.Boolean,
   isDefaultBranch: Schema.Boolean,
-  branch: Schema.NullOr(TrimmedNonEmptyStringSchema),
+  branch: Schema.NullOr(TrimmedNonEmptyString),
   hasWorkingTreeChanges: Schema.Boolean,
   workingTree: Schema.Struct({
     files: Schema.Array(
       Schema.Struct({
-        path: TrimmedNonEmptyStringSchema,
+        path: TrimmedNonEmptyString,
         insertions: NonNegativeInt,
         deletions: NonNegativeInt,
       }),
@@ -240,8 +237,8 @@ export type GitResolvePullRequestResult = typeof GitResolvePullRequestResult.Typ
 
 export const GitPreparePullRequestThreadResult = Schema.Struct({
   pullRequest: GitResolvedPullRequest,
-  branch: TrimmedNonEmptyStringSchema,
-  worktreePath: TrimmedNonEmptyStringSchema.pipe(Schema.NullOr),
+  branch: TrimmedNonEmptyString,
+  worktreePath: TrimmedNonEmptyString.pipe(Schema.NullOr),
 });
 export type GitPreparePullRequestThreadResult = typeof GitPreparePullRequestThreadResult.Type;
 
@@ -249,26 +246,26 @@ export const GitRunStackedActionResult = Schema.Struct({
   action: GitStackedAction,
   branch: Schema.Struct({
     status: GitBranchStepStatus,
-    name: Schema.optional(TrimmedNonEmptyStringSchema),
+    name: Schema.optional(TrimmedNonEmptyString),
   }),
   commit: Schema.Struct({
     status: GitCommitStepStatus,
-    commitSha: Schema.optional(TrimmedNonEmptyStringSchema),
-    subject: Schema.optional(TrimmedNonEmptyStringSchema),
+    commitSha: Schema.optional(TrimmedNonEmptyString),
+    subject: Schema.optional(TrimmedNonEmptyString),
   }),
   push: Schema.Struct({
     status: GitPushStepStatus,
-    branch: Schema.optional(TrimmedNonEmptyStringSchema),
-    upstreamBranch: Schema.optional(TrimmedNonEmptyStringSchema),
+    branch: Schema.optional(TrimmedNonEmptyString),
+    upstreamBranch: Schema.optional(TrimmedNonEmptyString),
     setUpstream: Schema.optional(Schema.Boolean),
   }),
   pr: Schema.Struct({
     status: GitPrStepStatus,
     url: Schema.optional(Schema.String),
     number: Schema.optional(PositiveInt),
-    baseBranch: Schema.optional(TrimmedNonEmptyStringSchema),
-    headBranch: Schema.optional(TrimmedNonEmptyStringSchema),
-    title: Schema.optional(TrimmedNonEmptyStringSchema),
+    baseBranch: Schema.optional(TrimmedNonEmptyString),
+    headBranch: Schema.optional(TrimmedNonEmptyString),
+    title: Schema.optional(TrimmedNonEmptyString),
   }),
   toast: GitRunStackedActionToast,
 });
@@ -276,8 +273,8 @@ export type GitRunStackedActionResult = typeof GitRunStackedActionResult.Type;
 
 export const GitPullResult = Schema.Struct({
   status: Schema.Literals(["pulled", "skipped_up_to_date"]),
-  branch: TrimmedNonEmptyStringSchema,
-  upstreamBranch: TrimmedNonEmptyStringSchema.pipe(Schema.NullOr),
+  branch: TrimmedNonEmptyString,
+  upstreamBranch: TrimmedNonEmptyString.pipe(Schema.NullOr),
 });
 export type GitPullResult = typeof GitPullResult.Type;
 
@@ -336,8 +333,8 @@ export const GitManagerServiceError = Schema.Union([
 export type GitManagerServiceError = typeof GitManagerServiceError.Type;
 
 const GitActionProgressBase = Schema.Struct({
-  actionId: TrimmedNonEmptyStringSchema,
-  cwd: TrimmedNonEmptyStringSchema,
+  actionId: TrimmedNonEmptyString,
+  cwd: TrimmedNonEmptyString,
   action: GitStackedAction,
 });
 
@@ -350,24 +347,24 @@ const GitActionPhaseStartedEvent = Schema.Struct({
   ...GitActionProgressBase.fields,
   kind: Schema.Literal("phase_started"),
   phase: GitActionProgressPhase,
-  label: TrimmedNonEmptyStringSchema,
+  label: TrimmedNonEmptyString,
 });
 const GitActionHookStartedEvent = Schema.Struct({
   ...GitActionProgressBase.fields,
   kind: Schema.Literal("hook_started"),
-  hookName: TrimmedNonEmptyStringSchema,
+  hookName: TrimmedNonEmptyString,
 });
 const GitActionHookOutputEvent = Schema.Struct({
   ...GitActionProgressBase.fields,
   kind: Schema.Literal("hook_output"),
-  hookName: Schema.NullOr(TrimmedNonEmptyStringSchema),
+  hookName: Schema.NullOr(TrimmedNonEmptyString),
   stream: GitActionProgressStream,
-  text: TrimmedNonEmptyStringSchema,
+  text: TrimmedNonEmptyString,
 });
 const GitActionHookFinishedEvent = Schema.Struct({
   ...GitActionProgressBase.fields,
   kind: Schema.Literal("hook_finished"),
-  hookName: TrimmedNonEmptyStringSchema,
+  hookName: TrimmedNonEmptyString,
   exitCode: Schema.NullOr(Schema.Int),
   durationMs: Schema.NullOr(NonNegativeInt),
 });
@@ -380,7 +377,7 @@ const GitActionFailedEvent = Schema.Struct({
   ...GitActionProgressBase.fields,
   kind: Schema.Literal("action_failed"),
   phase: Schema.NullOr(GitActionProgressPhase),
-  message: TrimmedNonEmptyStringSchema,
+  message: TrimmedNonEmptyString,
 });
 
 export const GitActionProgressEvent = Schema.Union([
