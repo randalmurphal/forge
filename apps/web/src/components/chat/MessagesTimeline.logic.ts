@@ -1,11 +1,9 @@
 import { type MessageId } from "@forgetools/contracts";
 import {
-  enrichSubagentGroupsWithControlMetadata,
   type ExpandedInlineDiffState,
   type SubagentGroup,
   type TimelineEntry,
   type WorkLogEntry,
-  groupSubagentEntries,
 } from "../../session-logic";
 import { type ChatMessage, type ProposedPlan, type TurnDiffSummary } from "../../types";
 import { estimateTimelineMessageHeight } from "../timelineHeight";
@@ -13,7 +11,6 @@ import { estimateTimelineMessageHeight } from "../timelineHeight";
 export const MAX_VISIBLE_WORK_LOG_ENTRIES = 6;
 export const SUBAGENT_ENTRIES_MAX_HEIGHT_PX = 384;
 const COMMAND_OUTPUT_TIMELINE_MAX_HEIGHT_PX = 320;
-const COMPLETED_SUBAGENT_FALLBACK_ENTRY_LIMIT = 20;
 
 export interface TimelineDurationMessage {
   id: string;
@@ -104,7 +101,8 @@ export function deriveMessagesTimelineRows(input: {
     }
 
     if (timelineEntry.kind === "work") {
-      // Collect all consecutive work entries
+      // Collect all consecutive standalone work entries. Subagent completion rows are already
+      // lifted into explicit completion-time timeline entries by deriveTimelineEntries().
       const allWorkEntries = [timelineEntry.entry];
       let cursor = index + 1;
       while (cursor < input.timelineEntries.length) {
@@ -114,13 +112,15 @@ export function deriveMessagesTimelineRows(input: {
         cursor += 1;
       }
 
-      // Split into standalone entries and subagent groups
-      const { standalone, subagentGroups } = groupSubagentEntries(allWorkEntries);
+      const standaloneEntries = allWorkEntries.filter((entry) => !entry.childThreadAttribution);
+      if (standaloneEntries.length === 0) {
+        index = cursor - 1;
+        continue;
+      }
 
-      // Emit standalone entries using existing logic
       let standaloneIndex = 0;
-      while (standaloneIndex < standalone.length) {
-        const entry = standalone[standaloneIndex]!;
+      while (standaloneIndex < standaloneEntries.length) {
+        const entry = standaloneEntries[standaloneIndex]!;
         if (shouldRenderStandaloneWorkEntry(entry)) {
           nextRows.push({
             kind: "work-entry",
@@ -131,11 +131,11 @@ export function deriveMessagesTimelineRows(input: {
           standaloneIndex += 1;
           continue;
         }
-        // Group consecutive non-standalone entries
+
         const groupedEntries = [entry];
         let groupCursor = standaloneIndex + 1;
-        while (groupCursor < standalone.length) {
-          const nextEntry = standalone[groupCursor];
+        while (groupCursor < standaloneEntries.length) {
+          const nextEntry = standaloneEntries[groupCursor];
           if (!nextEntry || shouldRenderStandaloneWorkEntry(nextEntry)) break;
           groupedEntries.push(nextEntry);
           groupCursor += 1;
@@ -149,21 +149,17 @@ export function deriveMessagesTimelineRows(input: {
         standaloneIndex = groupCursor;
       }
 
-      // Completed subagent groups stay in the timeline. Running groups belong to the composer tray.
-      const completedGroups = enrichSubagentGroupsWithControlMetadata(subagentGroups, standalone)
-        .filter((group) => group.status !== "running")
-        .map(retainCompletedSubagentEntryTail);
-
-      if (completedGroups.length > 0) {
-        nextRows.push({
-          kind: "subagent-section",
-          id: `subagent-section:${timelineEntry.id}`,
-          createdAt: timelineEntry.createdAt,
-          subagentGroups: completedGroups,
-        });
-      }
-
       index = cursor - 1;
+      continue;
+    }
+
+    if (timelineEntry.kind === "subagent-section") {
+      nextRows.push({
+        kind: "subagent-section",
+        id: timelineEntry.id,
+        createdAt: timelineEntry.createdAt,
+        subagentGroups: timelineEntry.subagentGroups,
+      });
       continue;
     }
 
@@ -201,21 +197,6 @@ export function deriveMessagesTimelineRows(input: {
 
   return nextRows;
 }
-
-function retainCompletedSubagentEntryTail(group: SubagentGroup): SubagentGroup {
-  // Keep a small local tail so the timeline can still render recent subagent activity if the
-  // lazy RPC feed is unavailable. The full feed stays server-backed to avoid hoarding large
-  // activity lists in long chats.
-  if (group.entries.length <= COMPLETED_SUBAGENT_FALLBACK_ENTRY_LIMIT) {
-    return group;
-  }
-
-  return {
-    ...group,
-    entries: group.entries.slice(-COMPLETED_SUBAGENT_FALLBACK_ENTRY_LIMIT),
-  };
-}
-
 export function estimateMessagesTimelineRowHeight(
   row: MessagesTimelineRow,
   input: {

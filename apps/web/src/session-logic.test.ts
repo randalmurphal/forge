@@ -3568,7 +3568,12 @@ describe("deriveWorkLogEntries", () => {
     ]);
 
     const visibleEntries = filterTrayOwnedWorkEntries(workEntries, trayState);
-    expect(visibleEntries).toEqual(launchEntries);
+    expect(visibleEntries.map((entry) => entry.id)).toEqual([
+      "claude-agent-launch-completed",
+      "claude-agent-task-started",
+      "claude-agent-task-progress",
+      "claude-agent-task-completed",
+    ]);
 
     const expiredTrayState = deriveBackgroundTrayState(workEntries, "2026-04-10T12:00:26.000Z");
     expect(expiredTrayState.subagentGroups).toEqual([]);
@@ -3998,7 +4003,11 @@ describe("deriveWorkLogEntries", () => {
     });
 
     const visibleEntries = filterTrayOwnedWorkEntries(workEntries, backgroundTrayState);
-    expect(visibleEntries.map((entry) => entry.id)).toEqual(["foreground-command"]);
+    expect(visibleEntries.map((entry) => entry.id)).toEqual([
+      "child-started-before-parent-mapping",
+      "child-progress-after-parent-mapping",
+      "foreground-command",
+    ]);
   });
 });
 
@@ -4043,6 +4052,103 @@ describe("deriveTimelineEntries", () => {
         implementedAt: null,
         implementationThreadId: null,
       },
+    });
+  });
+
+  it("surfaces completed subagents at completion time instead of child activity start time", () => {
+    const entries = deriveTimelineEntries(
+      [
+        {
+          id: MessageId.makeUnsafe("message-before"),
+          role: "assistant",
+          text: "before",
+          createdAt: "2026-02-23T00:00:01.000Z",
+          streaming: false,
+        },
+        {
+          id: MessageId.makeUnsafe("message-after"),
+          role: "assistant",
+          text: "after",
+          createdAt: "2026-02-23T00:00:05.000Z",
+          streaming: false,
+        },
+      ],
+      [],
+      [
+        {
+          id: "spawn-agent",
+          createdAt: "2026-02-23T00:00:02.000Z",
+          label: "Spawn agent",
+          tone: "tool",
+          itemType: "collab_agent_tool_call",
+          receiverThreadIds: ["child-1"],
+          agentModel: "gpt-5.4-mini",
+          agentPrompt: "Inspect background history",
+        },
+        {
+          id: "child-started",
+          createdAt: "2026-02-23T00:00:02.100Z",
+          startedAt: "2026-02-23T00:00:02.100Z",
+          label: "Task started",
+          tone: "info",
+          activityKind: "task.started",
+          childThreadAttribution: {
+            taskId: "task-1",
+            childProviderThreadId: "child-1",
+          },
+        },
+        {
+          id: "child-work",
+          createdAt: "2026-02-23T00:00:03.000Z",
+          label: "Run checks",
+          tone: "tool",
+          itemType: "command_execution",
+          command: "sleep 20",
+          childThreadAttribution: {
+            taskId: "task-1",
+            childProviderThreadId: "child-1",
+          },
+        },
+        {
+          id: "child-completed",
+          createdAt: "2026-02-23T00:00:04.000Z",
+          completedAt: "2026-02-23T00:00:04.000Z",
+          label: "Task completed",
+          tone: "info",
+          activityKind: "task.completed",
+          itemStatus: "completed",
+          childThreadAttribution: {
+            taskId: "task-1",
+            childProviderThreadId: "child-1",
+          },
+        },
+      ],
+    );
+
+    expect(
+      entries.map((entry) => ({ id: entry.id, kind: entry.kind, createdAt: entry.createdAt })),
+    ).toEqual([
+      { id: "message-before", kind: "message", createdAt: "2026-02-23T00:00:01.000Z" },
+      { id: "spawn-agent", kind: "work", createdAt: "2026-02-23T00:00:02.000Z" },
+      {
+        id: "subagent-section:child-1:2026-02-23T00:00:04.000Z",
+        kind: "subagent-section",
+        createdAt: "2026-02-23T00:00:04.000Z",
+      },
+      { id: "message-after", kind: "message", createdAt: "2026-02-23T00:00:05.000Z" },
+    ]);
+
+    expect(entries[2]).toMatchObject({
+      kind: "subagent-section",
+      subagentGroups: [
+        expect.objectContaining({
+          groupId: "child-1",
+          status: "completed",
+          recordedActionCount: 1,
+          agentModel: "gpt-5.4-mini",
+          agentPrompt: "Inspect background history",
+        }),
+      ],
     });
   });
 

@@ -188,6 +188,12 @@ export type TimelineEntry =
       kind: "work";
       createdAt: string;
       entry: WorkLogEntry;
+    }
+  | {
+      id: string;
+      kind: "subagent-section";
+      createdAt: string;
+      subagentGroups: SubagentGroup[];
     };
 
 export function formatDuration(durationMs: number): string {
@@ -2924,6 +2930,7 @@ export function deriveTimelineEntries(
   proposedPlans: ProposedPlan[],
   workEntries: WorkLogEntry[],
 ): TimelineEntry[] {
+  const { standalone, subagentGroups } = groupSubagentEntries(workEntries);
   const messageRows: TimelineEntry[] = messages.map((message) => ({
     id: message.id,
     kind: "message",
@@ -2936,14 +2943,28 @@ export function deriveTimelineEntries(
     createdAt: proposedPlan.createdAt,
     proposedPlan,
   }));
-  const workRows: TimelineEntry[] = workEntries.map((entry) => ({
+  const workRows: TimelineEntry[] = standalone.map((entry) => ({
     id: entry.id,
     kind: "work",
     createdAt: entry.createdAt,
     entry,
   }));
-  return [...messageRows, ...proposedPlanRows, ...workRows].toSorted((a, b) =>
-    a.createdAt.localeCompare(b.createdAt),
+  const subagentSectionRows: TimelineEntry[] = enrichSubagentGroupsWithControlMetadata(
+    subagentGroups,
+    standalone,
+  )
+    .filter((group) => group.status !== "running" && group.completedAt)
+    .map((group) => ({
+      id: `subagent-section:${group.groupId}:${group.completedAt}`,
+      kind: "subagent-section" as const,
+      // Completed subagents belong in history when the child task actually finishes, not when the
+      // earliest nested child activity started. Using completedAt here keeps history append-stable
+      // instead of backfilling old rows once the tray TTL expires.
+      createdAt: group.completedAt!,
+      subagentGroups: [retainCompletedSubagentEntryTail(group)],
+    }));
+  return [...messageRows, ...proposedPlanRows, ...workRows, ...subagentSectionRows].toSorted(
+    (a, b) => a.createdAt.localeCompare(b.createdAt),
   );
 }
 
@@ -3061,10 +3082,9 @@ export function deriveBackgroundTrayState(
   return {
     subagentGroups: visibleSubagentGroups,
     commandEntries: visibleCommandEntries,
-    hiddenSubagentGroupIds: visibleSubagentGroups.map((group) => group.groupId),
-    // Background command launches stay visible inline while the tray mirrors live status/output.
-    // Only the subagent task groups themselves are tray-owned; the command launch rows are part of
-    // the parent thread history from the moment the provider backgrounds them.
+    // The tray mirrors active background work. It is not allowed to own timeline visibility,
+    // otherwise rows disappear and later reappear at older timestamps.
+    hiddenSubagentGroupIds: [],
     hiddenWorkEntryIds: [],
     hasRunningTasks:
       visibleSubagentGroups.some((group) => group.status === "running") ||
@@ -3077,19 +3097,24 @@ export function filterTrayOwnedWorkEntries(
   workEntries: ReadonlyArray<WorkLogEntry>,
   backgroundTrayState: BackgroundTrayState,
 ): WorkLogEntry[] {
-  const hiddenSubagentGroupIds = new Set(backgroundTrayState.hiddenSubagentGroupIds);
-  const hiddenWorkEntryIds = new Set(backgroundTrayState.hiddenWorkEntryIds);
+  void backgroundTrayState;
+  return [...workEntries];
+}
 
-  return workEntries.filter((entry) => {
-    if (hiddenWorkEntryIds.has(entry.id)) {
-      return false;
-    }
-    const groupId = entry.childThreadAttribution?.childProviderThreadId;
-    if (groupId && hiddenSubagentGroupIds.has(groupId)) {
-      return false;
-    }
-    return true;
-  });
+const COMPLETED_SUBAGENT_FALLBACK_ENTRY_LIMIT = 20;
+
+function retainCompletedSubagentEntryTail(group: SubagentGroup): SubagentGroup {
+  // Keep a small local tail so completed history rows can still render some activity immediately
+  // if the lazy RPC feed is slow or unavailable, without duplicating the entire child transcript
+  // into every timeline projection.
+  if (group.entries.length <= COMPLETED_SUBAGENT_FALLBACK_ENTRY_LIMIT) {
+    return group;
+  }
+
+  return {
+    ...group,
+    entries: group.entries.slice(-COMPLETED_SUBAGENT_FALLBACK_ENTRY_LIMIT),
+  };
 }
 
 function isSubagentGroupVisibleInTray(group: SubagentGroup, nowIso: string): boolean {
