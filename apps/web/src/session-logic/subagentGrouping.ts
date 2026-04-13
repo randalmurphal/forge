@@ -159,11 +159,14 @@ export function groupSubagentEntries(workEntries: ReadonlyArray<WorkLogEntry>): 
         startedAt: entry.startedAt ?? entry.createdAt,
         status: "running",
         ...(entry.sequence !== undefined ? { startedSequence: entry.sequence } : {}),
-        ...(childThreadAttribution.agentType
-          ? { agentType: childThreadAttribution.agentType }
+        // agentType/agentModel: prefer childThreadAttribution (set by the server from the
+        // parent Agent tool call), fall back to the entry's own enrichment fields (extracted
+        // from the event payload by toolEnrichment.ts).
+        ...((childThreadAttribution.agentType ?? entry.agentType)
+          ? { agentType: childThreadAttribution.agentType ?? entry.agentType }
           : {}),
-        ...(childThreadAttribution.agentModel
-          ? { agentModel: childThreadAttribution.agentModel }
+        ...((childThreadAttribution.agentModel ?? entry.agentModel)
+          ? { agentModel: childThreadAttribution.agentModel ?? entry.agentModel }
           : {}),
       };
       groupsByChildThreadId.set(groupId, nextGroup);
@@ -221,11 +224,11 @@ export function groupSubagentEntries(workEntries: ReadonlyArray<WorkLogEntry>): 
     if (!group.agentPrompt && entry.agentPrompt) {
       group.agentPrompt = entry.agentPrompt;
     }
-    if (!group.agentType && childThreadAttribution.agentType) {
-      group.agentType = childThreadAttribution.agentType;
+    if (!group.agentType) {
+      group.agentType = childThreadAttribution.agentType ?? entry.agentType;
     }
-    if (!group.agentModel && childThreadAttribution.agentModel) {
-      group.agentModel = childThreadAttribution.agentModel;
+    if (!group.agentModel) {
+      group.agentModel = childThreadAttribution.agentModel ?? entry.agentModel;
     }
   }
 

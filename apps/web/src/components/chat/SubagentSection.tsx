@@ -6,7 +6,7 @@ import { formatDuration, type SubagentGroup, type WorkLogEntry } from "../../ses
 import { statusPresentation } from "./backgroundStatusPresentation";
 import { SUBAGENT_ENTRIES_MAX_HEIGHT_PX } from "./MessagesTimeline.logic";
 import { LazySubagentEntries } from "./LazySubagentEntries";
-import { deriveSubagentPresentation } from "./subagentPresentation";
+import { SubagentHeading } from "./SubagentHeading";
 
 interface SubagentSectionProps {
   threadId: string | null;
@@ -66,12 +66,6 @@ const SubagentGroupRow = memo(function SubagentGroupRow(props: {
     showLabel: showStatusLabel,
   } = statusPresentation(group.status);
   const maxDurationRef = useRef(0);
-  const presentation = deriveSubagentPresentation({
-    agentModel: group.agentModel,
-    agentDescription: group.agentDescription,
-    agentPrompt: group.agentPrompt,
-    fallbackLabel: group.label,
-  });
 
   const rawDurationMs = group.completedAt
     ? new Date(group.completedAt).getTime() - new Date(group.startedAt).getTime()
@@ -104,13 +98,13 @@ const SubagentGroupRow = memo(function SubagentGroupRow(props: {
           <BoxIcon className="size-3" />
         </span>
         <span className="min-w-0 flex-1 truncate text-[11px] leading-5">
-          <span className="text-foreground/80">{presentation.heading}</span>
-          {presentation.preview ? (
-            <span className="text-muted-foreground/55">
-              {" - "}
-              {presentation.preview}
-            </span>
-          ) : null}
+          <SubagentHeading
+            agentType={group.agentType}
+            agentModel={group.agentModel}
+            agentDescription={group.agentDescription}
+            agentPrompt={group.agentPrompt}
+            fallbackLabel={group.label}
+          />
         </span>
         <div className="flex shrink-0 items-center gap-1.5">
           <span className={cn("flex items-center gap-0.5 text-[9px]", statusColor)}>

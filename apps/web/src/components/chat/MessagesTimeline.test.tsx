@@ -411,7 +411,7 @@ describe("MessagesTimeline", () => {
       />,
     );
 
-    expect(markup).toContain("background");
+    expect(markup).not.toContain("uppercase");
     expect(markup).toContain("lucide-check");
   });
 
@@ -461,7 +461,7 @@ describe("MessagesTimeline", () => {
       />,
     );
 
-    expect(markup).toContain("background");
+    expect(markup).toContain("uppercase");
     expect(markup).not.toContain("lucide-check");
   });
 

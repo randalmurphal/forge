@@ -1553,6 +1553,123 @@ describe("ClaudeAdapterLive", () => {
   );
 
   it.effect(
+    "registers agent metadata from full assistant messages (non-streamed) for childThreadAttribution",
+    () => {
+      const harness = makeHarness();
+      return Effect.gen(function* () {
+        const services = yield* Effect.services();
+        const runFork = Effect.runForkWith(services);
+        const adapter = yield* ClaudeAdapter;
+        const runtimeEvents: Array<ProviderRuntimeEvent> = [];
+        const runtimeEventsFiber = runFork(
+          Stream.runForEach(adapter.streamEvents, (event) =>
+            Effect.sync(() => {
+              runtimeEvents.push(event);
+            }),
+          ),
+        );
+
+        yield* adapter.startSession({
+          threadId: THREAD_ID,
+          provider: "claudeAgent",
+          runtimeMode: "full-access",
+        });
+
+        yield* adapter.sendTurn({
+          threadId: THREAD_ID,
+          input: "launch a background agent",
+          attachments: [],
+        });
+
+        // Real SDK sends Agent tool_use as a full assistant message, NOT as stream_event
+        harness.query.emit({
+          type: "assistant",
+          session_id: "sdk-session-full-msg",
+          uuid: "assistant-full-agent",
+          parent_tool_use_id: null,
+          message: {
+            model: "claude-opus-4-6",
+            id: "msg-full-agent",
+            type: "message",
+            role: "assistant",
+            content: [
+              {
+                type: "tool_use",
+                id: "tool-agent-full-1",
+                name: "Agent",
+                input: {
+                  description: "2-second sleep test",
+                  subagent_type: "Builder",
+                  model: "opus",
+                  prompt: "Run sleep 2 && echo done",
+                },
+              },
+            ],
+          },
+        } as unknown as SDKMessage);
+
+        // task_started arrives referencing the same tool_use_id
+        harness.query.emit({
+          type: "system",
+          subtype: "task_started",
+          task_id: "task-full-1",
+          tool_use_id: "tool-agent-full-1",
+          description: "2-second sleep test",
+          task_type: "agent",
+          session_id: "sdk-session-full-msg",
+          uuid: "task-started-full-1",
+        } as unknown as SDKMessage);
+
+        // task_completed
+        harness.query.emit({
+          type: "system",
+          subtype: "task_notification",
+          task_id: "task-full-1",
+          tool_use_id: "tool-agent-full-1",
+          status: "completed",
+          output_file: "",
+          summary: "2-second sleep test completed",
+          session_id: "sdk-session-full-msg",
+          uuid: "task-completed-full-1",
+        } as unknown as SDKMessage);
+        harness.query.finish();
+
+        yield* Effect.yieldNow;
+        yield* Effect.yieldNow;
+        yield* Effect.promise(() => new Promise((resolve) => setTimeout(resolve, 25)));
+        runtimeEventsFiber.interruptUnsafe();
+
+        const expectedAttribution = {
+          taskId: "tool-agent-full-1",
+          childProviderThreadId: "tool-agent-full-1",
+          label: "2-second sleep test",
+          agentType: "Builder",
+          agentModel: "opus",
+        };
+
+        const startedEvent = runtimeEvents.find((event) => event.type === "task.started");
+        assert.ok(startedEvent, "expected a task.started event");
+        assert.deepEqual(
+          (startedEvent!.payload as Record<string, unknown>).childThreadAttribution,
+          expectedAttribution,
+          "task.started should carry full childThreadAttribution including agentType and agentModel",
+        );
+
+        const completedEvent = runtimeEvents.find((event) => event.type === "task.completed");
+        assert.ok(completedEvent, "expected a task.completed event");
+        assert.deepEqual(
+          (completedEvent!.payload as Record<string, unknown>).childThreadAttribution,
+          expectedAttribution,
+          "task.completed should carry full childThreadAttribution including agentType and agentModel",
+        );
+      }).pipe(
+        Effect.provideService(Random.Random, makeDeterministicRandomService()),
+        Effect.provide(harness.layer),
+      );
+    },
+  );
+
+  it.effect(
     "maps Claude local_command_output into assistant text instead of runtime warnings",
     () => {
       const harness = makeHarness();

@@ -46,6 +46,7 @@ import {
   turnStatusFromResult,
 } from "./sdkMessageParsing.ts";
 import { classifyToolItemType, summarizeToolRequest, titleForTool } from "./toolClassification.ts";
+import { appendServerDebugRecord } from "../../../debug.ts";
 import {
   PROVIDER,
   type AssistantTextBlockState,
@@ -797,6 +798,60 @@ export const handleStreamEvent = Effect.fn("handleStreamEvent")(function* (
         ...(detail ? { detail } : {}),
       };
 
+      // SDK streaming quirk: at content_block_start, block.input is always `{}`.
+      // The actual tool input fields (subagent_type, model, description, prompt) arrive
+      // incrementally via input_json_delta events. We registered the agent tool in
+      // activeSubagentTools at content_block_start with empty metadata — now we backfill
+      // the real values as they stream in, before task_started fires and reads them
+      // via buildChildThreadAttribution.
+      //
+      // When the SDK omits `model` from the tool input (common — Claude Code defaults
+      // to the parent session's model internally), we fall back to currentApiModelId
+      // so the UI can always show which model the subagent runs on.
+      if (parsedInput && tool.itemType === "collab_agent_tool_call") {
+        const existing = context.activeSubagentTools.get(tool.itemId);
+        if (existing) {
+          const agentType =
+            existing.agentType ??
+            (typeof parsedInput.subagent_type === "string" ? parsedInput.subagent_type : undefined);
+          const agentModel =
+            existing.agentModel ??
+            (typeof parsedInput.model === "string"
+              ? parsedInput.model
+              : (context.currentApiModelId ?? undefined));
+          const agentLabel =
+            existing.label ??
+            (typeof parsedInput.description === "string"
+              ? parsedInput.description
+              : typeof parsedInput.prompt === "string"
+                ? parsedInput.prompt.slice(0, 120)
+                : undefined);
+          if (
+            agentType !== existing.agentType ||
+            agentModel !== existing.agentModel ||
+            agentLabel !== existing.label
+          ) {
+            context.activeSubagentTools.set(tool.itemId, {
+              ...existing,
+              ...(agentType ? { agentType } : {}),
+              ...(agentModel ? { agentModel } : {}),
+              ...(agentLabel ? { label: agentLabel } : {}),
+            });
+            appendServerDebugRecord({
+              topic: "claude-subagent",
+              source: "handleStreamEvent/input_json_delta",
+              label: "updated agent metadata from streamed input",
+              details: {
+                itemId: tool.itemId,
+                agentType,
+                agentModel,
+                agentLabel,
+              },
+            });
+          }
+        }
+      }
+
       const nextFingerprint =
         parsedInput && Object.keys(parsedInput).length > 0
           ? toolInputFingerprint(parsedInput)
@@ -905,6 +960,12 @@ export const handleStreamEvent = Effect.fn("handleStreamEvent")(function* (
         label: agentLabel,
         agentType,
         agentModel,
+      });
+      appendServerDebugRecord({
+        topic: "claude-subagent",
+        source: "handleStreamEvent/content_block_start",
+        label: "registered agent tool from stream event",
+        details: { itemId, toolName, agentType, agentModel, agentLabel },
       });
     }
 
@@ -1152,20 +1213,66 @@ export const handleAssistantMessage = Effect.fn("handleAssistantMessage")(functi
         name?: unknown;
         input?: unknown;
       };
-      if (toolUse.type !== "tool_use" || toolUse.name !== "ExitPlanMode") {
+      if (toolUse.type !== "tool_use") {
         continue;
       }
-      const planMarkdown = extractExitPlanModePlan(toolUse.input);
-      if (!planMarkdown) {
+
+      if (toolUse.name === "ExitPlanMode") {
+        const planMarkdown = extractExitPlanModePlan(toolUse.input);
+        if (planMarkdown) {
+          yield* emitProposedPlanCompleted(ctx, context, {
+            planMarkdown,
+            toolUseId: typeof toolUse.id === "string" ? toolUse.id : undefined,
+            rawSource: "claude.sdk.message",
+            rawMethod: "claude/assistant",
+            rawPayload: message,
+          });
+        }
         continue;
       }
-      yield* emitProposedPlanCompleted(ctx, context, {
-        planMarkdown,
-        toolUseId: typeof toolUse.id === "string" ? toolUse.id : undefined,
-        rawSource: "claude.sdk.message",
-        rawMethod: "claude/assistant",
-        rawPayload: message,
-      });
+
+      // The Claude Agent SDK can deliver tool_use blocks in two ways:
+      //   1. Streamed: content_block_start (input={}) → input_json_delta… → content_block_stop
+      //   2. Full message: type="assistant" with complete tool_use blocks and populated input
+      //
+      // The stream path registers the agent in activeSubagentTools at content_block_start
+      // and backfills metadata during input_json_delta. This branch handles the full-message
+      // path, where the complete input (subagent_type, model, description) is available
+      // immediately. Both paths must populate activeSubagentTools so that subsequent
+      // task_started / child events can resolve childThreadAttribution via
+      // buildChildThreadAttribution.
+      const toolName = typeof toolUse.name === "string" ? toolUse.name : undefined;
+      const itemId = typeof toolUse.id === "string" ? toolUse.id : undefined;
+      if (toolName && itemId && classifyToolItemType(toolName) === "collab_agent_tool_call") {
+        const toolInput =
+          typeof toolUse.input === "object" && toolUse.input !== null
+            ? (toolUse.input as Record<string, unknown>)
+            : {};
+        const agentLabel =
+          typeof toolInput.description === "string"
+            ? toolInput.description
+            : typeof toolInput.prompt === "string"
+              ? toolInput.prompt.slice(0, 120)
+              : undefined;
+        const agentType =
+          typeof toolInput.subagent_type === "string" ? toolInput.subagent_type : undefined;
+        const agentModel = typeof toolInput.model === "string" ? toolInput.model : undefined;
+        if (!context.activeSubagentTools.has(itemId)) {
+          const entry = {
+            toolUseId: itemId,
+            label: agentLabel,
+            agentType,
+            agentModel,
+          };
+          context.activeSubagentTools.set(itemId, entry);
+          appendServerDebugRecord({
+            topic: "claude-subagent",
+            source: "handleAssistantMessage",
+            label: "registered agent tool from full assistant message",
+            details: { itemId, toolName, entry },
+          });
+        }
+      }
     }
   }
 
@@ -1307,7 +1414,22 @@ export const handleSystemMessage = Effect.fn("handleSystemMessage")(function* (
       });
       return;
     case "task_started": {
-      const taskStartedAttribution = buildChildThreadAttribution(context, sdkToolUseId(message));
+      const taskToolUseId = sdkToolUseId(message);
+      const taskStartedAttribution = buildChildThreadAttribution(context, taskToolUseId);
+      appendServerDebugRecord({
+        topic: "claude-subagent",
+        source: "handleSystemMessage/task_started",
+        label: "building childThreadAttribution for task_started",
+        details: {
+          taskId: message.task_id,
+          toolUseId: taskToolUseId,
+          foundInActiveSubagentTools: taskToolUseId
+            ? context.activeSubagentTools.has(taskToolUseId)
+            : false,
+          activeSubagentToolsKeys: Array.from(context.activeSubagentTools.keys()),
+          attribution: taskStartedAttribution ?? null,
+        },
+      });
       yield* ctx.offerRuntimeEvent({
         ...base,
         type: "task.started",

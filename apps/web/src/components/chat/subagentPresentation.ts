@@ -1,4 +1,5 @@
 interface SubagentPresentationInput {
+  agentType?: string | undefined;
   agentModel?: string | undefined;
   agentDescription?: string | undefined;
   agentPrompt?: string | undefined;
@@ -11,12 +12,17 @@ export interface SubagentPresentation {
 }
 
 export function deriveSubagentPresentation(input: SubagentPresentationInput): SubagentPresentation {
+  const type = normalizeSubagentText(input.agentType) ?? "Agent";
   const model = normalizeSubagentText(input.agentModel);
   const description =
     normalizeSubagentText(input.agentDescription) ??
     normalizeMeaningfulFallbackLabel(input.fallbackLabel);
   const prompt = normalizeSubagentText(input.agentPrompt);
-  const heading = model ?? description ?? "Subagent";
+
+  // Heading: "Type · model" when both exist, or just "Type" (which defaults to "Agent")
+  const heading = model ? `${type} \u00b7 ${model}` : type;
+
+  // Preview: description first, else prompt if it differs from the heading
   const preview =
     description ??
     (prompt && normalizeSubagentComparison(prompt) !== normalizeSubagentComparison(heading)

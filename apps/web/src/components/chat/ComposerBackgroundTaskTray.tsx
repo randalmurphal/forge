@@ -5,7 +5,7 @@ import { cn } from "~/lib/utils";
 import { statusPresentation, workEntryIcon } from "./backgroundStatusPresentation";
 import { LazyCommandOutput } from "./LazyCommandOutput";
 import { LazySubagentEntries } from "./LazySubagentEntries";
-import { deriveSubagentPresentation } from "./subagentPresentation";
+import { SubagentHeading } from "./SubagentHeading";
 import {
   deriveBackgroundCommandStatus,
   formatDuration,
@@ -242,12 +242,6 @@ const BackgroundSubagentTaskRow = memo(function BackgroundSubagentTaskRow(props:
     props.group.status,
     props.nowIso,
   );
-  const presentation = deriveSubagentPresentation({
-    agentModel: props.group.agentModel,
-    agentDescription: props.group.agentDescription,
-    agentPrompt: props.group.agentPrompt,
-    fallbackLabel: props.group.label,
-  });
   const renderEntry = useCallback(
     (entry: WorkLogEntry) => <TraySubagentWorkEntryRow threadId={props.threadId} entry={entry} />,
     [props.threadId],
@@ -270,14 +264,15 @@ const BackgroundSubagentTaskRow = memo(function BackgroundSubagentTaskRow(props:
         <span className="flex size-4 shrink-0 items-center justify-center text-foreground/70">
           <BoxIcon className="size-3" />
         </span>
-        <div className="min-w-0 flex-1">
-          <p className="truncate text-[11px] text-foreground/80">{presentation.heading}</p>
-          {presentation.preview ? (
-            <p className="truncate text-[10px] text-muted-foreground/55">{presentation.preview}</p>
-          ) : (
-            <p className="truncate text-[10px] text-muted-foreground/45">Agent</p>
-          )}
-        </div>
+        <span className="min-w-0 flex-1 truncate text-[11px] leading-5">
+          <SubagentHeading
+            agentType={props.group.agentType}
+            agentModel={props.group.agentModel}
+            agentDescription={props.group.agentDescription}
+            agentPrompt={props.group.agentPrompt}
+            fallbackLabel={props.group.label}
+          />
+        </span>
         <div className="flex shrink-0 items-center gap-2">
           <BackgroundTaskStatusBadge status={props.group.status} />
           {elapsed ? (

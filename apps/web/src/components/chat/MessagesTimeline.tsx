@@ -60,6 +60,7 @@ import { ProposedPlanCard } from "./ProposedPlanCard";
 import { SummaryCard } from "./SummaryCard";
 import { MessageCopyButton } from "./MessageCopyButton";
 import { statusPresentation } from "./backgroundStatusPresentation";
+import { SubagentHeading } from "./SubagentHeading";
 import {
   MAX_VISIBLE_WORK_LOG_ENTRIES,
   deriveMessagesTimelineRows,
@@ -82,7 +83,6 @@ import { CompactDiffEntryRow } from "../diff/CompactDiffEntryRow";
 import { CompactDiffHeader } from "../diff/CompactDiffHeader";
 import { CompactDiffPreview } from "../diff/CompactDiffPreview";
 import { CompactDiffSummaryFallback } from "../diff/CompactDiffSummaryFallback";
-import { deriveSubagentPresentation } from "./subagentPresentation";
 import {
   buildInlineTerminalContextText,
   formatInlineTerminalContextLabel,
@@ -1233,7 +1233,9 @@ const SimpleWorkEntryRow = memo(function SimpleWorkEntryRow(props: {
     workEntry.itemType === "command_execution" && workEntry.exitCode !== undefined;
   const exitSuccess = workEntry.exitCode === 0;
   const showBackgroundBadge =
-    workEntry.itemType === "command_execution" && workEntry.isBackgroundCommand === true;
+    workEntry.itemType === "command_execution" &&
+    workEntry.isBackgroundCommand === true &&
+    workEntry.activityKind !== "task.completed";
   const backgroundCommandStatus =
     workEntry.itemType === "command_execution" && workEntry.isBackgroundCommand === true
       ? workEntry.backgroundTaskStatus
@@ -1391,13 +1393,8 @@ const AgentWorkEntryRow = memo(function AgentWorkEntryRow(props: { workEntry: Ti
   const normalizedToolName = workEntry.toolName?.toLowerCase();
   const isSpawnAgent = normalizedToolName === "spawnagent" || normalizedToolName === "agent";
   const isWaitAgent = workEntry.toolName?.toLowerCase() === "wait";
-  const spawnAgentPresentation = deriveSubagentPresentation({
-    agentModel: workEntry.agentModel,
-    agentDescription: workEntry.agentDescription,
-    agentPrompt: workEntry.agentPrompt,
-  });
-  const heading = isSpawnAgent ? spawnAgentPresentation.heading : toolWorkEntryHeading(workEntry);
-  const preview = isSpawnAgent ? spawnAgentPresentation.preview : workEntryPreview(workEntry);
+  const heading = isSpawnAgent ? null : toolWorkEntryHeading(workEntry);
+  const preview = isSpawnAgent ? null : workEntryPreview(workEntry);
 
   const durationLabel =
     workEntry.durationMs !== undefined ? formatDuration(workEntry.durationMs) : null;
@@ -1445,16 +1442,24 @@ const AgentWorkEntryRow = memo(function AgentWorkEntryRow(props: { workEntry: Ti
           <BoxIcon className="size-3" />
         </span>
         <div className="min-w-0 flex-1 overflow-hidden">
-          <p
-            className={cn("truncate text-[11px] leading-5", workToneClass(workEntry.tone))}
-            title={preview ? `${heading} – ${preview}` : heading}
-          >
-            <span className="text-foreground/80">{heading}</span>
-            {preview && (
-              <span className="text-muted-foreground/55">
-                {" – "}
-                {preview}
-              </span>
+          <p className={cn("truncate text-[11px] leading-5", workToneClass(workEntry.tone))}>
+            {isSpawnAgent ? (
+              <SubagentHeading
+                agentType={workEntry.agentType}
+                agentModel={workEntry.agentModel}
+                agentDescription={workEntry.agentDescription}
+                agentPrompt={workEntry.agentPrompt}
+              />
+            ) : (
+              <>
+                <span className="text-foreground/80">{heading}</span>
+                {preview && (
+                  <span className="text-muted-foreground/55">
+                    {" – "}
+                    {preview}
+                  </span>
+                )}
+              </>
             )}
           </p>
         </div>
@@ -1464,12 +1469,8 @@ const AgentWorkEntryRow = memo(function AgentWorkEntryRow(props: { workEntry: Ti
               spawned
             </span>
           ) : null}
-          {isWaitAgent && isCompleted ? (
-            <BackgroundCommandStatusBadge status="completed" />
-          ) : null}
-          {isFailed ? (
-            <BackgroundCommandStatusBadge status="failed" />
-          ) : null}
+          {isWaitAgent && isCompleted ? <BackgroundCommandStatusBadge status="completed" /> : null}
+          {isFailed ? <BackgroundCommandStatusBadge status="failed" /> : null}
           {durationLabel && (
             <span className="text-[9px] tabular-nums text-muted-foreground/40">
               {durationLabel}
