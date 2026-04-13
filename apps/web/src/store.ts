@@ -8,6 +8,7 @@ import {
 } from "./storeEventHandlers";
 import { EMPTY_THREAD_IDS, EMPTY_THREADS, updateThreadState } from "./storeStateHelpers";
 import type { Project, SidebarThreadSummary, Thread } from "./types";
+import type { WorkLogProjectionState } from "./session-logic";
 
 // ── State ────────────────────────────────────────────────────────────
 
@@ -16,6 +17,7 @@ export interface AppState {
   threads: Thread[];
   sidebarThreadsById: Record<string, SidebarThreadSummary>;
   threadIdsByProjectId: Record<string, ThreadId[]>;
+  threadWorkLogById?: Record<string, WorkLogProjectionState>;
   bootstrapComplete: boolean;
 }
 
@@ -24,6 +26,7 @@ const initialState: AppState = {
   threads: [],
   sidebarThreadsById: {},
   threadIdsByProjectId: {},
+  threadWorkLogById: {},
   bootstrapComplete: false,
 };
 
@@ -48,6 +51,11 @@ export const selectSidebarThreadSummaryById =
   (threadId: ThreadId | null | undefined) =>
   (state: AppState): SidebarThreadSummary | undefined =>
     threadId ? state.sidebarThreadsById[threadId] : undefined;
+
+export const selectThreadWorkLogById =
+  (threadId: ThreadId | null | undefined) =>
+  (state: AppState): WorkLogProjectionState | undefined =>
+    threadId ? state.threadWorkLogById?.[threadId] : undefined;
 
 export const selectThreadIdsByProjectId =
   (projectId: ProjectId | null | undefined) =>

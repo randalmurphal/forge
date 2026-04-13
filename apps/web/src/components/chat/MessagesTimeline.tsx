@@ -1501,7 +1501,11 @@ const AgentWorkEntryRow = memo(function AgentWorkEntryRow(props: {
             </span>
           ) : null}
           {/* Spawn-only (no group meta, not backgrounded, not a completion entry): "spawned" badge */}
-          {isSpawnAgent && isCompleted && !groupMeta && !isBackgroundLaunch && !isCompletionEntry ? (
+          {isSpawnAgent &&
+          isCompleted &&
+          !groupMeta &&
+          !isBackgroundLaunch &&
+          !isCompletionEntry ? (
             <span className="inline-flex items-center rounded px-1 py-px text-[9px] font-medium uppercase tracking-[0.12em] text-primary/70 ring-1 ring-inset ring-primary/20">
               spawned
             </span>
@@ -1514,7 +1518,7 @@ const AgentWorkEntryRow = memo(function AgentWorkEntryRow(props: {
             </span>
           ) : null}
           {/* Foreground completed (non-background, with group meta) */}
-          {isCompleted && groupMeta && !isBackgroundLaunch && !isCompletionEntry ? (
+          {isCompleted && groupMeta && !isBackgroundLaunch && !isCompletionEntry && !isWaitAgent ? (
             <span className="flex items-center gap-0.5 text-[9px] text-green-500/70">
               {(() => {
                 const { icon: StatusIcon } = statusPresentation("completed");

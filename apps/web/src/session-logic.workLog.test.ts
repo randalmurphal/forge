@@ -1408,7 +1408,18 @@ describe("deriveWorkLogEntries", () => {
     );
 
     const trayState = deriveBackgroundTrayState(entries, "2026-04-10T12:00:01.000Z");
-    expect(trayState.agentEntries).toHaveLength(0);
+    expect(trayState.agentEntries).toHaveLength(1);
+    expect(trayState.agentEntries[0]).toMatchObject({
+      toolName: "spawnAgent",
+      isBackgroundCommand: true,
+      backgroundLifecycleRole: "launch",
+      subagentGroupMeta: {
+        childProviderThreadId: "child-thread-early",
+        status: "running",
+      },
+      agentPrompt: "Inspect the parser",
+      agentModel: "gpt-5.4-mini",
+    });
   });
 
   it("carries target metadata into wait_agent rows", () => {
@@ -3541,7 +3552,18 @@ describe("deriveWorkLogEntries", () => {
     );
 
     const trayState = deriveBackgroundTrayState(workEntries, "2026-04-10T12:00:03.000Z");
-    expect(trayState.agentEntries).toHaveLength(0);
+    expect(trayState.agentEntries).toHaveLength(1);
+    expect(trayState.agentEntries[0]).toMatchObject({
+      toolName: "spawnAgent",
+      isBackgroundCommand: true,
+      backgroundLifecycleRole: "launch",
+      subagentGroupMeta: {
+        childProviderThreadId: "child-thread-meta",
+        status: "running",
+      },
+      agentDescription: "Inspect the parser",
+      agentModel: "gpt-5.4-mini",
+    });
   });
 
   it("keeps running background commands in the tray until they complete, then returns them to history", () => {

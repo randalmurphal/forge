@@ -41,13 +41,18 @@ export function deriveTimelineEntries(
     createdAt: proposedPlan.createdAt,
     proposedPlan,
   }));
-  const workRows: TimelineEntry[] = enrichedEntries.map((entry) => ({
-    id: entry.id,
-    kind: "work",
-    createdAt: entry.createdAt,
-    ...(entry.sequence !== undefined ? { sequence: entry.sequence } : {}),
-    entry,
-  }));
+  const workRows: TimelineEntry[] = enrichedEntries.map((entry) => {
+    const workRow: TimelineEntry = {
+      id: entry.id,
+      kind: "work",
+      createdAt: entry.createdAt,
+      entry,
+    };
+    if (entry.sequence !== undefined) {
+      workRow.sequence = entry.sequence;
+    }
+    return workRow;
+  });
   return [...messageRows, ...proposedPlanRows, ...workRows].toSorted(compareTimelineEntries);
 }
 

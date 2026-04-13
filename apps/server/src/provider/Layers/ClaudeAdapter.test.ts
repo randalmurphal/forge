@@ -1869,6 +1869,256 @@ describe("ClaudeAdapterLive", () => {
   });
 
   it.effect(
+    "emits task.completed from a terminal TaskOutput result using stored task attribution",
+    () => {
+      const harness = makeHarness();
+      return Effect.gen(function* () {
+        const services = yield* Effect.services();
+        const runFork = Effect.runForkWith(services);
+        const adapter = yield* ClaudeAdapter;
+        const runtimeEvents: Array<ProviderRuntimeEvent> = [];
+        const runtimeEventsFiber = runFork(
+          Stream.runForEach(adapter.streamEvents, (event) =>
+            Effect.sync(() => {
+              runtimeEvents.push(event);
+            }),
+          ),
+        );
+
+        const session = yield* adapter.startSession({
+          threadId: THREAD_ID,
+          provider: "claudeAgent",
+          runtimeMode: "full-access",
+        });
+
+        yield* adapter.sendTurn({
+          threadId: session.threadId,
+          input: "wait for the background bash task",
+          attachments: [],
+        });
+
+        harness.query.emit({
+          type: "stream_event",
+          session_id: "sdk-session-taskoutput-terminal",
+          uuid: "stream-taskoutput-start",
+          parent_tool_use_id: null,
+          event: {
+            type: "content_block_start",
+            index: 1,
+            content_block: {
+              type: "tool_use",
+              id: "tool-taskoutput-1",
+              name: "TaskOutput",
+              input: {
+                task_id: "task-bash-bg-terminal",
+                block: true,
+                timeout: 60_000,
+              },
+            },
+          },
+        } as unknown as SDKMessage);
+
+        harness.query.emit({
+          type: "stream_event",
+          session_id: "sdk-session-taskoutput-terminal",
+          uuid: "stream-taskoutput-stop",
+          parent_tool_use_id: null,
+          event: {
+            type: "content_block_stop",
+            index: 1,
+          },
+        } as unknown as SDKMessage);
+
+        harness.query.emit({
+          type: "system",
+          subtype: "task_started",
+          task_id: "task-bash-bg-terminal",
+          tool_use_id: "tool-bash-launch-terminal",
+          description: "Background bash is running",
+          task_type: "local_bash",
+          session_id: "sdk-session-taskoutput-terminal",
+          uuid: "task-started-terminal",
+        } as unknown as SDKMessage);
+
+        harness.query.emit({
+          type: "user",
+          session_id: "sdk-session-taskoutput-terminal",
+          uuid: "user-taskoutput-terminal",
+          parent_tool_use_id: null,
+          tool_use_result: {
+            retrieval_status: "success",
+            task: {
+              task_id: "task-bash-bg-terminal",
+              task_type: "local_bash",
+              status: "completed",
+              description: "Background bash is running",
+              output_file: "/tmp/task-bash-bg-terminal.output",
+            },
+          },
+          message: {
+            role: "user",
+            content: [
+              {
+                type: "tool_result",
+                tool_use_id: "tool-taskoutput-1",
+                content: "",
+              },
+            ],
+          },
+        } as unknown as SDKMessage);
+        harness.query.finish();
+
+        yield* Effect.yieldNow;
+        yield* Effect.yieldNow;
+        yield* Effect.promise(() => new Promise((resolve) => setTimeout(resolve, 25)));
+        runtimeEventsFiber.interruptUnsafe();
+
+        const completedEvents = runtimeEvents.filter((event) => event.type === "task.completed");
+        assert.equal(completedEvents.length, 1);
+        const completedEvent = completedEvents[0];
+        assert.equal(completedEvent?.type, "task.completed");
+        if (completedEvent?.type === "task.completed") {
+          assert.equal(completedEvent.payload.taskId, "task-bash-bg-terminal");
+          assert.equal(completedEvent.payload.toolUseId, "tool-bash-launch-terminal");
+          assert.equal(completedEvent.payload.status, "completed");
+          assert.equal(completedEvent.payload.outputFile, "/tmp/task-bash-bg-terminal.output");
+        }
+      }).pipe(
+        Effect.provideService(Random.Random, makeDeterministicRandomService()),
+        Effect.provide(harness.layer),
+      );
+    },
+  );
+
+  it.effect(
+    "does not emit a duplicate terminal task.completed from TaskOutput after terminal task.updated",
+    () => {
+      const harness = makeHarness();
+      return Effect.gen(function* () {
+        const services = yield* Effect.services();
+        const runFork = Effect.runForkWith(services);
+        const adapter = yield* ClaudeAdapter;
+        const runtimeEvents: Array<ProviderRuntimeEvent> = [];
+        const runtimeEventsFiber = runFork(
+          Stream.runForEach(adapter.streamEvents, (event) =>
+            Effect.sync(() => {
+              runtimeEvents.push(event);
+            }),
+          ),
+        );
+
+        const session = yield* adapter.startSession({
+          threadId: THREAD_ID,
+          provider: "claudeAgent",
+          runtimeMode: "full-access",
+        });
+
+        yield* adapter.sendTurn({
+          threadId: session.threadId,
+          input: "wait for the background agent task",
+          attachments: [],
+        });
+
+        harness.query.emit({
+          type: "stream_event",
+          session_id: "sdk-session-taskoutput-dedupe",
+          uuid: "stream-taskoutput-dedupe-start",
+          parent_tool_use_id: null,
+          event: {
+            type: "content_block_start",
+            index: 1,
+            content_block: {
+              type: "tool_use",
+              id: "tool-taskoutput-2",
+              name: "TaskOutput",
+              input: {
+                task_id: "task-agent-terminal",
+                block: true,
+                timeout: 60_000,
+              },
+            },
+          },
+        } as unknown as SDKMessage);
+
+        harness.query.emit({
+          type: "stream_event",
+          session_id: "sdk-session-taskoutput-dedupe",
+          uuid: "stream-taskoutput-dedupe-stop",
+          parent_tool_use_id: null,
+          event: {
+            type: "content_block_stop",
+            index: 1,
+          },
+        } as unknown as SDKMessage);
+
+        harness.query.emit({
+          type: "system",
+          subtype: "task_started",
+          task_id: "task-agent-terminal",
+          tool_use_id: "tool-agent-launch-terminal",
+          description: "Background agent is running",
+          task_type: "local_agent",
+          session_id: "sdk-session-taskoutput-dedupe",
+          uuid: "task-started-dedupe",
+        } as unknown as SDKMessage);
+
+        harness.query.emit({
+          type: "system",
+          subtype: "task_updated",
+          task_id: "task-agent-terminal",
+          patch: {
+            status: "completed",
+            end_time: 1_775_969_368_152,
+          },
+          session_id: "sdk-session-taskoutput-dedupe",
+          uuid: "task-updated-dedupe",
+        } as unknown as SDKMessage);
+
+        harness.query.emit({
+          type: "user",
+          session_id: "sdk-session-taskoutput-dedupe",
+          uuid: "user-taskoutput-dedupe",
+          parent_tool_use_id: null,
+          tool_use_result: {
+            retrieval_status: "success",
+            task: {
+              task_id: "task-agent-terminal",
+              task_type: "local_agent",
+              status: "completed",
+              description: "Background agent is running",
+            },
+          },
+          message: {
+            role: "user",
+            content: [
+              {
+                type: "tool_result",
+                tool_use_id: "tool-taskoutput-2",
+                content: "",
+              },
+            ],
+          },
+        } as unknown as SDKMessage);
+        harness.query.finish();
+
+        yield* Effect.yieldNow;
+        yield* Effect.yieldNow;
+        yield* Effect.promise(() => new Promise((resolve) => setTimeout(resolve, 25)));
+        runtimeEventsFiber.interruptUnsafe();
+
+        const completedEvents = runtimeEvents.filter((event) => event.type === "task.completed");
+        const updatedEvents = runtimeEvents.filter((event) => event.type === "task.updated");
+
+        assert.deepEqual(completedEvents, []);
+        assert.equal(updatedEvents.length, 1);
+      }).pipe(
+        Effect.provideService(Random.Random, makeDeterministicRandomService()),
+        Effect.provide(harness.layer),
+      );
+    },
+  );
+
+  it.effect(
     "emits task.updated with terminal status patch and childThreadAttribution from task_started",
     () => {
       const harness = makeHarness();

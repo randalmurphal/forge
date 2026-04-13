@@ -278,8 +278,12 @@ export const startSession = (
     const activeSubagentTools = new Map<string, ActiveSubagentTool>();
     const taskAttributionByTaskId = new Map<
       string,
-      { toolUseId: string; childThreadAttribution: Record<string, unknown> }
+      {
+        toolUseId?: string | undefined;
+        childThreadAttribution?: Record<string, unknown> | undefined;
+      }
     >();
+    const terminalTaskIds = new Set<string>();
 
     let sessionContext: ClaudeSessionContext | undefined;
 
@@ -657,6 +661,7 @@ export const startSession = (
       inFlightTools,
       activeSubagentTools,
       taskAttributionByTaskId,
+      terminalTaskIds,
       turnState: undefined,
       lastKnownContextWindow: undefined,
       lastKnownTokenUsage: undefined,

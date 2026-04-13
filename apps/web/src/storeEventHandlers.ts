@@ -38,6 +38,13 @@ import {
   sidebarThreadSummariesEqual,
 } from "./storeSidebar";
 import {
+  applyActivityToWorkLogProjectionState,
+  applyLatestTurnToWorkLogProjectionState,
+  applyMessageToWorkLogProjectionState,
+  bootstrapWorkLogProjectionState,
+  type WorkLogProjectionState,
+} from "./session-logic";
+import {
   appendThreadIdByProjectId,
   buildLatestTurn,
   buildThreadIdsByProjectId,
@@ -76,6 +83,36 @@ const isSessionStatusChangedPayload = Schema.is(SessionStatusChangedPayload);
 const isSessionCompletedPayload = Schema.is(SessionCompletedPayload);
 const isSessionFailedPayload = Schema.is(SessionFailedPayload);
 const isSessionCancelledPayload = Schema.is(SessionCancelledPayload);
+
+function setThreadWorkLogState(
+  state: AppState,
+  threadId: Thread["id"],
+  workLogState: WorkLogProjectionState,
+): AppState {
+  const previous = state.threadWorkLogById?.[threadId];
+  if (previous === workLogState) {
+    return state;
+  }
+  return {
+    ...state,
+    threadWorkLogById: {
+      ...state.threadWorkLogById,
+      [threadId]: workLogState,
+    },
+  };
+}
+
+function deleteThreadWorkLogState(state: AppState, threadId: Thread["id"]): AppState {
+  if (!state.threadWorkLogById || !(threadId in state.threadWorkLogById)) {
+    return state;
+  }
+  const threadWorkLogById = { ...state.threadWorkLogById };
+  delete threadWorkLogById[threadId];
+  return {
+    ...state,
+    threadWorkLogById,
+  };
+}
 
 // ── Project events ───────────────────────────────────────────────────
 
@@ -254,12 +291,17 @@ function handleThreadLifecycleEvent(state: AppState, event: ForgeEvent): AppStat
         nextThread.projectId,
         nextThread.id,
       );
-      return {
+      const nextState = {
         ...state,
         threads,
         sidebarThreadsById,
         threadIdsByProjectId,
       };
+      return setThreadWorkLogState(
+        nextState,
+        nextThread.id,
+        bootstrapWorkLogProjectionState([], { latestTurn: nextThread.latestTurn, messages: [] }),
+      );
     }
 
     case "thread.deleted": {
@@ -277,12 +319,15 @@ function handleThreadLifecycleEvent(state: AppState, event: ForgeEvent): AppStat
             deletedThread.id,
           )
         : state.threadIdsByProjectId;
-      return {
-        ...state,
-        threads,
-        sidebarThreadsById,
-        threadIdsByProjectId,
-      };
+      return deleteThreadWorkLogState(
+        {
+          ...state,
+          threads,
+          sidebarThreadsById,
+          threadIdsByProjectId,
+        },
+        event.payload.threadId,
+      );
     }
 
     case "thread.archived": {
@@ -519,7 +564,7 @@ function handleMessageEvent(state: AppState, event: ForgeEvent): AppState | unde
       ) {
         return state;
       }
-      return updateThreadState(state, event.payload.threadId, (thread) => {
+      const nextState = updateThreadState(state, event.payload.threadId, (thread) => {
         const messageUpdatedAt = isThreadMessageSentPayload(event.payload)
           ? event.payload.updatedAt
           : event.payload.createdAt;
@@ -636,6 +681,31 @@ function handleMessageEvent(state: AppState, event: ForgeEvent): AppState | unde
           latestTurn,
         };
       });
+      const nextThread = nextState.threads.find((thread) => thread.id === event.payload.threadId);
+      if (!nextThread) {
+        return nextState;
+      }
+      const workLogState = nextState.threadWorkLogById?.[event.payload.threadId];
+      if (!workLogState) {
+        return nextState;
+      }
+      const latestMessage = nextThread.messages.find(
+        (message) => message.id === event.payload.messageId,
+      );
+      if (!latestMessage) {
+        return nextState;
+      }
+      let nextWorkLogState = workLogState;
+      if (latestMessage.role === "assistant") {
+        nextWorkLogState = applyMessageToWorkLogProjectionState(nextWorkLogState, latestMessage);
+      }
+      if (nextThread.latestTurn !== workLogState.latestTurn) {
+        nextWorkLogState = applyLatestTurnToWorkLogProjectionState(
+          nextWorkLogState,
+          nextThread.latestTurn,
+        );
+      }
+      return setThreadWorkLogState(nextState, event.payload.threadId, nextWorkLogState);
     }
   }
 
@@ -686,7 +756,7 @@ function handleTurnEvent(state: AppState, event: ForgeEvent): AppState | undefin
       if (!isSessionTurnStartedPayload(event.payload)) {
         return state;
       }
-      return updateThreadState(state, event.payload.threadId, (thread) => ({
+      const nextState = updateThreadState(state, event.payload.threadId, (thread) => ({
         ...patchThreadSession(thread, {
           status: "running",
           orchestrationStatus: "running",
@@ -710,13 +780,24 @@ function handleTurnEvent(state: AppState, event: ForgeEvent): AppState | undefin
           sourceProposedPlan: thread.pendingSourceProposedPlan,
         }),
       }));
+      const latestTurn =
+        nextState.threads.find((thread) => thread.id === event.payload.threadId)?.latestTurn ??
+        null;
+      const workLogState = nextState.threadWorkLogById?.[event.payload.threadId];
+      return workLogState
+        ? setThreadWorkLogState(
+            nextState,
+            event.payload.threadId,
+            applyLatestTurnToWorkLogProjectionState(workLogState, latestTurn),
+          )
+        : nextState;
     }
 
     case "thread.turn-completed": {
       if (!isSessionTurnCompletedPayload(event.payload)) {
         return state;
       }
-      return updateThreadState(state, event.payload.threadId, (thread) => ({
+      const nextState = updateThreadState(state, event.payload.threadId, (thread) => ({
         ...patchThreadSession(thread, {
           status: "ready",
           orchestrationStatus: "ready",
@@ -737,13 +818,24 @@ function handleTurnEvent(state: AppState, event: ForgeEvent): AppState | undefin
               })
             : thread.latestTurn,
       }));
+      const latestTurn =
+        nextState.threads.find((thread) => thread.id === event.payload.threadId)?.latestTurn ??
+        null;
+      const workLogState = nextState.threadWorkLogById?.[event.payload.threadId];
+      return workLogState
+        ? setThreadWorkLogState(
+            nextState,
+            event.payload.threadId,
+            applyLatestTurnToWorkLogProjectionState(workLogState, latestTurn),
+          )
+        : nextState;
     }
 
     case "thread.turn-restarted": {
       if (!isSessionTurnRestartedPayload(event.payload)) {
         return state;
       }
-      return updateThreadState(state, event.payload.threadId, (thread) => ({
+      const nextState = updateThreadState(state, event.payload.threadId, (thread) => ({
         ...patchThreadSession(thread, {
           status: "ready",
           orchestrationStatus: "interrupted",
@@ -760,6 +852,17 @@ function handleTurnEvent(state: AppState, event: ForgeEvent): AppState | undefin
                 completedAt: event.payload.restartedAt,
               },
       }));
+      const latestTurn =
+        nextState.threads.find((thread) => thread.id === event.payload.threadId)?.latestTurn ??
+        null;
+      const workLogState = nextState.threadWorkLogById?.[event.payload.threadId];
+      return workLogState
+        ? setThreadWorkLogState(
+            nextState,
+            event.payload.threadId,
+            applyLatestTurnToWorkLogProjectionState(workLogState, latestTurn),
+          )
+        : nextState;
     }
   }
 
@@ -877,7 +980,7 @@ function handleDiffEvent(state: AppState, event: ForgeEvent): AppState | undefin
 function handleActivityEvent(state: AppState, event: ForgeEvent): AppState | undefined {
   switch (event.type) {
     case "thread.activity-appended": {
-      return updateThreadState(state, event.payload.threadId, (thread) => {
+      const nextState = updateThreadState(state, event.payload.threadId, (thread) => {
         const activities = [
           ...thread.activities.filter((activity) => activity.id !== event.payload.activity.id),
           { ...event.payload.activity },
@@ -889,6 +992,14 @@ function handleActivityEvent(state: AppState, event: ForgeEvent): AppState | und
           activities,
         };
       });
+      const workLogState = nextState.threadWorkLogById?.[event.payload.threadId];
+      return workLogState
+        ? setThreadWorkLogState(
+            nextState,
+            event.payload.threadId,
+            applyActivityToWorkLogProjectionState(workLogState, event.payload.activity),
+          )
+        : nextState;
     }
   }
 
@@ -1072,6 +1183,15 @@ export function syncServerReadModel(state: AppState, readModel: OrchestrationRea
   const threads = readModel.threads
     .filter((thread) => thread.deletedAt === null)
     .map((thread) => mapThread(thread, readModel.pendingRequests));
+  const threadWorkLogById = Object.fromEntries(
+    threads.map((thread) => [
+      thread.id,
+      bootstrapWorkLogProjectionState(thread.activities, {
+        messages: thread.messages,
+        latestTurn: thread.latestTurn,
+      }),
+    ]),
+  );
   const sidebarThreadsById = buildSidebarThreadsById(threads);
   const threadIdsByProjectId = buildThreadIdsByProjectId(threads);
   return {
@@ -1080,6 +1200,7 @@ export function syncServerReadModel(state: AppState, readModel: OrchestrationRea
     threads,
     sidebarThreadsById,
     threadIdsByProjectId,
+    threadWorkLogById,
     bootstrapComplete: true,
   };
 }

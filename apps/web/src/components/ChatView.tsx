@@ -48,6 +48,7 @@ import {
   deriveCompletionDividerBeforeEntryId,
   deriveBackgroundTrayState,
   filterTrayOwnedWorkEntries,
+  type WorkLogEntry,
   derivePendingApprovals,
   derivePendingUserInputs,
   derivePhase,
@@ -56,7 +57,6 @@ import {
   deriveActivePlanState,
   findSidebarProposedPlan,
   findLatestProposedPlan,
-  deriveWorkLogEntries,
   hasActionableProposedPlan,
   hasToolActivityForTurn,
   isLatestTurnSettled,
@@ -225,6 +225,7 @@ const IMAGE_SIZE_LIMIT_LABEL = `${Math.round(PROVIDER_SEND_TURN_MAX_IMAGE_BYTES 
 const IMAGE_ONLY_BOOTSTRAP_PROMPT =
   "[User attached one or more images without additional text. Respond using the conversation context and the attached image(s).]";
 const EMPTY_ACTIVITIES: OrchestrationThreadActivity[] = [];
+const EMPTY_WORK_LOG_ENTRIES: WorkLogEntry[] = [];
 const EMPTY_PROJECT_ENTRIES: ProjectEntry[] = [];
 const EMPTY_PROVIDERS: ServerProvider[] = [];
 const EMPTY_PENDING_USER_INPUT_ANSWERS: Record<string, PendingUserInputDraftAnswer> = {};
@@ -882,6 +883,9 @@ export default function ChatView({ threadId }: ChatViewProps) {
     [draftThread, fallbackDraftProject?.defaultModelSelection, localDraftError, threadId],
   );
   const activeThread = serverThread ?? localDraftThread;
+  const threadWorkLog = useStore((state) =>
+    activeThread?.id ? state.threadWorkLogById?.[activeThread.id] : undefined,
+  );
   const childThreads = useThreadsByIds(activeThread?.childThreadIds);
   const forkedFromThread = useThreadById(activeThread?.forkedFromThreadId);
   const onNavigateToForkedSource = useMemo(() => {
@@ -1140,16 +1144,7 @@ export default function ChatView({ threadId }: ChatViewProps) {
       : "ready"
     : derivePhase(activeThread?.session ?? null);
   const threadActivities = activeThread?.activities ?? EMPTY_ACTIVITIES;
-  const workLogEntries = useMemo(
-    () =>
-      deriveWorkLogEntries(threadActivities, {
-        scope: "all-turns",
-        latestTurnId: activeLatestTurn?.turnId ?? undefined,
-        messages: activeThread?.messages,
-        latestTurn: activeLatestTurn,
-      }),
-    [activeLatestTurn, activeThread?.messages, threadActivities],
-  );
+  const workLogEntries = threadWorkLog?.entries ?? EMPTY_WORK_LOG_ENTRIES;
   const latestTurnHasToolActivity = useMemo(
     () => hasToolActivityForTurn(threadActivities, activeLatestTurn?.turnId),
     [activeLatestTurn?.turnId, threadActivities],

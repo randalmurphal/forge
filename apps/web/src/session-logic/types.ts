@@ -262,6 +262,42 @@ export interface CodexBackgroundCommandCandidate {
   backgrounded: boolean;
 }
 
+export interface ChildThreadMetadata {
+  label?: string | undefined;
+  description?: string | undefined;
+  prompt?: string | undefined;
+  agentType?: string | undefined;
+  agentModel?: string | undefined;
+}
+
+export interface WorkLogProjectionState {
+  entries: WorkLogEntry[];
+  latestTurn: LatestTurnTiming | null;
+  activeLifecycleEntryIdByKey: Map<string, string>;
+  commandLaunchEntryIdByToolCallId: Map<string, string>;
+  backgroundCompletionEntryIdByToolCallId: Map<string, string>;
+  streamedOutputByToolCallId: Map<string, string>;
+  streamedOutputPresenceByToolCallId: Set<string>;
+  providerBackgroundTaskByTaskId: Map<string, ProviderBackgroundTaskSignal>;
+  providerBackgroundTaskByToolUseId: Map<string, ProviderBackgroundTaskSignal>;
+  codexCandidatesByToolCallId: Map<string, CodexBackgroundCommandCandidate>;
+  openCodexCandidateIdsByTurnId: Map<string, Set<string>>;
+  openCodexCandidateIdsByProcessId: Map<string, Set<string>>;
+  codexBackgroundReasonsByToolCallId: Map<string, string>;
+  realChildTaskStarts: Set<string>;
+  realChildTaskTerminals: Set<string>;
+  knownChildThreadIds: Set<string>;
+  childThreadMetadataById: Map<string, ChildThreadMetadata>;
+  taskContextByTaskId: Map<
+    string,
+    {
+      toolUseId?: string | undefined;
+      childThreadAttribution?: Record<string, unknown> | undefined;
+    }
+  >;
+  terminalTaskIds: Set<string>;
+}
+
 /** Max child entries to retain on a parent entry's subagentGroupMeta.fallbackEntries for
  *  immediate display before the lazy RPC feed loads. */
 export const SUBAGENT_FALLBACK_ENTRY_LIMIT = 20;

@@ -138,8 +138,13 @@ export interface ClaudeSessionContext {
    *  Used by task_updated (which carries task_id but no tool_use_id) to resolve childThreadAttribution. */
   readonly taskAttributionByTaskId: Map<
     string,
-    { toolUseId: string; childThreadAttribution: Record<string, unknown> }
+    {
+      toolUseId?: string | undefined;
+      childThreadAttribution?: Record<string, unknown> | undefined;
+    }
   >;
+  /** Tracks tasks that have already reached a terminal state so late TaskOutput polls do not emit duplicates. */
+  readonly terminalTaskIds: Set<string>;
   turnState: ClaudeTurnState | undefined;
   lastKnownContextWindow: number | undefined;
   lastKnownTokenUsage: ThreadTokenUsageSnapshot | undefined;

@@ -33,6 +33,10 @@ export function isCodexControlCollabTool(toolName: string | null | undefined): b
   return toolName === "sendInput" || toolName === "wait";
 }
 
+function isCodexSpawnCollabTool(toolName: string | null | undefined): boolean {
+  return toolName?.toLowerCase() === "spawnagent";
+}
+
 export function extractCollabControlToolName(
   payload: Record<string, unknown> | null | undefined,
 ): string | null | undefined {
@@ -659,12 +663,27 @@ export function enrichParentEntriesWithSubagentGroupMetadata(
     groupByChildThreadId.set(group.childProviderThreadId, group);
   }
 
+  const preferredCodexParentIdByChildThreadId = new Map<string, string>();
+  for (const entry of standalone) {
+    if (entry.itemType !== "collab_agent_tool_call" || !isCodexSpawnCollabTool(entry.toolName)) {
+      continue;
+    }
+
+    for (const childThreadId of entry.receiverThreadIds ?? []) {
+      if (!preferredCodexParentIdByChildThreadId.has(childThreadId)) {
+        preferredCodexParentIdByChildThreadId.set(childThreadId, entry.id);
+      }
+    }
+  }
+
   const completionEntries: WorkLogEntry[] = [];
 
   const enrichedEntries = standalone.map((entry) => {
     if (entry.itemType !== "collab_agent_tool_call") {
       return entry;
     }
+
+    const isCodexSpawnEntry = isCodexSpawnCollabTool(entry.toolName);
 
     // Claude: toolCallId IS the childProviderThreadId
     const claudeMatch = entry.toolCallId ? groupByChildThreadId.get(entry.toolCallId) : undefined;
@@ -673,6 +692,11 @@ export function enrichParentEntriesWithSubagentGroupMetadata(
     const codexMatches: SubagentGroup[] = [];
     if (!claudeMatch && entry.receiverThreadIds) {
       for (const threadId of entry.receiverThreadIds) {
+        const preferredParentId = preferredCodexParentIdByChildThreadId.get(threadId);
+        if (preferredParentId && preferredParentId !== entry.id) {
+          continue;
+        }
+
         const group = groupByChildThreadId.get(threadId);
         if (group) {
           codexMatches.push(group);
@@ -708,11 +732,10 @@ export function enrichParentEntriesWithSubagentGroupMetadata(
         ? matchedGroup.entries
         : matchedGroup.entries.slice(-SUBAGENT_FALLBACK_ENTRY_LIMIT);
 
-    const isBackground = entry.isBackgroundCommand === true;
+    const isBackground = entry.isBackgroundCommand === true || isCodexSpawnEntry;
     const isTerminal = matchedGroup.status === "completed" || matchedGroup.status === "failed";
 
-    const enrichedEntry: WorkLogEntry = {
-      ...entry,
+    const enrichedEntry: WorkLogEntry = Object.assign({}, entry, {
       subagentGroupMeta: {
         childProviderThreadId: matchedGroup.childProviderThreadId,
         status: matchedGroup.status,
@@ -721,14 +744,15 @@ export function enrichParentEntriesWithSubagentGroupMetadata(
         recordedActionCount: matchedGroup.recordedActionCount,
         fallbackEntries,
       },
-      // Backfill agent metadata from the group onto the parent entry if missing
       agentDescription: entry.agentDescription ?? matchedGroup.agentDescription,
       agentPrompt: entry.agentPrompt ?? matchedGroup.agentPrompt,
       agentType: entry.agentType ?? matchedGroup.agentType,
       agentModel: entry.agentModel ?? matchedGroup.agentModel,
-      // For background agents, the spawn row is the "launch" half — the completion is separate.
-      ...(isBackground ? { backgroundLifecycleRole: "launch" as const } : {}),
-    };
+    });
+    if (isBackground) {
+      enrichedEntry.isBackgroundCommand = true;
+      enrichedEntry.backgroundLifecycleRole = "launch";
+    }
 
     // Background agents that have completed get a separate completion entry in the timeline,
     // mirroring how background commands produce a completion row at the time they finish.

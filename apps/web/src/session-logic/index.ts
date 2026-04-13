@@ -22,6 +22,7 @@ export type {
   ProviderBackgroundTaskSignal,
   BackgroundCommandCompletionSignal,
   CodexBackgroundCommandCandidate,
+  WorkLogProjectionState,
 } from "./types";
 export {
   PROVIDER_OPTIONS,
@@ -115,6 +116,14 @@ export {
 
 // Work log pipeline
 export { deriveWorkLogEntries } from "./workLogPipeline";
+export {
+  createEmptyWorkLogProjectionState,
+  bootstrapWorkLogProjectionState,
+  applyActivityToWorkLogProjectionState,
+  applyMessageToWorkLogProjectionState,
+  applyLatestTurnToWorkLogProjectionState,
+  deriveProjectedWorkLogEntries,
+} from "./projector";
 
 // Timeline
 export {

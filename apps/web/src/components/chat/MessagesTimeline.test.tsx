@@ -515,6 +515,64 @@ describe("MessagesTimeline", () => {
     expect(markup).toContain("lucide-check");
   });
 
+  it("renders only one completed badge for wait agent rows with subagent metadata", async () => {
+    const { MessagesTimeline } = await import("./MessagesTimeline");
+    const markup = renderTimeline(
+      <MessagesTimeline
+        threadId={null}
+        hasMessages
+        isWorking={false}
+        activeTurnInProgress={false}
+        activeTurnStartedAt={null}
+        scrollContainer={null}
+        timelineEntries={[
+          {
+            id: "wait-entry",
+            kind: "work",
+            createdAt: "2026-03-17T19:12:28.000Z",
+            entry: {
+              id: "wait-1",
+              createdAt: "2026-03-17T19:12:28.000Z",
+              label: "Wait agent",
+              tone: "tool",
+              itemType: "collab_agent_tool_call",
+              toolName: "wait",
+              itemStatus: "completed",
+              agentDescription: "Inspect the parser",
+              agentModel: "gpt-5.4-mini",
+              receiverThreadIds: ["child-thread-inline"],
+              subagentGroupMeta: {
+                childProviderThreadId: "child-thread-inline",
+                status: "completed",
+                startedAt: "2026-03-17T19:12:00.000Z",
+                completedAt: "2026-03-17T19:12:28.000Z",
+                recordedActionCount: 1,
+                fallbackEntries: [],
+              },
+            },
+          },
+        ]}
+        completionDividerBeforeEntryId={null}
+        completionSummary={null}
+        turnDiffSummaryByAssistantMessageId={new Map()}
+        nowIso="2026-03-17T19:12:30.000Z"
+        expandedWorkGroups={{}}
+        onToggleWorkGroup={() => {}}
+        onOpenTurnDiff={() => {}}
+        revertTurnCountByUserMessageId={new Map()}
+        onRevertUserMessage={() => {}}
+        isRevertingCheckpoint={false}
+        onImageExpand={() => {}}
+        markdownCwd={undefined}
+        resolvedTheme="light"
+        timestampFormat="locale"
+        workspaceRoot={undefined}
+      />,
+    );
+
+    expect(markup.match(/lucide-check/g)).toHaveLength(1);
+  });
+
   it("renders the command output chevron for command rows but not non-command rows", async () => {
     const { MessagesTimeline } = await import("./MessagesTimeline");
     const commandMarkup = renderTimeline(

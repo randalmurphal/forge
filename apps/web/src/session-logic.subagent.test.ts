@@ -955,10 +955,67 @@ describe("enrichParentEntriesWithSubagentGroupMetadata", () => {
 
     const result = enrichParentEntriesWithSubagentGroupMetadata(entries);
 
-    expect(result).toHaveLength(1);
+    expect(result).toHaveLength(2);
+    expect(result[0]).toMatchObject({
+      id: "codex-spawn",
+      isBackgroundCommand: true,
+      backgroundLifecycleRole: "launch",
+    });
     expect(result[0]!.subagentGroupMeta).toBeDefined();
     expect(result[0]!.subagentGroupMeta!.childProviderThreadId).toBe("child-thread-1");
     expect(result[0]!.subagentGroupMeta!.status).toBe("completed");
+    expect(result[1]).toMatchObject({
+      id: "codex-spawn:background-agent-completed",
+      backgroundLifecycleRole: "completion",
+      itemStatus: "completed",
+    });
+  });
+
+  it("prefers the Codex spawn row over wait rows for subagent ownership", () => {
+    const entries: WorkLogEntry[] = [
+      makeEntry({
+        id: "codex-spawn",
+        itemType: "collab_agent_tool_call",
+        toolName: "spawnAgent",
+        receiverThreadIds: ["child-thread-1"],
+        itemStatus: "completed",
+      }),
+      makeEntry({
+        id: "codex-wait",
+        itemType: "collab_agent_tool_call",
+        toolName: "wait",
+        receiverThreadIds: ["child-thread-1"],
+        itemStatus: "completed",
+      }),
+      makeEntry({
+        id: "child-started",
+        activityKind: "task.started",
+        label: "Task started",
+        tone: "info",
+        childThreadAttribution: { taskId: "task-1", childProviderThreadId: "child-thread-1" },
+      }),
+      makeEntry({
+        id: "child-completed",
+        activityKind: "task.completed",
+        label: "Task completed",
+        tone: "info",
+        itemStatus: "completed",
+        completedAt: "2026-04-01T00:00:03.000Z",
+        childThreadAttribution: { taskId: "task-1", childProviderThreadId: "child-thread-1" },
+      }),
+    ];
+
+    const result = enrichParentEntriesWithSubagentGroupMetadata(entries);
+    const spawnEntry = result.find((entry) => entry.id === "codex-spawn");
+    const waitEntry = result.find((entry) => entry.id === "codex-wait");
+
+    expect(spawnEntry?.subagentGroupMeta).toMatchObject({
+      childProviderThreadId: "child-thread-1",
+      status: "completed",
+    });
+    expect(spawnEntry?.isBackgroundCommand).toBe(true);
+    expect(spawnEntry?.backgroundLifecycleRole).toBe("launch");
+    expect(waitEntry?.subagentGroupMeta).toBeUndefined();
   });
 
   it("leaves non-agent entries and unmatched agent entries unchanged", () => {
@@ -1189,6 +1246,57 @@ describe("enrichParentEntriesWithSubagentGroupMetadata", () => {
     expect(completion.agentModel).toBe("opus");
     expect(completion.agentDescription).toBe("Research task");
     expect(completion.subagentGroupMeta).toBeUndefined();
+  });
+
+  it("treats Codex spawn rows with matched child groups as background launches", () => {
+    const entries: WorkLogEntry[] = [
+      makeEntry({
+        id: "codex-spawn",
+        createdAt: "2026-04-01T00:00:00.000Z",
+        itemType: "collab_agent_tool_call",
+        toolName: "spawnAgent",
+        receiverThreadIds: ["child-thread-1"],
+        agentDescription: "Inspect parser",
+        agentModel: "gpt-5.4-mini",
+      }),
+      makeEntry({
+        id: "child-started",
+        createdAt: "2026-04-01T00:00:01.000Z",
+        activityKind: "task.started",
+        label: "Task started",
+        tone: "info",
+        startedAt: "2026-04-01T00:00:01.000Z",
+        childThreadAttribution: { taskId: "task-1", childProviderThreadId: "child-thread-1" },
+      }),
+      makeEntry({
+        id: "child-completed",
+        createdAt: "2026-04-01T00:00:10.000Z",
+        activityKind: "task.completed",
+        label: "Task completed",
+        tone: "info",
+        itemStatus: "completed",
+        completedAt: "2026-04-01T00:00:10.000Z",
+        childThreadAttribution: { taskId: "task-1", childProviderThreadId: "child-thread-1" },
+      }),
+    ];
+
+    const result = enrichParentEntriesWithSubagentGroupMetadata(entries);
+
+    expect(result).toHaveLength(2);
+    expect(result[0]).toMatchObject({
+      id: "codex-spawn",
+      isBackgroundCommand: true,
+      backgroundLifecycleRole: "launch",
+      subagentGroupMeta: {
+        childProviderThreadId: "child-thread-1",
+        status: "completed",
+      },
+    });
+    expect(result[1]).toMatchObject({
+      id: "codex-spawn:background-agent-completed",
+      backgroundLifecycleRole: "completion",
+      itemStatus: "completed",
+    });
   });
 
   it("emits a failed completion entry for failed background agents", () => {

@@ -17,6 +17,7 @@ import {
   RuntimeTaskId,
 } from "@forgetools/contracts";
 import type { SDKResultMessage } from "@anthropic-ai/claude-agent-sdk";
+import { asRecord, asTrimmedString } from "@forgetools/shared/narrowing";
 import { Effect, Random } from "effect";
 
 import { ProviderAdapterValidationError } from "../../Errors.ts";
@@ -647,8 +648,6 @@ export const completeTurn = Effect.fn("completeTurn")(function* (
   }
   // Clear any remaining stale entries (e.g. from interrupted content blocks)
   context.inFlightTools.clear();
-  context.activeSubagentTools.clear();
-  context.taskAttributionByTaskId.clear();
 
   for (const block of turnState.assistantTextBlockOrder) {
     yield* completeAssistantTextBlock(ctx, context, block, {
@@ -1136,6 +1135,44 @@ export const handleUserMessage = Effect.fn("handleUserMessage")(function* (
       },
     });
 
+    const taskOutputTerminal = extractTaskOutputTerminalResult(
+      tool.toolName,
+      toolData.toolUseResult,
+    );
+    if (taskOutputTerminal && !context.terminalTaskIds.has(taskOutputTerminal.taskId)) {
+      context.terminalTaskIds.add(taskOutputTerminal.taskId);
+      const taskAttribution = context.taskAttributionByTaskId.get(taskOutputTerminal.taskId);
+      const taskCompletedStamp = yield* ctx.makeEventStamp();
+      yield* ctx.offerRuntimeEvent({
+        type: "task.completed",
+        eventId: taskCompletedStamp.eventId,
+        provider: PROVIDER,
+        createdAt: taskCompletedStamp.createdAt,
+        threadId: context.session.threadId,
+        ...(context.turnState ? { turnId: asCanonicalTurnId(context.turnState.turnId) } : {}),
+        payload: {
+          taskId: RuntimeTaskId.makeUnsafe(taskOutputTerminal.taskId),
+          status: taskOutputTerminal.status,
+          ...(taskAttribution?.toolUseId ? { toolUseId: taskAttribution.toolUseId } : {}),
+          ...(taskOutputTerminal.description ? { summary: taskOutputTerminal.description } : {}),
+          ...(taskOutputTerminal.outputFile ? { outputFile: taskOutputTerminal.outputFile } : {}),
+          ...(taskAttribution?.childThreadAttribution
+            ? { childThreadAttribution: taskAttribution.childThreadAttribution }
+            : {}),
+        },
+        providerRefs: nativeProviderRefs(context, { providerItemId: tool.itemId }),
+        raw: {
+          source: "claude.sdk.message",
+          method: "claude/user",
+          payload: message,
+        },
+      });
+      context.taskAttributionByTaskId.delete(taskOutputTerminal.taskId);
+      if (taskAttribution?.toolUseId) {
+        context.activeSubagentTools.delete(taskAttribution.toolUseId);
+      }
+    }
+
     if (tool.itemType === "collab_agent_tool_call") {
       const keepTracking = shouldKeepClaudeSubagentTrackingAfterToolResult({
         tool,
@@ -1149,6 +1186,58 @@ export const handleUserMessage = Effect.fn("handleUserMessage")(function* (
     context.inFlightTools.delete(index);
   }
 });
+
+function normalizeTaskOutputTerminalStatus(
+  status: string | undefined,
+): "completed" | "failed" | undefined {
+  switch (status) {
+    case "completed":
+      return "completed";
+    case "failed":
+    case "error":
+    case "errored":
+    case "stopped":
+    case "killed":
+    case "interrupted":
+      return "failed";
+    default:
+      return undefined;
+  }
+}
+
+function extractTaskOutputTerminalResult(
+  toolName: string,
+  toolUseResult: unknown,
+): {
+  taskId: string;
+  status: "completed" | "failed";
+  description?: string;
+  prompt?: string;
+  outputFile?: string;
+} | null {
+  if (toolName !== "TaskOutput") {
+    return null;
+  }
+  const resolvedTask = asRecord(asRecord(toolUseResult)?.task);
+  const taskId = asTrimmedString(resolvedTask?.task_id) ?? asTrimmedString(resolvedTask?.taskId);
+  const status = normalizeTaskOutputTerminalStatus(
+    asTrimmedString(resolvedTask?.status) ?? undefined,
+  );
+  if (!taskId || !status) {
+    return null;
+  }
+  const description = asTrimmedString(resolvedTask?.description);
+  const prompt = asTrimmedString(resolvedTask?.prompt);
+  const outputFile =
+    asTrimmedString(resolvedTask?.output_file) ?? asTrimmedString(resolvedTask?.outputFile);
+  return {
+    taskId,
+    status,
+    ...(description ? { description } : {}),
+    ...(prompt ? { prompt } : {}),
+    ...(outputFile ? { outputFile } : {}),
+  };
+}
 
 export const handleAssistantMessage = Effect.fn("handleAssistantMessage")(function* (
   ctx: ClaudeAdapterContext,
@@ -1416,11 +1505,12 @@ export const handleSystemMessage = Effect.fn("handleSystemMessage")(function* (
           attribution: taskStartedAttribution ?? null,
         },
       });
-      // Store attribution by task_id so task_updated (which lacks tool_use_id) can resolve it.
-      if (taskStartedAttribution) {
+      // Store task ownership by task_id so later task_updated / TaskOutput events can recover the
+      // original tool_use_id. childThreadAttribution is only present for spawned agents.
+      if (taskToolUseId || taskStartedAttribution) {
         context.taskAttributionByTaskId.set(message.task_id, {
-          toolUseId: taskToolUseId ?? message.task_id,
-          childThreadAttribution: taskStartedAttribution,
+          ...(taskToolUseId ? { toolUseId: taskToolUseId } : {}),
+          ...(taskStartedAttribution ? { childThreadAttribution: taskStartedAttribution } : {}),
         });
       }
       const sdkPrompt = (message as Record<string, unknown>).prompt;
@@ -1464,10 +1554,13 @@ export const handleSystemMessage = Effect.fn("handleSystemMessage")(function* (
       }
       const taskProgressAttribution = buildChildThreadAttribution(context, sdkToolUseId(message));
       // Backfill attribution if task_started was missed (e.g. during reconnect).
-      if (taskProgressAttribution && !context.taskAttributionByTaskId.has(message.task_id)) {
+      if (
+        (message.tool_use_id || taskProgressAttribution) &&
+        !context.taskAttributionByTaskId.has(message.task_id)
+      ) {
         context.taskAttributionByTaskId.set(message.task_id, {
-          toolUseId: sdkToolUseId(message) ?? message.task_id,
-          childThreadAttribution: taskProgressAttribution,
+          ...(message.tool_use_id ? { toolUseId: message.tool_use_id } : {}),
+          ...(taskProgressAttribution ? { childThreadAttribution: taskProgressAttribution } : {}),
         });
       }
       yield* ctx.offerRuntimeEvent({
@@ -1519,6 +1612,7 @@ export const handleSystemMessage = Effect.fn("handleSystemMessage")(function* (
           ...(taskCompletedAttribution ? { childThreadAttribution: taskCompletedAttribution } : {}),
         },
       });
+      context.terminalTaskIds.add(message.task_id);
       if (message.tool_use_id) {
         context.activeSubagentTools.delete(message.tool_use_id);
       }
@@ -1596,7 +1690,7 @@ export const handleSystemMessage = Effect.fn("handleSystemMessage")(function* (
         payload: {
           taskId: RuntimeTaskId.makeUnsafe(message.task_id),
           patch: patchPayload,
-          ...(taskUpdatedAttribution
+          ...(taskUpdatedAttribution?.childThreadAttribution
             ? { childThreadAttribution: taskUpdatedAttribution.childThreadAttribution }
             : {}),
         },
@@ -1606,6 +1700,10 @@ export const handleSystemMessage = Effect.fn("handleSystemMessage")(function* (
         taskUpdatedPatch.status === "failed" ||
         taskUpdatedPatch.status === "killed";
       if (isTerminal) {
+        context.terminalTaskIds.add(message.task_id);
+        if (taskUpdatedAttribution?.toolUseId) {
+          context.activeSubagentTools.delete(taskUpdatedAttribution.toolUseId);
+        }
         context.taskAttributionByTaskId.delete(message.task_id);
       }
       return;
