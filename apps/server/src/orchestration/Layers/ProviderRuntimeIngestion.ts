@@ -4,17 +4,20 @@ import path from "node:path";
 import {
   type AssistantDeliveryMode,
   CommandId,
+  EventId,
+  InteractiveRequestId,
   MessageId,
   type OrchestrationProposedPlanId,
+  type OrchestrationThreadActivity,
   type OrchestrationToolInlineDiff,
+  type ProviderRuntimeEvent,
   CheckpointRef,
   ThreadId,
   TurnId,
-  type OrchestrationThreadActivity,
-  type ProviderRuntimeEvent,
 } from "@forgetools/contracts";
 import { Cache, Cause, Effect, Layer, Option, Stream } from "effect";
 import { makeDrainableWorker } from "@forgetools/shared/DrainableWorker";
+import { asArray, asRecord, asString, asTrimmedString } from "@forgetools/shared/narrowing";
 import { CheckpointStore } from "../../checkpointing/Services/CheckpointStore.ts";
 import { ProviderService } from "../../provider/Services/ProviderService.ts";
 import { ProjectionAgentDiffRepositoryLive } from "../../persistence/Layers/ProjectionAgentDiffs.ts";
@@ -87,6 +90,129 @@ appendServerDebugRecord({
 const bufferedAssistantChunkKey = (event: ProviderRuntimeEvent): string =>
   String(event.itemId ?? event.turnId ?? event.eventId);
 
+function interactiveRequestTypeFromRuntimeEvent(
+  event: ProviderRuntimeEvent,
+): "approval" | "user-input" | "permission" | "mcp-elicitation" | undefined {
+  if (
+    event.type === "request.opened" ||
+    event.type === "request.resolved" ||
+    event.type === "user-input.requested" ||
+    event.type === "user-input.resolved"
+  ) {
+    const requestType =
+      event.type === "user-input.requested" || event.type === "user-input.resolved"
+        ? "tool_user_input"
+        : event.payload.requestType;
+    switch (requestType) {
+      case "command_execution_approval":
+      case "file_read_approval":
+      case "file_change_approval":
+      case "apply_patch_approval":
+      case "exec_command_approval":
+        return "approval";
+      case "tool_user_input":
+        return "user-input";
+      case "permission_approval":
+        return "permission";
+      case "mcp_elicitation":
+        return "mcp-elicitation";
+      default:
+        return undefined;
+    }
+  }
+  return undefined;
+}
+
+function isCodexControlCollabTool(toolName: string | null | undefined): boolean {
+  return toolName === "sendInput" || toolName === "wait";
+}
+
+function normalizeCodexCollabAgentTerminalStatus(
+  status: string | null | undefined,
+): "running" | "completed" | "failed" {
+  switch (status) {
+    case "completed":
+    case "shutdown":
+      return "completed";
+    case "failed":
+    case "errored":
+    case "interrupted":
+    case "notFound":
+      return "failed";
+    default:
+      return "running";
+  }
+}
+
+function toMcpElicitationQuestions(value: unknown):
+  | Array<{
+      id: string;
+      header: string;
+      question: string;
+      options: Array<{ label: string; description: string }>;
+      multiSelect?: boolean | undefined;
+    }>
+  | undefined {
+  const questions = asArray(value);
+  if (!questions) {
+    return undefined;
+  }
+
+  const parsedQuestions = questions
+    .map((entry) => {
+      const question = asRecord(entry);
+      if (!question) {
+        return undefined;
+      }
+      const id = asTrimmedString(question.id);
+      const header = asTrimmedString(question.header);
+      const prompt = asTrimmedString(question.question);
+      const options = asArray(question.options)
+        ?.map((option) => {
+          const optionRecord = asRecord(option);
+          const label = asTrimmedString(optionRecord?.label);
+          const description = asTrimmedString(optionRecord?.description);
+          if (!label || !description) {
+            return undefined;
+          }
+          return { label, description };
+        })
+        .filter((option): option is { label: string; description: string } => option !== undefined);
+      if (!id || !header || !prompt || !options || options.length === 0) {
+        return undefined;
+      }
+      const parsedQuestion: {
+        id: string;
+        header: string;
+        question: string;
+        options: Array<{ label: string; description: string }>;
+        multiSelect?: boolean | undefined;
+      } = {
+        id,
+        header,
+        question: prompt,
+        options,
+      };
+      if (question.multiSelect === true) {
+        parsedQuestion.multiSelect = true;
+      }
+      return parsedQuestion;
+    })
+    .filter(
+      (
+        question,
+      ): question is {
+        id: string;
+        header: string;
+        question: string;
+        options: Array<{ label: string; description: string }>;
+        multiSelect?: boolean | undefined;
+      } => question !== undefined,
+    );
+
+  return parsedQuestions.length > 0 ? parsedQuestions : undefined;
+}
+
 const make = Effect.fn("make")(function* () {
   const orchestrationEngine = yield* OrchestrationEngineService;
   const providerService = yield* ProviderService;
@@ -122,6 +248,341 @@ const make = Effect.fn("make")(function* () {
     readonly updatedAt: string;
   };
   const bufferedAssistantChunkByThreadId = new Map<ThreadId, BufferedAssistantChunk>();
+  const dispatchForgeCommand = (command: unknown) =>
+    orchestrationEngine.dispatch(command as Parameters<typeof orchestrationEngine.dispatch>[0]);
+  const interactiveRequestIdFromRuntimeEvent = (
+    event: ProviderRuntimeEvent,
+  ): InteractiveRequestId | undefined =>
+    event.requestId ? InteractiveRequestId.makeUnsafe(String(event.requestId)) : undefined;
+
+  const interactiveRequestPayloadFromRuntimeEvent = (
+    event: Extract<ProviderRuntimeEvent, { type: "request.opened" | "user-input.requested" }>,
+  ) => {
+    if (event.type === "user-input.requested") {
+      return {
+        type: "user-input" as const,
+        questions: event.payload.questions,
+      };
+    }
+
+    const requestType = interactiveRequestTypeFromRuntimeEvent(event);
+    const args = asRecord(event.payload.args);
+    const requestArgs = args ?? {};
+    switch (requestType) {
+      case "approval":
+        return {
+          type: "approval" as const,
+          requestType: event.payload.requestType,
+          detail: event.payload.detail ?? "",
+          toolName:
+            event.payload.requestType === "apply_patch_approval"
+              ? "apply_patch"
+              : event.payload.requestType === "exec_command_approval"
+                ? "exec_command"
+                : event.payload.requestType === "file_read_approval"
+                  ? "file_read"
+                  : event.payload.requestType === "file_change_approval"
+                    ? "file_change"
+                    : "command_execution",
+          toolInput: requestArgs,
+        };
+      case "permission":
+        return {
+          type: "permission" as const,
+          reason: typeof requestArgs.reason === "string" ? requestArgs.reason : null,
+          permissions:
+            asRecord(requestArgs.permissions) !== undefined
+              ? requestArgs.permissions
+              : {
+                  network: null,
+                  fileSystem: null,
+                },
+        };
+      case "mcp-elicitation": {
+        const serverName = asTrimmedString(requestArgs.serverName) ?? "mcp";
+        const message = asString(requestArgs.message) ?? "";
+        const meta = requestArgs._meta ?? requestArgs.meta ?? null;
+        const questions = toMcpElicitationQuestions(requestArgs.questions);
+        if (requestArgs.mode === "url") {
+          return {
+            type: "mcp-elicitation" as const,
+            mode: "url" as const,
+            serverName,
+            message,
+            meta,
+            url: asString(requestArgs.url) ?? "",
+            elicitationId: asTrimmedString(requestArgs.elicitationId) ?? "elicitation",
+            ...(event.turnId ? { turnId: String(event.turnId) } : {}),
+          };
+        }
+        return {
+          type: "mcp-elicitation" as const,
+          mode: "form" as const,
+          serverName,
+          message,
+          meta,
+          requestedSchema: requestArgs.requestedSchema ?? {},
+          ...(questions ? { questions } : {}),
+          ...(event.turnId ? { turnId: String(event.turnId) } : {}),
+        };
+      }
+      default:
+        return undefined;
+    }
+  };
+
+  const interactiveRequestResolutionFromRuntimeEvent = (
+    event: Extract<ProviderRuntimeEvent, { type: "request.resolved" | "user-input.resolved" }>,
+  ) => {
+    if (event.type === "user-input.resolved") {
+      return {
+        answers: event.payload.answers,
+      };
+    }
+
+    const requestType = interactiveRequestTypeFromRuntimeEvent(event);
+    const resolution = asRecord(event.payload.resolution);
+    if (!resolution) {
+      return undefined;
+    }
+    switch (requestType) {
+      case "approval":
+        return typeof resolution.decision === "string"
+          ? {
+              decision: resolution.decision,
+              ...(Array.isArray(resolution.updatedPermissions)
+                ? { updatedPermissions: resolution.updatedPermissions }
+                : {}),
+            }
+          : undefined;
+      case "user-input":
+        return asRecord(resolution.answers)
+          ? {
+              answers: resolution.answers,
+            }
+          : undefined;
+      case "permission":
+        return {
+          scope: resolution.scope === "session" ? "session" : "turn",
+          permissions: asRecord(resolution.permissions) ?? {},
+        };
+      case "mcp-elicitation":
+        return typeof resolution.action === "string"
+          ? {
+              action: resolution.action,
+              content: resolution.content ?? null,
+              meta: resolution.meta ?? resolution._meta ?? null,
+            }
+          : undefined;
+      default:
+        return undefined;
+    }
+  };
+
+  const syncInteractiveRequestFromRuntimeEvent = Effect.fn(
+    "syncInteractiveRequestFromRuntimeEvent",
+  )(function* (
+    threadId: ThreadId,
+    event: Extract<
+      ProviderRuntimeEvent,
+      {
+        type:
+          | "request.opened"
+          | "request.resolved"
+          | "user-input.requested"
+          | "user-input.resolved";
+      }
+    >,
+  ) {
+    const requestId = interactiveRequestIdFromRuntimeEvent(event);
+    if (!requestId) {
+      return;
+    }
+
+    const readModel = yield* orchestrationEngine.getReadModel();
+    const pendingRequest = readModel.pendingRequests.find((request) => request.id === requestId);
+
+    if (event.type === "request.opened" || event.type === "user-input.requested") {
+      if (pendingRequest) {
+        return;
+      }
+      const requestType = interactiveRequestTypeFromRuntimeEvent(event);
+      const payload = interactiveRequestPayloadFromRuntimeEvent(event);
+      if (!requestType || !payload) {
+        return;
+      }
+      yield* dispatchForgeCommand({
+        type: "request.open",
+        commandId: providerCommandId(event, "request-open"),
+        requestId,
+        threadId,
+        requestType,
+        payload,
+        createdAt: event.createdAt,
+      });
+      return;
+    }
+
+    if (!pendingRequest) {
+      return;
+    }
+
+    const resolution = interactiveRequestResolutionFromRuntimeEvent(event);
+    if (resolution) {
+      yield* dispatchForgeCommand({
+        type: "request.resolve",
+        commandId: providerCommandId(event, "request-resolve"),
+        requestId,
+        resolvedWith: resolution,
+        createdAt: event.createdAt,
+      });
+      return;
+    }
+
+    yield* dispatchForgeCommand({
+      type: "request.mark-stale",
+      commandId: providerCommandId(event, "request-stale"),
+      requestId,
+      reason: "Provider cleared pending request without a client resolution.",
+      createdAt: event.createdAt,
+    });
+  });
+
+  const synthesizeCodexSubagentLifecycleActivities = (input: {
+    readonly existingActivities: ReadonlyArray<OrchestrationThreadActivity>;
+    readonly currentActivities: ReadonlyArray<OrchestrationThreadActivity>;
+  }): OrchestrationThreadActivity[] => {
+    const startsByChildKey = new Set<string>();
+    const completionsByChildKey = new Set<string>();
+    const knownChildThreadIds = new Set<string>();
+
+    for (const activity of [...input.existingActivities, ...input.currentActivities]) {
+      const payload = asRecord(activity.payload);
+      const childAttr = asRecord(payload?.childThreadAttribution);
+      const childProviderThreadId = asTrimmedString(childAttr?.childProviderThreadId);
+      if (childProviderThreadId) {
+        knownChildThreadIds.add(childProviderThreadId);
+      }
+
+      const taskId = asTrimmedString(childAttr?.taskId) ?? asTrimmedString(payload?.taskId);
+      if (!taskId || !childProviderThreadId) {
+        continue;
+      }
+
+      const childKey = `${taskId}\u001f${childProviderThreadId}`;
+      if (activity.kind === "task.started") {
+        startsByChildKey.add(childKey);
+        continue;
+      }
+      if (activity.kind === "task.completed") {
+        completionsByChildKey.add(childKey);
+        continue;
+      }
+      if (activity.kind === "task.updated") {
+        const patch = asRecord(payload?.patch);
+        const patchStatus = asTrimmedString(patch?.status);
+        if (patchStatus === "completed" || patchStatus === "failed" || patchStatus === "killed") {
+          completionsByChildKey.add(childKey);
+        }
+      }
+    }
+
+    const syntheticActivities: OrchestrationThreadActivity[] = [];
+    for (const activity of input.currentActivities) {
+      if (
+        activity.kind !== "tool.started" &&
+        activity.kind !== "tool.updated" &&
+        activity.kind !== "tool.completed"
+      ) {
+        continue;
+      }
+      const payload = asRecord(activity.payload);
+      if (payload?.itemType !== "collab_agent_tool_call" || payload.childThreadAttribution) {
+        continue;
+      }
+
+      const data = asRecord(payload.data);
+      const item = asRecord(data?.item);
+      const toolName = asTrimmedString(item?.tool);
+      const taskId = asTrimmedString(item?.id);
+      const receiverThreadIds =
+        asArray(item?.receiverThreadIds)
+          ?.map((value) => asTrimmedString(value))
+          .filter((value): value is string => value != null) ?? [];
+      if (!taskId || receiverThreadIds.length === 0) {
+        continue;
+      }
+
+      const label = asTrimmedString(item?.prompt)?.slice(0, 120);
+      const agentModel = asTrimmedString(item?.model) ?? undefined;
+      const agentsStates = asRecord(item?.agentsStates);
+
+      for (const childProviderThreadId of receiverThreadIds) {
+        const childKey = `${taskId}\u001f${childProviderThreadId}`;
+        if (toolName === "spawnAgent" && !startsByChildKey.has(childKey)) {
+          startsByChildKey.add(childKey);
+          syntheticActivities.push({
+            id: EventId.makeUnsafe(
+              `${activity.id}:synthetic-subagent-start:${childProviderThreadId}`,
+            ),
+            tone: "info",
+            kind: "task.started",
+            summary: "Task started",
+            payload: {
+              taskId,
+              childThreadAttribution: {
+                taskId,
+                childProviderThreadId,
+                ...(label ? { label } : {}),
+                ...(agentModel ? { agentModel } : {}),
+              },
+            },
+            turnId: activity.turnId,
+            createdAt: activity.createdAt,
+          });
+        }
+
+        if (completionsByChildKey.has(childKey)) {
+          continue;
+        }
+        if (isCodexControlCollabTool(toolName) && !knownChildThreadIds.has(childProviderThreadId)) {
+          continue;
+        }
+
+        const agentState = asRecord(agentsStates?.[childProviderThreadId]);
+        const normalizedStatus = normalizeCodexCollabAgentTerminalStatus(
+          asTrimmedString(agentState?.status),
+        );
+        if (normalizedStatus === "running") {
+          continue;
+        }
+
+        completionsByChildKey.add(childKey);
+        syntheticActivities.push({
+          id: EventId.makeUnsafe(
+            `${activity.id}:synthetic-subagent-complete:${childProviderThreadId}`,
+          ),
+          tone: normalizedStatus === "failed" ? "error" : "info",
+          kind: "task.completed",
+          summary: normalizedStatus === "failed" ? "Task failed" : "Task completed",
+          payload: {
+            taskId,
+            status: normalizedStatus === "failed" ? "failed" : "completed",
+            childThreadAttribution: {
+              taskId,
+              childProviderThreadId,
+              ...(label ? { label } : {}),
+              ...(agentModel ? { agentModel } : {}),
+            },
+          },
+          turnId: activity.turnId,
+          createdAt: activity.createdAt,
+        });
+      }
+    }
+
+    return syntheticActivities;
+  };
 
   const isGitRepoForThread = Effect.fn("isGitRepoForThread")(function* (threadId: ThreadId) {
     const readModel = yield* orchestrationEngine.getReadModel();
@@ -894,6 +1355,15 @@ const make = Effect.fn("make")(function* () {
     const thread = readModel.threads.find((entry) => entry.id === event.threadId);
     if (!thread) return;
 
+    if (
+      event.type === "request.opened" ||
+      event.type === "request.resolved" ||
+      event.type === "user-input.requested" ||
+      event.type === "user-input.resolved"
+    ) {
+      yield* syncInteractiveRequestFromRuntimeEvent(thread.id, event);
+    }
+
     const now = event.createdAt;
     const eventTurnId = toTurnId(event.turnId);
     const activeTurnId = thread.session?.activeTurnId ?? null;
@@ -1362,6 +1832,16 @@ const make = Effect.fn("make")(function* () {
       event,
       itemInlineDiff ? { inlineDiff: itemInlineDiff } : undefined,
     );
+
+    if (event.provider === "codex") {
+      const syntheticActivities = synthesizeCodexSubagentLifecycleActivities({
+        existingActivities: thread.activities,
+        currentActivities: activities,
+      });
+      if (syntheticActivities.length > 0) {
+        activities = [...activities, ...syntheticActivities];
+      }
+    }
 
     if (event.provider === "codex" && turnId) {
       const workspaceCwd = yield* resolveWorkspaceCwdForThread(thread.id);

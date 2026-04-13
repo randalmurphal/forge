@@ -1,5 +1,6 @@
 import type {
   ModelSelection,
+  InteractiveRequest,
   OrchestrationLatestTurn,
   OrchestrationMessageAttribution,
   OrchestrationProposedPlanId,
@@ -157,6 +158,7 @@ export interface Thread {
   agentDiffSummaries?: TurnDiffSummary[];
   turnDiffSummaries: TurnDiffSummary[];
   activities: OrchestrationThreadActivity[];
+  pendingRequests?: InteractiveRequest[];
 }
 
 export interface SidebarThreadSummary {

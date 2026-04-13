@@ -1166,8 +1166,7 @@ function handleRevertEvent(state: AppState, event: ForgeEvent): AppState | undef
 
 function handleNoopEvent(_state: AppState, event: ForgeEvent): AppState | undefined {
   switch (event.type) {
-    case "thread.approval-response-requested":
-    case "thread.user-input-response-requested":
+    case "thread.interactive-request-response-requested":
       return _state;
   }
 

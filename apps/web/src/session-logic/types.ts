@@ -1,5 +1,5 @@
 import type {
-  ApprovalRequestId,
+  InteractiveRequestId,
   OrchestrationLatestTurn,
   OrchestrationProposedPlanId,
   OrchestrationThreadActivity,
@@ -142,14 +142,14 @@ export type ExpandedInlineDiffState =
     };
 
 export interface PendingApproval {
-  requestId: ApprovalRequestId;
+  requestId: InteractiveRequestId;
   requestKind: "command" | "file-read" | "file-change";
   createdAt: string;
   detail?: string;
 }
 
 export interface PendingUserInput {
-  requestId: ApprovalRequestId;
+  requestId: InteractiveRequestId;
   createdAt: string;
   questions: ReadonlyArray<UserInputQuestion>;
 }

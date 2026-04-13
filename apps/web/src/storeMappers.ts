@@ -332,6 +332,9 @@ export function mapThread(
     agentDiffSummaries: (thread.agentDiffs ?? []).map(mapAgentDiffSummary),
     turnDiffSummaries: thread.checkpoints.map(mapTurnDiffSummary),
     activities: thread.activities.map((activity) => ({ ...activity })),
+    pendingRequests: pendingRequests
+      .filter((request) => request.threadId === thread.id && request.status === "pending")
+      .map((request) => Object.assign({}, request)),
     ...(thread.spawnMode !== undefined ? { spawnMode: thread.spawnMode } : {}),
   };
 }

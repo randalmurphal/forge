@@ -1,6 +1,6 @@
 import { EventId, type OrchestrationThreadActivity } from "@forgetools/contracts";
 
-import { asArray, asRecord, asTrimmedString } from "@forgetools/shared/narrowing";
+import { asRecord, asTrimmedString } from "@forgetools/shared/narrowing";
 
 import type { DerivedWorkLogEntry, WorkLogEntry } from "./types";
 import { SUBAGENT_FALLBACK_ENTRY_LIMIT } from "./types";
@@ -309,140 +309,6 @@ export function groupSubagentEntries(workEntries: ReadonlyArray<WorkLogEntry>): 
   return { standalone, subagentGroups };
 }
 
-export function synthesizeCodexSubagentLifecycleActivities(
-  activities: ReadonlyArray<OrchestrationThreadActivity>,
-): OrchestrationThreadActivity[] {
-  const startsByChildKey = new Set<string>();
-  const completionsByChildKey = new Set<string>();
-  const knownChildThreadIds = new Set<string>();
-  for (const activity of activities) {
-    const payload = asRecord(activity.payload);
-    const childAttr = asRecord(payload?.childThreadAttribution);
-    const childProviderThreadId = asTrimmedString(childAttr?.childProviderThreadId);
-    if (childProviderThreadId) {
-      knownChildThreadIds.add(childProviderThreadId);
-    }
-
-    if (activity.kind === "task.started") {
-      const taskId = asTrimmedString(childAttr?.taskId);
-      if (taskId && childProviderThreadId) {
-        startsByChildKey.add(`${taskId}\u001f${childProviderThreadId}`);
-      }
-      continue;
-    }
-
-    if (activity.kind !== "task.completed") {
-      continue;
-    }
-    const taskId = asTrimmedString(childAttr?.taskId);
-    if (taskId && childProviderThreadId) {
-      completionsByChildKey.add(`${taskId}\u001f${childProviderThreadId}`);
-    }
-  }
-
-  const syntheticActivities: OrchestrationThreadActivity[] = [];
-  for (const activity of activities) {
-    if (
-      activity.kind !== "tool.started" &&
-      activity.kind !== "tool.updated" &&
-      activity.kind !== "tool.completed"
-    ) {
-      continue;
-    }
-    const payload = asRecord(activity.payload);
-    if (payload?.itemType !== "collab_agent_tool_call" || payload.childThreadAttribution) {
-      continue;
-    }
-
-    const data = asRecord(payload.data);
-    const item = asRecord(data?.item);
-    const toolName = asTrimmedString(item?.tool);
-    const taskId = asTrimmedString(item?.id);
-    const receiverThreadIds =
-      asArray(item?.receiverThreadIds)
-        ?.map((value) => asTrimmedString(value))
-        .filter((value): value is string => value != null) ?? [];
-    if (!taskId || receiverThreadIds.length === 0) {
-      continue;
-    }
-
-    const label = asTrimmedString(item?.prompt)?.slice(0, 120);
-    const agentModel = asTrimmedString(item?.model) ?? undefined;
-    const agentsStates = asRecord(item?.agentsStates);
-
-    for (const childProviderThreadId of receiverThreadIds) {
-      const childKey = `${taskId}\u001f${childProviderThreadId}`;
-      if (toolName === "spawnAgent" && !startsByChildKey.has(childKey)) {
-        startsByChildKey.add(childKey);
-        syntheticActivities.push({
-          id: EventId.makeUnsafe(
-            `${activity.id}:synthetic-subagent-start:${childProviderThreadId}`,
-          ),
-          tone: "info",
-          kind: "task.started",
-          summary: "Task started",
-          payload: {
-            taskId,
-            childThreadAttribution: {
-              taskId,
-              childProviderThreadId,
-              ...(label ? { label } : {}),
-              ...(agentModel ? { agentModel } : {}),
-            },
-          },
-          turnId: activity.turnId,
-          createdAt: activity.createdAt,
-        });
-      }
-
-      const completionKey = `${taskId}\u001f${childProviderThreadId}`;
-      if (completionsByChildKey.has(completionKey)) {
-        continue;
-      }
-      if (isCodexControlCollabTool(toolName) && !knownChildThreadIds.has(childProviderThreadId)) {
-        continue;
-      }
-
-      const agentState = asRecord(agentsStates?.[childProviderThreadId]);
-      // Codex marks the collab tool call itself as completed as soon as the channel operation
-      // finishes. For spawn_agent that usually means "child thread created", not "child task
-      // finished". The app-server tests explicitly assert that spawn_agent can be completed while
-      // the child agent state is still pendingInit/running, so we only synthesize a subagent
-      // completion from the per-child agentsStates entry once that child reaches a terminal state.
-      const normalizedStatus = normalizeCodexCollabAgentTerminalStatus(
-        asTrimmedString(agentState?.status),
-      );
-      if (normalizedStatus === "running") {
-        continue;
-      }
-
-      completionsByChildKey.add(completionKey);
-      syntheticActivities.push({
-        id: EventId.makeUnsafe(
-          `${activity.id}:synthetic-subagent-complete:${childProviderThreadId}`,
-        ),
-        tone: normalizedStatus === "failed" ? "error" : "info",
-        kind: "task.completed",
-        summary: normalizedStatus === "failed" ? "Task failed" : "Task completed",
-        payload: {
-          taskId,
-          status: normalizedStatus === "failed" ? "failed" : "completed",
-          childThreadAttribution: {
-            taskId,
-            childProviderThreadId,
-            ...(label ? { label } : {}),
-            ...(agentModel ? { agentModel } : {}),
-          },
-        },
-        turnId: activity.turnId,
-        createdAt: activity.createdAt,
-      });
-    }
-  }
-
-  return syntheticActivities;
-}
-
 export function synthesizeClaudeTaskOutputLifecycleActivities(
   activities: ReadonlyArray<OrchestrationThreadActivity>,
 ): OrchestrationThreadActivity[] {
@@ -587,23 +453,6 @@ function normalizeClaudeTaskOutputTaskStatus(status: string): "running" | "compl
     case "stopped":
     case "killed":
     case "interrupted":
-      return "failed";
-    default:
-      return "running";
-  }
-}
-
-function normalizeCodexCollabAgentTerminalStatus(
-  status: string | null | undefined,
-): "running" | "completed" | "failed" {
-  switch (status) {
-    case "completed":
-    case "shutdown":
-      return "completed";
-    case "failed":
-    case "errored":
-    case "interrupted":
-    case "notFound":
       return "failed";
     default:
       return "running";

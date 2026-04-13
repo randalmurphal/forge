@@ -1,20 +1,23 @@
-import { type ApprovalRequestId, type ProviderApprovalDecision } from "@forgetools/contracts";
+import {
+  type InteractiveRequestId,
+  type InteractiveRequestResolution,
+} from "@forgetools/contracts";
 import { memo } from "react";
 import { Button } from "../ui/button";
 
 interface ComposerPendingApprovalActionsProps {
-  requestId: ApprovalRequestId;
+  requestId: InteractiveRequestId;
   isResponding: boolean;
-  onRespondToApproval: (
-    requestId: ApprovalRequestId,
-    decision: ProviderApprovalDecision,
+  onRespondToInteractiveRequest: (
+    requestId: InteractiveRequestId,
+    resolution: InteractiveRequestResolution,
   ) => Promise<void>;
 }
 
 export const ComposerPendingApprovalActions = memo(function ComposerPendingApprovalActions({
   requestId,
   isResponding,
-  onRespondToApproval,
+  onRespondToInteractiveRequest,
 }: ComposerPendingApprovalActionsProps) {
   return (
     <>
@@ -22,7 +25,7 @@ export const ComposerPendingApprovalActions = memo(function ComposerPendingAppro
         size="sm"
         variant="ghost"
         disabled={isResponding}
-        onClick={() => void onRespondToApproval(requestId, "cancel")}
+        onClick={() => void onRespondToInteractiveRequest(requestId, { decision: "cancel" })}
       >
         Cancel turn
       </Button>
@@ -30,7 +33,7 @@ export const ComposerPendingApprovalActions = memo(function ComposerPendingAppro
         size="sm"
         variant="destructive-outline"
         disabled={isResponding}
-        onClick={() => void onRespondToApproval(requestId, "decline")}
+        onClick={() => void onRespondToInteractiveRequest(requestId, { decision: "decline" })}
       >
         Decline
       </Button>
@@ -38,7 +41,9 @@ export const ComposerPendingApprovalActions = memo(function ComposerPendingAppro
         size="sm"
         variant="outline"
         disabled={isResponding}
-        onClick={() => void onRespondToApproval(requestId, "acceptForSession")}
+        onClick={() =>
+          void onRespondToInteractiveRequest(requestId, { decision: "acceptForSession" })
+        }
       >
         Always allow this session
       </Button>
@@ -46,7 +51,7 @@ export const ComposerPendingApprovalActions = memo(function ComposerPendingAppro
         size="sm"
         variant="default"
         disabled={isResponding}
-        onClick={() => void onRespondToApproval(requestId, "accept")}
+        onClick={() => void onRespondToInteractiveRequest(requestId, { decision: "accept" })}
       >
         Approve once
       </Button>

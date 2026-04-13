@@ -14,8 +14,7 @@
 import type {
   ProviderInterruptTurnInput,
   ProviderKind,
-  ProviderRespondToRequestInput,
-  ProviderRespondToUserInputInput,
+  ProviderRespondToInteractiveRequestInput,
   ProviderRuntimeEvent,
   ProviderSendTurnInput,
   ProviderSession,
@@ -59,15 +58,8 @@ export interface ProviderServiceShape {
   /**
    * Respond to a provider approval request.
    */
-  readonly respondToRequest: (
-    input: ProviderRespondToRequestInput,
-  ) => Effect.Effect<void, ProviderServiceError>;
-
-  /**
-   * Respond to a provider structured user-input request.
-   */
-  readonly respondToUserInput: (
-    input: ProviderRespondToUserInputInput,
+  readonly respondToInteractiveRequest: (
+    input: ProviderRespondToInteractiveRequestInput,
   ) => Effect.Effect<void, ProviderServiceError>;
 
   /**

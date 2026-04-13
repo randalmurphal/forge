@@ -908,38 +908,52 @@ export const rollbackThread = (ctx: ClaudeAdapterContext): ClaudeAdapterShape["r
 
 export const respondToRequest = (
   ctx: ClaudeAdapterContext,
-): ClaudeAdapterShape["respondToRequest"] =>
-  Effect.fn("respondToRequest")(function* (threadId, requestId, decision) {
+): ClaudeAdapterShape["respondToInteractiveRequest"] =>
+  Effect.fn("respondToInteractiveRequest")(function* (input) {
+    const threadId = input.threadId;
+    const requestId = ApprovalRequestId.makeUnsafe(input.requestId);
     const context = yield* requireSession(ctx.sessions, threadId);
-    const pending = context.pendingApprovals.get(requestId);
-    if (!pending) {
-      return yield* new ProviderAdapterRequestError({
-        provider: PROVIDER,
-        method: "item/requestApproval/decision",
-        detail: `Unknown pending approval request: ${requestId}`,
-      });
+    if (
+      "decision" in input.resolution &&
+      (input.resolution.decision === "accept" ||
+        input.resolution.decision === "acceptForSession" ||
+        input.resolution.decision === "decline" ||
+        input.resolution.decision === "cancel")
+    ) {
+      const pending = context.pendingApprovals.get(requestId);
+      if (!pending) {
+        return yield* new ProviderAdapterRequestError({
+          provider: PROVIDER,
+          method: "item/requestApproval/decision",
+          detail: `Unknown pending approval request: ${requestId}`,
+        });
+      }
+
+      context.pendingApprovals.delete(requestId);
+      yield* Deferred.succeed(pending.decision, input.resolution.decision);
+      return;
     }
 
-    context.pendingApprovals.delete(requestId);
-    yield* Deferred.succeed(pending.decision, decision);
-  });
+    if ("answers" in input.resolution) {
+      const pending = context.pendingUserInputs.get(requestId);
+      if (!pending) {
+        return yield* new ProviderAdapterRequestError({
+          provider: PROVIDER,
+          method: "item/tool/respondToUserInput",
+          detail: `Unknown pending user-input request: ${requestId}`,
+        });
+      }
 
-export const respondToUserInput = (
-  ctx: ClaudeAdapterContext,
-): ClaudeAdapterShape["respondToUserInput"] =>
-  Effect.fn("respondToUserInput")(function* (threadId, requestId, answers) {
-    const context = yield* requireSession(ctx.sessions, threadId);
-    const pending = context.pendingUserInputs.get(requestId);
-    if (!pending) {
-      return yield* new ProviderAdapterRequestError({
-        provider: PROVIDER,
-        method: "item/tool/respondToUserInput",
-        detail: `Unknown pending user-input request: ${requestId}`,
-      });
+      context.pendingUserInputs.delete(requestId);
+      yield* Deferred.succeed(pending.answers, input.resolution.answers);
+      return;
     }
 
-    context.pendingUserInputs.delete(requestId);
-    yield* Deferred.succeed(pending.answers, answers);
+    return yield* new ProviderAdapterRequestError({
+      provider: PROVIDER,
+      method: "thread.interactive-request.respond",
+      detail: `Claude does not support interactive request resolution payload for request ${requestId}.`,
+    });
   });
 
 export const forkThread = (ctx: ClaudeAdapterContext): ClaudeAdapterShape["forkThread"] =>

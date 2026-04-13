@@ -3,7 +3,6 @@ import os from "node:os";
 import path from "node:path";
 
 import type {
-  ProviderApprovalDecision,
   ProviderRuntimeEvent,
   ProviderSendTurnInput,
   ProviderSession,
@@ -22,7 +21,7 @@ import { assertFailure } from "@effect/vitest/utils";
 import { Effect, Fiber, Layer, Metric, Option, PubSub, Ref, Stream } from "effect";
 import * as SqlClient from "effect/unstable/sql/SqlClient";
 
-import { asApprovalRequestId, asEventId, asThreadId, asTurnId } from "../../__test__/ids.ts";
+import { asEventId, asInteractiveRequestId, asThreadId, asTurnId } from "../../__test__/ids.ts";
 import {
   ProviderAdapterSessionNotFoundError,
   ProviderUnsupportedError,
@@ -107,20 +106,12 @@ function makeFakeCodexAdapter(provider: ProviderKind = "codex") {
       Effect.void,
   );
 
-  const respondToRequest = vi.fn(
-    (
-      _threadId: ThreadId,
-      _requestId: string,
-      _decision: ProviderApprovalDecision,
-    ): Effect.Effect<void, ProviderAdapterError> => Effect.void,
-  );
-
-  const respondToUserInput = vi.fn(
-    (
-      _threadId: ThreadId,
-      _requestId: string,
-      _answers: Record<string, unknown>,
-    ): Effect.Effect<void, ProviderAdapterError> => Effect.void,
+  const respondToInteractiveRequest = vi.fn(
+    (_input: {
+      threadId: ThreadId;
+      requestId: string;
+      resolution: Record<string, unknown>;
+    }): Effect.Effect<void, ProviderAdapterError> => Effect.void,
   );
 
   const stopSession = vi.fn(
@@ -178,8 +169,7 @@ function makeFakeCodexAdapter(provider: ProviderKind = "codex") {
     startSession,
     sendTurn,
     interruptTurn,
-    respondToRequest,
-    respondToUserInput,
+    respondToInteractiveRequest,
     stopSession,
     listSessions,
     hasSession,
@@ -215,8 +205,7 @@ function makeFakeCodexAdapter(provider: ProviderKind = "codex") {
     startSession,
     sendTurn,
     interruptTurn,
-    respondToRequest,
-    respondToUserInput,
+    respondToInteractiveRequest,
     stopSession,
     listSessions,
     hasSession,
@@ -539,28 +528,40 @@ routing.layer("ProviderServiceLive routing", (it) => {
       yield* provider.interruptTurn({ threadId: session.threadId });
       assert.deepEqual(routing.codex.interruptTurn.mock.calls, [[session.threadId, undefined]]);
 
-      yield* provider.respondToRequest({
+      yield* provider.respondToInteractiveRequest({
         threadId: session.threadId,
-        requestId: asApprovalRequestId("req-1"),
-        decision: "accept",
+        requestId: asInteractiveRequestId("req-1"),
+        resolution: { decision: "accept" },
       });
-      assert.deepEqual(routing.codex.respondToRequest.mock.calls, [
-        [session.threadId, asApprovalRequestId("req-1"), "accept"],
+      assert.deepEqual(routing.codex.respondToInteractiveRequest.mock.calls, [
+        [
+          {
+            threadId: session.threadId,
+            requestId: asInteractiveRequestId("req-1"),
+            resolution: { decision: "accept" },
+          },
+        ],
       ]);
 
-      yield* provider.respondToUserInput({
+      yield* provider.respondToInteractiveRequest({
         threadId: session.threadId,
-        requestId: asApprovalRequestId("req-user-input-1"),
-        answers: {
-          sandbox_mode: "workspace-write",
+        requestId: asInteractiveRequestId("req-user-input-1"),
+        resolution: {
+          answers: {
+            sandbox_mode: "workspace-write",
+          },
         },
       });
-      assert.deepEqual(routing.codex.respondToUserInput.mock.calls, [
+      assert.deepEqual(routing.codex.respondToInteractiveRequest.mock.calls.slice(1), [
         [
-          session.threadId,
-          asApprovalRequestId("req-user-input-1"),
           {
-            sandbox_mode: "workspace-write",
+            threadId: session.threadId,
+            requestId: asInteractiveRequestId("req-user-input-1"),
+            resolution: {
+              answers: {
+                sandbox_mode: "workspace-write",
+              },
+            },
           },
         ],
       ]);
@@ -1083,16 +1084,18 @@ fanout.layer("ProviderServiceLive fanout", (it) => {
       });
 
       yield* provider.interruptTurn({ threadId: session.threadId });
-      yield* provider.respondToRequest({
+      yield* provider.respondToInteractiveRequest({
         threadId: session.threadId,
-        requestId: asApprovalRequestId("req-metrics-1"),
-        decision: "accept",
+        requestId: asInteractiveRequestId("req-metrics-1"),
+        resolution: { decision: "accept" },
       });
-      yield* provider.respondToUserInput({
+      yield* provider.respondToInteractiveRequest({
         threadId: session.threadId,
-        requestId: asApprovalRequestId("req-metrics-2"),
-        answers: {
-          sandbox_mode: "workspace-write",
+        requestId: asInteractiveRequestId("req-metrics-2"),
+        resolution: {
+          answers: {
+            sandbox_mode: "workspace-write",
+          },
         },
       });
       yield* provider.rollbackConversation({

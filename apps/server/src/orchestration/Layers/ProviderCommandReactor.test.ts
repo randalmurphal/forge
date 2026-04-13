@@ -12,7 +12,7 @@ import {
 import { Effect, Exit, Layer, ManagedRuntime, Option, PubSub, Scope, Stream } from "effect";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { asApprovalRequestId, asMessageId, asProjectId, asTurnId } from "../../__test__/ids.ts";
+import { asInteractiveRequestId, asMessageId, asProjectId, asTurnId } from "../../__test__/ids.ts";
 import { waitFor } from "../../__test__/waitFor.ts";
 import { deriveServerPaths, ServerConfig } from "../../config.ts";
 import { TextGenerationError } from "@forgetools/contracts";
@@ -124,8 +124,9 @@ describe("ProviderCommandReactor", () => {
       }),
     );
     const interruptTurn = vi.fn((_: unknown) => Effect.void);
-    const respondToRequest = vi.fn<ProviderServiceShape["respondToRequest"]>(() => Effect.void);
-    const respondToUserInput = vi.fn<ProviderServiceShape["respondToUserInput"]>(() => Effect.void);
+    const respondToInteractiveRequest = vi.fn<ProviderServiceShape["respondToInteractiveRequest"]>(
+      () => Effect.void,
+    );
     const stopSession = vi.fn((input: unknown) =>
       Effect.sync(() => {
         const threadId =
@@ -174,8 +175,8 @@ describe("ProviderCommandReactor", () => {
       startSession: startSession as ProviderServiceShape["startSession"],
       sendTurn: sendTurn as ProviderServiceShape["sendTurn"],
       interruptTurn: interruptTurn as ProviderServiceShape["interruptTurn"],
-      respondToRequest: respondToRequest as ProviderServiceShape["respondToRequest"],
-      respondToUserInput: respondToUserInput as ProviderServiceShape["respondToUserInput"],
+      respondToInteractiveRequest:
+        respondToInteractiveRequest as ProviderServiceShape["respondToInteractiveRequest"],
       stopSession: stopSession as ProviderServiceShape["stopSession"],
       listSessions: () => Effect.succeed(runtimeSessions),
       getCapabilities: (_provider) =>
@@ -266,8 +267,7 @@ describe("ProviderCommandReactor", () => {
       startSession,
       sendTurn,
       interruptTurn,
-      respondToRequest,
-      respondToUserInput,
+      respondToInteractiveRequest,
       stopSession,
       renameBranch,
       generateBranchName,
@@ -1240,7 +1240,7 @@ describe("ProviderCommandReactor", () => {
     });
   });
 
-  it("reacts to thread.approval.respond by forwarding provider approval response", async () => {
+  it("reacts to thread.interactive-request.respond by forwarding provider approval response", async () => {
     const harness = await createHarness();
     const now = new Date().toISOString();
 
@@ -1264,24 +1264,24 @@ describe("ProviderCommandReactor", () => {
 
     await Effect.runPromise(
       harness.engine.dispatch({
-        type: "thread.approval.respond",
+        type: "thread.interactive-request.respond",
         commandId: CommandId.makeUnsafe("cmd-approval-respond"),
         threadId: ThreadId.makeUnsafe("thread-1"),
-        requestId: asApprovalRequestId("approval-request-1"),
-        decision: "accept",
+        requestId: asInteractiveRequestId("approval-request-1"),
+        resolution: { decision: "accept" },
         createdAt: now,
       }),
     );
 
-    await waitFor(() => harness.respondToRequest.mock.calls.length === 1);
-    expect(harness.respondToRequest.mock.calls[0]?.[0]).toEqual({
+    await waitFor(() => harness.respondToInteractiveRequest.mock.calls.length === 1);
+    expect(harness.respondToInteractiveRequest.mock.calls[0]?.[0]).toEqual({
       threadId: "thread-1",
       requestId: "approval-request-1",
-      decision: "accept",
+      resolution: { decision: "accept" },
     });
   });
 
-  it("reacts to thread.user-input.respond by forwarding structured user input answers", async () => {
+  it("reacts to thread.interactive-request.respond by forwarding structured user input answers", async () => {
     const harness = await createHarness();
     const now = new Date().toISOString();
 
@@ -1305,23 +1305,27 @@ describe("ProviderCommandReactor", () => {
 
     await Effect.runPromise(
       harness.engine.dispatch({
-        type: "thread.user-input.respond",
+        type: "thread.interactive-request.respond",
         commandId: CommandId.makeUnsafe("cmd-user-input-respond"),
         threadId: ThreadId.makeUnsafe("thread-1"),
-        requestId: asApprovalRequestId("user-input-request-1"),
-        answers: {
-          sandbox_mode: "workspace-write",
+        requestId: asInteractiveRequestId("user-input-request-1"),
+        resolution: {
+          answers: {
+            sandbox_mode: "workspace-write",
+          },
         },
         createdAt: now,
       }),
     );
 
-    await waitFor(() => harness.respondToUserInput.mock.calls.length === 1);
-    expect(harness.respondToUserInput.mock.calls[0]?.[0]).toEqual({
+    await waitFor(() => harness.respondToInteractiveRequest.mock.calls.length === 1);
+    expect(harness.respondToInteractiveRequest.mock.calls[0]?.[0]).toEqual({
       threadId: "thread-1",
       requestId: "user-input-request-1",
-      answers: {
-        sandbox_mode: "workspace-write",
+      resolution: {
+        answers: {
+          sandbox_mode: "workspace-write",
+        },
       },
     });
   });
@@ -1329,7 +1333,7 @@ describe("ProviderCommandReactor", () => {
   it("surfaces stale provider approval request failures without faking approval resolution", async () => {
     const harness = await createHarness();
     const now = new Date().toISOString();
-    harness.respondToRequest.mockImplementation(() =>
+    harness.respondToInteractiveRequest.mockImplementation(() =>
       Effect.fail(
         new ProviderAdapterRequestError({
           provider: "codex",
@@ -1380,11 +1384,11 @@ describe("ProviderCommandReactor", () => {
 
     await Effect.runPromise(
       harness.engine.dispatch({
-        type: "thread.approval.respond",
+        type: "thread.interactive-request.respond",
         commandId: CommandId.makeUnsafe("cmd-approval-respond-stale"),
         threadId: ThreadId.makeUnsafe("thread-1"),
-        requestId: asApprovalRequestId("approval-request-1"),
-        decision: "acceptForSession",
+        requestId: asInteractiveRequestId("approval-request-1"),
+        resolution: { decision: "acceptForSession" },
         createdAt: now,
       }),
     );
@@ -1426,7 +1430,7 @@ describe("ProviderCommandReactor", () => {
   it("surfaces stale provider user-input failures without faking user-input resolution", async () => {
     const harness = await createHarness();
     const now = new Date().toISOString();
-    harness.respondToUserInput.mockImplementation(() =>
+    harness.respondToInteractiveRequest.mockImplementation(() =>
       Effect.fail(
         new ProviderAdapterRequestError({
           provider: "claudeAgent",
@@ -1489,12 +1493,14 @@ describe("ProviderCommandReactor", () => {
 
     await Effect.runPromise(
       harness.engine.dispatch({
-        type: "thread.user-input.respond",
+        type: "thread.interactive-request.respond",
         commandId: CommandId.makeUnsafe("cmd-user-input-respond-stale"),
         threadId: ThreadId.makeUnsafe("thread-1"),
-        requestId: asApprovalRequestId("user-input-request-1"),
-        answers: {
-          sandbox_mode: "workspace-write",
+        requestId: asInteractiveRequestId("user-input-request-1"),
+        resolution: {
+          answers: {
+            sandbox_mode: "workspace-write",
+          },
         },
         createdAt: now,
       }),

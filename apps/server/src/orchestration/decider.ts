@@ -650,7 +650,7 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
       };
     }
 
-    case "thread.approval.respond": {
+    case "thread.interactive-request.respond": {
       yield* requireThread({
         readModel,
         command,
@@ -666,37 +666,11 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
             requestId: command.requestId,
           },
         }),
-        type: "thread.approval-response-requested",
+        type: "thread.interactive-request-response-requested",
         payload: {
           threadId: command.threadId,
           requestId: command.requestId,
-          decision: command.decision,
-          createdAt: command.createdAt,
-        },
-      };
-    }
-
-    case "thread.user-input.respond": {
-      yield* requireThread({
-        readModel,
-        command,
-        threadId: command.threadId,
-      });
-      return {
-        ...withEventBase({
-          aggregateKind: "thread",
-          aggregateId: command.threadId,
-          occurredAt: command.createdAt,
-          commandId: command.commandId,
-          metadata: {
-            requestId: command.requestId,
-          },
-        }),
-        type: "thread.user-input-response-requested",
-        payload: {
-          threadId: command.threadId,
-          requestId: command.requestId,
-          answers: command.answers,
+          resolution: command.resolution,
           createdAt: command.createdAt,
         },
       };

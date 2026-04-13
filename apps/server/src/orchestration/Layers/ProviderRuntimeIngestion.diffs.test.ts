@@ -3,8 +3,8 @@ import path from "node:path";
 import { execFileSync } from "node:child_process";
 
 import {
-  ApprovalRequestId,
   CommandId,
+  InteractiveRequestId,
   MessageId,
   type ProviderRuntimeEvent,
 } from "@forgetools/contracts";
@@ -2143,7 +2143,7 @@ describe("ProviderRuntimeIngestion diffs and advanced events", () => {
       createdAt: now,
       threadId: asThreadId("thread-1"),
       turnId: asTurnId("turn-user-input"),
-      requestId: ApprovalRequestId.makeUnsafe("req-user-input-1"),
+      requestId: InteractiveRequestId.makeUnsafe("req-user-input-1"),
       payload: {
         questions: [
           {
@@ -2168,7 +2168,7 @@ describe("ProviderRuntimeIngestion diffs and advanced events", () => {
       createdAt: new Date().toISOString(),
       threadId: asThreadId("thread-1"),
       turnId: asTurnId("turn-user-input"),
-      requestId: ApprovalRequestId.makeUnsafe("req-user-input-1"),
+      requestId: InteractiveRequestId.makeUnsafe("req-user-input-1"),
       payload: {
         answers: {
           sandbox_mode: "workspace-write",
@@ -2202,6 +2202,76 @@ describe("ProviderRuntimeIngestion diffs and advanced events", () => {
     expect(resolved?.kind).toBe("user-input.resolved");
     expect(resolvedPayload?.answers).toEqual({
       sandbox_mode: "workspace-write",
+    });
+  });
+
+  it("synthesizes Codex subagent lifecycle activities server-side from collab tool state", async () => {
+    const harness = await createHarness();
+    const now = new Date().toISOString();
+
+    harness.emit({
+      type: "item.completed",
+      eventId: asEventId("evt-collab-spawn-completed"),
+      provider: "codex",
+      createdAt: now,
+      threadId: asThreadId("thread-1"),
+      turnId: asTurnId("turn-collab"),
+      itemId: asItemId("item-collab-spawn"),
+      payload: {
+        itemType: "collab_agent_tool_call",
+        status: "completed",
+        title: "Subagent task",
+        toolName: "spawnAgent",
+        data: {
+          item: {
+            id: "task-collab-1",
+            tool: "spawnAgent",
+            prompt: "Investigate the provider mapping",
+            model: "gpt-5.4-mini",
+            receiverThreadIds: ["child-provider-1"],
+            agentsStates: {
+              "child-provider-1": {
+                status: "completed",
+              },
+            },
+          },
+        },
+      },
+    });
+
+    const thread = await waitForThread(harness.engine, (entry) =>
+      entry.activities.some(
+        (activity: ProviderRuntimeTestActivity) =>
+          activity.kind === "task.started" || activity.kind === "task.completed",
+      ),
+    );
+
+    const started = thread.activities.find(
+      (activity: ProviderRuntimeTestActivity) =>
+        activity.kind === "task.started" &&
+        activity.id === "evt-collab-spawn-completed:synthetic-subagent-start:child-provider-1",
+    );
+    const completed = thread.activities.find(
+      (activity: ProviderRuntimeTestActivity) =>
+        activity.kind === "task.completed" &&
+        activity.id === "evt-collab-spawn-completed:synthetic-subagent-complete:child-provider-1",
+    );
+
+    expect(activityPayload(started)?.childThreadAttribution).toEqual({
+      taskId: "task-collab-1",
+      childProviderThreadId: "child-provider-1",
+      label: "Investigate the provider mapping",
+      agentModel: "gpt-5.4-mini",
+    });
+    expect(activityPayload(completed)).toMatchObject({
+      taskId: "task-collab-1",
+      status: "completed",
+      childThreadAttribution: {
+        taskId: "task-collab-1",
+        childProviderThreadId: "child-provider-1",
+        label: "Investigate the provider mapping",
+        agentModel: "gpt-5.4-mini",
+      },
     });
   });
 

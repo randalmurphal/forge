@@ -266,31 +266,14 @@ const makeCodexAdapter = Effect.fn("makeCodexAdapter")(function* (
     );
   };
 
-  const respondToRequest: CodexAdapterShape["respondToRequest"] = (threadId, requestId, decision) =>
+  const respondToInteractiveRequest: CodexAdapterShape["respondToInteractiveRequest"] = (input) =>
     Effect.tryPromise({
-      try: () => manager.respondToRequest(threadId, requestId, decision),
+      try: () => manager.respondToInteractiveRequest(input),
       catch: (cause) =>
         toRequestError(
           PROVIDER,
-          threadId,
-          "item/requestApproval/decision",
-          cause,
-          CODEX_SESSION_ERROR_MATCHERS,
-        ),
-    });
-
-  const respondToUserInput: CodexAdapterShape["respondToUserInput"] = (
-    threadId,
-    requestId,
-    answers,
-  ) =>
-    Effect.tryPromise({
-      try: () => manager.respondToUserInput(threadId, requestId, answers),
-      catch: (cause) =>
-        toRequestError(
-          PROVIDER,
-          threadId,
-          "item/tool/requestUserInput",
+          input.threadId,
+          "thread.interactive-request.respond",
           cause,
           CODEX_SESSION_ERROR_MATCHERS,
         ),
@@ -382,8 +365,7 @@ const makeCodexAdapter = Effect.fn("makeCodexAdapter")(function* (
     readThread,
     rollbackThread,
     forkThread,
-    respondToRequest,
-    respondToUserInput,
+    respondToInteractiveRequest,
     stopSession,
     listSessions,
     hasSession,

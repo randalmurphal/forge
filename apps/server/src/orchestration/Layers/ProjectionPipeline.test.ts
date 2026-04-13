@@ -369,7 +369,19 @@ it.layer(BaseTestLayer)("OrchestrationProjectionPipeline", (it) => {
             requestType: "user-input",
             payload: {
               type: "user-input",
-              questions: [{ id: "scope", question: "Ship it?" }],
+              questions: [
+                {
+                  id: "scope",
+                  header: "Scope",
+                  question: "Ship it?",
+                  options: [
+                    {
+                      label: "yes",
+                      description: "Ship the current scope",
+                    },
+                  ],
+                },
+              ],
             },
             createdAt: requestOpenedAt,
           },

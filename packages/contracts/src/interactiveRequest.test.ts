@@ -29,10 +29,59 @@ it.effect("decodes each interactive request payload variant", () =>
       questions: [
         {
           id: " branch ",
+          header: " Branch ",
           question: "Which branch should be used?",
-          options: ["main", "develop"],
+          options: [
+            {
+              label: " main ",
+              description: " Main branch ",
+            },
+            {
+              label: " develop ",
+              description: " Development branch ",
+            },
+          ],
         },
       ],
+    });
+    const permission = yield* decodeInteractiveRequestPayload({
+      type: "permission",
+      reason: "Need broader workspace access",
+      permissions: {
+        network: {
+          enabled: true,
+        },
+        fileSystem: {
+          read: ["/tmp/project/src"],
+          write: ["/tmp/project/out"],
+        },
+      },
+    });
+    const mcpElicitation = yield* decodeInteractiveRequestPayload({
+      type: "mcp-elicitation",
+      mode: "form",
+      serverName: " workspace ",
+      message: "Choose the sandbox mode",
+      meta: {
+        source: "forge",
+      },
+      requestedSchema: {
+        type: "object",
+      },
+      questions: [
+        {
+          id: " sandbox_mode ",
+          header: " Sandbox ",
+          question: " Which mode should be used? ",
+          options: [
+            {
+              label: " workspace-write ",
+              description: " Allow workspace writes only ",
+            },
+          ],
+        },
+      ],
+      turnId: " turn-1 ",
     });
     const gate = yield* decodeInteractiveRequestPayload({
       type: "gate",
@@ -74,10 +123,59 @@ it.effect("decodes each interactive request payload variant", () =>
       questions: [
         {
           id: "branch",
+          header: "Branch",
           question: "Which branch should be used?",
-          options: ["main", "develop"],
+          options: [
+            {
+              label: "main",
+              description: "Main branch",
+            },
+            {
+              label: "develop",
+              description: "Development branch",
+            },
+          ],
         },
       ],
+    });
+    assert.deepStrictEqual(permission, {
+      type: "permission",
+      reason: "Need broader workspace access",
+      permissions: {
+        network: {
+          enabled: true,
+        },
+        fileSystem: {
+          read: ["/tmp/project/src"],
+          write: ["/tmp/project/out"],
+        },
+      },
+    });
+    assert.deepStrictEqual(mcpElicitation, {
+      type: "mcp-elicitation",
+      mode: "form",
+      serverName: "workspace",
+      message: "Choose the sandbox mode",
+      meta: {
+        source: "forge",
+      },
+      requestedSchema: {
+        type: "object",
+      },
+      questions: [
+        {
+          id: "sandbox_mode",
+          header: "Sandbox",
+          question: "Which mode should be used?",
+          options: [
+            {
+              label: "workspace-write",
+              description: "Allow workspace writes only",
+            },
+          ],
+        },
+      ],
+      turnId: "turn-1",
     });
     assert.deepStrictEqual(gate, {
       type: "gate",
@@ -118,6 +216,25 @@ it.effect("decodes each interactive request resolution variant", () =>
         targets: ["web", "server"],
       },
     });
+    const permission = yield* decodeInteractiveRequestResolution({
+      scope: "session",
+      permissions: {
+        network: {
+          enabled: true,
+        },
+      },
+    });
+    const mcpElicitation = yield* decodeInteractiveRequestResolution({
+      action: "accept",
+      content: {
+        answers: {
+          sandbox_mode: "workspace-write",
+        },
+      },
+      meta: {
+        source: "forge",
+      },
+    });
     const gate = yield* decodeInteractiveRequestResolution({
       decision: "reject",
       correction: "Address the failing checks first",
@@ -137,6 +254,25 @@ it.effect("decodes each interactive request resolution variant", () =>
       answers: {
         branch: "main",
         targets: ["web", "server"],
+      },
+    });
+    assert.deepStrictEqual(permission, {
+      scope: "session",
+      permissions: {
+        network: {
+          enabled: true,
+        },
+      },
+    });
+    assert.deepStrictEqual(mcpElicitation, {
+      action: "accept",
+      content: {
+        answers: {
+          sandbox_mode: "workspace-write",
+        },
+      },
+      meta: {
+        source: "forge",
       },
     });
     assert.deepStrictEqual(gate, {

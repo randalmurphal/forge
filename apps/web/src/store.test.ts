@@ -246,6 +246,32 @@ function makeDesignPendingRequest(
   };
 }
 
+function makePermissionPendingRequest(
+  overrides: Partial<OrchestrationReadModel["pendingRequests"][number]> = {},
+): OrchestrationReadModel["pendingRequests"][number] {
+  return {
+    id: InteractiveRequestId.makeUnsafe("permission-request-1"),
+    threadId: ThreadId.makeUnsafe("thread-1"),
+    type: "permission",
+    status: "pending",
+    payload: {
+      type: "permission",
+      reason: "Need write access",
+      permissions: {
+        network: {
+          enabled: true,
+        },
+        fileSystem: {
+          read: ["/tmp/project/src"],
+          write: ["/tmp/project/out"],
+        },
+      },
+    },
+    createdAt: "2026-02-27T00:06:00.000Z",
+    ...overrides,
+  };
+}
+
 describe("store read model sync", () => {
   it("marks bootstrap complete after snapshot sync", () => {
     const initialState: AppState = {
@@ -328,11 +354,11 @@ describe("store read model sync", () => {
     expect(next.threads[0]?.archivedAt).toBe(archivedAt);
   });
 
-  it("hydrates pending design options from read model pending requests", () => {
+  it("hydrates pending requests from read model pending requests", () => {
     const initialState = makeState(makeThread());
     const readModel = {
       ...makeReadModel(makeReadModelThread({})),
-      pendingRequests: [makeDesignPendingRequest()],
+      pendingRequests: [makeDesignPendingRequest(), makePermissionPendingRequest()],
     } satisfies OrchestrationReadModel;
 
     const next = syncServerReadModel(initialState, readModel);
@@ -342,7 +368,14 @@ describe("store read model sync", () => {
       prompt: "Pick a direction",
       chosenOptionId: null,
     });
+    expect(next.threads[0]?.pendingRequests?.map((request) => request.type)).toEqual([
+      "design-option",
+      "permission",
+    ]);
     expect(next.sidebarThreadsById[ThreadId.makeUnsafe("thread-1")]?.hasPendingDesignChoice).toBe(
+      true,
+    );
+    expect(next.sidebarThreadsById[ThreadId.makeUnsafe("thread-1")]?.hasPendingUserInput).toBe(
       true,
     );
   });

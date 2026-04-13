@@ -752,7 +752,7 @@ projectionSnapshotLayer("ProjectionSnapshotQuery", (it) => {
           'phase-run-1',
           'user-input',
           'pending',
-          '{"type":"user-input","questions":[{"id":"scope","question":"Ship it?"}]}',
+          '{"type":"user-input","questions":[{"id":"scope","header":"Scope","question":"Ship it?","options":[{"label":"yes","description":"Ship the current scope"}]}]}',
           NULL,
           '2026-04-05T00:00:11.000Z',
           NULL,
@@ -827,7 +827,19 @@ projectionSnapshotLayer("ProjectionSnapshotQuery", (it) => {
             status: "pending",
             payload: {
               type: "user-input",
-              questions: [{ id: "scope", question: "Ship it?" }],
+              questions: [
+                {
+                  id: "scope",
+                  header: "Scope",
+                  question: "Ship it?",
+                  options: [
+                    {
+                      label: "yes",
+                      description: "Ship the current scope",
+                    },
+                  ],
+                },
+              ],
             },
             createdAt: "2026-04-05T00:00:11.000Z",
           },

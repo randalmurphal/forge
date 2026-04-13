@@ -4,7 +4,7 @@ import path from "node:path";
 
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import type { PermissionResult, SDKMessage } from "@anthropic-ai/claude-agent-sdk";
-import { ApprovalRequestId, ProviderItemId, ProviderRuntimeEvent } from "@forgetools/contracts";
+import { InteractiveRequestId, ProviderItemId, ProviderRuntimeEvent } from "@forgetools/contracts";
 import { assert, describe, it } from "@effect/vitest";
 import { Effect, Fiber, Layer, Random, Stream } from "effect";
 
@@ -3489,11 +3489,11 @@ describe("ClaudeAdapterLive", () => {
         return;
       }
 
-      yield* adapter.respondToRequest(
-        session.threadId,
-        ApprovalRequestId.makeUnsafe(runtimeRequestId),
-        "accept",
-      );
+      yield* adapter.respondToInteractiveRequest({
+        threadId: session.threadId,
+        requestId: InteractiveRequestId.makeUnsafe(runtimeRequestId),
+        resolution: { decision: "accept" },
+      });
 
       const resolved = yield* Stream.runHead(adapter.streamEvents);
       assert.equal(resolved._tag, "Some");
@@ -3554,11 +3554,11 @@ describe("ClaudeAdapterLive", () => {
       }
       assert.equal(agentRequested.value.payload.requestType, "dynamic_tool_call");
 
-      yield* adapter.respondToRequest(
-        session.threadId,
-        ApprovalRequestId.makeUnsafe(String(agentRequested.value.requestId)),
-        "accept",
-      );
+      yield* adapter.respondToInteractiveRequest({
+        threadId: session.threadId,
+        requestId: InteractiveRequestId.makeUnsafe(String(agentRequested.value.requestId)),
+        resolution: { decision: "accept" },
+      });
       yield* Stream.runHead(adapter.streamEvents);
       yield* Effect.promise(() => agentPermissionPromise);
 
@@ -3578,11 +3578,11 @@ describe("ClaudeAdapterLive", () => {
       }
       assert.equal(grepRequested.value.payload.requestType, "file_read_approval");
 
-      yield* adapter.respondToRequest(
-        session.threadId,
-        ApprovalRequestId.makeUnsafe(String(grepRequested.value.requestId)),
-        "accept",
-      );
+      yield* adapter.respondToInteractiveRequest({
+        threadId: session.threadId,
+        requestId: InteractiveRequestId.makeUnsafe(String(grepRequested.value.requestId)),
+        resolution: { decision: "accept" },
+      });
       yield* Stream.runHead(adapter.streamEvents);
       yield* Effect.promise(() => grepPermissionPromise);
     }).pipe(

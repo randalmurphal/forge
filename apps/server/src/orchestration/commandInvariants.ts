@@ -432,6 +432,10 @@ function interactiveRequestResolutionMatchesType(
       return isApprovalResolution(resolution);
     case "user-input":
       return "answers" in resolution;
+    case "permission":
+      return "scope" in resolution && "permissions" in resolution;
+    case "mcp-elicitation":
+      return "action" in resolution && "content" in resolution && "meta" in resolution;
     case "gate":
       return isGateResolution(resolution);
     case "bootstrap-failed":

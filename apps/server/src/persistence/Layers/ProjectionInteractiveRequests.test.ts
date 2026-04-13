@@ -111,8 +111,18 @@ layer("ProjectionInteractiveRequestRepository", (it) => {
           questions: [
             {
               id: "target",
+              header: "Target",
               question: "Which target should run?",
-              options: ["lint", "typecheck"],
+              options: [
+                {
+                  label: "lint",
+                  description: "Run lint",
+                },
+                {
+                  label: "typecheck",
+                  description: "Run typecheck",
+                },
+              ],
             },
           ],
         },
@@ -148,8 +158,18 @@ layer("ProjectionInteractiveRequestRepository", (it) => {
           questions: [
             {
               id: "target",
+              header: "Target",
               question: "Which target should run?",
-              options: ["lint", "typecheck"],
+              options: [
+                {
+                  label: "lint",
+                  description: "Run lint",
+                },
+                {
+                  label: "typecheck",
+                  description: "Run typecheck",
+                },
+              ],
             },
           ],
         },

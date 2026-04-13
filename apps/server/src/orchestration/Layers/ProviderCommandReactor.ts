@@ -2,6 +2,7 @@ import {
   type ChatAttachment,
   CommandId,
   EventId,
+  type InteractiveRequestResolution,
   type ModelSelection,
   type OrchestrationEvent,
   type ProviderInteractionMode,
@@ -44,8 +45,7 @@ type ProviderIntentEvent = Extract<
       | "thread.runtime-mode-set"
       | "thread.turn-start-requested"
       | "thread.turn-interrupt-requested"
-      | "thread.approval-response-requested"
-      | "thread.user-input-response-requested"
+      | "thread.interactive-request-response-requested"
       | "thread.session-stop-requested"
       | "thread.forked";
   }
@@ -97,35 +97,84 @@ function canReplaceThreadTitle(currentTitle: string, titleSeed?: string): boolea
     : false;
 }
 
-function isUnknownPendingApprovalRequestError(cause: Cause.Cause<ProviderServiceError>): boolean {
+function interactiveResolutionKind(
+  resolution: InteractiveRequestResolution,
+): "approval" | "user-input" | "permission" | "mcp-elicitation" | "other" {
+  if ("decision" in resolution) {
+    return "approval";
+  }
+  if ("answers" in resolution) {
+    return "user-input";
+  }
+  if ("scope" in resolution) {
+    return "permission";
+  }
+  if ("action" in resolution && "content" in resolution) {
+    return "mcp-elicitation";
+  }
+  return "other";
+}
+
+function isUnknownPendingInteractiveRequestError(
+  cause: Cause.Cause<ProviderServiceError>,
+  resolution: InteractiveRequestResolution,
+): boolean {
   const error = Cause.squash(cause);
-  if (Schema.is(ProviderAdapterRequestError)(error)) {
-    const detail = error.detail.toLowerCase();
+  const detail = Schema.is(ProviderAdapterRequestError)(error)
+    ? error.detail.toLowerCase()
+    : Cause.pretty(cause).toLowerCase();
+  const requestKind = interactiveResolutionKind(resolution);
+
+  if (requestKind === "approval" || requestKind === "permission") {
     return (
       detail.includes("unknown pending approval request") ||
       detail.includes("unknown pending permission request")
     );
   }
-  const message = Cause.pretty(cause);
-  return (
-    message.includes("unknown pending approval request") ||
-    message.includes("unknown pending permission request")
-  );
-}
-
-function isUnknownPendingUserInputRequestError(cause: Cause.Cause<ProviderServiceError>): boolean {
-  const error = Cause.squash(cause);
-  if (Schema.is(ProviderAdapterRequestError)(error)) {
-    return error.detail.toLowerCase().includes("unknown pending user-input request");
+  if (requestKind === "user-input" || requestKind === "mcp-elicitation") {
+    return (
+      detail.includes("unknown pending user-input request") ||
+      detail.includes("unknown pending mcp elicitation request") ||
+      detail.includes("unknown pending mcp-elicitation request")
+    );
   }
-  return Cause.pretty(cause).toLowerCase().includes("unknown pending user-input request");
+  return detail.includes("unknown pending interactive request");
 }
 
 function stalePendingRequestDetail(
-  requestKind: "approval" | "user-input",
+  requestKind: ReturnType<typeof interactiveResolutionKind>,
   requestId: string,
 ): string {
   return `Stale pending ${requestKind} request: ${requestId}. Provider callback state does not survive app restarts or recovered sessions. Restart the turn to continue.`;
+}
+
+function failureActivityKindForResolution(
+  resolution: InteractiveRequestResolution,
+):
+  | "provider.approval.respond.failed"
+  | "provider.user-input.respond.failed"
+  | "provider.interactive-request.respond.failed" {
+  const requestKind = interactiveResolutionKind(resolution);
+  if (requestKind === "approval" || requestKind === "permission") {
+    return "provider.approval.respond.failed";
+  }
+  if (requestKind === "user-input" || requestKind === "mcp-elicitation") {
+    return "provider.user-input.respond.failed";
+  }
+  return "provider.interactive-request.respond.failed";
+}
+
+function failureSummaryForResolution(resolution: InteractiveRequestResolution): string {
+  switch (interactiveResolutionKind(resolution)) {
+    case "approval":
+    case "permission":
+      return "Provider approval response failed";
+    case "user-input":
+    case "mcp-elicitation":
+      return "Provider user input response failed";
+    default:
+      return "Provider interactive request response failed";
+  }
 }
 
 function isTemporaryWorktreeBranch(branch: string, prefix?: string): boolean {
@@ -179,6 +228,7 @@ const make = Effect.gen(function* () {
       | "provider.turn.interrupt.failed"
       | "provider.approval.respond.failed"
       | "provider.user-input.respond.failed"
+      | "provider.interactive-request.respond.failed"
       | "provider.session.stop.failed";
     readonly summary: string;
     readonly detail: string;
@@ -635,19 +685,24 @@ const make = Effect.gen(function* () {
     yield* providerService.interruptTurn({ threadId: event.payload.threadId });
   });
 
-  const processApprovalResponseRequested = Effect.fn("processApprovalResponseRequested")(function* (
-    event: Extract<ProviderIntentEvent, { type: "thread.approval-response-requested" }>,
+  const processInteractiveRequestResponseRequested = Effect.fn(
+    "processInteractiveRequestResponseRequested",
+  )(function* (
+    event: Extract<ProviderIntentEvent, { type: "thread.interactive-request-response-requested" }>,
   ) {
     const thread = yield* resolveThread(event.payload.threadId);
     if (!thread) {
       return;
     }
+    const failureKind = failureActivityKindForResolution(event.payload.resolution);
+    const failureSummary = failureSummaryForResolution(event.payload.resolution);
+    const requestKind = interactiveResolutionKind(event.payload.resolution);
     const hasSession = thread.session && thread.session.status !== "stopped";
     if (!hasSession) {
       return yield* appendProviderFailureActivity({
         threadId: event.payload.threadId,
-        kind: "provider.approval.respond.failed",
-        summary: "Provider approval response failed",
+        kind: failureKind,
+        summary: failureSummary,
         detail: "No active provider session is bound to this thread.",
         turnId: null,
         createdAt: event.payload.createdAt,
@@ -656,76 +711,31 @@ const make = Effect.gen(function* () {
     }
 
     yield* providerService
-      .respondToRequest({
+      .respondToInteractiveRequest({
         threadId: event.payload.threadId,
         requestId: event.payload.requestId,
-        decision: event.payload.decision,
+        resolution: event.payload.resolution,
       })
       .pipe(
         Effect.catchCause((cause) =>
           Effect.gen(function* () {
             yield* appendProviderFailureActivity({
               threadId: event.payload.threadId,
-              kind: "provider.approval.respond.failed",
-              summary: "Provider approval response failed",
-              detail: isUnknownPendingApprovalRequestError(cause)
-                ? stalePendingRequestDetail("approval", event.payload.requestId)
+              kind: failureKind,
+              summary: failureSummary,
+              detail: isUnknownPendingInteractiveRequestError(cause, event.payload.resolution)
+                ? stalePendingRequestDetail(requestKind, event.payload.requestId)
                 : Cause.pretty(cause),
               turnId: null,
               createdAt: event.payload.createdAt,
               requestId: event.payload.requestId,
             });
 
-            if (!isUnknownPendingApprovalRequestError(cause)) return;
+            if (!isUnknownPendingInteractiveRequestError(cause, event.payload.resolution)) return;
           }),
         ),
       );
   });
-
-  const processUserInputResponseRequested = Effect.fn("processUserInputResponseRequested")(
-    function* (
-      event: Extract<ProviderIntentEvent, { type: "thread.user-input-response-requested" }>,
-    ) {
-      const thread = yield* resolveThread(event.payload.threadId);
-      if (!thread) {
-        return;
-      }
-      const hasSession = thread.session && thread.session.status !== "stopped";
-      if (!hasSession) {
-        return yield* appendProviderFailureActivity({
-          threadId: event.payload.threadId,
-          kind: "provider.user-input.respond.failed",
-          summary: "Provider user input response failed",
-          detail: "No active provider session is bound to this thread.",
-          turnId: null,
-          createdAt: event.payload.createdAt,
-          requestId: event.payload.requestId,
-        });
-      }
-
-      yield* providerService
-        .respondToUserInput({
-          threadId: event.payload.threadId,
-          requestId: event.payload.requestId,
-          answers: event.payload.answers,
-        })
-        .pipe(
-          Effect.catchCause((cause) =>
-            appendProviderFailureActivity({
-              threadId: event.payload.threadId,
-              kind: "provider.user-input.respond.failed",
-              summary: "Provider user input response failed",
-              detail: isUnknownPendingUserInputRequestError(cause)
-                ? stalePendingRequestDetail("user-input", event.payload.requestId)
-                : Cause.pretty(cause),
-              turnId: null,
-              createdAt: event.payload.createdAt,
-              requestId: event.payload.requestId,
-            }),
-          ),
-        );
-    },
-  );
 
   const processSessionStopRequested = Effect.fn("processSessionStopRequested")(function* (
     event: Extract<ProviderIntentEvent, { type: "thread.session-stop-requested" }>,
@@ -832,11 +842,8 @@ const make = Effect.gen(function* () {
       case "thread.turn-interrupt-requested":
         yield* processTurnInterruptRequested(event);
         return;
-      case "thread.approval-response-requested":
-        yield* processApprovalResponseRequested(event);
-        return;
-      case "thread.user-input-response-requested":
-        yield* processUserInputResponseRequested(event);
+      case "thread.interactive-request-response-requested":
+        yield* processInteractiveRequestResponseRequested(event);
         return;
       case "thread.session-stop-requested":
         yield* processSessionStopRequested(event);
@@ -868,8 +875,7 @@ const make = Effect.gen(function* () {
         event.type === "thread.runtime-mode-set" ||
         event.type === "thread.turn-start-requested" ||
         event.type === "thread.turn-interrupt-requested" ||
-        event.type === "thread.approval-response-requested" ||
-        event.type === "thread.user-input-response-requested" ||
+        event.type === "thread.interactive-request-response-requested" ||
         event.type === "thread.session-stop-requested" ||
         event.type === "thread.forked"
       ) {

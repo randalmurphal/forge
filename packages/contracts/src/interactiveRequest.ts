@@ -12,6 +12,8 @@ import { QualityCheckResult } from "./workflow";
 export const InteractiveRequestType = Schema.Literals([
   "approval",
   "user-input",
+  "permission",
+  "mcp-elicitation",
   "gate",
   "bootstrap-failed",
   "correction-needed",
@@ -38,10 +40,17 @@ export const ApprovalRequestResolution = Schema.Struct({
 });
 export type ApprovalRequestResolution = typeof ApprovalRequestResolution.Type;
 
+export const UserInputQuestionOption = Schema.Struct({
+  label: TrimmedNonEmptyString,
+  description: TrimmedNonEmptyString,
+});
+export type UserInputQuestionOption = typeof UserInputQuestionOption.Type;
+
 export const UserInputQuestion = Schema.Struct({
   id: TrimmedNonEmptyString,
+  header: TrimmedNonEmptyString,
   question: Schema.String,
-  options: Schema.optional(Schema.Array(Schema.String)),
+  options: Schema.Array(UserInputQuestionOption),
   multiSelect: Schema.optional(Schema.Boolean),
 });
 export type UserInputQuestion = typeof UserInputQuestion.Type;
@@ -56,6 +65,94 @@ export const UserInputRequestResolution = Schema.Struct({
   answers: Schema.Record(Schema.String, Schema.Union([Schema.String, Schema.Array(Schema.String)])),
 });
 export type UserInputRequestResolution = typeof UserInputRequestResolution.Type;
+
+export const AdditionalFileSystemPermissions = Schema.Struct({
+  read: Schema.NullOr(Schema.Array(Schema.String)),
+  write: Schema.NullOr(Schema.Array(Schema.String)),
+});
+export type AdditionalFileSystemPermissions = typeof AdditionalFileSystemPermissions.Type;
+
+export const AdditionalNetworkPermissions = Schema.Struct({
+  enabled: Schema.NullOr(Schema.Boolean),
+});
+export type AdditionalNetworkPermissions = typeof AdditionalNetworkPermissions.Type;
+
+export const RequestPermissionProfile = Schema.Struct({
+  network: Schema.NullOr(AdditionalNetworkPermissions),
+  fileSystem: Schema.NullOr(AdditionalFileSystemPermissions),
+});
+export type RequestPermissionProfile = typeof RequestPermissionProfile.Type;
+
+export const GrantedPermissionProfile = Schema.Struct({
+  network: Schema.optional(AdditionalNetworkPermissions),
+  fileSystem: Schema.optional(AdditionalFileSystemPermissions),
+});
+export type GrantedPermissionProfile = typeof GrantedPermissionProfile.Type;
+
+export const PermissionGrantScope = Schema.Literals(["turn", "session"]);
+export type PermissionGrantScope = typeof PermissionGrantScope.Type;
+
+export const PermissionRequestPayload = Schema.Struct({
+  type: Schema.Literal("permission"),
+  reason: Schema.NullOr(Schema.String),
+  permissions: RequestPermissionProfile,
+});
+export type PermissionRequestPayload = typeof PermissionRequestPayload.Type;
+
+export const PermissionRequestResolution = Schema.Struct({
+  scope: PermissionGrantScope,
+  permissions: GrantedPermissionProfile,
+});
+export type PermissionRequestResolution = typeof PermissionRequestResolution.Type;
+
+export const McpElicitationAction = Schema.Literals(["accept", "decline", "cancel"]);
+export type McpElicitationAction = typeof McpElicitationAction.Type;
+
+export const McpElicitationQuestionOption = Schema.Struct({
+  label: TrimmedNonEmptyString,
+  description: TrimmedNonEmptyString,
+});
+export type McpElicitationQuestionOption = typeof McpElicitationQuestionOption.Type;
+
+export const McpElicitationQuestion = Schema.Struct({
+  id: TrimmedNonEmptyString,
+  header: TrimmedNonEmptyString,
+  question: TrimmedNonEmptyString,
+  options: Schema.Array(McpElicitationQuestionOption),
+  multiSelect: Schema.optional(Schema.Boolean),
+});
+export type McpElicitationQuestion = typeof McpElicitationQuestion.Type;
+
+export const McpElicitationRequestPayload = Schema.Union([
+  Schema.Struct({
+    type: Schema.Literal("mcp-elicitation"),
+    mode: Schema.Literal("form"),
+    serverName: TrimmedNonEmptyString,
+    message: Schema.String,
+    meta: Schema.NullOr(Schema.Unknown),
+    requestedSchema: Schema.Unknown,
+    questions: Schema.optional(Schema.Array(McpElicitationQuestion)),
+    turnId: Schema.optional(TrimmedNonEmptyString),
+  }),
+  Schema.Struct({
+    type: Schema.Literal("mcp-elicitation"),
+    mode: Schema.Literal("url"),
+    serverName: TrimmedNonEmptyString,
+    message: Schema.String,
+    meta: Schema.NullOr(Schema.Unknown),
+    url: Schema.String,
+    elicitationId: TrimmedNonEmptyString,
+    turnId: Schema.optional(TrimmedNonEmptyString),
+  }),
+]);
+export type McpElicitationRequestPayload = typeof McpElicitationRequestPayload.Type;
+
+export const McpElicitationRequestResolution = Schema.Struct({
+  action: McpElicitationAction,
+  content: Schema.NullOr(Schema.Unknown),
+  meta: Schema.NullOr(Schema.Unknown),
+});
+export type McpElicitationRequestResolution = typeof McpElicitationRequestResolution.Type;
 
 export const GateRequestPayload = Schema.Struct({
   type: Schema.Literal("gate"),
@@ -120,6 +217,8 @@ export type DesignOptionRequestResolution = typeof DesignOptionRequestResolution
 export const InteractiveRequestPayload = Schema.Union([
   ApprovalRequestPayload,
   UserInputRequestPayload,
+  PermissionRequestPayload,
+  McpElicitationRequestPayload,
   GateRequestPayload,
   BootstrapFailedRequestPayload,
   CorrectionNeededRequestPayload,
@@ -130,6 +229,8 @@ export type InteractiveRequestPayload = typeof InteractiveRequestPayload.Type;
 export const InteractiveRequestResolution = Schema.Union([
   ApprovalRequestResolution,
   UserInputRequestResolution,
+  PermissionRequestResolution,
+  McpElicitationRequestResolution,
   GateRequestResolution,
   BootstrapFailedRequestResolution,
   CorrectionNeededRequestResolution,

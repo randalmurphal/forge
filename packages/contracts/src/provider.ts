@@ -1,7 +1,7 @@
 import { Schema } from "effect";
 import { TrimmedNonEmptyString } from "./baseSchemas";
 import {
-  ApprovalRequestId,
+  InteractiveRequestId,
   EventId,
   IsoDateTime,
   ProviderItemId,
@@ -10,18 +10,17 @@ import {
 } from "./baseSchemas";
 import {
   ModelSelection,
-  ProviderApprovalDecision,
   ProviderApprovalPolicy,
   ProviderKind,
   ProviderSandboxMode,
 } from "./providerSchemas";
+import { InteractiveRequestResolution } from "./interactiveRequest";
 import {
   ChatAttachment,
   PROVIDER_SEND_TURN_MAX_ATTACHMENTS,
   PROVIDER_SEND_TURN_MAX_INPUT_CHARS,
   ProviderInteractionMode,
   ProviderRequestKind,
-  ProviderUserInputAnswers,
   RuntimeMode,
 } from "./orchestration";
 
@@ -92,19 +91,13 @@ export const ProviderStopSessionInput = Schema.Struct({
 });
 export type ProviderStopSessionInput = typeof ProviderStopSessionInput.Type;
 
-export const ProviderRespondToRequestInput = Schema.Struct({
+export const ProviderRespondToInteractiveRequestInput = Schema.Struct({
   threadId: ThreadId,
-  requestId: ApprovalRequestId,
-  decision: ProviderApprovalDecision,
+  requestId: InteractiveRequestId,
+  resolution: InteractiveRequestResolution,
 });
-export type ProviderRespondToRequestInput = typeof ProviderRespondToRequestInput.Type;
-
-export const ProviderRespondToUserInputInput = Schema.Struct({
-  threadId: ThreadId,
-  requestId: ApprovalRequestId,
-  answers: ProviderUserInputAnswers,
-});
-export type ProviderRespondToUserInputInput = typeof ProviderRespondToUserInputInput.Type;
+export type ProviderRespondToInteractiveRequestInput =
+  typeof ProviderRespondToInteractiveRequestInput.Type;
 
 const ProviderEventKind = Schema.Literals(["session", "notification", "request", "error"]);
 
@@ -118,7 +111,7 @@ export const ProviderEvent = Schema.Struct({
   message: Schema.optional(TrimmedNonEmptyString),
   turnId: Schema.optional(TurnId),
   itemId: Schema.optional(ProviderItemId),
-  requestId: Schema.optional(ApprovalRequestId),
+  requestId: Schema.optional(InteractiveRequestId),
   requestKind: Schema.optional(ProviderRequestKind),
   textDelta: Schema.optional(Schema.String),
   payload: Schema.optional(Schema.Unknown),

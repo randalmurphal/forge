@@ -761,6 +761,73 @@ function mapTaskEvent(event: ProviderEvent, canonicalThreadId: ThreadId): Mapped
 
 function mapTelemetryEvent(event: ProviderEvent, canonicalThreadId: ThreadId): MappedEvents {
   const payload = asRecord(event.payload);
+  const hookRun = asRecord(payload?.run);
+
+  if (event.method === "hook/started") {
+    const hookId = asString(hookRun?.id);
+    const hookEvent = asString(hookRun?.eventName);
+    const hookName = asString(hookRun?.sourcePath) ?? asString(hookRun?.handlerType);
+    if (!hookId || !hookEvent || !hookName) {
+      return [];
+    }
+    return [
+      {
+        type: "hook.started",
+        ...runtimeEventBase(event, canonicalThreadId),
+        payload: {
+          hookId,
+          hookName,
+          hookEvent,
+        },
+      },
+    ];
+  }
+
+  if (event.method === "hook/completed") {
+    const hookId = asString(hookRun?.id);
+    if (!hookId) {
+      return [];
+    }
+    const outcomeRaw = asString(hookRun?.status);
+    const outcome = outcomeRaw === "error" || outcomeRaw === "cancelled" ? outcomeRaw : "success";
+    const output = asString(hookRun?.statusMessage);
+    return [
+      {
+        type: "hook.completed",
+        ...runtimeEventBase(event, canonicalThreadId),
+        payload: {
+          hookId,
+          outcome,
+          ...(output ? { output } : {}),
+        },
+      },
+    ];
+  }
+
+  if (event.method === "item/autoApprovalReview/started") {
+    return [
+      {
+        type: "tool.progress",
+        ...runtimeEventBase(event, canonicalThreadId),
+        payload: {
+          toolName: "guardian-review",
+          summary: "Safety review in progress",
+        },
+      },
+    ];
+  }
+
+  if (event.method === "item/autoApprovalReview/completed") {
+    return [
+      {
+        type: "tool.summary",
+        ...runtimeEventBase(event, canonicalThreadId),
+        payload: {
+          summary: "Safety review completed",
+        },
+      },
+    ];
+  }
 
   if (event.method === "model/rerouted") {
     return [
@@ -837,6 +904,18 @@ function mapTelemetryEvent(event: ProviderEvent, canonicalThreadId: ThreadId): M
           success: payload?.success === true,
           ...(asString(payload?.name) ? { name: asString(payload?.name) } : {}),
           ...(asString(payload?.error) ? { error: asString(payload?.error) } : {}),
+        },
+      },
+    ];
+  }
+
+  if (event.method === "mcpServer/startupStatus/updated") {
+    return [
+      {
+        type: "mcp.status.updated",
+        ...runtimeEventBase(event, canonicalThreadId),
+        payload: {
+          status: event.payload ?? {},
         },
       },
     ];

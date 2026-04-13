@@ -1,14 +1,16 @@
 import {
-  type ApprovalRequestId,
   DEFAULT_MODEL_BY_PROVIDER,
+  type InteractiveRequest,
+  type InteractiveRequestId,
+  type InteractiveRequestResolution,
   type ClaudeCodeEffort,
   type MessageId,
   type ModelSelection,
   type ProjectScript,
   type ProviderKind,
+  type ProviderApprovalDecision,
   type ProjectEntry,
   type ProjectId,
-  type ProviderApprovalDecision,
   PROVIDER_SEND_TURN_MAX_ATTACHMENTS,
   PROVIDER_SEND_TURN_MAX_IMAGE_BYTES,
   type ServerProvider,
@@ -48,9 +50,9 @@ import {
   deriveCompletionDividerBeforeEntryId,
   deriveBackgroundTrayState,
   filterTrayOwnedWorkEntries,
+  type PendingApproval,
+  type PendingUserInput,
   type WorkLogEntry,
-  derivePendingApprovals,
-  derivePendingUserInputs,
   derivePhase,
   deriveTimelineEntries,
   deriveActiveWorkStartedAt,
@@ -177,7 +179,11 @@ import { ComposerPendingApprovalActions } from "./chat/ComposerPendingApprovalAc
 import { CompactComposerControlsMenu } from "./chat/CompactComposerControlsMenu";
 import { ComposerPrimaryActions } from "./chat/ComposerPrimaryActions";
 import { ComposerPendingApprovalPanel } from "./chat/ComposerPendingApprovalPanel";
+import type { ComposerPendingPermissionRequest } from "./chat/ComposerPendingPermissionPanel";
+import type { ComposerPendingMcpElicitationRequest } from "./chat/ComposerPendingMcpElicitationPanel";
 import { ComposerPendingUserInputPanel } from "./chat/ComposerPendingUserInputPanel";
+import { ComposerPendingPermissionPanel } from "./chat/ComposerPendingPermissionPanel";
+import { ComposerPendingMcpElicitationPanel } from "./chat/ComposerPendingMcpElicitationPanel";
 import { ComposerPlanFollowUpBanner } from "./chat/ComposerPlanFollowUpBanner";
 import { ComposerBackgroundTaskTray } from "./chat/ComposerBackgroundTaskTray";
 import {
@@ -219,6 +225,36 @@ import {
   useServerConfig,
   useServerKeybindings,
 } from "~/rpc/serverState";
+
+function isPendingPermissionRequest(
+  request: InteractiveRequest | null,
+): request is ComposerPendingPermissionRequest {
+  return request?.type === "permission";
+}
+
+function isPendingApprovalRequest(
+  request: InteractiveRequest | null,
+): request is InteractiveRequest & {
+  type: "approval";
+  payload: Extract<InteractiveRequest["payload"], { type: "approval" }>;
+} {
+  return request?.type === "approval";
+}
+
+function isPendingUserInputRequest(
+  request: InteractiveRequest | null,
+): request is InteractiveRequest & {
+  type: "user-input";
+  payload: Extract<InteractiveRequest["payload"], { type: "user-input" }>;
+} {
+  return request?.type === "user-input";
+}
+
+function isPendingMcpElicitationRequest(
+  request: InteractiveRequest | null,
+): request is ComposerPendingMcpElicitationRequest {
+  return request?.type === "mcp-elicitation";
+}
 
 const ATTACHMENT_PREVIEW_HANDOFF_TTL_MS = 5000;
 const IMAGE_SIZE_LIMIT_LABEL = `${Math.round(PROVIDER_SEND_TURN_MAX_IMAGE_BYTES / (1024 * 1024))}MB`;
@@ -360,12 +396,43 @@ interface PendingPullRequestSetupRequest {
   scriptId: string;
 }
 
+function mapPendingApprovalRequest(request: InteractiveRequest): PendingApproval | null {
+  if (!isPendingApprovalRequest(request)) {
+    return null;
+  }
+  const payload = request.payload;
+  const requestKind =
+    payload.requestType === "file_read_approval"
+      ? "file-read"
+      : payload.requestType === "file_change_approval" ||
+          payload.requestType === "apply_patch_approval"
+        ? "file-change"
+        : "command";
+  return {
+    requestId: request.id,
+    requestKind,
+    createdAt: request.createdAt,
+    ...(payload.detail ? { detail: payload.detail } : {}),
+  };
+}
+
+function mapPendingUserInputRequest(request: InteractiveRequest): PendingUserInput | null {
+  if (!isPendingUserInputRequest(request)) {
+    return null;
+  }
+  return {
+    requestId: request.id,
+    createdAt: request.createdAt,
+    questions: request.payload.questions,
+  };
+}
+
 function useLocalDispatchState(input: {
   activeThread: Thread | undefined;
   activeLatestTurn: Thread["latestTurn"] | null;
   phase: SessionPhase;
-  activePendingApproval: ApprovalRequestId | null;
-  activePendingUserInput: ApprovalRequestId | null;
+  activePendingApproval: InteractiveRequestId | null;
+  activePendingUserInput: InteractiveRequestId | null;
   threadError: string | null | undefined;
 }) {
   const [localDispatch, setLocalDispatch] = useState<LocalDispatchSnapshot | null>(null);
@@ -705,10 +772,7 @@ export default function ChatView({ threadId }: ChatViewProps) {
   >({});
   const [isConnecting, _setIsConnecting] = useState(false);
   const [isRevertingCheckpoint, setIsRevertingCheckpoint] = useState(false);
-  const [respondingRequestIds, setRespondingRequestIds] = useState<ApprovalRequestId[]>([]);
-  const [respondingUserInputRequestIds, setRespondingUserInputRequestIds] = useState<
-    ApprovalRequestId[]
-  >([]);
+  const [respondingRequestIds, setRespondingRequestIds] = useState<string[]>([]);
   const [pendingUserInputAnswersByRequestId, setPendingUserInputAnswersByRequestId] = useState<
     Record<string, Record<string, PendingUserInputDraftAnswer>>
   >({});
@@ -1149,15 +1213,25 @@ export default function ChatView({ threadId }: ChatViewProps) {
     () => hasToolActivityForTurn(threadActivities, activeLatestTurn?.turnId),
     [activeLatestTurn?.turnId, threadActivities],
   );
-  const pendingApprovals = useMemo(
-    () => derivePendingApprovals(threadActivities),
-    [threadActivities],
+  const threadPendingRequests = useMemo(
+    () =>
+      (activeThread?.pendingRequests ?? [])
+        .filter((request) => request.status === "pending" && request.type !== "design-option")
+        .toSorted((left, right) => left.createdAt.localeCompare(right.createdAt)),
+    [activeThread?.pendingRequests],
   );
-  const pendingUserInputs = useMemo(
-    () => derivePendingUserInputs(threadActivities),
-    [threadActivities],
+  const hasPendingRequests = threadPendingRequests.length > 0;
+  const activePendingRequest = threadPendingRequests[0] ?? null;
+  const activePendingApproval = useMemo(
+    () => (activePendingRequest ? mapPendingApprovalRequest(activePendingRequest) : null),
+    [activePendingRequest],
   );
-  const activePendingUserInput = pendingUserInputs[0] ?? null;
+  const pendingApprovals = activePendingApproval ? [activePendingApproval] : [];
+  const activePendingUserInput = useMemo(
+    () => (activePendingRequest ? mapPendingUserInputRequest(activePendingRequest) : null),
+    [activePendingRequest],
+  );
+  const pendingUserInputs = activePendingUserInput ? [activePendingUserInput] : [];
   const activePendingDraftAnswers = useMemo(
     () =>
       activePendingUserInput
@@ -1188,8 +1262,14 @@ export default function ChatView({ threadId }: ChatViewProps) {
     [activePendingDraftAnswers, activePendingUserInput],
   );
   const activePendingIsResponding = activePendingUserInput
-    ? respondingUserInputRequestIds.includes(activePendingUserInput.requestId)
+    ? respondingRequestIds.includes(activePendingUserInput.requestId)
     : false;
+  const activePendingPermission = isPendingPermissionRequest(activePendingRequest)
+    ? activePendingRequest
+    : null;
+  const activePendingMcpElicitation = isPendingMcpElicitationRequest(activePendingRequest)
+    ? activePendingRequest
+    : null;
   const activeProposedPlan = useMemo(() => {
     if (!latestTurnSettled) {
       return null;
@@ -1215,11 +1295,11 @@ export default function ChatView({ threadId }: ChatViewProps) {
   );
   const showPlanFollowUpPrompt =
     !isDiscussionContainerThread &&
-    pendingUserInputs.length === 0 &&
+    !hasPendingRequests &&
     interactionMode === "plan" &&
     latestTurnSettled &&
     hasActionableProposedPlan(activeProposedPlan);
-  const activePendingApproval = pendingApprovals[0] ?? null;
+  const activePendingRequestId = activePendingRequest?.id ?? null;
   const {
     beginLocalDispatch,
     resetLocalDispatch,
@@ -1230,8 +1310,8 @@ export default function ChatView({ threadId }: ChatViewProps) {
     activeThread,
     activeLatestTurn,
     phase,
-    activePendingApproval: activePendingApproval?.requestId ?? null,
-    activePendingUserInput: activePendingUserInput?.requestId ?? null,
+    activePendingApproval: activePendingRequestId,
+    activePendingUserInput: activePendingRequestId,
     threadError: activeThread?.error,
   });
   const isWorking =
@@ -1253,10 +1333,10 @@ export default function ChatView({ threadId }: ChatViewProps) {
         activeThread?.session ?? null,
         localDispatchStartedAt,
       );
-  const isComposerApprovalState = activePendingApproval !== null;
+  const isComposerRequestState = hasPendingRequests && activePendingUserInput === null;
   const hasComposerHeader =
-    isComposerApprovalState ||
-    pendingUserInputs.length > 0 ||
+    isComposerRequestState ||
+    activePendingUserInput !== null ||
     (showPlanFollowUpPrompt && activeProposedPlan !== null);
   const composerFooterHasWideActions = showPlanFollowUpPrompt || activePendingProgress !== null;
   const composerFooterActionLayoutKey = useMemo(() => {
@@ -2846,10 +2926,10 @@ export default function ChatView({ threadId }: ChatViewProps) {
   const addComposerImages = (files: File[]) => {
     if (!activeThreadId || files.length === 0) return;
 
-    if (pendingUserInputs.length > 0) {
+    if (hasPendingRequests) {
       toastManager.add({
         type: "error",
-        title: "Attach images after answering plan questions.",
+        title: "Resolve the pending request before attaching images.",
       });
       return;
     }
@@ -3403,8 +3483,8 @@ export default function ChatView({ threadId }: ChatViewProps) {
   const onInterruptRef = useRef(onInterrupt);
   onInterruptRef.current = onInterrupt;
 
-  const onRespondToApproval = useCallback(
-    async (requestId: ApprovalRequestId, decision: ProviderApprovalDecision) => {
+  const onRespondToInteractiveRequest = useCallback(
+    async (requestId: InteractiveRequestId, resolution: InteractiveRequestResolution) => {
       const api = readNativeApi();
       if (!api || !activeThreadId) return;
 
@@ -3413,22 +3493,35 @@ export default function ChatView({ threadId }: ChatViewProps) {
       );
       await api.orchestration
         .dispatchCommand({
-          type: "thread.approval.respond",
+          type: "thread.interactive-request.respond",
           commandId: newCommandId(),
           threadId: activeThreadId,
           requestId,
-          decision,
+          resolution,
           createdAt: new Date().toISOString(),
         })
         .catch((err: unknown) => {
           setStoreThreadError(
             activeThreadId,
-            err instanceof Error ? err.message : "Failed to submit approval decision.",
+            err instanceof Error ? err.message : "Failed to submit interactive request response.",
           );
         });
       setRespondingRequestIds((existing) => existing.filter((id) => id !== requestId));
     },
     [activeThreadId, setStoreThreadError],
+  );
+
+  const onRespondToApproval = useCallback(
+    (requestId: InteractiveRequestId, decision: ProviderApprovalDecision) =>
+      void onRespondToInteractiveRequest(requestId, { decision }),
+    [onRespondToInteractiveRequest],
+  );
+
+  const onRespondToUserInput = useCallback(
+    async (requestId: InteractiveRequestId, answers: Record<string, string | string[]>) => {
+      await onRespondToInteractiveRequest(requestId, { answers });
+    },
+    [onRespondToInteractiveRequest],
   );
 
   // Escape key: cancel pending prompts or interrupt running turn
@@ -3447,10 +3540,20 @@ export default function ChatView({ threadId }: ChatViewProps) {
       }
 
       // Priority 2: Cancel pending user input via turn interrupt
-      if (pendingUserInputs.length > 0) {
+      if (activePendingUserInput) {
         if (activePendingIsResponding) return;
         event.preventDefault();
         void onInterruptRef.current();
+        return;
+      }
+
+      if (activePendingPermission || activePendingMcpElicitation) {
+        event.preventDefault();
+        return;
+      }
+
+      if (isComposerRequestState) {
+        event.preventDefault();
         return;
       }
 
@@ -3467,39 +3570,14 @@ export default function ChatView({ threadId }: ChatViewProps) {
   }, [
     activePendingApproval,
     activePendingIsResponding,
+    activePendingUserInput,
+    activePendingMcpElicitation,
+    activePendingPermission,
+    isComposerRequestState,
     respondingRequestIds,
     onRespondToApproval,
-    pendingUserInputs.length,
     phase,
   ]);
-
-  const onRespondToUserInput = useCallback(
-    async (requestId: ApprovalRequestId, answers: Record<string, unknown>) => {
-      const api = readNativeApi();
-      if (!api || !activeThreadId) return;
-
-      setRespondingUserInputRequestIds((existing) =>
-        existing.includes(requestId) ? existing : [...existing, requestId],
-      );
-      await api.orchestration
-        .dispatchCommand({
-          type: "thread.user-input.respond",
-          commandId: newCommandId(),
-          threadId: activeThreadId,
-          requestId,
-          answers,
-          createdAt: new Date().toISOString(),
-        })
-        .catch((err: unknown) => {
-          setStoreThreadError(
-            activeThreadId,
-            err instanceof Error ? err.message : "Failed to submit user input.",
-          );
-        });
-      setRespondingUserInputRequestIds((existing) => existing.filter((id) => id !== requestId));
-    },
-    [activeThreadId, setStoreThreadError],
-  );
 
   const setActivePendingUserInputQuestionIndex = useCallback(
     (nextQuestionIndex: number) => {
@@ -4537,7 +4615,7 @@ export default function ChatView({ threadId }: ChatViewProps) {
                         pendingCount={pendingApprovals.length}
                       />
                     </div>
-                  ) : pendingUserInputs.length > 0 ? (
+                  ) : activePendingUserInput ? (
                     <div className="rounded-t-[19px] border-b border-border/65 bg-muted/20">
                       <ComposerPendingUserInputPanel
                         pendingUserInputs={pendingUserInputs}
@@ -4547,6 +4625,42 @@ export default function ChatView({ threadId }: ChatViewProps) {
                         onSelectOption={onSelectActivePendingUserInputOption}
                         onAdvance={onAdvanceActivePendingUserInput}
                       />
+                    </div>
+                  ) : activePendingPermission ? (
+                    <div className="rounded-t-[19px] border-b border-border/65 bg-muted/20">
+                      <ComposerPendingPermissionPanel
+                        request={activePendingPermission}
+                        pendingCount={threadPendingRequests.length}
+                        isResponding={respondingRequestIds.includes(activePendingPermission.id)}
+                        onRespond={onRespondToInteractiveRequest}
+                      />
+                    </div>
+                  ) : activePendingMcpElicitation ? (
+                    <div className="rounded-t-[19px] border-b border-border/65 bg-muted/20">
+                      <ComposerPendingMcpElicitationPanel
+                        request={activePendingMcpElicitation}
+                        pendingCount={threadPendingRequests.length}
+                        isResponding={respondingRequestIds.includes(activePendingMcpElicitation.id)}
+                        onRespond={onRespondToInteractiveRequest}
+                      />
+                    </div>
+                  ) : hasPendingRequests ? (
+                    <div className="rounded-t-[19px] border-b border-border/65 bg-muted/20 px-4 py-3.5 sm:px-5 sm:py-4">
+                      <div className="flex flex-wrap items-center gap-2">
+                        <span className="uppercase text-sm tracking-[0.2em]">PENDING REQUEST</span>
+                        <span className="text-sm font-medium">
+                          {activePendingRequest?.type ?? "request"}
+                        </span>
+                        {threadPendingRequests.length > 1 ? (
+                          <span className="text-xs text-muted-foreground">
+                            1/{threadPendingRequests.length}
+                          </span>
+                        ) : null}
+                      </div>
+                      <p className="mt-1.5 text-sm text-foreground/90">
+                        This request is pending, but the web composer does not have a specialized
+                        renderer for it yet.
+                      </p>
                     </div>
                   ) : showPlanFollowUpPrompt && activeProposedPlan ? (
                     <div className="rounded-t-[19px] border-b border-border/65 bg-muted/20">
@@ -4568,7 +4682,7 @@ export default function ChatView({ threadId }: ChatViewProps) {
                       hasComposerHeader ? "pt-2.5 sm:pt-3" : "pt-3.5 sm:pt-4",
                     )}
                   >
-                    {composerMenuOpen && !isComposerApprovalState && (
+                    {composerMenuOpen && !isComposerRequestState && (
                       <div className="absolute inset-x-0 bottom-full z-20 mb-2 px-1">
                         <ComposerCommandMenu
                           items={composerMenuItems}
@@ -4582,8 +4696,8 @@ export default function ChatView({ threadId }: ChatViewProps) {
                       </div>
                     )}
 
-                    {!isComposerApprovalState &&
-                      pendingUserInputs.length === 0 &&
+                    {!isComposerRequestState &&
+                      activePendingUserInput === null &&
                       composerImages.length > 0 && (
                         <div className="mb-3 flex flex-wrap gap-2">
                           {composerImages.map((image) => (
@@ -4654,7 +4768,7 @@ export default function ChatView({ threadId }: ChatViewProps) {
                     <ComposerPromptEditor
                       ref={composerEditorRef}
                       value={
-                        isComposerApprovalState
+                        isComposerRequestState
                           ? ""
                           : activePendingProgress
                             ? activePendingProgress.customAnswer
@@ -4662,7 +4776,7 @@ export default function ChatView({ threadId }: ChatViewProps) {
                       }
                       cursor={composerCursor}
                       terminalContexts={
-                        !isComposerApprovalState && pendingUserInputs.length === 0
+                        !isComposerRequestState && activePendingUserInput === null
                           ? composerTerminalContexts
                           : []
                       }
@@ -4671,20 +4785,26 @@ export default function ChatView({ threadId }: ChatViewProps) {
                       onCommandKeyDown={onComposerCommandKey}
                       onPaste={onComposerPaste}
                       placeholder={
-                        isComposerApprovalState
+                        activePendingApproval
                           ? (activePendingApproval?.detail ??
                             "Resolve this approval request to continue")
-                          : activePendingProgress
-                            ? "Type your own answer, or leave this blank to use the selected option"
-                            : showPlanFollowUpPrompt && activeProposedPlan
-                              ? "Add feedback to refine the plan, or leave this blank to implement it"
-                              : phase === "disconnected"
-                                ? "Ask for follow-up changes or attach images"
-                                : isDiscussionContainerThread
-                                  ? "Send a message to the shared chat or attach images"
-                                  : "Ask anything, @tag files/folders, or use / to show available commands"
+                          : activePendingPermission
+                            ? "Grant or narrow the requested access to continue"
+                            : activePendingMcpElicitation
+                              ? "Respond to the MCP elicitation request to continue"
+                              : hasPendingRequests
+                                ? "Resolve the pending request to continue"
+                                : activePendingProgress
+                                  ? "Type your own answer, or leave this blank to use the selected option"
+                                  : showPlanFollowUpPrompt && activeProposedPlan
+                                    ? "Add feedback to refine the plan, or leave this blank to implement it"
+                                    : phase === "disconnected"
+                                      ? "Ask for follow-up changes or attach images"
+                                      : isDiscussionContainerThread
+                                        ? "Send a message to the shared chat or attach images"
+                                        : "Ask anything, @tag files/folders, or use / to show available commands"
                       }
-                      disabled={isConnecting || isComposerApprovalState}
+                      disabled={isConnecting || isComposerRequestState}
                     />
                   </div>
 
@@ -4696,10 +4816,10 @@ export default function ChatView({ threadId }: ChatViewProps) {
                         isResponding={respondingRequestIds.includes(
                           activePendingApproval.requestId,
                         )}
-                        onRespondToApproval={onRespondToApproval}
+                        onRespondToInteractiveRequest={onRespondToInteractiveRequest}
                       />
                     </div>
-                  ) : (
+                  ) : isComposerRequestState ? null : (
                     <div
                       ref={composerFooterRef}
                       data-chat-composer-footer="true"
@@ -4910,7 +5030,7 @@ export default function ChatView({ threadId }: ChatViewProps) {
                           }
                           isRunning={phase === "running"}
                           showPlanFollowUpPrompt={
-                            pendingUserInputs.length === 0 && showPlanFollowUpPrompt
+                            activePendingUserInput === null && showPlanFollowUpPrompt
                           }
                           promptHasText={prompt.trim().length > 0}
                           isSendBusy={isSendBusy}

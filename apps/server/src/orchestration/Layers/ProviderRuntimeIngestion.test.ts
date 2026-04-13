@@ -1,7 +1,7 @@
 import {
-  ApprovalRequestId,
   CommandId,
   DEFAULT_PROVIDER_INTERACTION_MODE,
+  InteractiveRequestId,
   ThreadId,
 } from "@forgetools/contracts";
 import { Effect, Stream } from "effect";
@@ -1939,7 +1939,7 @@ describe("ProviderRuntimeIngestion", () => {
       provider: "codex",
       createdAt: now,
       threadId: asThreadId("thread-1"),
-      requestId: ApprovalRequestId.makeUnsafe("req-open"),
+      requestId: InteractiveRequestId.makeUnsafe("req-open"),
       payload: {
         requestType: "command_execution_approval",
         detail: "pwd",
@@ -1952,7 +1952,7 @@ describe("ProviderRuntimeIngestion", () => {
       provider: "codex",
       createdAt: now,
       threadId: asThreadId("thread-1"),
-      requestId: ApprovalRequestId.makeUnsafe("req-open"),
+      requestId: InteractiveRequestId.makeUnsafe("req-open"),
       payload: {
         requestType: "command_execution_approval",
         decision: "accept",
@@ -2036,6 +2036,170 @@ describe("ProviderRuntimeIngestion", () => {
           activity.kind === "approval.requested" || activity.kind === "approval.resolved",
       ),
     ).toBe(false);
+  });
+
+  it("maps permission escalation request events into approval activities and pending requests", async () => {
+    const harness = await createHarness();
+    const now = new Date().toISOString();
+
+    harness.emit({
+      type: "request.opened",
+      eventId: asEventId("evt-permission-opened"),
+      provider: "codex",
+      createdAt: now,
+      threadId: asThreadId("thread-1"),
+      requestId: InteractiveRequestId.makeUnsafe("req-permission-open"),
+      payload: {
+        requestType: "permission_approval",
+        detail: "Need broader workspace access",
+        args: {
+          reason: "Need broader workspace access",
+          permissions: {
+            network: {
+              enabled: true,
+            },
+            fileSystem: {
+              read: ["/tmp/project/src"],
+              write: ["/tmp/project/out"],
+            },
+          },
+        },
+      },
+    });
+
+    await waitForThread(harness.engine, (entry) =>
+      entry.activities.some(
+        (activity: ProviderRuntimeTestActivity) => activity.id === "evt-permission-opened",
+      ),
+    );
+
+    const readModel = await Effect.runPromise(harness.engine.getReadModel());
+    const thread = readModel.threads.find((entry) => entry.id === ThreadId.makeUnsafe("thread-1"));
+    const pendingRequest = readModel.pendingRequests.find(
+      (request) => request.id === InteractiveRequestId.makeUnsafe("req-permission-open"),
+    );
+
+    expect(
+      thread?.activities.find((activity) => activity.id === "evt-permission-opened")?.kind,
+    ).toBe("approval.requested");
+    expect(pendingRequest).toEqual(
+      expect.objectContaining({
+        id: InteractiveRequestId.makeUnsafe("req-permission-open"),
+        type: "permission",
+        payload: {
+          type: "permission",
+          reason: "Need broader workspace access",
+          permissions: {
+            network: {
+              enabled: true,
+            },
+            fileSystem: {
+              read: ["/tmp/project/src"],
+              write: ["/tmp/project/out"],
+            },
+          },
+        },
+      }),
+    );
+  });
+
+  it("preserves MCP elicitation form questions in pending interactive requests", async () => {
+    const harness = await createHarness();
+    const now = new Date().toISOString();
+
+    harness.emit({
+      type: "request.opened",
+      eventId: asEventId("evt-mcp-opened"),
+      provider: "codex",
+      createdAt: now,
+      threadId: asThreadId("thread-1"),
+      turnId: asTurnId("turn-mcp"),
+      requestId: InteractiveRequestId.makeUnsafe("req-mcp-open"),
+      payload: {
+        requestType: "mcp_elicitation",
+        detail: "MCP input requested",
+        args: {
+          mode: "form",
+          serverName: "workspace",
+          message: "Choose the sandbox mode",
+          requestedSchema: {
+            type: "object",
+          },
+          questions: [
+            {
+              id: "sandbox_mode",
+              header: "Sandbox",
+              question: "Which mode should be used?",
+              options: [
+                {
+                  label: "workspace-write",
+                  description: "Allow workspace writes only",
+                },
+                {
+                  label: "full-access",
+                  description: "Allow full local access",
+                },
+              ],
+            },
+          ],
+          _meta: {
+            source: "forge",
+          },
+        },
+      },
+    });
+
+    await waitForThread(harness.engine, (entry) =>
+      entry.activities.some(
+        (activity: ProviderRuntimeTestActivity) => activity.id === "evt-mcp-opened",
+      ),
+    );
+
+    const readModel = await Effect.runPromise(harness.engine.getReadModel());
+    const thread = readModel.threads.find((entry) => entry.id === ThreadId.makeUnsafe("thread-1"));
+    const pendingRequest = readModel.pendingRequests.find(
+      (request) => request.id === InteractiveRequestId.makeUnsafe("req-mcp-open"),
+    );
+
+    expect(thread?.activities.find((activity) => activity.id === "evt-mcp-opened")?.kind).toBe(
+      "user-input.requested",
+    );
+    expect(pendingRequest).toEqual(
+      expect.objectContaining({
+        id: InteractiveRequestId.makeUnsafe("req-mcp-open"),
+        type: "mcp-elicitation",
+        payload: {
+          type: "mcp-elicitation",
+          mode: "form",
+          serverName: "workspace",
+          message: "Choose the sandbox mode",
+          requestedSchema: {
+            type: "object",
+          },
+          questions: [
+            {
+              id: "sandbox_mode",
+              header: "Sandbox",
+              question: "Which mode should be used?",
+              options: [
+                {
+                  label: "workspace-write",
+                  description: "Allow workspace writes only",
+                },
+                {
+                  label: "full-access",
+                  description: "Allow full local access",
+                },
+              ],
+            },
+          ],
+          meta: {
+            source: "forge",
+          },
+          turnId: "turn-mcp",
+        },
+      }),
+    );
   });
 
   it("maps runtime.error into errored session state", async () => {

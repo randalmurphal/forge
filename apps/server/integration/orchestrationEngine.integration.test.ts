@@ -7,6 +7,7 @@ import {
   DEFAULT_PROVIDER_INTERACTION_MODE,
   DEFAULT_MODEL_BY_PROVIDER,
   EventId,
+  InteractiveRequestId,
   MessageId,
   ProjectId,
   ProviderKind,
@@ -582,11 +583,11 @@ it.live("tracks approval requests and resolves pending approvals on user respons
       assert.equal(pendingRow.status, "pending");
 
       yield* harness.engine.dispatch({
-        type: "thread.approval.respond",
+        type: "thread.interactive-request.respond",
         commandId: CommandId.makeUnsafe("cmd-approval-respond"),
         threadId: THREAD_ID,
-        requestId: APPROVAL_REQUEST_ID,
-        decision: "accept",
+        requestId: InteractiveRequestId.makeUnsafe(String(APPROVAL_REQUEST_ID)),
+        resolution: { decision: "accept" },
         createdAt: nowIso(),
       });
 
@@ -1118,11 +1119,11 @@ it.live("forwards claudeAgent approval responses to the provider session", () =>
         assert.equal(thread.session?.threadId, "thread-1");
 
         yield* harness.engine.dispatch({
-          type: "thread.approval.respond",
+          type: "thread.interactive-request.respond",
           commandId: CommandId.makeUnsafe("cmd-claude-approval-respond"),
           threadId: THREAD_ID,
-          requestId: APPROVAL_REQUEST_ID,
-          decision: "accept",
+          requestId: InteractiveRequestId.makeUnsafe(String(APPROVAL_REQUEST_ID)),
+          resolution: { decision: "accept" },
           createdAt: nowIso(),
         });
 

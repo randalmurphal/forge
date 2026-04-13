@@ -148,6 +148,10 @@ function extractActivityRequestId(payload: unknown): ApprovalRequestId | null {
   return typeof requestId === "string" ? ApprovalRequestId.makeUnsafe(requestId) : null;
 }
 
+function toPendingApprovalRequestId(requestId: string | ApprovalRequestId): ApprovalRequestId {
+  return ApprovalRequestId.makeUnsafe(String(requestId));
+}
+
 function retainProjectionMessagesAfterRevert(
   messages: ReadonlyArray<ProjectionThreadMessage>,
   turns: ReadonlyArray<ProjectionTurn>,
@@ -2252,7 +2256,9 @@ const makeOrchestrationProjectionPipeline = Effect.fn("makeOrchestrationProjecti
         case "thread.activity-appended": {
           const requestId =
             extractActivityRequestId(event.payload.activity.payload) ??
-            event.metadata.requestId ??
+            (event.metadata.requestId === undefined
+              ? null
+              : toPendingApprovalRequestId(event.metadata.requestId)) ??
             null;
           if (requestId === null) {
             return;
@@ -2308,18 +2314,30 @@ const makeOrchestrationProjectionPipeline = Effect.fn("makeOrchestrationProjecti
           return;
         }
 
-        case "thread.approval-response-requested": {
+        case "thread.interactive-request-response-requested": {
+          if (!("decision" in event.payload.resolution)) {
+            return;
+          }
+          const decision = event.payload.resolution.decision;
+          if (
+            decision !== "accept" &&
+            decision !== "acceptForSession" &&
+            decision !== "decline" &&
+            decision !== "cancel"
+          ) {
+            return;
+          }
           const existingRow = yield* projectionPendingApprovalRepository.getByRequestId({
-            requestId: event.payload.requestId,
+            requestId: ApprovalRequestId.makeUnsafe(String(event.payload.requestId)),
           });
           yield* projectionPendingApprovalRepository.upsert({
-            requestId: event.payload.requestId,
+            requestId: ApprovalRequestId.makeUnsafe(String(event.payload.requestId)),
             threadId: Option.isSome(existingRow)
               ? existingRow.value.threadId
               : event.payload.threadId,
             turnId: Option.isSome(existingRow) ? existingRow.value.turnId : null,
             status: "resolved",
-            decision: event.payload.decision,
+            decision,
             createdAt: Option.isSome(existingRow)
               ? existingRow.value.createdAt
               : event.payload.createdAt,

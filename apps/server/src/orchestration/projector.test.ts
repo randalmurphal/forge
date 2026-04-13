@@ -2118,7 +2118,19 @@ describe("orchestration projector", () => {
           requestType: "user-input",
           payload: {
             type: "user-input",
-            questions: [{ id: "q1", question: "Proceed?" }],
+            questions: [
+              {
+                id: "q1",
+                header: "Confirmation",
+                question: "Proceed?",
+                options: [
+                  {
+                    label: "yes",
+                    description: "Proceed with the request",
+                  },
+                ],
+              },
+            ],
           },
           createdAt: requestOpenedAt,
         },

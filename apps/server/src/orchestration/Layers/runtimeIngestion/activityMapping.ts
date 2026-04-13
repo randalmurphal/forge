@@ -14,7 +14,6 @@ import { logBackgroundDebug } from "../../../provider/adapterUtils.ts";
 
 import {
   toTurnId,
-  toApprovalRequestId,
   sameId,
   isApprovalRequestType,
   requestKindFromCanonicalRequestType,
@@ -333,58 +332,130 @@ export function runtimeEventToActivities(
   })();
   switch (event.type) {
     case "request.opened": {
-      if (!isApprovalRequestType(event.payload.requestType)) {
-        return [];
-      }
-      const requestKind = requestKindFromCanonicalRequestType(event.payload.requestType);
-      return [
-        {
-          id: event.eventId,
-          createdAt: event.createdAt,
-          tone: "approval",
-          kind: "approval.requested",
-          summary:
-            requestKind === "command"
-              ? "Command approval requested"
-              : requestKind === "file-read"
-                ? "File-read approval requested"
-                : requestKind === "file-change"
-                  ? "File-change approval requested"
-                  : "Approval requested",
-          payload: {
-            requestId: toApprovalRequestId(event.requestId),
-            ...(requestKind ? { requestKind } : {}),
-            requestType: event.payload.requestType,
-            ...(event.payload.detail ? { detail: truncateDetail(event.payload.detail) } : {}),
+      if (isApprovalRequestType(event.payload.requestType)) {
+        const requestKind = requestKindFromCanonicalRequestType(event.payload.requestType);
+        return [
+          {
+            id: event.eventId,
+            createdAt: event.createdAt,
+            tone: "approval",
+            kind: "approval.requested",
+            summary:
+              requestKind === "command"
+                ? "Command approval requested"
+                : requestKind === "file-read"
+                  ? "File-read approval requested"
+                  : requestKind === "file-change"
+                    ? "File-change approval requested"
+                    : "Approval requested",
+            payload: {
+              ...(event.requestId ? { requestId: event.requestId } : {}),
+              ...(requestKind ? { requestKind } : {}),
+              requestType: event.payload.requestType,
+              ...(event.payload.detail ? { detail: truncateDetail(event.payload.detail) } : {}),
+            },
+            turnId: toTurnId(event.turnId) ?? null,
+            ...maybeSequence,
           },
-          turnId: toTurnId(event.turnId) ?? null,
-          ...maybeSequence,
-        },
-      ];
+        ];
+      }
+      if (event.payload.requestType === "permission_approval") {
+        return [
+          {
+            id: event.eventId,
+            createdAt: event.createdAt,
+            tone: "approval",
+            kind: "approval.requested",
+            summary: "Permission request",
+            payload: {
+              ...(event.requestId ? { requestId: event.requestId } : {}),
+              requestType: event.payload.requestType,
+              ...(event.payload.detail ? { detail: truncateDetail(event.payload.detail) } : {}),
+            },
+            turnId: toTurnId(event.turnId) ?? null,
+            ...maybeSequence,
+          },
+        ];
+      }
+      if (event.payload.requestType === "mcp_elicitation") {
+        return [
+          {
+            id: event.eventId,
+            createdAt: event.createdAt,
+            tone: "info",
+            kind: "user-input.requested",
+            summary: "MCP input requested",
+            payload: {
+              ...(event.requestId ? { requestId: event.requestId } : {}),
+              requestType: event.payload.requestType,
+              ...(event.payload.detail ? { detail: truncateDetail(event.payload.detail) } : {}),
+            },
+            turnId: toTurnId(event.turnId) ?? null,
+            ...maybeSequence,
+          },
+        ];
+      }
+      return [];
     }
 
     case "request.resolved": {
-      if (!isApprovalRequestType(event.payload.requestType)) {
-        return [];
-      }
-      const requestKind = requestKindFromCanonicalRequestType(event.payload.requestType);
-      return [
-        {
-          id: event.eventId,
-          createdAt: event.createdAt,
-          tone: "approval",
-          kind: "approval.resolved",
-          summary: "Approval resolved",
-          payload: {
-            requestId: toApprovalRequestId(event.requestId),
-            ...(requestKind ? { requestKind } : {}),
-            requestType: event.payload.requestType,
-            ...(event.payload.decision ? { decision: event.payload.decision } : {}),
+      if (isApprovalRequestType(event.payload.requestType)) {
+        const requestKind = requestKindFromCanonicalRequestType(event.payload.requestType);
+        return [
+          {
+            id: event.eventId,
+            createdAt: event.createdAt,
+            tone: "approval",
+            kind: "approval.resolved",
+            summary: "Approval resolved",
+            payload: {
+              ...(event.requestId ? { requestId: event.requestId } : {}),
+              ...(requestKind ? { requestKind } : {}),
+              requestType: event.payload.requestType,
+              ...(event.payload.decision ? { decision: event.payload.decision } : {}),
+            },
+            turnId: toTurnId(event.turnId) ?? null,
+            ...maybeSequence,
           },
-          turnId: toTurnId(event.turnId) ?? null,
-          ...maybeSequence,
-        },
-      ];
+        ];
+      }
+      if (event.payload.requestType === "permission_approval") {
+        return [
+          {
+            id: event.eventId,
+            createdAt: event.createdAt,
+            tone: "approval",
+            kind: "approval.resolved",
+            summary: "Permission request resolved",
+            payload: {
+              ...(event.requestId ? { requestId: event.requestId } : {}),
+              requestType: event.payload.requestType,
+              ...(event.payload.resolution ? { resolution: event.payload.resolution } : {}),
+            },
+            turnId: toTurnId(event.turnId) ?? null,
+            ...maybeSequence,
+          },
+        ];
+      }
+      if (event.payload.requestType === "mcp_elicitation") {
+        return [
+          {
+            id: event.eventId,
+            createdAt: event.createdAt,
+            tone: "info",
+            kind: "user-input.resolved",
+            summary: "MCP input submitted",
+            payload: {
+              ...(event.requestId ? { requestId: event.requestId } : {}),
+              requestType: event.payload.requestType,
+              ...(event.payload.resolution ? { resolution: event.payload.resolution } : {}),
+            },
+            turnId: toTurnId(event.turnId) ?? null,
+            ...maybeSequence,
+          },
+        ];
+      }
+      return [];
     }
 
     case "runtime.error": {
@@ -650,9 +721,14 @@ export function runtimeEventToActivities(
 
     case "tool.progress": {
       // Access payload fields safely - the schema is being updated by another agent
-      // but the payload will have: toolUseId?, toolName?, message?, elapsedSeconds?
+      // but the payload will have: toolUseId?, toolName?, summary?, elapsedSeconds?
       const payload = event.payload as Record<string, unknown>;
-      const message = typeof payload.message === "string" ? payload.message : undefined;
+      const message =
+        typeof payload.message === "string"
+          ? payload.message
+          : typeof payload.summary === "string"
+            ? payload.summary
+            : undefined;
       const toolName = typeof payload.toolName === "string" ? payload.toolName : undefined;
       return [
         {
@@ -692,6 +768,66 @@ export function runtimeEventToActivities(
             summary,
             ...(Array.isArray(payload.toolUseIds) ? { toolUseIds: payload.toolUseIds } : {}),
           },
+          turnId: toTurnId(event.turnId) ?? null,
+          ...maybeSequence,
+        },
+      ];
+    }
+
+    case "hook.started": {
+      return [
+        {
+          id: event.eventId,
+          createdAt: event.createdAt,
+          tone: "tool",
+          kind: "hook.started",
+          summary: `Hook started: ${event.payload.hookName}`,
+          payload: event.payload,
+          turnId: toTurnId(event.turnId) ?? null,
+          ...maybeSequence,
+        },
+      ];
+    }
+
+    case "hook.completed": {
+      return [
+        {
+          id: event.eventId,
+          createdAt: event.createdAt,
+          tone: event.payload.outcome === "error" ? "error" : "tool",
+          kind: "hook.completed",
+          summary: event.payload.outcome === "error" ? "Hook failed" : "Hook completed",
+          payload: event.payload,
+          turnId: toTurnId(event.turnId) ?? null,
+          ...maybeSequence,
+        },
+      ];
+    }
+
+    case "mcp.status.updated": {
+      return [
+        {
+          id: event.eventId,
+          createdAt: event.createdAt,
+          tone: "info",
+          kind: "mcp.status.updated",
+          summary: "MCP server status updated",
+          payload: event.payload,
+          turnId: toTurnId(event.turnId) ?? null,
+          ...maybeSequence,
+        },
+      ];
+    }
+
+    case "model.rerouted": {
+      return [
+        {
+          id: event.eventId,
+          createdAt: event.createdAt,
+          tone: "info",
+          kind: "model.rerouted",
+          summary: `Model rerouted to ${event.payload.toModel}`,
+          payload: event.payload,
           turnId: toTurnId(event.turnId) ?? null,
           ...maybeSequence,
         },

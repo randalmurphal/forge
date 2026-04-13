@@ -1,8 +1,8 @@
 import { randomUUID } from "node:crypto";
 
 import {
-  ApprovalRequestId,
   EventId,
+  InteractiveRequestId,
   ProviderApprovalDecision,
   ProviderRuntimeEvent,
   RuntimeSessionId,
@@ -71,6 +71,20 @@ function normalizeTurnState(value: unknown): "completed" | "failed" | "interrupt
     return value;
   }
   return "completed";
+}
+
+function isProviderApprovalDecision(value: unknown): value is ProviderApprovalDecision {
+  return (
+    value === "accept" || value === "acceptForSession" || value === "decline" || value === "cancel"
+  );
+}
+
+function approvalDecisionFromResolution(resolution: unknown): ProviderApprovalDecision | null {
+  if (!isRecord(resolution)) {
+    return null;
+  }
+  const decision = resolution.decision;
+  return isProviderApprovalDecision(decision) ? decision : null;
 }
 
 function mapRequestType(
@@ -192,7 +206,7 @@ export interface TestProviderAdapterHarness {
   readonly listActiveSessionIds: () => ReadonlyArray<ThreadId>;
   readonly getApprovalResponses: (threadId: ThreadId) => ReadonlyArray<{
     readonly threadId: ThreadId;
-    readonly requestId: ApprovalRequestId;
+    readonly requestId: InteractiveRequestId;
     readonly decision: ProviderApprovalDecision;
   }>;
 }
@@ -234,7 +248,7 @@ export const makeTestProviderAdapterHarness = (options?: MakeTestProviderAdapter
       ThreadId,
       Array<{
         readonly threadId: ThreadId;
-        readonly requestId: ApprovalRequestId;
+        readonly requestId: InteractiveRequestId;
         readonly decision: ProviderApprovalDecision;
       }>
     >();
@@ -396,28 +410,23 @@ export const makeTestProviderAdapterHarness = (options?: MakeTestProviderAdapter
           })
         : missingSessionEffect(provider, threadId);
 
-    const respondToRequest: ProviderAdapterShape<ProviderAdapterError>["respondToRequest"] = (
-      threadId,
-      requestId,
-      decision,
-    ) =>
-      sessions.has(threadId)
-        ? Effect.sync(() => {
-            const existing = approvalResponsesBySession.get(threadId) ?? [];
-            existing.push({
-              threadId,
-              requestId,
-              decision,
-            });
-            approvalResponsesBySession.set(threadId, existing);
-          })
-        : missingSessionEffect(provider, threadId);
-
-    const respondToUserInput: ProviderAdapterShape<ProviderAdapterError>["respondToUserInput"] = (
-      threadId,
-      _requestId,
-      _answers,
-    ) => (sessions.has(threadId) ? Effect.void : missingSessionEffect(provider, threadId));
+    const respondToInteractiveRequest: ProviderAdapterShape<ProviderAdapterError>["respondToInteractiveRequest"] =
+      (input) =>
+        sessions.has(input.threadId)
+          ? Effect.sync(() => {
+              const decision = approvalDecisionFromResolution(input.resolution);
+              if (decision === null) {
+                return;
+              }
+              const existing = approvalResponsesBySession.get(input.threadId) ?? [];
+              existing.push({
+                threadId: input.threadId,
+                requestId: input.requestId,
+                decision,
+              });
+              approvalResponsesBySession.set(input.threadId, existing);
+            })
+          : missingSessionEffect(provider, input.threadId);
 
     const stopSession: ProviderAdapterShape<ProviderAdapterError>["stopSession"] = (threadId) =>
       Effect.sync(() => {
@@ -480,8 +489,7 @@ export const makeTestProviderAdapterHarness = (options?: MakeTestProviderAdapter
       startSession,
       sendTurn,
       interruptTurn,
-      respondToRequest,
-      respondToUserInput,
+      respondToInteractiveRequest,
       stopSession,
       listSessions,
       hasSession,
@@ -538,7 +546,7 @@ export const makeTestProviderAdapterHarness = (options?: MakeTestProviderAdapter
       threadId: ThreadId,
     ): ReadonlyArray<{
       readonly threadId: ThreadId;
-      readonly requestId: ApprovalRequestId;
+      readonly requestId: InteractiveRequestId;
       readonly decision: ProviderApprovalDecision;
     }> => {
       const responses = approvalResponsesBySession.get(threadId);

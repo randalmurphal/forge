@@ -1,6 +1,4 @@
 import {
-  derivePendingApprovals,
-  derivePendingUserInputs,
   findLatestProposedPlan,
   hasActionableProposedPlan,
   isLatestTurnSettled,
@@ -86,8 +84,16 @@ function getLastSortableActivityAt(thread: Thread, attention: AttentionFlags): s
  * `getLastSortableActivityAt` to avoid the previous double-computation.
  */
 export function buildSidebarThreadSummary(thread: Thread): SidebarThreadSummary {
-  const pendingApprovals = derivePendingApprovals(thread.activities).length > 0;
-  const pendingUserInputs = derivePendingUserInputs(thread.activities).length > 0;
+  const pendingRequests = thread.pendingRequests ?? [];
+  const pendingApprovals = pendingRequests.some(
+    (request) => request.type === "approval" && request.status === "pending",
+  );
+  const pendingUserInputs = pendingRequests.some(
+    (request) =>
+      request.status === "pending" &&
+      request.type !== "approval" &&
+      request.type !== "design-option",
+  );
   const designChoice = hasPendingDesignChoice(thread);
   const proposedPlan = hasActionableProposedPlan(
     findLatestProposedPlan(thread.proposedPlans, thread.latestTurn?.turnId ?? null),

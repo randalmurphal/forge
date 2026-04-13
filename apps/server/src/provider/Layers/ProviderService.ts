@@ -12,13 +12,12 @@
 import {
   ModelSelection,
   NonNegativeInt,
-  ThreadId,
   ProviderInterruptTurnInput,
-  ProviderRespondToRequestInput,
-  ProviderRespondToUserInputInput,
+  ProviderRespondToInteractiveRequestInput,
   ProviderSendTurnInput,
   ProviderSessionStartInput,
   ProviderStopSessionInput,
+  ThreadId,
   type ProviderRuntimeEvent,
   type ProviderSession,
 } from "@forgetools/contracts";
@@ -139,6 +138,24 @@ function readPersistedCwd(
   if (typeof rawCwd !== "string") return undefined;
   const trimmed = rawCwd.trim();
   return trimmed.length > 0 ? trimmed : undefined;
+}
+
+function interactiveResolutionKind(
+  resolution: ProviderRespondToInteractiveRequestInput["resolution"],
+): "approval" | "user-input" | "permission" | "mcp-elicitation" | "other" {
+  if ("decision" in resolution) {
+    return "approval";
+  }
+  if ("answers" in resolution) {
+    return "user-input";
+  }
+  if ("scope" in resolution) {
+    return "permission";
+  }
+  if ("action" in resolution && "content" in resolution) {
+    return "mcp-elicitation";
+  }
+  return "other";
 }
 
 const makeProviderService = Effect.fn("makeProviderService")(function* (
@@ -495,77 +512,43 @@ const makeProviderService = Effect.fn("makeProviderService")(function* (
     },
   );
 
-  const respondToRequest: ProviderServiceShape["respondToRequest"] = Effect.fn("respondToRequest")(
-    function* (rawInput) {
+  const respondToInteractiveRequest: ProviderServiceShape["respondToInteractiveRequest"] =
+    Effect.fn("respondToInteractiveRequest")(function* (rawInput) {
       const input = yield* decodeInputOrValidationError({
-        operation: "ProviderService.respondToRequest",
-        schema: ProviderRespondToRequestInput,
+        operation: "ProviderService.respondToInteractiveRequest",
+        schema: ProviderRespondToInteractiveRequestInput,
         payload: rawInput,
       });
+      const resolutionKind = interactiveResolutionKind(input.resolution);
       let metricProvider = "unknown";
       return yield* Effect.gen(function* () {
         const routed = yield* resolveRoutableSession({
           threadId: input.threadId,
-          operation: "ProviderService.respondToRequest",
+          operation: "ProviderService.respondToInteractiveRequest",
           allowRecovery: true,
         });
         metricProvider = routed.adapter.provider;
         yield* Effect.annotateCurrentSpan({
-          "provider.operation": "respond-to-request",
+          "provider.operation": "respond-to-interactive-request",
           "provider.kind": routed.adapter.provider,
           "provider.thread_id": input.threadId,
           "provider.request_id": input.requestId,
         });
-        yield* routed.adapter.respondToRequest(routed.threadId, input.requestId, input.decision);
+        yield* routed.adapter.respondToInteractiveRequest(input);
         yield* analytics.record("provider.request.responded", {
           provider: routed.adapter.provider,
-          decision: input.decision,
+          resolutionKind,
         });
       }).pipe(
         withMetrics({
           counter: providerTurnsTotal,
           outcomeAttributes: () =>
             providerMetricAttributes(metricProvider, {
-              operation: "approval-response",
+              operation: "interactive-request-response",
             }),
         }),
       );
-    },
-  );
-
-  const respondToUserInput: ProviderServiceShape["respondToUserInput"] = Effect.fn(
-    "respondToUserInput",
-  )(function* (rawInput) {
-    const input = yield* decodeInputOrValidationError({
-      operation: "ProviderService.respondToUserInput",
-      schema: ProviderRespondToUserInputInput,
-      payload: rawInput,
     });
-    let metricProvider = "unknown";
-    return yield* Effect.gen(function* () {
-      const routed = yield* resolveRoutableSession({
-        threadId: input.threadId,
-        operation: "ProviderService.respondToUserInput",
-        allowRecovery: true,
-      });
-      metricProvider = routed.adapter.provider;
-      yield* Effect.annotateCurrentSpan({
-        "provider.operation": "respond-to-user-input",
-        "provider.kind": routed.adapter.provider,
-        "provider.thread_id": input.threadId,
-        "provider.request_id": input.requestId,
-      });
-      yield* routed.adapter.respondToUserInput(routed.threadId, input.requestId, input.answers);
-    }).pipe(
-      withMetrics({
-        counter: providerTurnsTotal,
-        outcomeAttributes: () =>
-          providerMetricAttributes(metricProvider, {
-            operation: "user-input-response",
-          }),
-      }),
-    );
-  });
 
   const stopSession: ProviderServiceShape["stopSession"] = Effect.fn("stopSession")(
     function* (rawInput) {
@@ -758,8 +741,7 @@ const makeProviderService = Effect.fn("makeProviderService")(function* (
     startSession,
     sendTurn,
     interruptTurn,
-    respondToRequest,
-    respondToUserInput,
+    respondToInteractiveRequest,
     stopSession,
     listSessions,
     getCapabilities,

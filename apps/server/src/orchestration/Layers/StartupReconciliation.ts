@@ -9,7 +9,6 @@
  * @module StartupReconciliation
  */
 import {
-  ApprovalRequestId,
   type ChannelId,
   CommandId,
   type ForgeCommand,
@@ -169,14 +168,13 @@ export const makeStartupReconciliation = Effect.gen(function* () {
 
     const createdAt = nowIso();
     for (const approval of pendingApprovals) {
-      const dispatched = yield* dispatch({
-        type: "thread.approval.respond",
+      const dispatched = yield* dispatchForgeCommand({
+        type: "request.mark-stale",
         commandId: reconcileCommandId(`approval:${approval.requestId}`),
-        threadId,
-        requestId: ApprovalRequestId.makeUnsafe(approval.requestId),
-        decision: "cancel",
+        requestId: InteractiveRequestId.makeUnsafe(approval.requestId),
+        reason: "Legacy approval request orphaned by server restart",
         createdAt,
-      }).pipe(
+      } as ForgeCommand).pipe(
         Effect.as(true),
         Effect.catchCause((cause) =>
           Effect.logDebug("reconciliation: skipping pending approval (dispatch failed)", {

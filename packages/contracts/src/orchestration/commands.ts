@@ -1,6 +1,5 @@
 import { Option, Schema, SchemaIssue } from "effect";
 import {
-  ApprovalRequestId,
   ChannelId,
   ChannelMessageId,
   CheckpointRef,
@@ -27,7 +26,7 @@ import {
   InteractiveRequestResolution,
   InteractiveRequestType,
 } from "../interactiveRequest";
-import { ModelSelection, ProviderApprovalDecision, ProviderKind } from "../providerSchemas";
+import { ModelSelection, ProviderKind } from "../providerSchemas";
 import { GateResult, PhaseType, QualityCheckReference, QualityCheckResult } from "../workflow";
 import {
   ChatAttachment,
@@ -45,7 +44,6 @@ import {
   OrchestrationToolInlineDiff,
   ProjectScript,
   ProviderInteractionMode,
-  ProviderUserInputAnswers,
   RuntimeMode,
   SourceProposedPlanReference,
   ThreadSpawnMode,
@@ -286,21 +284,12 @@ const ThreadTurnInterruptCommand = Schema.Struct({
   createdAt: IsoDateTime,
 });
 
-const ThreadApprovalRespondCommand = Schema.Struct({
-  type: Schema.Literal("thread.approval.respond"),
+const ThreadInteractiveRequestRespondCommand = Schema.Struct({
+  type: Schema.Literal("thread.interactive-request.respond"),
   commandId: CommandId,
   threadId: ThreadId,
-  requestId: ApprovalRequestId,
-  decision: ProviderApprovalDecision,
-  createdAt: IsoDateTime,
-});
-
-const ThreadUserInputRespondCommand = Schema.Struct({
-  type: Schema.Literal("thread.user-input.respond"),
-  commandId: CommandId,
-  threadId: ThreadId,
-  requestId: ApprovalRequestId,
-  answers: ProviderUserInputAnswers,
+  requestId: InteractiveRequestId,
+  resolution: InteractiveRequestResolution,
   createdAt: IsoDateTime,
 });
 
@@ -702,8 +691,7 @@ const DispatchableClientOrchestrationCommand = Schema.Union([
   ThreadInteractionModeSetCommand,
   ThreadTurnStartCommand,
   ThreadTurnInterruptCommand,
-  ThreadApprovalRespondCommand,
-  ThreadUserInputRespondCommand,
+  ThreadInteractiveRequestRespondCommand,
   ThreadCheckpointRevertCommand,
   ThreadSessionStopCommand,
   ThreadSummaryRequestCommand,
@@ -727,8 +715,7 @@ export const ClientOrchestrationCommand = Schema.Union([
   ThreadInteractionModeSetCommand,
   ClientThreadTurnStartCommand,
   ThreadTurnInterruptCommand,
-  ThreadApprovalRespondCommand,
-  ThreadUserInputRespondCommand,
+  ThreadInteractiveRequestRespondCommand,
   ThreadCheckpointRevertCommand,
   ThreadSessionStopCommand,
   ThreadSummaryRequestCommand,

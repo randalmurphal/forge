@@ -1,11 +1,9 @@
 import assert from "node:assert/strict";
 import {
-  ApprovalRequestId,
-  type ProviderApprovalDecision,
   type ProviderEvent,
+  type ProviderRespondToInteractiveRequestInput,
   type ProviderSession,
   type ProviderTurnStartResult,
-  type ProviderUserInputAnswers,
   ThreadId,
   TurnId,
 } from "@forgetools/contracts";
@@ -14,7 +12,13 @@ import { afterAll, it, vi } from "@effect/vitest";
 
 import { Effect, Fiber, Layer, Option, Stream } from "effect";
 
-import { asEventId, asItemId, asThreadId, asTurnId } from "../../__test__/ids.ts";
+import {
+  asEventId,
+  asInteractiveRequestId,
+  asItemId,
+  asThreadId,
+  asTurnId,
+} from "../../__test__/ids.ts";
 import {
   CodexAppServerManager,
   type CodexAppServerStartSessionInput,
@@ -65,20 +69,8 @@ class FakeCodexManager extends CodexAppServerManager {
     turns: [],
   }));
 
-  public respondToRequestImpl = vi.fn(
-    async (
-      _threadId: ThreadId,
-      _requestId: ApprovalRequestId,
-      _decision: ProviderApprovalDecision,
-    ): Promise<void> => undefined,
-  );
-
-  public respondToUserInputImpl = vi.fn(
-    async (
-      _threadId: ThreadId,
-      _requestId: ApprovalRequestId,
-      _answers: ProviderUserInputAnswers,
-    ): Promise<void> => undefined,
+  public respondToInteractiveRequestImpl = vi.fn(
+    async (_input: ProviderRespondToInteractiveRequestInput): Promise<void> => undefined,
   );
 
   public stopAllImpl = vi.fn(() => undefined);
@@ -103,20 +95,10 @@ class FakeCodexManager extends CodexAppServerManager {
     return this.rollbackThreadImpl(threadId, numTurns);
   }
 
-  override respondToRequest(
-    threadId: ThreadId,
-    requestId: ApprovalRequestId,
-    decision: ProviderApprovalDecision,
+  override respondToInteractiveRequest(
+    input: ProviderRespondToInteractiveRequestInput,
   ): Promise<void> {
-    return this.respondToRequestImpl(threadId, requestId, decision);
-  }
-
-  override respondToUserInput(
-    threadId: ThreadId,
-    requestId: ApprovalRequestId,
-    answers: ProviderUserInputAnswers,
-  ): Promise<void> {
-    return this.respondToUserInputImpl(threadId, requestId, answers);
+    return this.respondToInteractiveRequestImpl(input);
   }
 
   override stopSession(_threadId: ThreadId): void {}
@@ -638,7 +620,7 @@ lifecycleLayer("CodexAdapterLive lifecycle", (it) => {
         threadId: asThreadId("thread-1"),
         createdAt: new Date().toISOString(),
         method: "serverRequest/resolved",
-        requestId: ApprovalRequestId.makeUnsafe("req-1"),
+        requestId: asInteractiveRequestId("req-1"),
         payload: {
           request: {
             method: "item/commandExecution/requestApproval",
@@ -674,7 +656,7 @@ lifecycleLayer("CodexAdapterLive lifecycle", (it) => {
         threadId: asThreadId("thread-1"),
         createdAt: new Date().toISOString(),
         method: "serverRequest/resolved",
-        requestId: ApprovalRequestId.makeUnsafe("req-file-read-1"),
+        requestId: asInteractiveRequestId("req-file-read-1"),
         payload: {
           request: {
             method: "item/fileRead/requestApproval",
@@ -792,7 +774,7 @@ lifecycleLayer("CodexAdapterLive lifecycle", (it) => {
           threadId: asThreadId("thread-1"),
           createdAt: new Date().toISOString(),
           method: "item/tool/requestUserInput",
-          requestId: ApprovalRequestId.makeUnsafe("req-user-input-1"),
+          requestId: asInteractiveRequestId("req-user-input-1"),
           payload: {
             questions: [
               {
@@ -816,7 +798,7 @@ lifecycleLayer("CodexAdapterLive lifecycle", (it) => {
           threadId: asThreadId("thread-1"),
           createdAt: new Date().toISOString(),
           method: "item/tool/requestUserInput/answered",
-          requestId: ApprovalRequestId.makeUnsafe("req-user-input-1"),
+          requestId: asInteractiveRequestId("req-user-input-1"),
           payload: {
             answers: {
               sandbox_mode: {

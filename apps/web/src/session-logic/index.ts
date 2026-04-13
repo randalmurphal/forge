@@ -50,8 +50,6 @@ export {
 // Approvals
 export {
   requestKindFromRequestType,
-  derivePendingApprovals,
-  derivePendingUserInputs,
   deriveActivePlanState,
   findLatestProposedPlan,
   findSidebarProposedPlan,
@@ -88,7 +86,6 @@ export {
   isUnattributedCollabAgentToolEnvelope,
   shouldFilterToolStartedActivity,
   isGenericSubagentLabel,
-  synthesizeCodexSubagentLifecycleActivities,
   synthesizeClaudeTaskOutputLifecycleActivities,
   enrichVisibleCollabControlEntriesWithTargetMetadata,
   enrichParentEntriesWithSubagentGroupMetadata,

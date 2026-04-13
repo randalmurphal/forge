@@ -3,7 +3,7 @@ import { randomUUID } from "node:crypto";
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { ApprovalRequestId, type ThreadId } from "@forgetools/contracts";
+import { InteractiveRequestId, type ThreadId } from "@forgetools/contracts";
 
 import { asThreadId } from "./__test__/ids.ts";
 import {
@@ -110,18 +110,26 @@ function createPendingUserInputHarness() {
       createdAt: "2026-02-10T00:00:00.000Z",
       updatedAt: "2026-02-10T00:00:00.000Z",
     },
-    pendingUserInputs: new Map([
+    pending: new Map(),
+    pendingInteractiveRequests: new Map([
       [
-        ApprovalRequestId.makeUnsafe("req-user-input-1"),
+        InteractiveRequestId.makeUnsafe("req-user-input-1"),
         {
-          requestId: ApprovalRequestId.makeUnsafe("req-user-input-1"),
+          requestId: InteractiveRequestId.makeUnsafe("req-user-input-1"),
           jsonRpcId: 42,
+          method: "item/tool/requestUserInput",
+          requestType: "user-input",
           threadId: asThreadId("thread_1"),
         },
       ],
     ]),
+    interactiveRequestIdsByRpcId: new Map([
+      ["42", InteractiveRequestId.makeUnsafe("req-user-input-1")],
+    ]),
     collabReceiverTurns: new Map(),
     collabChildTaskIds: new Map(),
+    nextRequestId: 1,
+    stopping: false,
   };
 
   const requireSession = vi
@@ -140,6 +148,64 @@ function createPendingUserInputHarness() {
   return { manager, context, requireSession, writeMessage, emitEvent };
 }
 
+function createPendingInteractiveRequestHarness(input: {
+  requestId: string;
+  jsonRpcId: number;
+  method:
+    | "item/tool/requestUserInput"
+    | "item/permissions/requestApproval"
+    | "mcpServer/elicitation/request";
+  requestType: "user-input" | "permission" | "mcp-elicitation";
+}) {
+  const manager = new CodexAppServerManager();
+  const requestId = InteractiveRequestId.makeUnsafe(input.requestId);
+  const context = {
+    session: {
+      provider: "codex",
+      status: "ready",
+      threadId: "thread_1",
+      runtimeMode: "full-access",
+      model: "gpt-5.3-codex",
+      resumeCursor: { threadId: "thread_1" },
+      createdAt: "2026-02-10T00:00:00.000Z",
+      updatedAt: "2026-02-10T00:00:00.000Z",
+    },
+    pending: new Map(),
+    pendingInteractiveRequests: new Map([
+      [
+        requestId,
+        {
+          requestId,
+          jsonRpcId: input.jsonRpcId,
+          method: input.method,
+          requestType: input.requestType,
+          threadId: asThreadId("thread_1"),
+        },
+      ],
+    ]),
+    interactiveRequestIdsByRpcId: new Map([[String(input.jsonRpcId), requestId]]),
+    collabReceiverTurns: new Map(),
+    collabChildTaskIds: new Map(),
+    nextRequestId: 1,
+    stopping: false,
+  };
+
+  const requireSession = vi
+    .spyOn(
+      manager as unknown as { requireSession: (sessionId: string) => unknown },
+      "requireSession",
+    )
+    .mockReturnValue(context);
+  const writeMessage = vi
+    .spyOn(manager as unknown as { writeMessage: (...args: unknown[]) => void }, "writeMessage")
+    .mockImplementation(() => {});
+  const emitEvent = vi
+    .spyOn(manager as unknown as { emitEvent: (...args: unknown[]) => void }, "emitEvent")
+    .mockImplementation(() => {});
+
+  return { manager, context, requireSession, writeMessage, emitEvent, requestId };
+}
+
 function createDynamicToolHarness() {
   const manager = new CodexAppServerManager();
   const context = {
@@ -153,11 +219,14 @@ function createDynamicToolHarness() {
       createdAt: "2026-02-10T00:00:00.000Z",
       updatedAt: "2026-02-10T00:00:00.000Z",
     },
-    pendingApprovals: new Map(),
-    pendingUserInputs: new Map(),
+    pending: new Map(),
+    pendingInteractiveRequests: new Map(),
+    interactiveRequestIdsByRpcId: new Map(),
     collabReceiverTurns: new Map(),
     collabChildTaskIds: new Map(),
     dynamicToolHandler: vi.fn(),
+    nextRequestId: 1,
+    stopping: false,
   };
 
   const writeMessage = vi
@@ -183,8 +252,9 @@ type DynamicToolRequestHarnessContext = {
     createdAt: string;
     updatedAt: string;
   };
-  pendingApprovals: Map<unknown, unknown>;
-  pendingUserInputs: Map<unknown, unknown>;
+  pending: Map<unknown, unknown>;
+  pendingInteractiveRequests: Map<unknown, unknown>;
+  interactiveRequestIdsByRpcId: Map<unknown, unknown>;
   collabReceiverTurns: Map<unknown, unknown>;
   collabChildTaskIds: Map<unknown, unknown>;
 };
@@ -209,8 +279,8 @@ function createCollabNotificationHarness() {
       sparkEnabled: true,
     },
     pending: new Map(),
-    pendingApprovals: new Map(),
-    pendingUserInputs: new Map(),
+    pendingInteractiveRequests: new Map(),
+    interactiveRequestIdsByRpcId: new Map(),
     collabReceiverTurns: new Map<string, string>(),
     collabChildTaskIds: new Map(),
     nextRequestId: 1,
@@ -788,19 +858,21 @@ describe("thread checkpoint control", () => {
   });
 });
 
-describe("respondToUserInput", () => {
+describe("respondToInteractiveRequest", () => {
   it("serializes canonical answers to Codex native answer objects", async () => {
     const { manager, context, requireSession, writeMessage, emitEvent } =
       createPendingUserInputHarness();
 
-    await manager.respondToUserInput(
-      asThreadId("thread_1"),
-      ApprovalRequestId.makeUnsafe("req-user-input-1"),
-      {
-        scope: "All request methods",
-        compat: "Keep current envelope",
+    await manager.respondToInteractiveRequest({
+      threadId: asThreadId("thread_1"),
+      requestId: InteractiveRequestId.makeUnsafe("req-user-input-1"),
+      resolution: {
+        answers: {
+          scope: "All request methods",
+          compat: "Keep current envelope",
+        },
       },
-    );
+    });
 
     expect(requireSession).toHaveBeenCalledWith("thread_1");
     expect(writeMessage).toHaveBeenCalledWith(context, {
@@ -812,31 +884,22 @@ describe("respondToUserInput", () => {
         },
       },
     });
-    expect(emitEvent).toHaveBeenCalledWith(
-      expect.objectContaining({
-        method: "item/tool/requestUserInput/answered",
-        payload: {
-          requestId: "req-user-input-1",
-          answers: {
-            scope: { answers: ["All request methods"] },
-            compat: { answers: ["Keep current envelope"] },
-          },
-        },
-      }),
-    );
+    expect(emitEvent).not.toHaveBeenCalled();
   });
 
   it("preserves explicit empty multi-select answers", async () => {
     const { manager, context, requireSession, writeMessage, emitEvent } =
       createPendingUserInputHarness();
 
-    await manager.respondToUserInput(
-      asThreadId("thread_1"),
-      ApprovalRequestId.makeUnsafe("req-user-input-1"),
-      {
-        scope: [],
+    await manager.respondToInteractiveRequest({
+      threadId: asThreadId("thread_1"),
+      requestId: InteractiveRequestId.makeUnsafe("req-user-input-1"),
+      resolution: {
+        answers: {
+          scope: [],
+        },
       },
-    );
+    });
 
     expect(requireSession).toHaveBeenCalledWith("thread_1");
     expect(writeMessage).toHaveBeenCalledWith(context, {
@@ -847,15 +910,161 @@ describe("respondToUserInput", () => {
         },
       },
     });
-    expect(emitEvent).toHaveBeenCalledWith(
-      expect.objectContaining({
-        method: "item/tool/requestUserInput/answered",
-        payload: {
-          requestId: "req-user-input-1",
-          answers: {
-            scope: { answers: [] },
+    expect(emitEvent).not.toHaveBeenCalled();
+  });
+
+  it("serializes permission request resolutions to Codex native permission results", async () => {
+    const { manager, context, requireSession, writeMessage, emitEvent, requestId } =
+      createPendingInteractiveRequestHarness({
+        requestId: "req-permission-1",
+        jsonRpcId: 77,
+        method: "item/permissions/requestApproval",
+        requestType: "permission",
+      });
+
+    await manager.respondToInteractiveRequest({
+      threadId: asThreadId("thread_1"),
+      requestId,
+      resolution: {
+        scope: "session",
+        permissions: {
+          network: {
+            enabled: true,
+          },
+          fileSystem: {
+            read: ["/tmp/project/src"],
+            write: ["/tmp/project/out"],
           },
         },
+      },
+    });
+
+    expect(requireSession).toHaveBeenCalledWith("thread_1");
+    expect(writeMessage).toHaveBeenCalledWith(context, {
+      id: 77,
+      result: {
+        scope: "session",
+        permissions: {
+          network: {
+            enabled: true,
+          },
+          fileSystem: {
+            read: ["/tmp/project/src"],
+            write: ["/tmp/project/out"],
+          },
+        },
+      },
+    });
+    expect(emitEvent).not.toHaveBeenCalled();
+  });
+
+  it("serializes MCP elicitation resolutions to Codex native results", async () => {
+    const { manager, context, requireSession, writeMessage, emitEvent, requestId } =
+      createPendingInteractiveRequestHarness({
+        requestId: "req-mcp-1",
+        jsonRpcId: 88,
+        method: "mcpServer/elicitation/request",
+        requestType: "mcp-elicitation",
+      });
+
+    await manager.respondToInteractiveRequest({
+      threadId: asThreadId("thread_1"),
+      requestId,
+      resolution: {
+        action: "accept",
+        content: {
+          answers: {
+            sandbox_mode: "workspace-write",
+          },
+        },
+        meta: {
+          source: "forge",
+        },
+      },
+    });
+
+    expect(requireSession).toHaveBeenCalledWith("thread_1");
+    expect(writeMessage).toHaveBeenCalledWith(context, {
+      id: 88,
+      result: {
+        action: "accept",
+        content: {
+          answers: {
+            sandbox_mode: "workspace-write",
+          },
+        },
+        _meta: {
+          source: "forge",
+        },
+      },
+    });
+    expect(emitEvent).not.toHaveBeenCalled();
+  });
+
+  it("enriches serverRequest/resolved notifications with the stored interactive request context", () => {
+    const { manager, context, emitEvent, requestId } = createPendingInteractiveRequestHarness({
+      requestId: "req-permission-2",
+      jsonRpcId: 91,
+      method: "item/permissions/requestApproval",
+      requestType: "permission",
+    });
+    const pendingRequest = context.pendingInteractiveRequests.get(requestId) as
+      | {
+          resolution?: {
+            scope: "turn" | "session";
+            permissions: {
+              fileSystem?: {
+                write?: string[] | undefined;
+              };
+            };
+          };
+        }
+      | undefined;
+    if (!pendingRequest) {
+      throw new Error("Expected pending interactive request for test harness.");
+    }
+    pendingRequest.resolution = {
+      scope: "turn",
+      permissions: {
+        fileSystem: {
+          write: ["/tmp/project/src"],
+        },
+      },
+    };
+
+    (
+      manager as unknown as {
+        handleServerNotification: (context: unknown, notification: Record<string, unknown>) => void;
+      }
+    ).handleServerNotification(context, {
+      jsonrpc: "2.0",
+      method: "serverRequest/resolved",
+      params: {
+        requestId: 91,
+      },
+    });
+
+    expect(context.pendingInteractiveRequests.size).toBe(0);
+    expect(context.interactiveRequestIdsByRpcId.size).toBe(0);
+    expect(emitEvent).toHaveBeenCalledWith(
+      expect.objectContaining({
+        method: "serverRequest/resolved",
+        requestId,
+        payload: expect.objectContaining({
+          providerRequestId: "91",
+          requestId,
+          request: {
+            method: "item/permissions/requestApproval",
+          },
+          resolution: {
+            scope: "turn",
+            permissions: {
+              fileSystem: {
+                write: ["/tmp/project/src"],
+              },
+            },
+          },
+        }),
       }),
     );
   });
@@ -872,15 +1081,17 @@ describe("respondToUserInput", () => {
         createdAt: "2026-02-10T00:00:00.000Z",
         updatedAt: "2026-02-10T00:00:00.000Z",
       },
-      pendingApprovals: new Map(),
-      pendingUserInputs: new Map(),
+      pending: new Map(),
+      pendingInteractiveRequests: new Map(),
+      interactiveRequestIdsByRpcId: new Map(),
       collabReceiverTurns: new Map(),
       collabChildTaskIds: new Map(),
     };
     type ApprovalRequestContext = {
       session: Record<string, unknown>;
-      pendingApprovals: Map<unknown, unknown>;
-      pendingUserInputs: Map<unknown, unknown>;
+      pending: Map<unknown, unknown>;
+      pendingInteractiveRequests: Map<unknown, unknown>;
+      interactiveRequestIdsByRpcId: Map<unknown, unknown>;
     };
 
     (
@@ -897,12 +1108,95 @@ describe("respondToUserInput", () => {
       params: {},
     });
 
-    const request = Array.from(context.pendingApprovals.values())[0];
+    const request = Array.from(context.pendingInteractiveRequests.values())[0];
     expect(request?.requestKind).toBe("file-read");
     expect(request?.method).toBe("item/fileRead/requestApproval");
   });
 
-  it("responds to dynamic tool calls through the registered handler", async () => {
+  it("tracks permission escalation requests with the canonical method", () => {
+    const manager = new CodexAppServerManager();
+    const context = {
+      session: {
+        sessionId: "sess_1",
+        provider: "codex",
+        status: "ready",
+        threadId: asThreadId("thread_1"),
+        resumeCursor: { threadId: "thread_1" },
+        createdAt: "2026-02-10T00:00:00.000Z",
+        updatedAt: "2026-02-10T00:00:00.000Z",
+      },
+      pending: new Map(),
+      pendingInteractiveRequests: new Map(),
+      interactiveRequestIdsByRpcId: new Map(),
+      collabReceiverTurns: new Map(),
+      collabChildTaskIds: new Map(),
+    };
+
+    (
+      manager as unknown as {
+        handleServerRequest: (context: unknown, request: Record<string, unknown>) => void;
+      }
+    ).handleServerRequest(context, {
+      jsonrpc: "2.0",
+      id: 43,
+      method: "item/permissions/requestApproval",
+      params: {
+        reason: "Need broader write access",
+      },
+    });
+
+    const request = Array.from(context.pendingInteractiveRequests.values())[0];
+    expect(request).toEqual(
+      expect.objectContaining({
+        method: "item/permissions/requestApproval",
+        requestType: "permission",
+      }),
+    );
+  });
+
+  it("tracks MCP elicitation requests with the canonical method", () => {
+    const manager = new CodexAppServerManager();
+    const context = {
+      session: {
+        sessionId: "sess_1",
+        provider: "codex",
+        status: "ready",
+        threadId: asThreadId("thread_1"),
+        resumeCursor: { threadId: "thread_1" },
+        createdAt: "2026-02-10T00:00:00.000Z",
+        updatedAt: "2026-02-10T00:00:00.000Z",
+      },
+      pending: new Map(),
+      pendingInteractiveRequests: new Map(),
+      interactiveRequestIdsByRpcId: new Map(),
+      collabReceiverTurns: new Map(),
+      collabChildTaskIds: new Map(),
+    };
+
+    (
+      manager as unknown as {
+        handleServerRequest: (context: unknown, request: Record<string, unknown>) => void;
+      }
+    ).handleServerRequest(context, {
+      jsonrpc: "2.0",
+      id: 44,
+      method: "mcpServer/elicitation/request",
+      params: {
+        mode: "form",
+        serverName: "workspace",
+      },
+    });
+
+    const request = Array.from(context.pendingInteractiveRequests.values())[0];
+    expect(request).toEqual(
+      expect.objectContaining({
+        method: "mcpServer/elicitation/request",
+        requestType: "mcp-elicitation",
+      }),
+    );
+  });
+
+  it("responds to canonical item/tool/call requests through the registered handler", async () => {
     const { manager, context, writeMessage, emitEvent } = createDynamicToolHarness();
     context.dynamicToolHandler.mockResolvedValue({
       content: "tool result",
@@ -919,9 +1213,9 @@ describe("respondToUserInput", () => {
     ).handleServerRequest(context, {
       jsonrpc: "2.0",
       id: 42,
-      method: "dynamicToolCall",
+      method: "item/tool/call",
       params: {
-        toolName: "channel_send",
+        tool: "channel_send",
         arguments: {
           message: "hello",
         },
@@ -936,16 +1230,16 @@ describe("respondToUserInput", () => {
     expect(writeMessage).toHaveBeenCalledWith(context, {
       id: 42,
       result: {
-        contentItems: [{ type: "text", text: "tool result" }],
+        contentItems: [{ type: "inputText", text: "tool result" }],
         success: true,
       },
     });
     expect(emitEvent).toHaveBeenCalledWith(
       expect.objectContaining({
         kind: "request",
-        method: "dynamicToolCall",
+        method: "item/tool/call",
         payload: {
-          toolName: "channel_send",
+          tool: "channel_send",
           arguments: {
             message: "hello",
           },
@@ -967,8 +1261,9 @@ describe("respondToUserInput", () => {
         createdAt: "2026-02-10T00:00:00.000Z",
         updatedAt: "2026-02-10T00:00:00.000Z",
       },
-      pendingApprovals: new Map(),
-      pendingUserInputs: new Map(),
+      pending: new Map(),
+      pendingInteractiveRequests: new Map(),
+      interactiveRequestIdsByRpcId: new Map(),
       collabReceiverTurns: new Map(),
       collabChildTaskIds: new Map(),
     };
@@ -1133,7 +1428,7 @@ describe("collab child conversation routing", () => {
       },
     });
 
-    expect(Array.from(context.pendingApprovals.values())[0]).toEqual(
+    expect(Array.from(context.pendingInteractiveRequests.values())[0]).toEqual(
       expect.objectContaining({
         turnId: "turn_parent",
         itemId: "call_child_1",

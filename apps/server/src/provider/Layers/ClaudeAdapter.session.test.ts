@@ -1,5 +1,5 @@
 import type { PermissionResult, SDKMessage } from "@anthropic-ai/claude-agent-sdk";
-import { ApprovalRequestId, ProviderItemId } from "@forgetools/contracts";
+import { InteractiveRequestId, ProviderItemId } from "@forgetools/contracts";
 import { assert, describe, it } from "@effect/vitest";
 import { Effect, Fiber, Random, Stream } from "effect";
 
@@ -590,11 +590,13 @@ describe("ClaudeAdapterLive session lifecycle", () => {
       });
 
       // Respond with the user's answers.
-      yield* adapter.respondToUserInput(
-        session.threadId,
-        ApprovalRequestId.makeUnsafe(requestId!),
-        { "Which framework?": "React" },
-      );
+      yield* adapter.respondToInteractiveRequest({
+        threadId: session.threadId,
+        requestId: InteractiveRequestId.makeUnsafe(requestId!),
+        resolution: {
+          answers: { "Which framework?": "React" },
+        },
+      });
 
       // The adapter should emit a user-input.resolved event.
       const resolvedEvent = yield* Stream.runHead(adapter.streamEvents);
@@ -677,11 +679,13 @@ describe("ClaudeAdapterLive session lifecycle", () => {
       }
       const requestId = requestedEvent.value.requestId;
 
-      yield* adapter.respondToUserInput(
-        session.threadId,
-        ApprovalRequestId.makeUnsafe(requestId!),
-        { "Deploy to which env?": "Staging" },
-      );
+      yield* adapter.respondToInteractiveRequest({
+        threadId: session.threadId,
+        requestId: InteractiveRequestId.makeUnsafe(requestId!),
+        resolution: {
+          answers: { "Deploy to which env?": "Staging" },
+        },
+      });
 
       // Drain the resolved event.
       yield* Stream.runHead(adapter.streamEvents);

@@ -415,6 +415,10 @@ export function toRequestTypeFromMethod(method: string): CanonicalRequestType {
       return "exec_command_approval";
     case "item/tool/requestUserInput":
       return "tool_user_input";
+    case "item/permissions/requestApproval":
+      return "permission_approval";
+    case "mcpServer/elicitation/request":
+      return "mcp_elicitation";
     case "item/tool/call":
     case "dynamicToolCall":
       return "dynamic_tool_call";

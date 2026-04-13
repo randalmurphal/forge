@@ -46,6 +46,10 @@ function attentionBody(payload: InteractiveRequestPayload): string {
       return payload.questions.length === 1
         ? "1 question needs input."
         : `${payload.questions.length} questions need input.`;
+    case "permission":
+      return "Additional permissions need review.";
+    case "mcp-elicitation":
+      return "An MCP server requested input.";
     case "gate":
       switch (payload.gateType) {
         case "human-approval":

@@ -8,10 +8,8 @@
  * @module ProviderAdapter
  */
 import type {
-  ApprovalRequestId,
-  ProviderApprovalDecision,
   ProviderKind,
-  ProviderUserInputAnswers,
+  ProviderRespondToInteractiveRequestInput,
   ProviderRuntimeEvent,
   ProviderSendTurnInput,
   ProviderSession,
@@ -71,19 +69,8 @@ export interface ProviderAdapterShape<TError> {
   /**
    * Respond to an interactive approval request.
    */
-  readonly respondToRequest: (
-    threadId: ThreadId,
-    requestId: ApprovalRequestId,
-    decision: ProviderApprovalDecision,
-  ) => Effect.Effect<void, TError>;
-
-  /**
-   * Respond to a structured user-input request.
-   */
-  readonly respondToUserInput: (
-    threadId: ThreadId,
-    requestId: ApprovalRequestId,
-    answers: ProviderUserInputAnswers,
+  readonly respondToInteractiveRequest: (
+    input: ProviderRespondToInteractiveRequestInput,
   ) => Effect.Effect<void, TError>;
 
   /**

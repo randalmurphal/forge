@@ -1,6 +1,5 @@
 import { Option, Schema, SchemaIssue } from "effect";
 import {
-  ApprovalRequestId,
   ChannelId,
   ChannelMessageId,
   CheckpointRef,
@@ -28,7 +27,7 @@ import {
   InteractiveRequestResolution,
   InteractiveRequestType,
 } from "../interactiveRequest";
-import { ModelSelection, ProviderApprovalDecision, ProviderKind } from "../providerSchemas";
+import { ModelSelection, ProviderKind } from "../providerSchemas";
 import {
   GateAfter,
   GateResult,
@@ -54,7 +53,6 @@ import {
   OrchestrationToolInlineDiff,
   ProjectScript,
   ProviderInteractionMode,
-  ProviderUserInputAnswers,
   RuntimeMode,
   SourceProposedPlanReference,
   ThreadSpawnMode,
@@ -77,8 +75,7 @@ export const OrchestrationEventType = Schema.Literals([
   "thread.message-sent",
   "thread.turn-start-requested",
   "thread.turn-interrupt-requested",
-  "thread.approval-response-requested",
-  "thread.user-input-response-requested",
+  "thread.interactive-request-response-requested",
   "thread.checkpoint-revert-requested",
   "thread.reverted",
   "thread.session-stop-requested",
@@ -335,17 +332,10 @@ export const ThreadTurnInterruptRequestedPayload = Schema.Struct({
   createdAt: IsoDateTime,
 });
 
-export const ThreadApprovalResponseRequestedPayload = Schema.Struct({
+export const ThreadInteractiveRequestResponseRequestedPayload = Schema.Struct({
   threadId: ThreadId,
-  requestId: ApprovalRequestId,
-  decision: ProviderApprovalDecision,
-  createdAt: IsoDateTime,
-});
-
-const ThreadUserInputResponseRequestedPayload = Schema.Struct({
-  threadId: ThreadId,
-  requestId: ApprovalRequestId,
-  answers: ProviderUserInputAnswers,
+  requestId: InteractiveRequestId,
+  resolution: InteractiveRequestResolution,
   createdAt: IsoDateTime,
 });
 
@@ -467,7 +457,7 @@ export const OrchestrationEventMetadata = Schema.Struct({
   providerTurnId: Schema.optional(TrimmedNonEmptyString),
   providerItemId: Schema.optional(ProviderItemId),
   adapterKey: Schema.optional(TrimmedNonEmptyString),
-  requestId: Schema.optional(ApprovalRequestId),
+  requestId: Schema.optional(InteractiveRequestId),
   ingestedAt: Schema.optional(IsoDateTime),
 });
 export type OrchestrationEventMetadata = typeof OrchestrationEventMetadata.Type;
@@ -562,13 +552,8 @@ export const OrchestrationEvent = Schema.Union([
   }),
   Schema.Struct({
     ...EventBaseFields,
-    type: Schema.Literal("thread.approval-response-requested"),
-    payload: ThreadApprovalResponseRequestedPayload,
-  }),
-  Schema.Struct({
-    ...EventBaseFields,
-    type: Schema.Literal("thread.user-input-response-requested"),
-    payload: ThreadUserInputResponseRequestedPayload,
+    type: Schema.Literal("thread.interactive-request-response-requested"),
+    payload: ThreadInteractiveRequestResponseRequestedPayload,
   }),
   Schema.Struct({
     ...EventBaseFields,
