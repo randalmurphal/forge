@@ -506,6 +506,8 @@ export function runtimeEventToActivities(
             ...(event.payload.description
               ? { detail: truncateDetail(event.payload.description) }
               : {}),
+            ...(event.payload.prompt ? { prompt: event.payload.prompt } : {}),
+            ...(event.payload.workflowName ? { workflowName: event.payload.workflowName } : {}),
             ...(taskStartedChildAttr ? { childThreadAttribution: taskStartedChildAttr } : {}),
           },
           turnId: toTurnId(event.turnId) ?? null,
@@ -567,6 +569,36 @@ export function runtimeEventToActivities(
             ...(event.payload.usage !== undefined ? { usage: event.payload.usage } : {}),
             ...(event.payload.outputFile ? { outputFile: event.payload.outputFile } : {}),
             ...(taskCompletedChildAttr ? { childThreadAttribution: taskCompletedChildAttr } : {}),
+          },
+          turnId: toTurnId(event.turnId) ?? null,
+          ...maybeSequence,
+        },
+      ];
+    }
+
+    case "task.updated": {
+      const taskUpdatedChildAttr = extractChildThreadAttribution(event.payload);
+      const patchPayload = asRecord(event.payload.patch);
+      const patchStatus =
+        typeof patchPayload?.status === "string" ? patchPayload.status : undefined;
+      logBackgroundDebug("ingestion", "runtime.task.updated", {
+        threadId: event.threadId,
+        turnId: event.turnId ?? null,
+        taskId: event.payload.taskId,
+        patchStatus: patchStatus ?? null,
+        childThreadAttribution: extractBackgroundDebugChildThread(event.payload) ?? null,
+      });
+      return [
+        {
+          id: event.eventId,
+          createdAt: event.createdAt,
+          tone: patchStatus === "failed" || patchStatus === "killed" ? "error" : "info",
+          kind: "task.updated",
+          summary: "Task updated",
+          payload: {
+            taskId: event.payload.taskId,
+            patch: event.payload.patch,
+            ...(taskUpdatedChildAttr ? { childThreadAttribution: taskUpdatedChildAttr } : {}),
           },
           turnId: toTurnId(event.turnId) ?? null,
           ...maybeSequence,

@@ -424,7 +424,8 @@ function deriveProviderBackgroundTaskSignals(
     if (
       activity.kind !== "task.started" &&
       activity.kind !== "task.progress" &&
-      activity.kind !== "task.completed"
+      activity.kind !== "task.completed" &&
+      activity.kind !== "task.updated"
     ) {
       continue;
     }
@@ -434,14 +435,20 @@ function deriveProviderBackgroundTaskSignals(
       continue;
     }
 
-    // These parent-thread task activities are already the normalized orchestration surface.
-    // For Claude, terminal `task.completed` comes from SDK `task_notification`, not the raw
-    // lower-fidelity `task_updated` patch stream. This helper should follow that normalized
-    // lifecycle and never invent terminal state from side-channel patches.
     const taskId = asTrimmedString(payload?.taskId);
     const toolUseId = asTrimmedString(payload?.toolUseId);
     if (!taskId && !toolUseId) {
       continue;
+    }
+
+    // task.updated is a first-class signal. For terminal patches (completed/failed/killed),
+    // derive the status from patch.status rather than from the activity kind.
+    if (activity.kind === "task.updated") {
+      const patch = asRecord(payload?.patch);
+      const patchStatus = asTrimmedString(patch?.status);
+      if (patchStatus !== "completed" && patchStatus !== "failed" && patchStatus !== "killed") {
+        continue;
+      }
     }
 
     const existing =
@@ -552,11 +559,22 @@ function normalizeProviderBackgroundTaskStatus(
   activityKind: OrchestrationThreadActivity["kind"],
   payload: Record<string, unknown> | null | undefined,
 ): "running" | "completed" | "failed" {
-  if (activityKind !== "task.completed") {
+  if (activityKind === "task.completed") {
+    const status = asTrimmedString(payload?.status);
+    return status === "failed" || status === "stopped" ? "failed" : "completed";
+  }
+  if (activityKind === "task.updated") {
+    const patch = asRecord(payload?.patch);
+    const patchStatus = asTrimmedString(patch?.status);
+    if (patchStatus === "completed") {
+      return "completed";
+    }
+    if (patchStatus === "failed" || patchStatus === "killed") {
+      return "failed";
+    }
     return "running";
   }
-  const status = asTrimmedString(payload?.status);
-  return status === "failed" || status === "stopped" ? "failed" : "completed";
+  return "running";
 }
 
 export function deriveCodexBackgroundCommandSignals(input: {

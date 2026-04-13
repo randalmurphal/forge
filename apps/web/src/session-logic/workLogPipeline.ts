@@ -81,13 +81,19 @@ export function deriveWorkLogEntries(
     .filter((activity) => activity.kind !== "tool.terminal.interaction")
     .filter((activity) => !isUnattributedCollabAgentToolEnvelope(activity))
     .filter((activity) => {
-      if (activity.kind === "task.started" || activity.kind === "task.completed") {
+      if (
+        activity.kind === "task.started" ||
+        activity.kind === "task.completed" ||
+        activity.kind === "task.updated"
+      ) {
         const activityPayload =
           activity.payload && typeof activity.payload === "object"
             ? (activity.payload as Record<string, unknown>)
             : null;
         // Only keep entries that have child thread attribution — these are subagent boundaries.
         // Parent-thread task events (which also have taskId) should stay filtered out.
+        // task.updated without attribution still reaches deriveProviderBackgroundTaskSignals
+        // via the unfiltered `ordered` activity list.
         return activityPayload?.childThreadAttribution != null;
       }
       return true;

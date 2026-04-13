@@ -299,7 +299,14 @@ export function toDerivedWorkLogEntry(activity: OrchestrationThreadActivity): De
     entry.changedFiles = inlineDiff.files.map((file) => file.path);
   }
   const enrichments = extractToolEnrichments(payload);
-  const itemStatus = normalizeWorkItemStatus(payload?.status) ?? deriveActivityItemStatus(activity);
+  const taskUpdatedPatchStatus =
+    activity.kind === "task.updated"
+      ? normalizeWorkItemStatus((payload?.patch as Record<string, unknown> | undefined)?.status)
+      : undefined;
+  const itemStatus =
+    taskUpdatedPatchStatus ??
+    normalizeWorkItemStatus(payload?.status) ??
+    deriveActivityItemStatus(activity);
   if (itemStatus) entry.itemStatus = itemStatus;
   if (enrichments.toolName) entry.toolName = enrichments.toolName;
   if (enrichments.exitCode !== undefined) entry.exitCode = enrichments.exitCode;
@@ -539,6 +546,7 @@ export function normalizeWorkItemStatus(value: unknown): WorkLogEntry["itemStatu
     case "error":
     case "errored":
     case "interrupted":
+    case "killed":
     case "notFound":
       return "failed";
     case "declined":

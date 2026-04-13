@@ -47,6 +47,7 @@ import {
 } from "./sdkMessageParsing.ts";
 import { classifyToolItemType, summarizeToolRequest, titleForTool } from "./toolClassification.ts";
 import { appendServerDebugRecord } from "../../../debug.ts";
+import { logBackgroundDebug } from "../../adapterUtils.ts";
 import {
   PROVIDER,
   type AssistantTextBlockState,
@@ -647,6 +648,7 @@ export const completeTurn = Effect.fn("completeTurn")(function* (
   // Clear any remaining stale entries (e.g. from interrupted content blocks)
   context.inFlightTools.clear();
   context.activeSubagentTools.clear();
+  context.taskAttributionByTaskId.clear();
 
   for (const block of turnState.assistantTextBlockOrder) {
     yield* completeAssistantTextBlock(ctx, context, block, {
@@ -1329,22 +1331,6 @@ export const handleSystemMessage = Effect.fn("handleSystemMessage")(function* (
     },
   };
 
-  if ((message as { subtype?: string }).subtype === "task_updated") {
-    // Claude Code 2.1.101 emits `task_updated` terminal patches ahead of the richer
-    // `task_notification` payload that carries tool_use_id, summary, output_file, and usage.
-    // The direct SDK probe in `/tmp/claude-sdk-probe.mjs` showed background Bash and Agent
-    // completions both following this sequence:
-    //   task_updated({ patch: { status, end_time } }) -> task_notification(...)
-    //
-    // We intentionally do not treat `task_updated` as a terminal fallback. The same raw SDK
-    // probes also showed nested subagent bash work receiving terminal-looking `task_updated`
-    // patches like `status: "killed"` that are implementation detail, not the parent-facing
-    // completion signal we want to render. Trust `task_notification` for visible completion;
-    // ignore this lower-fidelity patch so it cannot surface as a bogus warning or duplicate
-    // terminal task event.
-    return;
-  }
-
   switch (message.subtype) {
     case "init":
       yield* ctx.offerRuntimeEvent({
@@ -1430,6 +1416,15 @@ export const handleSystemMessage = Effect.fn("handleSystemMessage")(function* (
           attribution: taskStartedAttribution ?? null,
         },
       });
+      // Store attribution by task_id so task_updated (which lacks tool_use_id) can resolve it.
+      if (taskStartedAttribution) {
+        context.taskAttributionByTaskId.set(message.task_id, {
+          toolUseId: taskToolUseId ?? message.task_id,
+          childThreadAttribution: taskStartedAttribution,
+        });
+      }
+      const sdkPrompt = (message as Record<string, unknown>).prompt;
+      const sdkWorkflowName = (message as Record<string, unknown>).workflow_name;
       yield* ctx.offerRuntimeEvent({
         ...base,
         type: "task.started",
@@ -1438,6 +1433,10 @@ export const handleSystemMessage = Effect.fn("handleSystemMessage")(function* (
           description: message.description,
           ...(message.tool_use_id ? { toolUseId: message.tool_use_id } : {}),
           ...(message.task_type ? { taskType: message.task_type } : {}),
+          ...(typeof sdkPrompt === "string" && sdkPrompt.length > 0 ? { prompt: sdkPrompt } : {}),
+          ...(typeof sdkWorkflowName === "string" && sdkWorkflowName.length > 0
+            ? { workflowName: sdkWorkflowName }
+            : {}),
           ...(taskStartedAttribution ? { childThreadAttribution: taskStartedAttribution } : {}),
         },
       });
@@ -1464,6 +1463,13 @@ export const handleSystemMessage = Effect.fn("handleSystemMessage")(function* (
         }
       }
       const taskProgressAttribution = buildChildThreadAttribution(context, sdkToolUseId(message));
+      // Backfill attribution if task_started was missed (e.g. during reconnect).
+      if (taskProgressAttribution && !context.taskAttributionByTaskId.has(message.task_id)) {
+        context.taskAttributionByTaskId.set(message.task_id, {
+          toolUseId: sdkToolUseId(message) ?? message.task_id,
+          childThreadAttribution: taskProgressAttribution,
+        });
+      }
       yield* ctx.offerRuntimeEvent({
         ...base,
         type: "task.progress",
@@ -1507,6 +1513,7 @@ export const handleSystemMessage = Effect.fn("handleSystemMessage")(function* (
           taskId: RuntimeTaskId.makeUnsafe(message.task_id),
           status: message.status,
           ...(message.tool_use_id ? { toolUseId: message.tool_use_id } : {}),
+          ...(message.output_file ? { outputFile: message.output_file } : {}),
           ...(message.summary ? { summary: message.summary } : {}),
           ...(message.usage ? { usage: message.usage } : {}),
           ...(taskCompletedAttribution ? { childThreadAttribution: taskCompletedAttribution } : {}),
@@ -1515,6 +1522,7 @@ export const handleSystemMessage = Effect.fn("handleSystemMessage")(function* (
       if (message.tool_use_id) {
         context.activeSubagentTools.delete(message.tool_use_id);
       }
+      context.taskAttributionByTaskId.delete(message.task_id);
       return;
     }
     case "local_command_output": {
@@ -1550,11 +1558,112 @@ export const handleSystemMessage = Effect.fn("handleSystemMessage")(function* (
         },
       });
       return;
+    case "task_updated": {
+      const taskUpdatedPatch = (message as Record<string, unknown>).patch as
+        | Record<string, unknown>
+        | undefined;
+      if (!taskUpdatedPatch) {
+        return;
+      }
+      const taskUpdatedAttribution = context.taskAttributionByTaskId.get(message.task_id);
+      logBackgroundDebug("ingestion", "runtime.task.updated", {
+        taskId: message.task_id,
+        patchStatus: taskUpdatedPatch.status ?? null,
+        hasAttribution: taskUpdatedAttribution != null,
+      });
+      const patchPayload: Record<string, unknown> = {};
+      if (taskUpdatedPatch.status != null) {
+        patchPayload.status = taskUpdatedPatch.status;
+      }
+      if (typeof taskUpdatedPatch.description === "string") {
+        patchPayload.description = taskUpdatedPatch.description;
+      }
+      if (taskUpdatedPatch.end_time != null) {
+        patchPayload.endTime = taskUpdatedPatch.end_time;
+      }
+      if (taskUpdatedPatch.total_paused_ms != null) {
+        patchPayload.totalPausedMs = taskUpdatedPatch.total_paused_ms;
+      }
+      if (typeof taskUpdatedPatch.error === "string") {
+        patchPayload.error = taskUpdatedPatch.error;
+      }
+      if (taskUpdatedPatch.is_backgrounded != null) {
+        patchPayload.isBackgrounded = taskUpdatedPatch.is_backgrounded;
+      }
+      yield* ctx.offerRuntimeEvent({
+        ...base,
+        type: "task.updated",
+        payload: {
+          taskId: RuntimeTaskId.makeUnsafe(message.task_id),
+          patch: patchPayload,
+          ...(taskUpdatedAttribution
+            ? { childThreadAttribution: taskUpdatedAttribution.childThreadAttribution }
+            : {}),
+        },
+      });
+      const isTerminal =
+        taskUpdatedPatch.status === "completed" ||
+        taskUpdatedPatch.status === "failed" ||
+        taskUpdatedPatch.status === "killed";
+      if (isTerminal) {
+        context.taskAttributionByTaskId.delete(message.task_id);
+      }
+      return;
+    }
+    case "session_state_changed": {
+      const sdkState = (message as Record<string, unknown>).state;
+      let mappedState: "idle" | "running" | "waiting";
+      switch (sdkState) {
+        case "idle":
+          mappedState = "idle";
+          break;
+        case "running":
+          mappedState = "running";
+          break;
+        case "requires_action":
+          mappedState = "waiting";
+          break;
+        default:
+          logBackgroundDebug("ingestion", "session_state_changed.unknown", {
+            sdkState,
+          });
+          mappedState = "running";
+          break;
+      }
+      yield* ctx.offerRuntimeEvent({
+        ...base,
+        type: "session.state.changed",
+        payload: { state: mappedState },
+      });
+      return;
+    }
+    case "api_retry": {
+      const retryMessage = message as Record<string, unknown>;
+      yield* ctx.offerRuntimeEvent({
+        ...base,
+        type: "session.state.changed",
+        payload: {
+          state: "waiting" as const,
+          reason: "api_retry",
+          detail: {
+            attempt: retryMessage.attempt,
+            maxRetries: retryMessage.max_retries,
+            retryDelayMs: retryMessage.retry_delay_ms,
+            errorStatus: retryMessage.error_status,
+            error: retryMessage.error,
+          },
+        },
+      });
+      return;
+    }
+    case "elicitation_complete":
+      // MCP elicitation lifecycle signal. Silently acknowledge.
+      return;
     default:
       yield* emitRuntimeWarning(
         ctx,
         context,
-        `Unhandled Claude system message subtype '${message.subtype}'.`,
+        `Unhandled Claude system message subtype '${(message as Record<string, unknown>).subtype}'.`,
         message,
       );
       return;
@@ -1669,11 +1778,15 @@ export const handleSdkMessage = Effect.fn("handleSdkMessage")(function* (
     case "rate_limit_event":
       yield* handleSdkTelemetryMessage(ctx, context, message);
       return;
+    case "prompt_suggestion":
+      // Prompt suggestions are a UI presentation concern.
+      // Silently acknowledge — no runtime event needed currently.
+      return;
     default:
       yield* emitRuntimeWarning(
         ctx,
         context,
-        `Unhandled Claude SDK message type '${message.type}'.`,
+        `Unhandled Claude SDK message type '${(message as Record<string, unknown>).type}'.`,
         message,
       );
       return;

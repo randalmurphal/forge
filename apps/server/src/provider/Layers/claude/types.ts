@@ -134,6 +134,12 @@ export interface ClaudeSessionContext {
   readonly inFlightTools: Map<number, ToolInFlight>;
   /** Active Agent/Task tool calls, keyed by tool_use_id. Used to inject childThreadAttribution on child messages. */
   readonly activeSubagentTools: Map<string, ActiveSubagentTool>;
+  /** Maps runtime task_id → attribution from earlier task_started/task_progress events.
+   *  Used by task_updated (which carries task_id but no tool_use_id) to resolve childThreadAttribution. */
+  readonly taskAttributionByTaskId: Map<
+    string,
+    { toolUseId: string; childThreadAttribution: Record<string, unknown> }
+  >;
   turnState: ClaudeTurnState | undefined;
   lastKnownContextWindow: number | undefined;
   lastKnownTokenUsage: ThreadTokenUsageSnapshot | undefined;

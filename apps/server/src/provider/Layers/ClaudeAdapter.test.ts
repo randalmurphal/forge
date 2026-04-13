@@ -1739,74 +1739,80 @@ describe("ClaudeAdapterLive", () => {
     },
   );
 
-  it.effect("ignores Claude task_updated patches when task_notification follows", () => {
-    const harness = makeHarness();
-    return Effect.gen(function* () {
-      const services = yield* Effect.services();
-      const runFork = Effect.runForkWith(services);
-      const adapter = yield* ClaudeAdapter;
-      const runtimeEvents: Array<ProviderRuntimeEvent> = [];
-      const runtimeEventsFiber = runFork(
-        Stream.runForEach(adapter.streamEvents, (event) =>
-          Effect.sync(() => {
-            runtimeEvents.push(event);
-          }),
-        ),
-      );
+  it.effect(
+    "emits task.updated from task_updated and task.completed only from task_notification",
+    () => {
+      const harness = makeHarness();
+      return Effect.gen(function* () {
+        const services = yield* Effect.services();
+        const runFork = Effect.runForkWith(services);
+        const adapter = yield* ClaudeAdapter;
+        const runtimeEvents: Array<ProviderRuntimeEvent> = [];
+        const runtimeEventsFiber = runFork(
+          Stream.runForEach(adapter.streamEvents, (event) =>
+            Effect.sync(() => {
+              runtimeEvents.push(event);
+            }),
+          ),
+        );
 
-      yield* adapter.startSession({
-        threadId: THREAD_ID,
-        provider: "claudeAgent",
-        runtimeMode: "full-access",
-      });
+        yield* adapter.startSession({
+          threadId: THREAD_ID,
+          provider: "claudeAgent",
+          runtimeMode: "full-access",
+        });
 
-      harness.query.emit({
-        type: "system",
-        subtype: "task_updated",
-        task_id: "task-bash-bg-3",
-        patch: {
+        harness.query.emit({
+          type: "system",
+          subtype: "task_updated",
+          task_id: "task-bash-bg-3",
+          patch: {
+            status: "completed",
+            end_time: 1_775_969_368_152,
+          },
+          session_id: "sdk-session-task-updated",
+          uuid: "task-updated-bg-1",
+        } as unknown as SDKMessage);
+
+        harness.query.emit({
+          type: "system",
+          subtype: "task_notification",
+          task_id: "task-bash-bg-3",
+          tool_use_id: "tool-bash-bg-3",
           status: "completed",
-          end_time: 1_775_969_368_152,
-        },
-        session_id: "sdk-session-task-updated",
-        uuid: "task-updated-bg-1",
-      } as unknown as SDKMessage);
+          output_file: "/tmp/task-bash-bg-3.txt",
+          summary: "Background bash completed",
+          session_id: "sdk-session-task-notification",
+          uuid: "task-notification-bg-1",
+        } as unknown as SDKMessage);
+        harness.query.finish();
 
-      harness.query.emit({
-        type: "system",
-        subtype: "task_notification",
-        task_id: "task-bash-bg-3",
-        tool_use_id: "tool-bash-bg-3",
-        status: "completed",
-        output_file: "/tmp/task-bash-bg-3.txt",
-        summary: "Background bash completed",
-        session_id: "sdk-session-task-notification",
-        uuid: "task-notification-bg-1",
-      } as unknown as SDKMessage);
-      harness.query.finish();
+        yield* Effect.yieldNow;
+        yield* Effect.yieldNow;
+        yield* Effect.promise(() => new Promise((resolve) => setTimeout(resolve, 25)));
+        runtimeEventsFiber.interruptUnsafe();
 
-      yield* Effect.yieldNow;
-      yield* Effect.yieldNow;
-      yield* Effect.promise(() => new Promise((resolve) => setTimeout(resolve, 25)));
-      runtimeEventsFiber.interruptUnsafe();
+        const warningEvents = runtimeEvents.filter((event) => event.type === "runtime.warning");
+        const updatedEvents = runtimeEvents.filter((event) => event.type === "task.updated");
+        const completedEvents = runtimeEvents.filter((event) => event.type === "task.completed");
 
-      const warningEvents = runtimeEvents.filter((event) => event.type === "runtime.warning");
-      const completedEvents = runtimeEvents.filter((event) => event.type === "task.completed");
-
-      assert.deepEqual(warningEvents, []);
-      assert.equal(completedEvents.length, 1);
-      const completedEvent = completedEvents[0];
-      assert.equal(completedEvent?.type, "task.completed");
-      if (completedEvent?.type === "task.completed") {
-        assert.equal(completedEvent.payload.taskId, "task-bash-bg-3");
-        assert.equal(completedEvent.payload.toolUseId, "tool-bash-bg-3");
-        assert.equal(completedEvent.payload.status, "completed");
-      }
-    }).pipe(
-      Effect.provideService(Random.Random, makeDeterministicRandomService()),
-      Effect.provide(harness.layer),
-    );
-  });
+        assert.deepEqual(warningEvents, []);
+        // task_updated emits task.updated, task_notification emits task.completed
+        assert.equal(updatedEvents.length, 1);
+        assert.equal(completedEvents.length, 1);
+        const completedEvent = completedEvents[0];
+        assert.equal(completedEvent?.type, "task.completed");
+        if (completedEvent?.type === "task.completed") {
+          assert.equal(completedEvent.payload.taskId, "task-bash-bg-3");
+          assert.equal(completedEvent.payload.toolUseId, "tool-bash-bg-3");
+          assert.equal(completedEvent.payload.status, "completed");
+        }
+      }).pipe(
+        Effect.provideService(Random.Random, makeDeterministicRandomService()),
+        Effect.provide(harness.layer),
+      );
+    },
+  );
 
   it.effect("does not emit terminal task events from Claude task_updated alone", () => {
     const harness = makeHarness();
@@ -1849,9 +1855,555 @@ describe("ClaudeAdapterLive", () => {
 
       const warningEvents = runtimeEvents.filter((event) => event.type === "runtime.warning");
       const terminalTaskEvents = runtimeEvents.filter((event) => event.type === "task.completed");
+      const updatedEvents = runtimeEvents.filter((event) => event.type === "task.updated");
 
       assert.deepEqual(warningEvents, []);
+      // task_updated emits task.updated, NOT task.completed — terminal completion is
+      // signaled by the richer task_notification message, not task_updated.
       assert.deepEqual(terminalTaskEvents, []);
+      assert.equal(updatedEvents.length, 1);
+    }).pipe(
+      Effect.provideService(Random.Random, makeDeterministicRandomService()),
+      Effect.provide(harness.layer),
+    );
+  });
+
+  it.effect(
+    "emits task.updated with terminal status patch and childThreadAttribution from task_started",
+    () => {
+      const harness = makeHarness();
+      return Effect.gen(function* () {
+        const services = yield* Effect.services();
+        const runFork = Effect.runForkWith(services);
+        const adapter = yield* ClaudeAdapter;
+        const runtimeEvents: Array<ProviderRuntimeEvent> = [];
+        const runtimeEventsFiber = runFork(
+          Stream.runForEach(adapter.streamEvents, (event) =>
+            Effect.sync(() => {
+              runtimeEvents.push(event);
+            }),
+          ),
+        );
+
+        yield* adapter.startSession({
+          threadId: THREAD_ID,
+          provider: "claudeAgent",
+          runtimeMode: "full-access",
+        });
+
+        yield* adapter.sendTurn({
+          threadId: THREAD_ID,
+          input: "launch a background agent for task_updated test",
+          attachments: [],
+        });
+
+        // Register Agent tool_use so it appears in activeSubagentTools
+        harness.query.emit({
+          type: "stream_event",
+          session_id: "sdk-session-task-updated-terminal",
+          uuid: "stream-agent-tool-updated",
+          parent_tool_use_id: null,
+          event: {
+            type: "content_block_start",
+            index: 0,
+            content_block: {
+              type: "tool_use",
+              id: "tool-agent-updated-1",
+              name: "Agent",
+              input: {
+                description: "Auth check subagent",
+                prompt: "Check auth module",
+                model: "sonnet",
+              },
+            },
+          },
+        } as unknown as SDKMessage);
+
+        // task_started registers attribution by task_id
+        harness.query.emit({
+          type: "system",
+          subtype: "task_started",
+          task_id: "task-updated-1",
+          tool_use_id: "tool-agent-updated-1",
+          description: "Auth check subagent",
+          task_type: "agent",
+          session_id: "sdk-session-task-updated-terminal",
+          uuid: "task-started-updated-1",
+        } as unknown as SDKMessage);
+
+        // task_updated with terminal patch
+        harness.query.emit({
+          type: "system",
+          subtype: "task_updated",
+          task_id: "task-updated-1",
+          patch: {
+            status: "completed",
+            end_time: 123456,
+          },
+          session_id: "sdk-session-task-updated-terminal",
+          uuid: "task-updated-terminal-1",
+        } as unknown as SDKMessage);
+        harness.query.finish();
+
+        yield* Effect.yieldNow;
+        yield* Effect.yieldNow;
+        yield* Effect.promise(() => new Promise((resolve) => setTimeout(resolve, 25)));
+        runtimeEventsFiber.interruptUnsafe();
+
+        const updatedEvent = runtimeEvents.find((event) => event.type === "task.updated");
+        assert.equal(updatedEvent?.type, "task.updated");
+        if (updatedEvent?.type === "task.updated") {
+          assert.equal(updatedEvent.payload.taskId, "task-updated-1");
+          const patch = updatedEvent.payload.patch as Record<string, unknown>;
+          assert.equal(patch.status, "completed");
+          assert.equal(patch.endTime, 123456);
+          // childThreadAttribution should be resolved from task_started attribution
+          const attribution = (updatedEvent.payload as Record<string, unknown>)
+            .childThreadAttribution as Record<string, unknown> | undefined;
+          assert.ok(attribution, "task.updated should carry childThreadAttribution");
+          assert.equal(attribution!.taskId, "tool-agent-updated-1");
+          assert.equal(attribution!.label, "Auth check subagent");
+        }
+      }).pipe(
+        Effect.provideService(Random.Random, makeDeterministicRandomService()),
+        Effect.provide(harness.layer),
+      );
+    },
+  );
+
+  it.effect("emits task.updated with non-terminal status without clearing attribution", () => {
+    const harness = makeHarness();
+    return Effect.gen(function* () {
+      const services = yield* Effect.services();
+      const runFork = Effect.runForkWith(services);
+      const adapter = yield* ClaudeAdapter;
+      const runtimeEvents: Array<ProviderRuntimeEvent> = [];
+      const runtimeEventsFiber = runFork(
+        Stream.runForEach(adapter.streamEvents, (event) =>
+          Effect.sync(() => {
+            runtimeEvents.push(event);
+          }),
+        ),
+      );
+
+      yield* adapter.startSession({
+        threadId: THREAD_ID,
+        provider: "claudeAgent",
+        runtimeMode: "full-access",
+      });
+
+      // task_started (without Agent tool_use — no attribution)
+      harness.query.emit({
+        type: "system",
+        subtype: "task_started",
+        task_id: "task-running-1",
+        tool_use_id: "tool-running-1",
+        description: "Background task running",
+        session_id: "sdk-session-running",
+        uuid: "task-started-running-1",
+      } as unknown as SDKMessage);
+
+      // task_updated with non-terminal status
+      harness.query.emit({
+        type: "system",
+        subtype: "task_updated",
+        task_id: "task-running-1",
+        patch: {
+          status: "running",
+          description: "Still working",
+        },
+        session_id: "sdk-session-running",
+        uuid: "task-updated-running-1",
+      } as unknown as SDKMessage);
+      harness.query.finish();
+
+      yield* Effect.yieldNow;
+      yield* Effect.yieldNow;
+      yield* Effect.promise(() => new Promise((resolve) => setTimeout(resolve, 25)));
+      runtimeEventsFiber.interruptUnsafe();
+
+      const updatedEvent = runtimeEvents.find((event) => event.type === "task.updated");
+      assert.equal(updatedEvent?.type, "task.updated");
+      if (updatedEvent?.type === "task.updated") {
+        assert.equal(updatedEvent.payload.taskId, "task-running-1");
+        const patch = updatedEvent.payload.patch as Record<string, unknown>;
+        assert.equal(patch.status, "running");
+        assert.equal(patch.description, "Still working");
+      }
+    }).pipe(
+      Effect.provideService(Random.Random, makeDeterministicRandomService()),
+      Effect.provide(harness.layer),
+    );
+  });
+
+  it.effect("maps session_state_changed states correctly", () => {
+    const harness = makeHarness();
+    return Effect.gen(function* () {
+      const services = yield* Effect.services();
+      const runFork = Effect.runForkWith(services);
+      const adapter = yield* ClaudeAdapter;
+      const runtimeEvents: Array<ProviderRuntimeEvent> = [];
+      const runtimeEventsFiber = runFork(
+        Stream.runForEach(adapter.streamEvents, (event) =>
+          Effect.sync(() => {
+            runtimeEvents.push(event);
+          }),
+        ),
+      );
+
+      yield* adapter.startSession({
+        threadId: THREAD_ID,
+        provider: "claudeAgent",
+        runtimeMode: "full-access",
+      });
+
+      // Emit three session_state_changed messages with different states
+      harness.query.emit({
+        type: "system",
+        subtype: "session_state_changed",
+        state: "idle",
+        session_id: "sdk-session-state-1",
+        uuid: "state-idle-1",
+      } as unknown as SDKMessage);
+
+      harness.query.emit({
+        type: "system",
+        subtype: "session_state_changed",
+        state: "running",
+        session_id: "sdk-session-state-2",
+        uuid: "state-running-1",
+      } as unknown as SDKMessage);
+
+      harness.query.emit({
+        type: "system",
+        subtype: "session_state_changed",
+        state: "requires_action",
+        session_id: "sdk-session-state-3",
+        uuid: "state-requires-action-1",
+      } as unknown as SDKMessage);
+      harness.query.finish();
+
+      yield* Effect.yieldNow;
+      yield* Effect.yieldNow;
+      yield* Effect.promise(() => new Promise((resolve) => setTimeout(resolve, 25)));
+      runtimeEventsFiber.interruptUnsafe();
+
+      const stateEvents = runtimeEvents.filter(
+        (event) =>
+          event.type === "session.state.changed" &&
+          // Exclude the startup "ready" state emitted during startSession
+          (event.payload as { state: string }).state !== "ready",
+      );
+
+      assert.equal(stateEvents.length, 3);
+
+      const payloads = stateEvents.map((event) => (event.payload as { state: string }).state);
+      assert.deepEqual(payloads, ["idle", "running", "waiting"]);
+    }).pipe(
+      Effect.provideService(Random.Random, makeDeterministicRandomService()),
+      Effect.provide(harness.layer),
+    );
+  });
+
+  it.effect("emits session.state.changed with retry detail from api_retry", () => {
+    const harness = makeHarness();
+    return Effect.gen(function* () {
+      const services = yield* Effect.services();
+      const runFork = Effect.runForkWith(services);
+      const adapter = yield* ClaudeAdapter;
+      const runtimeEvents: Array<ProviderRuntimeEvent> = [];
+      const runtimeEventsFiber = runFork(
+        Stream.runForEach(adapter.streamEvents, (event) =>
+          Effect.sync(() => {
+            runtimeEvents.push(event);
+          }),
+        ),
+      );
+
+      yield* adapter.startSession({
+        threadId: THREAD_ID,
+        provider: "claudeAgent",
+        runtimeMode: "full-access",
+      });
+
+      harness.query.emit({
+        type: "system",
+        subtype: "api_retry",
+        attempt: 2,
+        max_retries: 5,
+        retry_delay_ms: 3000,
+        error_status: 429,
+        error: "rate_limit",
+        session_id: "sdk-session-api-retry",
+        uuid: "api-retry-1",
+      } as unknown as SDKMessage);
+      harness.query.finish();
+
+      yield* Effect.yieldNow;
+      yield* Effect.yieldNow;
+      yield* Effect.promise(() => new Promise((resolve) => setTimeout(resolve, 25)));
+      runtimeEventsFiber.interruptUnsafe();
+
+      const retryEvent = runtimeEvents.find(
+        (event) =>
+          event.type === "session.state.changed" &&
+          (event.payload as Record<string, unknown>).reason === "api_retry",
+      );
+      assert.ok(retryEvent, "api_retry should emit session.state.changed");
+      if (retryEvent?.type === "session.state.changed") {
+        const payload = retryEvent.payload as Record<string, unknown>;
+        assert.equal(payload.state, "waiting");
+        assert.equal(payload.reason, "api_retry");
+        const detail = payload.detail as Record<string, unknown>;
+        assert.equal(detail.attempt, 2);
+        assert.equal(detail.maxRetries, 5);
+        assert.equal(detail.retryDelayMs, 3000);
+        assert.equal(detail.errorStatus, 429);
+        assert.equal(detail.error, "rate_limit");
+      }
+    }).pipe(
+      Effect.provideService(Random.Random, makeDeterministicRandomService()),
+      Effect.provide(harness.layer),
+    );
+  });
+
+  it.effect("silently acknowledges prompt_suggestion without runtime warning", () => {
+    const harness = makeHarness();
+    return Effect.gen(function* () {
+      const services = yield* Effect.services();
+      const runFork = Effect.runForkWith(services);
+      const adapter = yield* ClaudeAdapter;
+      const runtimeEvents: Array<ProviderRuntimeEvent> = [];
+      const runtimeEventsFiber = runFork(
+        Stream.runForEach(adapter.streamEvents, (event) =>
+          Effect.sync(() => {
+            runtimeEvents.push(event);
+          }),
+        ),
+      );
+
+      yield* adapter.startSession({
+        threadId: THREAD_ID,
+        provider: "claudeAgent",
+        runtimeMode: "full-access",
+      });
+
+      harness.query.emit({
+        type: "prompt_suggestion",
+        suggestion: "Try running the tests",
+        uuid: "prompt-suggestion-1",
+        session_id: "sdk-session-prompt-suggestion",
+      } as unknown as SDKMessage);
+      harness.query.finish();
+
+      yield* Effect.yieldNow;
+      yield* Effect.yieldNow;
+      yield* Effect.promise(() => new Promise((resolve) => setTimeout(resolve, 25)));
+      runtimeEventsFiber.interruptUnsafe();
+
+      const warningEvents = runtimeEvents.filter((event) => event.type === "runtime.warning");
+      assert.deepEqual(warningEvents, []);
+    }).pipe(
+      Effect.provideService(Random.Random, makeDeterministicRandomService()),
+      Effect.provide(harness.layer),
+    );
+  });
+
+  it.effect("silently acknowledges elicitation_complete without runtime warning", () => {
+    const harness = makeHarness();
+    return Effect.gen(function* () {
+      const services = yield* Effect.services();
+      const runFork = Effect.runForkWith(services);
+      const adapter = yield* ClaudeAdapter;
+      const runtimeEvents: Array<ProviderRuntimeEvent> = [];
+      const runtimeEventsFiber = runFork(
+        Stream.runForEach(adapter.streamEvents, (event) =>
+          Effect.sync(() => {
+            runtimeEvents.push(event);
+          }),
+        ),
+      );
+
+      yield* adapter.startSession({
+        threadId: THREAD_ID,
+        provider: "claudeAgent",
+        runtimeMode: "full-access",
+      });
+
+      harness.query.emit({
+        type: "system",
+        subtype: "elicitation_complete",
+        mcp_server_name: "test",
+        elicitation_id: "elic-1",
+        uuid: "elicitation-complete-1",
+        session_id: "sdk-session-elicitation",
+      } as unknown as SDKMessage);
+      harness.query.finish();
+
+      yield* Effect.yieldNow;
+      yield* Effect.yieldNow;
+      yield* Effect.promise(() => new Promise((resolve) => setTimeout(resolve, 25)));
+      runtimeEventsFiber.interruptUnsafe();
+
+      const warningEvents = runtimeEvents.filter((event) => event.type === "runtime.warning");
+      assert.deepEqual(warningEvents, []);
+    }).pipe(
+      Effect.provideService(Random.Random, makeDeterministicRandomService()),
+      Effect.provide(harness.layer),
+    );
+  });
+
+  it.effect("forwards prompt and workflowName from task_started", () => {
+    const harness = makeHarness();
+    return Effect.gen(function* () {
+      const services = yield* Effect.services();
+      const runFork = Effect.runForkWith(services);
+      const adapter = yield* ClaudeAdapter;
+      const runtimeEvents: Array<ProviderRuntimeEvent> = [];
+      const runtimeEventsFiber = runFork(
+        Stream.runForEach(adapter.streamEvents, (event) =>
+          Effect.sync(() => {
+            runtimeEvents.push(event);
+          }),
+        ),
+      );
+
+      yield* adapter.startSession({
+        threadId: THREAD_ID,
+        provider: "claudeAgent",
+        runtimeMode: "full-access",
+      });
+
+      harness.query.emit({
+        type: "system",
+        subtype: "task_started",
+        task_id: "task-prompt-wf-1",
+        tool_use_id: "tool-prompt-wf-1",
+        description: "Background spec task",
+        prompt: "Check auth module",
+        workflow_name: "spec",
+        session_id: "sdk-session-task-prompt",
+        uuid: "task-started-prompt-1",
+      } as unknown as SDKMessage);
+      harness.query.finish();
+
+      yield* Effect.yieldNow;
+      yield* Effect.yieldNow;
+      yield* Effect.promise(() => new Promise((resolve) => setTimeout(resolve, 25)));
+      runtimeEventsFiber.interruptUnsafe();
+
+      const startedEvent = runtimeEvents.find((event) => event.type === "task.started");
+      assert.equal(startedEvent?.type, "task.started");
+      if (startedEvent?.type === "task.started") {
+        const payload = startedEvent.payload as Record<string, unknown>;
+        assert.equal(payload.prompt, "Check auth module");
+        assert.equal(payload.workflowName, "spec");
+      }
+    }).pipe(
+      Effect.provideService(Random.Random, makeDeterministicRandomService()),
+      Effect.provide(harness.layer),
+    );
+  });
+
+  it.effect("forwards outputFile from task_notification", () => {
+    const harness = makeHarness();
+    return Effect.gen(function* () {
+      const services = yield* Effect.services();
+      const runFork = Effect.runForkWith(services);
+      const adapter = yield* ClaudeAdapter;
+      const runtimeEvents: Array<ProviderRuntimeEvent> = [];
+      const runtimeEventsFiber = runFork(
+        Stream.runForEach(adapter.streamEvents, (event) =>
+          Effect.sync(() => {
+            runtimeEvents.push(event);
+          }),
+        ),
+      );
+
+      yield* adapter.startSession({
+        threadId: THREAD_ID,
+        provider: "claudeAgent",
+        runtimeMode: "full-access",
+      });
+
+      harness.query.emit({
+        type: "system",
+        subtype: "task_notification",
+        task_id: "task-output-1",
+        tool_use_id: "tool-output-1",
+        status: "completed",
+        output_file: "/tmp/tasks/output.txt",
+        summary: "Task finished",
+        session_id: "sdk-session-output-file",
+        uuid: "task-notification-output-1",
+      } as unknown as SDKMessage);
+      harness.query.finish();
+
+      yield* Effect.yieldNow;
+      yield* Effect.yieldNow;
+      yield* Effect.promise(() => new Promise((resolve) => setTimeout(resolve, 25)));
+      runtimeEventsFiber.interruptUnsafe();
+
+      const completedEvent = runtimeEvents.find((event) => event.type === "task.completed");
+      assert.equal(completedEvent?.type, "task.completed");
+      if (completedEvent?.type === "task.completed") {
+        const payload = completedEvent.payload as Record<string, unknown>;
+        assert.equal(payload.outputFile, "/tmp/tasks/output.txt");
+      }
+    }).pipe(
+      Effect.provideService(Random.Random, makeDeterministicRandomService()),
+      Effect.provide(harness.layer),
+    );
+  });
+
+  it.effect("forwards error and isBackgrounded fields from task_updated", () => {
+    const harness = makeHarness();
+    return Effect.gen(function* () {
+      const services = yield* Effect.services();
+      const runFork = Effect.runForkWith(services);
+      const adapter = yield* ClaudeAdapter;
+      const runtimeEvents: Array<ProviderRuntimeEvent> = [];
+      const runtimeEventsFiber = runFork(
+        Stream.runForEach(adapter.streamEvents, (event) =>
+          Effect.sync(() => {
+            runtimeEvents.push(event);
+          }),
+        ),
+      );
+
+      yield* adapter.startSession({
+        threadId: THREAD_ID,
+        provider: "claudeAgent",
+        runtimeMode: "full-access",
+      });
+
+      harness.query.emit({
+        type: "system",
+        subtype: "task_updated",
+        task_id: "task-error-1",
+        patch: {
+          status: "failed",
+          error: "Out of memory",
+          is_backgrounded: true,
+        },
+        session_id: "sdk-session-error",
+        uuid: "task-updated-error-1",
+      } as unknown as SDKMessage);
+      harness.query.finish();
+
+      yield* Effect.yieldNow;
+      yield* Effect.yieldNow;
+      yield* Effect.promise(() => new Promise((resolve) => setTimeout(resolve, 25)));
+      runtimeEventsFiber.interruptUnsafe();
+
+      const updatedEvent = runtimeEvents.find((event) => event.type === "task.updated");
+      assert.equal(updatedEvent?.type, "task.updated");
+      if (updatedEvent?.type === "task.updated") {
+        const patch = updatedEvent.payload.patch as Record<string, unknown>;
+        assert.equal(patch.status, "failed");
+        assert.equal(patch.error, "Out of memory");
+        assert.equal(patch.isBackgrounded, true);
+      }
     }).pipe(
       Effect.provideService(Random.Random, makeDeterministicRandomService()),
       Effect.provide(harness.layer),

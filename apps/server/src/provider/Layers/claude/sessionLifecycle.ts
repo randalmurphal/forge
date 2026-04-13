@@ -276,6 +276,10 @@ export const startSession = (
     const pendingUserInputs = new Map<ApprovalRequestId, PendingUserInput>();
     const inFlightTools = new Map<number, ToolInFlight>();
     const activeSubagentTools = new Map<string, ActiveSubagentTool>();
+    const taskAttributionByTaskId = new Map<
+      string,
+      { toolUseId: string; childThreadAttribution: Record<string, unknown> }
+    >();
 
     let sessionContext: ClaudeSessionContext | undefined;
 
@@ -594,6 +598,7 @@ export const startSession = (
       ...(existingResumeSessionId ? { resume: existingResumeSessionId } : {}),
       ...(newSessionId ? { sessionId: newSessionId } : {}),
       includePartialMessages: true,
+      agentProgressSummaries: true,
       canUseTool,
       env: {
         ...process.env,
@@ -651,6 +656,7 @@ export const startSession = (
       turns: [],
       inFlightTools,
       activeSubagentTools,
+      taskAttributionByTaskId,
       turnState: undefined,
       lastKnownContextWindow: undefined,
       lastKnownTokenUsage: undefined,

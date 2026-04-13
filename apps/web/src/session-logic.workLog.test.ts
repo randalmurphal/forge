@@ -3713,6 +3713,678 @@ describe("deriveWorkLogEntries", () => {
       "foreground-command",
     ]);
   });
+
+  it("completes a subagent group via terminal task.updated when no task.completed arrives", () => {
+    const workEntries = deriveWorkLogEntries(
+      [
+        makeActivity({
+          id: "agent-launch-started",
+          createdAt: "2026-04-10T12:00:00.000Z",
+          kind: "tool.started",
+          summary: "Subagent task started",
+          payload: {
+            itemType: "collab_agent_tool_call",
+            itemId: "runtime-agent-1",
+            status: "inProgress",
+            toolName: "Agent",
+            detail: "Agent: Run formatter",
+            data: {
+              toolName: "Agent",
+              input: {
+                description: "Run formatter",
+                prompt: "Run bun fmt and report results.",
+                run_in_background: true,
+              },
+            },
+          },
+        }),
+        makeActivity({
+          id: "agent-launch-completed",
+          createdAt: "2026-04-10T12:00:00.100Z",
+          kind: "tool.completed",
+          summary: "Subagent task",
+          payload: {
+            itemType: "collab_agent_tool_call",
+            itemId: "runtime-agent-1",
+            status: "completed",
+            toolName: "Agent",
+            detail: "Agent: Run formatter",
+            data: {
+              toolName: "Agent",
+              input: {
+                description: "Run formatter",
+                prompt: "Run bun fmt and report results.",
+                run_in_background: true,
+              },
+              toolUseResult: {
+                isAsync: true,
+                status: "async_launched",
+                agentId: "fmt-agent-001",
+                description: "Run formatter",
+                prompt: "Run bun fmt and report results.",
+              },
+            },
+          },
+        }),
+        makeActivity({
+          id: "agent-task-started",
+          createdAt: "2026-04-10T12:00:00.120Z",
+          kind: "task.started",
+          summary: "local_agent task started",
+          payload: {
+            taskId: "fmt-agent-001",
+            toolUseId: "toolu_fmt_launch",
+            detail: "Run formatter",
+            childThreadAttribution: {
+              taskId: "toolu_fmt_launch",
+              childProviderThreadId: "toolu_fmt_launch",
+              label: "Run formatter",
+            },
+          },
+        }),
+        makeActivity({
+          id: "agent-task-updated",
+          createdAt: "2026-04-10T12:00:10.000Z",
+          kind: "task.updated",
+          summary: "Task updated",
+          tone: "info",
+          payload: {
+            taskId: "fmt-agent-001",
+            patch: {
+              status: "completed",
+            },
+            childThreadAttribution: {
+              taskId: "toolu_fmt_launch",
+              childProviderThreadId: "toolu_fmt_launch",
+              label: "Run formatter",
+            },
+          },
+        }),
+      ],
+      undefined,
+    );
+
+    expect(workEntries.length).toBeGreaterThan(0);
+
+    const trayState = deriveBackgroundTrayState(workEntries, "2026-04-10T12:00:10.500Z");
+    expect(trayState.subagentGroups).toEqual([
+      expect.objectContaining({
+        groupId: "toolu_fmt_launch",
+        taskId: "toolu_fmt_launch",
+        status: "completed",
+        label: "Run formatter",
+      }),
+    ]);
+  });
+
+  it("handles both task.updated and task.completed arriving for the same subagent without conflicts", () => {
+    const workEntries = deriveWorkLogEntries(
+      [
+        makeActivity({
+          id: "agent-launch-started",
+          createdAt: "2026-04-10T12:00:00.000Z",
+          kind: "tool.started",
+          summary: "Subagent task started",
+          payload: {
+            itemType: "collab_agent_tool_call",
+            itemId: "runtime-agent-2",
+            status: "inProgress",
+            toolName: "Agent",
+            detail: "Agent: Build the project",
+            data: {
+              toolName: "Agent",
+              input: {
+                description: "Build the project",
+                prompt: "Run bun run build and report the output.",
+                run_in_background: true,
+              },
+            },
+          },
+        }),
+        makeActivity({
+          id: "agent-launch-completed",
+          createdAt: "2026-04-10T12:00:00.100Z",
+          kind: "tool.completed",
+          summary: "Subagent task",
+          payload: {
+            itemType: "collab_agent_tool_call",
+            itemId: "runtime-agent-2",
+            status: "completed",
+            toolName: "Agent",
+            detail: "Agent: Build the project",
+            data: {
+              toolName: "Agent",
+              input: {
+                description: "Build the project",
+                prompt: "Run bun run build and report the output.",
+                run_in_background: true,
+              },
+              toolUseResult: {
+                isAsync: true,
+                status: "async_launched",
+                agentId: "build-agent-001",
+                description: "Build the project",
+                prompt: "Run bun run build and report the output.",
+              },
+            },
+          },
+        }),
+        makeActivity({
+          id: "agent-task-started",
+          createdAt: "2026-04-10T12:00:00.120Z",
+          kind: "task.started",
+          summary: "local_agent task started",
+          payload: {
+            taskId: "build-agent-001",
+            toolUseId: "toolu_build_launch",
+            detail: "Build the project",
+            childThreadAttribution: {
+              taskId: "toolu_build_launch",
+              childProviderThreadId: "toolu_build_launch",
+              label: "Build the project",
+            },
+          },
+        }),
+        makeActivity({
+          id: "agent-task-updated",
+          createdAt: "2026-04-10T12:00:08.000Z",
+          kind: "task.updated",
+          summary: "Task updated",
+          tone: "info",
+          payload: {
+            taskId: "build-agent-001",
+            patch: {
+              status: "completed",
+            },
+            childThreadAttribution: {
+              taskId: "toolu_build_launch",
+              childProviderThreadId: "toolu_build_launch",
+              label: "Build the project",
+            },
+          },
+        }),
+        makeActivity({
+          id: "agent-task-completed",
+          createdAt: "2026-04-10T12:00:10.000Z",
+          kind: "task.completed",
+          summary: "Task completed",
+          payload: {
+            taskId: "build-agent-001",
+            toolUseId: "toolu_build_launch",
+            status: "completed",
+            detail: 'Agent "Build the project" completed',
+            childThreadAttribution: {
+              taskId: "toolu_build_launch",
+              childProviderThreadId: "toolu_build_launch",
+              label: "Build the project",
+            },
+          },
+        }),
+      ],
+      undefined,
+    );
+
+    const trayState = deriveBackgroundTrayState(workEntries, "2026-04-10T12:00:10.500Z");
+    expect(trayState.subagentGroups).toEqual([
+      expect.objectContaining({
+        groupId: "toolu_build_launch",
+        status: "completed",
+        label: "Build the project",
+      }),
+    ]);
+
+    // Verify no duplicate entries — task.started, task.updated, and task.completed are all
+    // lifecycle boundaries absorbed by grouping, so only the launch row remains standalone.
+    const launchEntries = workEntries.filter(
+      (entry) => entry.itemType === "collab_agent_tool_call" && !entry.childThreadAttribution,
+    );
+    expect(launchEntries).toHaveLength(1);
+    expect(launchEntries[0]).toMatchObject({
+      id: "agent-launch-completed",
+      toolCallId: "runtime-agent-2",
+    });
+  });
+
+  it("marks a subagent group as failed when task.updated has killed status", () => {
+    const workEntries = deriveWorkLogEntries(
+      [
+        makeActivity({
+          id: "agent-launch-started",
+          createdAt: "2026-04-10T12:00:00.000Z",
+          kind: "tool.started",
+          summary: "Subagent task started",
+          payload: {
+            itemType: "collab_agent_tool_call",
+            itemId: "runtime-agent-3",
+            status: "inProgress",
+            toolName: "Agent",
+            detail: "Agent: Long running task",
+            data: {
+              toolName: "Agent",
+              input: {
+                description: "Long running task",
+                prompt: "Run a long process.",
+                run_in_background: true,
+              },
+            },
+          },
+        }),
+        makeActivity({
+          id: "agent-launch-completed",
+          createdAt: "2026-04-10T12:00:00.100Z",
+          kind: "tool.completed",
+          summary: "Subagent task",
+          payload: {
+            itemType: "collab_agent_tool_call",
+            itemId: "runtime-agent-3",
+            status: "completed",
+            toolName: "Agent",
+            detail: "Agent: Long running task",
+            data: {
+              toolName: "Agent",
+              input: {
+                description: "Long running task",
+                prompt: "Run a long process.",
+                run_in_background: true,
+              },
+              toolUseResult: {
+                isAsync: true,
+                status: "async_launched",
+                agentId: "long-agent-001",
+                description: "Long running task",
+                prompt: "Run a long process.",
+              },
+            },
+          },
+        }),
+        makeActivity({
+          id: "agent-task-started",
+          createdAt: "2026-04-10T12:00:00.120Z",
+          kind: "task.started",
+          summary: "local_agent task started",
+          payload: {
+            taskId: "long-agent-001",
+            toolUseId: "toolu_long_launch",
+            detail: "Long running task",
+            childThreadAttribution: {
+              taskId: "toolu_long_launch",
+              childProviderThreadId: "toolu_long_launch",
+              label: "Long running task",
+            },
+          },
+        }),
+        makeActivity({
+          id: "agent-task-updated-killed",
+          createdAt: "2026-04-10T12:00:05.000Z",
+          kind: "task.updated",
+          summary: "Task updated",
+          tone: "error",
+          payload: {
+            taskId: "long-agent-001",
+            patch: {
+              status: "killed",
+            },
+            childThreadAttribution: {
+              taskId: "toolu_long_launch",
+              childProviderThreadId: "toolu_long_launch",
+              label: "Long running task",
+            },
+          },
+        }),
+      ],
+      undefined,
+    );
+
+    const trayState = deriveBackgroundTrayState(workEntries, "2026-04-10T12:00:05.500Z");
+    expect(trayState.subagentGroups).toEqual([
+      expect.objectContaining({
+        groupId: "toolu_long_launch",
+        status: "failed",
+        label: "Long running task",
+      }),
+    ]);
+  });
+
+  it("does not change subagent group status on non-terminal task.updated", () => {
+    const workEntries = deriveWorkLogEntries(
+      [
+        makeActivity({
+          id: "agent-launch-started",
+          createdAt: "2026-04-10T12:00:00.000Z",
+          kind: "tool.started",
+          summary: "Subagent task started",
+          payload: {
+            itemType: "collab_agent_tool_call",
+            itemId: "runtime-agent-4",
+            status: "inProgress",
+            toolName: "Agent",
+            detail: "Agent: Incremental build",
+            data: {
+              toolName: "Agent",
+              input: {
+                description: "Incremental build",
+                prompt: "Watch for file changes and rebuild.",
+                run_in_background: true,
+              },
+            },
+          },
+        }),
+        makeActivity({
+          id: "agent-launch-completed",
+          createdAt: "2026-04-10T12:00:00.100Z",
+          kind: "tool.completed",
+          summary: "Subagent task",
+          payload: {
+            itemType: "collab_agent_tool_call",
+            itemId: "runtime-agent-4",
+            status: "completed",
+            toolName: "Agent",
+            detail: "Agent: Incremental build",
+            data: {
+              toolName: "Agent",
+              input: {
+                description: "Incremental build",
+                prompt: "Watch for file changes and rebuild.",
+                run_in_background: true,
+              },
+              toolUseResult: {
+                isAsync: true,
+                status: "async_launched",
+                agentId: "watch-agent-001",
+                description: "Incremental build",
+                prompt: "Watch for file changes and rebuild.",
+              },
+            },
+          },
+        }),
+        makeActivity({
+          id: "agent-task-started",
+          createdAt: "2026-04-10T12:00:00.120Z",
+          kind: "task.started",
+          summary: "local_agent task started",
+          payload: {
+            taskId: "watch-agent-001",
+            toolUseId: "toolu_watch_launch",
+            detail: "Incremental build",
+            childThreadAttribution: {
+              taskId: "toolu_watch_launch",
+              childProviderThreadId: "toolu_watch_launch",
+              label: "Incremental build",
+            },
+          },
+        }),
+        makeActivity({
+          id: "agent-task-updated-running",
+          createdAt: "2026-04-10T12:00:03.000Z",
+          kind: "task.updated",
+          summary: "Task updated",
+          tone: "info",
+          payload: {
+            taskId: "watch-agent-001",
+            patch: {
+              status: "running",
+            },
+            childThreadAttribution: {
+              taskId: "toolu_watch_launch",
+              childProviderThreadId: "toolu_watch_launch",
+              label: "Incremental build",
+            },
+          },
+        }),
+      ],
+      undefined,
+    );
+
+    const trayState = deriveBackgroundTrayState(workEntries, "2026-04-10T12:00:03.500Z");
+    expect(trayState.subagentGroups).toEqual([
+      expect.objectContaining({
+        groupId: "toolu_watch_launch",
+        status: "running",
+        label: "Incremental build",
+      }),
+    ]);
+  });
+
+  it("prevents duplicate TaskOutput synthesis when task.updated already terminated the task", () => {
+    const workEntries = deriveWorkLogEntries(
+      [
+        makeActivity({
+          id: "agent-launch-started",
+          createdAt: "2026-04-10T12:00:00.000Z",
+          kind: "tool.started",
+          summary: "Subagent task started",
+          payload: {
+            itemType: "collab_agent_tool_call",
+            itemId: "runtime-agent-5",
+            status: "inProgress",
+            toolName: "Agent",
+            detail: "Agent: Check tests",
+            data: {
+              toolName: "Agent",
+              input: {
+                description: "Check tests",
+                prompt: "Run the test suite and report.",
+                run_in_background: true,
+              },
+            },
+          },
+        }),
+        makeActivity({
+          id: "agent-launch-completed",
+          createdAt: "2026-04-10T12:00:00.100Z",
+          kind: "tool.completed",
+          summary: "Subagent task",
+          payload: {
+            itemType: "collab_agent_tool_call",
+            itemId: "runtime-agent-5",
+            status: "completed",
+            toolName: "Agent",
+            detail: "Agent: Check tests",
+            data: {
+              toolName: "Agent",
+              input: {
+                description: "Check tests",
+                prompt: "Run the test suite and report.",
+                run_in_background: true,
+              },
+              toolUseResult: {
+                isAsync: true,
+                status: "async_launched",
+                agentId: "test-agent-001",
+                description: "Check tests",
+                prompt: "Run the test suite and report.",
+              },
+            },
+          },
+        }),
+        makeActivity({
+          id: "agent-task-started",
+          createdAt: "2026-04-10T12:00:00.120Z",
+          kind: "task.started",
+          summary: "local_agent task started",
+          payload: {
+            taskId: "test-agent-001",
+            toolUseId: "toolu_test_launch",
+            detail: "Check tests",
+            childThreadAttribution: {
+              taskId: "toolu_test_launch",
+              childProviderThreadId: "toolu_test_launch",
+              label: "Check tests",
+            },
+          },
+        }),
+        makeActivity({
+          id: "agent-task-updated-terminal",
+          createdAt: "2026-04-10T12:00:08.000Z",
+          kind: "task.updated",
+          summary: "Task updated",
+          tone: "info",
+          payload: {
+            taskId: "test-agent-001",
+            patch: {
+              status: "completed",
+            },
+            childThreadAttribution: {
+              taskId: "toolu_test_launch",
+              childProviderThreadId: "toolu_test_launch",
+              label: "Check tests",
+            },
+          },
+        }),
+        makeActivity({
+          id: "taskoutput-agent-resolve",
+          createdAt: "2026-04-10T12:00:10.000Z",
+          kind: "tool.completed",
+          summary: "Tool call",
+          payload: {
+            itemType: "dynamic_tool_call",
+            itemId: "toolu_taskoutput_wait",
+            status: "completed",
+            toolName: "TaskOutput",
+            detail: 'TaskOutput: {"task_id":"test-agent-001","block":true,"timeout":60000}',
+            data: {
+              toolName: "TaskOutput",
+              input: {
+                task_id: "test-agent-001",
+                block: true,
+                timeout: 60000,
+              },
+              toolUseResult: {
+                retrieval_status: "success",
+                task: {
+                  task_id: "test-agent-001",
+                  task_type: "local_agent",
+                  status: "completed",
+                  description: "Check tests",
+                  prompt: "Run the test suite and report.",
+                  output: "All 42 tests passed.",
+                },
+              },
+            },
+          },
+        }),
+      ],
+      undefined,
+    );
+
+    // The task.updated with terminal status already marked this task as terminated,
+    // so the TaskOutput tool.completed should NOT produce a synthetic task.completed.
+    const syntheticCompleted = workEntries.filter(
+      (entry) =>
+        entry.activityKind === "task.completed" &&
+        entry.id.includes("synthetic-taskoutput-complete"),
+    );
+    expect(syntheticCompleted).toHaveLength(0);
+
+    // The group should still be completed (from the task.updated signal)
+    const trayState = deriveBackgroundTrayState(workEntries, "2026-04-10T12:00:10.500Z");
+    expect(trayState.subagentGroups).toEqual([
+      expect.objectContaining({
+        groupId: "toolu_test_launch",
+        status: "completed",
+        label: "Check tests",
+      }),
+    ]);
+  });
+
+  it("updates bash background command status from terminal task.updated", () => {
+    const workEntries = deriveWorkLogEntries(
+      [
+        makeActivity({
+          id: "claude-bash-started",
+          createdAt: "2026-04-10T12:00:00.000Z",
+          kind: "tool.started",
+          summary: "Command started",
+          payload: {
+            itemType: "command_execution",
+            itemId: "toolu_bash_launch",
+            status: "inProgress",
+            toolName: "Bash",
+            detail: "Bash: sleep 20 && echo done",
+            data: {
+              toolName: "Bash",
+              input: {
+                command: "sleep 20 && echo done",
+                description: "Sleep 20 seconds then print done",
+                run_in_background: true,
+              },
+            },
+          },
+        }),
+        makeActivity({
+          id: "claude-bash-launch-completed",
+          createdAt: "2026-04-10T12:00:00.100Z",
+          kind: "tool.completed",
+          summary: "Command",
+          payload: {
+            itemType: "command_execution",
+            itemId: "toolu_bash_launch",
+            status: "completed",
+            toolName: "Bash",
+            detail: "Bash: Command running in background with ID: bgxyz.",
+            data: {
+              toolName: "Bash",
+              input: {
+                command: "sleep 20 && echo done",
+                description: "Sleep 20 seconds then print done",
+                run_in_background: true,
+              },
+              toolUseResult: {
+                backgroundTaskId: "bgxyz",
+              },
+            },
+          },
+        }),
+        makeActivity({
+          id: "claude-bash-task-started",
+          createdAt: "2026-04-10T12:00:00.120Z",
+          kind: "task.started",
+          summary: "local_bash task started",
+          payload: {
+            taskId: "bgxyz",
+            toolUseId: "toolu_bash_launch",
+            detail: "Sleep 20 seconds then print done",
+          },
+        }),
+        // task.updated with terminal status — no task_notification follows
+        makeActivity({
+          id: "bash-task-updated-terminal",
+          createdAt: "2026-04-10T12:00:20.000Z",
+          kind: "task.updated",
+          summary: "Task updated",
+          tone: "info",
+          payload: {
+            taskId: "bgxyz",
+            patch: {
+              status: "completed",
+              end_time: 1776047120000,
+            },
+          },
+        }),
+      ],
+      undefined,
+    );
+
+    expect(workEntries).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          id: "claude-bash-launch-completed",
+          activityKind: "tool.completed",
+          backgroundTaskId: "bgxyz",
+          backgroundTaskStatus: "completed",
+          backgroundCompletedAt: "2026-04-10T12:00:20.000Z",
+        }),
+      ]),
+    );
+
+    const trayState = deriveBackgroundTrayState(workEntries, "2026-04-10T12:00:20.500Z");
+    expect(trayState.commandEntries).toEqual([
+      expect.objectContaining({
+        id: "claude-bash-launch-completed",
+        backgroundTaskStatus: "completed",
+      }),
+    ]);
+  });
 });
 
 describe("deriveWorkLogEntries context window handling", () => {

@@ -304,7 +304,15 @@ export function normalizeRuntimeTurnState(
 }
 
 export function orchestrationSessionStatusFromRuntimeState(
-  state: "starting" | "running" | "waiting" | "ready" | "interrupted" | "stopped" | "error",
+  state:
+    | "starting"
+    | "running"
+    | "waiting"
+    | "ready"
+    | "idle"
+    | "interrupted"
+    | "stopped"
+    | "error",
 ): "starting" | "running" | "ready" | "interrupted" | "stopped" | "error" {
   switch (state) {
     case "starting":
@@ -313,6 +321,7 @@ export function orchestrationSessionStatusFromRuntimeState(
     case "waiting":
       return "running";
     case "ready":
+    case "idle":
       return "ready";
     case "interrupted":
       return "interrupted";

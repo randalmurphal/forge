@@ -209,6 +209,29 @@ export function groupSubagentEntries(workEntries: ReadonlyArray<WorkLogEntry>): 
           ? "failed"
           : "completed";
       group.status = group.status === "failed" ? "failed" : completedStatus;
+    } else if (entry.activityKind === "task.updated") {
+      // task_updated with terminal patch status is a first-class completion signal.
+      // The SDK docs say: "Clients merge into their local task map."
+      // itemStatus is extracted from patch.status in toDerivedWorkLogEntry.
+      const isTerminal =
+        entry.itemStatus === "completed" || entry.itemStatus === "failed" || entry.tone === "error";
+      if (isTerminal) {
+        group.completedAt =
+          group.completedAt && group.completedAt > entry.createdAt
+            ? group.completedAt
+            : entry.createdAt;
+        if (entry.sequence !== undefined) {
+          group.completedSequence =
+            group.completedSequence !== undefined
+              ? Math.max(group.completedSequence, entry.sequence)
+              : entry.sequence;
+        }
+        const completedStatus =
+          entry.itemStatus === "failed" || entry.itemStatus === "declined" || entry.tone === "error"
+            ? "failed"
+            : "completed";
+        group.status = group.status === "failed" ? "failed" : completedStatus;
+      }
     } else {
       // Regular work entry for this subagent
       group.entries.push(entry);
@@ -413,7 +436,8 @@ export function synthesizeClaudeTaskOutputLifecycleActivities(
     if (
       activity.kind === "task.started" ||
       activity.kind === "task.progress" ||
-      activity.kind === "task.completed"
+      activity.kind === "task.completed" ||
+      activity.kind === "task.updated"
     ) {
       const taskId = asTrimmedString(payload.taskId);
       if (!taskId) {
@@ -430,6 +454,13 @@ export function synthesizeClaudeTaskOutputLifecycleActivities(
 
       if (activity.kind === "task.completed") {
         realTerminalTaskIds.add(taskId);
+      }
+      if (activity.kind === "task.updated") {
+        const patch = asRecord(payload.patch);
+        const patchStatus = asTrimmedString(patch?.status);
+        if (patchStatus === "completed" || patchStatus === "failed" || patchStatus === "killed") {
+          realTerminalTaskIds.add(taskId);
+        }
       }
       continue;
     }
