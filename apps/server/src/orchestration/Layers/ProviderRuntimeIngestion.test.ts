@@ -426,11 +426,12 @@ describe("ProviderRuntimeIngestion", () => {
     const thread = await waitForThread(harness.engine, (entry) =>
       entry.messages.some(
         (message: ProviderRuntimeTestMessage) =>
-          message.id === "assistant:item-1" && !message.streaming,
+          message.id === "assistant:item-1:flush:evt-message-completed" && !message.streaming,
       ),
     );
     const message = thread.messages.find(
-      (entry: ProviderRuntimeTestMessage) => entry.id === "assistant:item-1",
+      (entry: ProviderRuntimeTestMessage) =>
+        entry.id === "assistant:item-1:flush:evt-message-completed",
     );
     expect(message?.text).toBe("hello world");
     expect(message?.streaming).toBe(false);
@@ -1108,7 +1109,7 @@ describe("ProviderRuntimeIngestion", () => {
     );
     expect(
       midThread?.messages.some(
-        (message: ProviderRuntimeTestMessage) => message.id === "assistant:item-buffered",
+        (message: ProviderRuntimeTestMessage) => message.text === "buffer me",
       ),
     ).toBe(false);
 
@@ -1129,14 +1130,450 @@ describe("ProviderRuntimeIngestion", () => {
     const thread = await waitForThread(harness.engine, (entry) =>
       entry.messages.some(
         (message: ProviderRuntimeTestMessage) =>
-          message.id === "assistant:item-buffered" && !message.streaming,
+          message.id === "assistant:item-buffered:flush:evt-message-completed-buffered" &&
+          !message.streaming,
       ),
     );
     const message = thread.messages.find(
-      (entry: ProviderRuntimeTestMessage) => entry.id === "assistant:item-buffered",
+      (entry: ProviderRuntimeTestMessage) =>
+        entry.id === "assistant:item-buffered:flush:evt-message-completed-buffered",
     );
     expect(message?.text).toBe("buffer me");
     expect(message?.streaming).toBe(false);
+  });
+
+  it("preserves buffered assistant start timing on completion", async () => {
+    const harness = await createHarness();
+    const deltaAt = "2026-04-10T12:00:00.000Z";
+    const completedAt = "2026-04-10T12:00:05.000Z";
+
+    harness.emit({
+      type: "turn.started",
+      eventId: asEventId("evt-turn-started-buffered-order"),
+      provider: "codex",
+      createdAt: deltaAt,
+      threadId: asThreadId("thread-1"),
+      turnId: asTurnId("turn-buffered-order"),
+    });
+    await waitForThread(
+      harness.engine,
+      (thread) =>
+        thread.session?.status === "running" &&
+        thread.session?.activeTurnId === "turn-buffered-order",
+    );
+
+    harness.emit({
+      type: "content.delta",
+      eventId: asEventId("evt-message-delta-buffered-order"),
+      provider: "codex",
+      createdAt: deltaAt,
+      threadId: asThreadId("thread-1"),
+      turnId: asTurnId("turn-buffered-order"),
+      itemId: asItemId("item-buffered-order"),
+      payload: {
+        streamKind: "assistant_text",
+        delta: "first chunk",
+      },
+    });
+    await harness.drain();
+
+    harness.emit({
+      type: "item.completed",
+      eventId: asEventId("evt-message-completed-buffered-order"),
+      provider: "codex",
+      createdAt: completedAt,
+      threadId: asThreadId("thread-1"),
+      turnId: asTurnId("turn-buffered-order"),
+      itemId: asItemId("item-buffered-order"),
+      payload: {
+        itemType: "assistant_message",
+        status: "completed",
+      },
+    });
+
+    const thread = await waitForThread(harness.engine, (entry) =>
+      entry.messages.some(
+        (message: ProviderRuntimeTestMessage) =>
+          message.id ===
+            "assistant:item-buffered-order:flush:evt-message-completed-buffered-order" &&
+          !message.streaming,
+      ),
+    );
+    const message = thread.messages.find(
+      (entry: ProviderRuntimeTestMessage) =>
+        entry.id === "assistant:item-buffered-order:flush:evt-message-completed-buffered-order",
+    );
+    expect(message?.text).toBe("first chunk");
+    expect(message?.createdAt).toBe(deltaAt);
+    expect(message?.updatedAt).toBe(completedAt);
+
+    const events = await Effect.runPromise(
+      Stream.runCollect(harness.engine.readEvents(0)).pipe(
+        Effect.map((chunk) => Array.from(chunk)),
+      ),
+    );
+    const assistantEvents = events.filter(
+      (event) =>
+        event.type === "thread.message-sent" &&
+        event.payload.messageId ===
+          "assistant:item-buffered-order:flush:evt-message-completed-buffered-order",
+    );
+    expect(assistantEvents).toHaveLength(1);
+    expect(assistantEvents[0]).toMatchObject({
+      payload: {
+        streaming: false,
+        text: "first chunk",
+        createdAt: deltaAt,
+        updatedAt: completedAt,
+      },
+    });
+  });
+
+  it("flushes buffered assistant chunks before later tool events in stream order", async () => {
+    const harness = await createHarness();
+    const turnAt = "2026-04-10T12:00:00.000Z";
+    const commandAt = "2026-04-10T12:00:01.000Z";
+    const finalAt = "2026-04-10T12:00:02.000Z";
+
+    harness.emit({
+      type: "turn.started",
+      eventId: asEventId("evt-turn-started-buffered-boundary"),
+      provider: "codex",
+      createdAt: turnAt,
+      threadId: asThreadId("thread-1"),
+      turnId: asTurnId("turn-buffered-boundary"),
+    });
+    await waitForThread(
+      harness.engine,
+      (thread) =>
+        thread.session?.status === "running" &&
+        thread.session?.activeTurnId === "turn-buffered-boundary",
+    );
+
+    harness.emit({
+      type: "content.delta",
+      eventId: asEventId("evt-message-delta-buffered-boundary-1"),
+      provider: "codex",
+      createdAt: turnAt,
+      threadId: asThreadId("thread-1"),
+      turnId: asTurnId("turn-buffered-boundary"),
+      itemId: asItemId("item-buffered-boundary"),
+      payload: {
+        streamKind: "assistant_text",
+        delta: "before tool",
+      },
+    });
+    harness.emit({
+      type: "item.started",
+      eventId: asEventId("evt-command-started-buffered-boundary"),
+      provider: "codex",
+      createdAt: commandAt,
+      threadId: asThreadId("thread-1"),
+      turnId: asTurnId("turn-buffered-boundary"),
+      itemId: asItemId("cmd-buffered-boundary"),
+      payload: {
+        itemType: "command_execution",
+        status: "inProgress",
+        title: "Command",
+      },
+    });
+    harness.emit({
+      type: "content.delta",
+      eventId: asEventId("evt-message-delta-buffered-boundary-2"),
+      provider: "codex",
+      createdAt: finalAt,
+      threadId: asThreadId("thread-1"),
+      turnId: asTurnId("turn-buffered-boundary"),
+      itemId: asItemId("item-buffered-boundary"),
+      payload: {
+        streamKind: "assistant_text",
+        delta: " after tool",
+      },
+    });
+    harness.emit({
+      type: "item.completed",
+      eventId: asEventId("evt-message-completed-buffered-boundary"),
+      provider: "codex",
+      createdAt: finalAt,
+      threadId: asThreadId("thread-1"),
+      turnId: asTurnId("turn-buffered-boundary"),
+      itemId: asItemId("item-buffered-boundary"),
+      payload: {
+        itemType: "assistant_message",
+        status: "completed",
+      },
+    });
+
+    const thread = await waitForThread(harness.engine, (entry) => entry.messages.length === 2);
+    expect(
+      thread.messages
+        .filter((message: ProviderRuntimeTestMessage) => message.role === "assistant")
+        .map((message: ProviderRuntimeTestMessage) => message.text),
+    ).toEqual(["before tool", " after tool"]);
+
+    const events = await Effect.runPromise(
+      Stream.runCollect(harness.engine.readEvents(0)).pipe(
+        Effect.map((chunk) => Array.from(chunk)),
+      ),
+    );
+    const relevantEvents: string[] = [];
+    for (const event of events) {
+      if (event.type === "thread.message-sent") {
+        relevantEvents.push(`${event.type}:${event.payload.text}`);
+        continue;
+      }
+      if (event.type !== "thread.activity-appended") {
+        continue;
+      }
+
+      const { activity } = event.payload;
+      if (activity.kind !== "tool.started") {
+        continue;
+      }
+
+      if (typeof activity.payload !== "object" || activity.payload === null) {
+        continue;
+      }
+
+      const { itemId } = activity.payload as { itemId?: string };
+      if (itemId === "cmd-buffered-boundary") {
+        relevantEvents.push(`${event.type}:${activity.kind}`);
+      }
+    }
+    expect(relevantEvents).toEqual([
+      "thread.message-sent:before tool",
+      "thread.activity-appended:tool.started",
+      "thread.message-sent: after tool",
+    ]);
+  });
+
+  it("does not split buffered assistant chunks on non-transcript metadata events", async () => {
+    const harness = await createHarness();
+    const turnAt = "2026-04-10T12:00:00.000Z";
+    const renameAt = "2026-04-10T12:00:01.000Z";
+    const finalAt = "2026-04-10T12:00:02.000Z";
+
+    harness.emit({
+      type: "turn.started",
+      eventId: asEventId("evt-turn-started-buffered-metadata"),
+      provider: "codex",
+      createdAt: turnAt,
+      threadId: asThreadId("thread-1"),
+      turnId: asTurnId("turn-buffered-metadata"),
+    });
+    await waitForThread(
+      harness.engine,
+      (thread) =>
+        thread.session?.status === "running" &&
+        thread.session?.activeTurnId === "turn-buffered-metadata",
+    );
+
+    harness.emit({
+      type: "content.delta",
+      eventId: asEventId("evt-message-delta-buffered-metadata-1"),
+      provider: "codex",
+      createdAt: turnAt,
+      threadId: asThreadId("thread-1"),
+      turnId: asTurnId("turn-buffered-metadata"),
+      itemId: asItemId("item-buffered-metadata"),
+      payload: {
+        streamKind: "assistant_text",
+        delta: "hello",
+      },
+    });
+    harness.emit({
+      type: "thread.metadata.updated",
+      eventId: asEventId("evt-thread-metadata-buffered-metadata"),
+      provider: "codex",
+      createdAt: renameAt,
+      threadId: asThreadId("thread-1"),
+      payload: {
+        name: "Renamed thread",
+      },
+    });
+    harness.emit({
+      type: "content.delta",
+      eventId: asEventId("evt-message-delta-buffered-metadata-2"),
+      provider: "codex",
+      createdAt: finalAt,
+      threadId: asThreadId("thread-1"),
+      turnId: asTurnId("turn-buffered-metadata"),
+      itemId: asItemId("item-buffered-metadata"),
+      payload: {
+        streamKind: "assistant_text",
+        delta: " world",
+      },
+    });
+    harness.emit({
+      type: "item.completed",
+      eventId: asEventId("evt-message-completed-buffered-metadata"),
+      provider: "codex",
+      createdAt: finalAt,
+      threadId: asThreadId("thread-1"),
+      turnId: asTurnId("turn-buffered-metadata"),
+      itemId: asItemId("item-buffered-metadata"),
+      payload: {
+        itemType: "assistant_message",
+        status: "completed",
+      },
+    });
+
+    const thread = await waitForThread(harness.engine, (entry) =>
+      entry.messages.some(
+        (message: ProviderRuntimeTestMessage) =>
+          message.id ===
+            "assistant:item-buffered-metadata:flush:evt-message-completed-buffered-metadata" &&
+          !message.streaming,
+      ),
+    );
+    expect(
+      thread.messages.filter((message: ProviderRuntimeTestMessage) => message.role === "assistant"),
+    ).toHaveLength(1);
+    expect(
+      thread.messages.find(
+        (message: ProviderRuntimeTestMessage) =>
+          message.id ===
+          "assistant:item-buffered-metadata:flush:evt-message-completed-buffered-metadata",
+      )?.text,
+    ).toBe("hello world");
+  });
+
+  it("emits a later buffered assistant completion without deltas in the same turn", async () => {
+    const harness = await createHarness();
+    const turnAt = "2026-04-10T12:00:00.000Z";
+    const commandAt = "2026-04-10T12:00:01.000Z";
+    const completionAt = "2026-04-10T12:00:02.000Z";
+
+    harness.emit({
+      type: "turn.started",
+      eventId: asEventId("evt-turn-started-buffered-later-complete"),
+      provider: "codex",
+      createdAt: turnAt,
+      threadId: asThreadId("thread-1"),
+      turnId: asTurnId("turn-buffered-later-complete"),
+    });
+    await waitForThread(
+      harness.engine,
+      (thread) =>
+        thread.session?.status === "running" &&
+        thread.session?.activeTurnId === "turn-buffered-later-complete",
+    );
+
+    harness.emit({
+      type: "content.delta",
+      eventId: asEventId("evt-message-delta-buffered-later-complete"),
+      provider: "codex",
+      createdAt: turnAt,
+      threadId: asThreadId("thread-1"),
+      turnId: asTurnId("turn-buffered-later-complete"),
+      itemId: asItemId("item-buffered-later-complete-1"),
+      payload: {
+        streamKind: "assistant_text",
+        delta: "before tool",
+      },
+    });
+    harness.emit({
+      type: "item.started",
+      eventId: asEventId("evt-command-started-buffered-later-complete"),
+      provider: "codex",
+      createdAt: commandAt,
+      threadId: asThreadId("thread-1"),
+      turnId: asTurnId("turn-buffered-later-complete"),
+      itemId: asItemId("cmd-buffered-later-complete"),
+      payload: {
+        itemType: "command_execution",
+        status: "inProgress",
+        title: "Command",
+      },
+    });
+    harness.emit({
+      type: "item.completed",
+      eventId: asEventId("evt-message-completed-buffered-later-complete"),
+      provider: "codex",
+      createdAt: completionAt,
+      threadId: asThreadId("thread-1"),
+      turnId: asTurnId("turn-buffered-later-complete"),
+      itemId: asItemId("item-buffered-later-complete-2"),
+      payload: {
+        itemType: "assistant_message",
+        status: "completed",
+        detail: "after tool",
+      },
+    });
+
+    const thread = await waitForThread(
+      harness.engine,
+      (entry) =>
+        entry.messages.filter((message: ProviderRuntimeTestMessage) => message.role === "assistant")
+          .length === 2,
+    );
+    expect(
+      thread.messages
+        .filter((message: ProviderRuntimeTestMessage) => message.role === "assistant")
+        .map((message: ProviderRuntimeTestMessage) => message.text),
+    ).toEqual(["before tool", "after tool"]);
+  });
+
+  it("flushes buffered assistant text on turn completion when item completion is missing", async () => {
+    const harness = await createHarness();
+    const turnAt = "2026-04-10T12:00:00.000Z";
+    const completedAt = "2026-04-10T12:00:02.000Z";
+
+    harness.emit({
+      type: "turn.started",
+      eventId: asEventId("evt-turn-started-buffered-turn-complete"),
+      provider: "codex",
+      createdAt: turnAt,
+      threadId: asThreadId("thread-1"),
+      turnId: asTurnId("turn-buffered-turn-complete"),
+    });
+    await waitForThread(
+      harness.engine,
+      (thread) =>
+        thread.session?.status === "running" &&
+        thread.session?.activeTurnId === "turn-buffered-turn-complete",
+    );
+
+    harness.emit({
+      type: "content.delta",
+      eventId: asEventId("evt-message-delta-buffered-turn-complete"),
+      provider: "codex",
+      createdAt: turnAt,
+      threadId: asThreadId("thread-1"),
+      turnId: asTurnId("turn-buffered-turn-complete"),
+      itemId: asItemId("item-buffered-turn-complete"),
+      payload: {
+        streamKind: "assistant_text",
+        delta: "still keep this",
+      },
+    });
+    harness.emit({
+      type: "turn.completed",
+      eventId: asEventId("evt-turn-completed-buffered-turn-complete"),
+      provider: "codex",
+      createdAt: completedAt,
+      threadId: asThreadId("thread-1"),
+      turnId: asTurnId("turn-buffered-turn-complete"),
+      payload: {
+        state: "completed",
+      },
+    });
+
+    const thread = await waitForThread(harness.engine, (entry) =>
+      entry.messages.some(
+        (message: ProviderRuntimeTestMessage) =>
+          message.id ===
+            "assistant:item-buffered-turn-complete:flush:evt-turn-completed-buffered-turn-complete" &&
+          !message.streaming,
+      ),
+    );
+    expect(
+      thread.messages.find(
+        (message: ProviderRuntimeTestMessage) =>
+          message.id ===
+          "assistant:item-buffered-turn-complete:flush:evt-turn-completed-buffered-turn-complete",
+      )?.text,
+    ).toBe("still keep this");
   });
 
   it("streams assistant deltas when thread.turn.start requests streaming mode", async () => {
@@ -1231,6 +1668,115 @@ describe("ProviderRuntimeIngestion", () => {
     expect(finalMessage?.streaming).toBe(false);
   });
 
+  it("emits a later streaming assistant completion without prior deltas in the same turn", async () => {
+    const harness = await createHarness({ serverSettings: { enableAssistantStreaming: true } });
+    const now = new Date().toISOString();
+
+    await Effect.runPromise(
+      harness.engine.dispatch({
+        type: "thread.turn.start",
+        commandId: CommandId.makeUnsafe("cmd-turn-start-streaming-later-complete"),
+        threadId: ThreadId.makeUnsafe("thread-1"),
+        message: {
+          messageId: asMessageId("message-streaming-later-complete"),
+          role: "user",
+          text: "stream please",
+          attachments: [],
+        },
+        interactionMode: DEFAULT_PROVIDER_INTERACTION_MODE,
+        runtimeMode: "approval-required",
+        createdAt: now,
+      }),
+    );
+    await harness.drain();
+
+    harness.emit({
+      type: "turn.started",
+      eventId: asEventId("evt-turn-started-streaming-later-complete"),
+      provider: "codex",
+      createdAt: now,
+      threadId: asThreadId("thread-1"),
+      turnId: asTurnId("turn-streaming-later-complete"),
+    });
+    await waitForThread(
+      harness.engine,
+      (thread) =>
+        thread.session?.status === "running" &&
+        thread.session?.activeTurnId === "turn-streaming-later-complete",
+    );
+
+    harness.emit({
+      type: "content.delta",
+      eventId: asEventId("evt-message-delta-streaming-later-complete"),
+      provider: "codex",
+      createdAt: now,
+      threadId: asThreadId("thread-1"),
+      turnId: asTurnId("turn-streaming-later-complete"),
+      itemId: asItemId("item-streaming-later-complete-1"),
+      payload: {
+        streamKind: "assistant_text",
+        delta: "hello live",
+      },
+    });
+    await waitForThread(harness.engine, (entry) =>
+      entry.messages.some(
+        (message: ProviderRuntimeTestMessage) =>
+          message.id === "assistant:item-streaming-later-complete-1" &&
+          message.streaming &&
+          message.text === "hello live",
+      ),
+    );
+
+    harness.emit({
+      type: "item.completed",
+      eventId: asEventId("evt-message-completed-streaming-later-complete-1"),
+      provider: "codex",
+      createdAt: now,
+      threadId: asThreadId("thread-1"),
+      turnId: asTurnId("turn-streaming-later-complete"),
+      itemId: asItemId("item-streaming-later-complete-1"),
+      payload: {
+        itemType: "assistant_message",
+        status: "completed",
+        detail: "hello live",
+      },
+    });
+    await waitForThread(harness.engine, (entry) =>
+      entry.messages.some(
+        (message: ProviderRuntimeTestMessage) =>
+          message.id === "assistant:item-streaming-later-complete-1" && !message.streaming,
+      ),
+    );
+
+    harness.emit({
+      type: "item.completed",
+      eventId: asEventId("evt-message-completed-streaming-later-complete-2"),
+      provider: "codex",
+      createdAt: now,
+      threadId: asThreadId("thread-1"),
+      turnId: asTurnId("turn-streaming-later-complete"),
+      itemId: asItemId("item-streaming-later-complete-2"),
+      payload: {
+        itemType: "assistant_message",
+        status: "completed",
+        detail: "follow-up without deltas",
+      },
+    });
+
+    const thread = await waitForThread(harness.engine, (entry) =>
+      entry.messages.some(
+        (message: ProviderRuntimeTestMessage) =>
+          message.id === "assistant:item-streaming-later-complete-2" && !message.streaming,
+      ),
+    );
+    expect(
+      thread.messages.find(
+        (message: ProviderRuntimeTestMessage) =>
+          message.id === "assistant:item-streaming-later-complete-2",
+      )?.text,
+    ).toBe("follow-up without deltas");
+  });
+
   it("spills oversized buffered deltas and still finalizes full assistant text", async () => {
     const harness = await createHarness();
     const now = new Date().toISOString();
@@ -1281,11 +1827,13 @@ describe("ProviderRuntimeIngestion", () => {
     const thread = await waitForThread(harness.engine, (entry) =>
       entry.messages.some(
         (message: ProviderRuntimeTestMessage) =>
-          message.id === "assistant:item-buffer-spill" && !message.streaming,
+          message.id === "assistant:item-buffer-spill:flush:evt-message-delta-buffer-spill" &&
+          !message.streaming,
       ),
     );
     const message = thread.messages.find(
-      (entry: ProviderRuntimeTestMessage) => entry.id === "assistant:item-buffer-spill",
+      (entry: ProviderRuntimeTestMessage) =>
+        entry.id === "assistant:item-buffer-spill:flush:evt-message-delta-buffer-spill",
     );
     expect(message?.text.length).toBe(oversizedText.length);
     expect(message?.text).toBe(oversizedText);
@@ -1357,7 +1905,9 @@ describe("ProviderRuntimeIngestion", () => {
         thread.session?.activeTurnId === null &&
         thread.messages.some(
           (message: ProviderRuntimeTestMessage) =>
-            message.id === "assistant:item-complete-dedup" && !message.streaming,
+            message.id ===
+              "assistant:item-complete-dedup:flush:evt-message-completed-for-complete-dedup" &&
+            !message.streaming,
         ),
     );
 
@@ -1371,7 +1921,8 @@ describe("ProviderRuntimeIngestion", () => {
         return false;
       }
       return (
-        event.payload.messageId === "assistant:item-complete-dedup" &&
+        event.payload.messageId ===
+          "assistant:item-complete-dedup:flush:evt-message-completed-for-complete-dedup" &&
         event.payload.streaming === false
       );
     });

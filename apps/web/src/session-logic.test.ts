@@ -800,6 +800,54 @@ describe("deriveTimelineEntries", () => {
     ]);
   });
 
+  it("keeps buffered assistant chunks interleaved with tool rows by runtime sequence", () => {
+    const entries = deriveTimelineEntries(
+      [
+        {
+          id: MessageId.makeUnsafe("assistant-buffered-before-command"),
+          role: "assistant",
+          text: "before tool",
+          createdAt: "2026-02-23T00:00:01.000Z",
+          completedAt: "2026-02-23T00:00:01.000Z",
+          sequence: 10,
+          streaming: false,
+        },
+        {
+          id: MessageId.makeUnsafe("assistant-buffered-after-command"),
+          role: "assistant",
+          text: "after tool",
+          createdAt: "2026-02-23T00:00:03.000Z",
+          completedAt: "2026-02-23T00:00:03.000Z",
+          sequence: 12,
+          streaming: false,
+        },
+      ],
+      [],
+      [
+        {
+          id: "bg-launch-after-buffered-text",
+          createdAt: "2026-02-23T00:00:03.000Z",
+          sequence: 11,
+          label: "Command started",
+          tone: "tool",
+          activityKind: "tool.started",
+          itemType: "command_execution",
+          command: "npm run watch",
+          toolCallId: "bg-after-buffered-text",
+          isBackgroundCommand: true,
+          backgroundLifecycleRole: "launch",
+          itemStatus: "inProgress",
+        },
+      ],
+    );
+
+    expect(entries.map((entry) => entry.id)).toEqual([
+      "assistant-buffered-before-command",
+      "bg-launch-after-buffered-text",
+      "assistant-buffered-after-command",
+    ]);
+  });
+
   it("anchors the completion divider to latestTurn.assistantMessageId before timestamp fallback", () => {
     const entries = deriveTimelineEntries(
       [

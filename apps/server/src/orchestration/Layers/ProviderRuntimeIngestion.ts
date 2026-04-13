@@ -53,8 +53,6 @@ import {
   type PendingCommandInlineDiff,
   TURN_MESSAGE_IDS_BY_TURN_CACHE_CAPACITY,
   TURN_MESSAGE_IDS_BY_TURN_TTL,
-  BUFFERED_MESSAGE_TEXT_BY_MESSAGE_ID_CACHE_CAPACITY,
-  BUFFERED_MESSAGE_TEXT_BY_MESSAGE_ID_TTL,
   BUFFERED_PROPOSED_PLAN_BY_ID_CACHE_CAPACITY,
   BUFFERED_PROPOSED_PLAN_BY_ID_TTL,
   MAX_BUFFERED_ASSISTANT_CHARS,
@@ -86,6 +84,9 @@ appendServerDebugRecord({
   },
 });
 
+const bufferedAssistantChunkKey = (event: ProviderRuntimeEvent): string =>
+  String(event.itemId ?? event.turnId ?? event.eventId);
+
 const make = Effect.fn("make")(function* () {
   const orchestrationEngine = yield* OrchestrationEngineService;
   const providerService = yield* ProviderService;
@@ -99,11 +100,10 @@ const make = Effect.fn("make")(function* () {
     timeToLive: TURN_MESSAGE_IDS_BY_TURN_TTL,
     lookup: () => Effect.succeed(new Set<MessageId>()),
   });
-
-  const bufferedAssistantTextByMessageId = yield* Cache.make<MessageId, string>({
-    capacity: BUFFERED_MESSAGE_TEXT_BY_MESSAGE_ID_CACHE_CAPACITY,
-    timeToLive: BUFFERED_MESSAGE_TEXT_BY_MESSAGE_ID_TTL,
-    lookup: () => Effect.succeed(""),
+  const assistantChunkKeysByTurnKey = yield* Cache.make<string, Set<string>>({
+    capacity: TURN_MESSAGE_IDS_BY_TURN_CACHE_CAPACITY,
+    timeToLive: TURN_MESSAGE_IDS_BY_TURN_TTL,
+    lookup: () => Effect.succeed(new Set<string>()),
   });
 
   const bufferedProposedPlanById = yield* Cache.make<string, { text: string; createdAt: string }>({
@@ -113,6 +113,15 @@ const make = Effect.fn("make")(function* () {
   });
 
   const pendingCommandInlineDiffs = new Map<string, PendingCommandInlineDiff>();
+  type BufferedAssistantChunk = {
+    readonly chunkKey: string;
+    readonly createdAt: string;
+    readonly threadId: ThreadId;
+    readonly turnId?: TurnId;
+    readonly text: string;
+    readonly updatedAt: string;
+  };
+  const bufferedAssistantChunkByThreadId = new Map<ThreadId, BufferedAssistantChunk>();
 
   const isGitRepoForThread = Effect.fn("isGitRepoForThread")(function* (threadId: ThreadId) {
     const readModel = yield* orchestrationEngine.getReadModel();
@@ -524,23 +533,6 @@ const make = Effect.fn("make")(function* () {
       ),
     );
 
-  const forgetAssistantMessageId = (threadId: ThreadId, turnId: TurnId, messageId: MessageId) =>
-    Cache.getOption(turnMessageIdsByTurnKey, providerTurnKey(threadId, turnId)).pipe(
-      Effect.flatMap((existingIds) =>
-        Option.match(existingIds, {
-          onNone: () => Effect.void,
-          onSome: (ids) => {
-            const nextIds = new Set(ids);
-            nextIds.delete(messageId);
-            if (nextIds.size === 0) {
-              return Cache.invalidate(turnMessageIdsByTurnKey, providerTurnKey(threadId, turnId));
-            }
-            return Cache.set(turnMessageIdsByTurnKey, providerTurnKey(threadId, turnId), nextIds);
-          },
-        }),
-      ),
-    );
-
   const getAssistantMessageIdsForTurn = (threadId: ThreadId, turnId: TurnId) =>
     Cache.getOption(turnMessageIdsByTurnKey, providerTurnKey(threadId, turnId)).pipe(
       Effect.map((existingIds) =>
@@ -548,40 +540,43 @@ const make = Effect.fn("make")(function* () {
       ),
     );
 
-  const clearAssistantMessageIdsForTurn = (threadId: ThreadId, turnId: TurnId) =>
-    Cache.invalidate(turnMessageIdsByTurnKey, providerTurnKey(threadId, turnId));
-
-  const appendBufferedAssistantText = (messageId: MessageId, delta: string) =>
-    Cache.getOption(bufferedAssistantTextByMessageId, messageId).pipe(
-      Effect.flatMap(
-        Effect.fn("appendBufferedAssistantText")(function* (existingText) {
-          const nextText = Option.match(existingText, {
-            onNone: () => delta,
-            onSome: (text) => `${text}${delta}`,
-          });
-          if (nextText.length <= MAX_BUFFERED_ASSISTANT_CHARS) {
-            yield* Cache.set(bufferedAssistantTextByMessageId, messageId, nextText);
-            return "";
-          }
-
-          // Safety valve: flush full buffered text as an assistant delta to cap memory.
-          yield* Cache.invalidate(bufferedAssistantTextByMessageId, messageId);
-          return nextText;
-        }),
-      ),
-    );
-
-  const takeBufferedAssistantText = (messageId: MessageId) =>
-    Cache.getOption(bufferedAssistantTextByMessageId, messageId).pipe(
-      Effect.flatMap((existingText) =>
-        Cache.invalidate(bufferedAssistantTextByMessageId, messageId).pipe(
-          Effect.as(Option.getOrElse(existingText, () => "")),
+  const rememberAssistantChunkKeyForTurn = (threadId: ThreadId, turnId: TurnId, chunkKey: string) =>
+    Cache.getOption(assistantChunkKeysByTurnKey, providerTurnKey(threadId, turnId)).pipe(
+      Effect.flatMap((existingChunkKeys) =>
+        Cache.set(
+          assistantChunkKeysByTurnKey,
+          providerTurnKey(threadId, turnId),
+          Option.match(existingChunkKeys, {
+            onNone: () => new Set([chunkKey]),
+            onSome: (chunkKeys) => {
+              const nextChunkKeys = new Set(chunkKeys);
+              nextChunkKeys.add(chunkKey);
+              return nextChunkKeys;
+            },
+          }),
         ),
       ),
     );
 
-  const clearBufferedAssistantText = (messageId: MessageId) =>
-    Cache.invalidate(bufferedAssistantTextByMessageId, messageId);
+  const getAssistantChunkKeysForTurn = (threadId: ThreadId, turnId: TurnId) =>
+    Cache.getOption(assistantChunkKeysByTurnKey, providerTurnKey(threadId, turnId)).pipe(
+      Effect.map((existingChunkKeys) =>
+        Option.getOrElse(existingChunkKeys, (): Set<string> => new Set<string>()),
+      ),
+    );
+
+  const clearAssistantMessageIdsForTurn = (threadId: ThreadId, turnId: TurnId) =>
+    Cache.invalidate(turnMessageIdsByTurnKey, providerTurnKey(threadId, turnId));
+
+  const clearAssistantChunkKeysForTurn = (threadId: ThreadId, turnId: TurnId) =>
+    Cache.invalidate(assistantChunkKeysByTurnKey, providerTurnKey(threadId, turnId));
+
+  const bufferedAssistantMessageId = (chunkKey: string, boundaryEventId: string): MessageId =>
+    MessageId.makeUnsafe(`assistant:${chunkKey}:flush:${boundaryEventId}`);
+
+  const clearBufferedAssistantChunk = (threadId: ThreadId) => {
+    bufferedAssistantChunkByThreadId.delete(threadId);
+  };
 
   const appendBufferedProposedPlan = (planId: string, delta: string, createdAt: string) =>
     Cache.getOption(bufferedProposedPlanById, planId).pipe(
@@ -607,48 +602,102 @@ const make = Effect.fn("make")(function* () {
   const clearBufferedProposedPlan = (planId: string) =>
     Cache.invalidate(bufferedProposedPlanById, planId);
 
-  const clearAssistantMessageState = (messageId: MessageId) =>
-    clearBufferedAssistantText(messageId);
-
-  const finalizeAssistantMessage = Effect.fn("finalizeAssistantMessage")(function* (input: {
+  const emitBufferedAssistantChunk = Effect.fn("emitBufferedAssistantChunk")(function* (input: {
     event: ProviderRuntimeEvent;
-    threadId: ThreadId;
-    messageId: MessageId;
-    turnId?: TurnId;
-    createdAt: string;
+    chunk: BufferedAssistantChunk;
     commandTag: string;
-    finalDeltaCommandTag: string;
-    fallbackText?: string;
+    threadId: ThreadId;
   }) {
-    const bufferedText = yield* takeBufferedAssistantText(input.messageId);
-    const text =
-      bufferedText.length > 0
-        ? bufferedText
-        : (input.fallbackText?.trim().length ?? 0) > 0
-          ? input.fallbackText!
-          : "";
+    if (input.chunk.text.length === 0) {
+      clearBufferedAssistantChunk(input.threadId);
+      return undefined;
+    }
 
-    if (text.length > 0) {
-      yield* orchestrationEngine.dispatch({
-        type: "thread.message.assistant.delta",
-        commandId: providerCommandId(input.event, input.finalDeltaCommandTag),
-        threadId: input.threadId,
-        messageId: input.messageId,
-        delta: text,
-        ...(input.turnId ? { turnId: input.turnId } : {}),
-        createdAt: input.createdAt,
-      });
+    const messageId = bufferedAssistantMessageId(input.chunk.chunkKey, input.event.eventId);
+    if (input.chunk.turnId) {
+      yield* rememberAssistantMessageId(input.threadId, input.chunk.turnId, messageId);
+      yield* rememberAssistantChunkKeyForTurn(
+        input.threadId,
+        input.chunk.turnId,
+        input.chunk.chunkKey,
+      );
     }
 
     yield* orchestrationEngine.dispatch({
       type: "thread.message.assistant.complete",
       commandId: providerCommandId(input.event, input.commandTag),
       threadId: input.threadId,
-      messageId: input.messageId,
-      ...(input.turnId ? { turnId: input.turnId } : {}),
-      createdAt: input.createdAt,
+      messageId,
+      text: input.chunk.text,
+      ...(input.chunk.turnId ? { turnId: input.chunk.turnId } : {}),
+      createdAt: input.chunk.createdAt,
+      updatedAt: input.event.createdAt,
     });
-    yield* clearAssistantMessageState(input.messageId);
+    clearBufferedAssistantChunk(input.threadId);
+    return messageId;
+  });
+
+  const flushBufferedAssistantChunkForBoundary = Effect.fn(
+    "flushBufferedAssistantChunkForBoundary",
+  )(function* (threadId: ThreadId, event: ProviderRuntimeEvent, commandTag: string) {
+    const chunk = bufferedAssistantChunkByThreadId.get(threadId);
+    if (!chunk) {
+      return undefined;
+    }
+    return yield* emitBufferedAssistantChunk({
+      event,
+      chunk,
+      commandTag,
+      threadId,
+    });
+  });
+
+  const bufferAssistantTextDelta = Effect.fn("bufferAssistantTextDelta")(function* (input: {
+    delta: string;
+    event: ProviderRuntimeEvent;
+    threadId: ThreadId;
+    turnId?: TurnId;
+  }) {
+    const chunkKey = bufferedAssistantChunkKey(input.event);
+    const existingChunk = bufferedAssistantChunkByThreadId.get(input.threadId);
+    if (existingChunk && existingChunk.chunkKey !== chunkKey) {
+      yield* emitBufferedAssistantChunk({
+        event: input.event,
+        chunk: existingChunk,
+        commandTag: "assistant-buffer-source-switch",
+        threadId: input.threadId,
+      });
+    }
+
+    const activeChunk = bufferedAssistantChunkByThreadId.get(input.threadId);
+    const nextChunk: BufferedAssistantChunk =
+      activeChunk && activeChunk.chunkKey === chunkKey
+        ? {
+            ...activeChunk,
+            text: `${activeChunk.text}${input.delta}`,
+            updatedAt: input.event.createdAt,
+          }
+        : {
+            chunkKey,
+            createdAt: input.event.createdAt,
+            threadId: input.threadId,
+            ...(input.turnId ? { turnId: input.turnId } : {}),
+            text: input.delta,
+            updatedAt: input.event.createdAt,
+          };
+
+    if (nextChunk.text.length > MAX_BUFFERED_ASSISTANT_CHARS) {
+      bufferedAssistantChunkByThreadId.set(input.threadId, nextChunk);
+      yield* emitBufferedAssistantChunk({
+        event: input.event,
+        chunk: nextChunk,
+        commandTag: "assistant-buffer-spill",
+        threadId: input.threadId,
+      });
+      return;
+    }
+
+    bufferedAssistantChunkByThreadId.set(input.threadId, nextChunk);
   });
 
   const upsertProposedPlan = Effect.fn("upsertProposedPlan")(function* (input: {
@@ -741,17 +790,12 @@ const make = Effect.fn("make")(function* () {
           return;
         }
 
-        const messageIds = yield* Cache.getOption(turnMessageIdsByTurnKey, key);
-        if (Option.isSome(messageIds)) {
-          yield* Effect.forEach(messageIds.value, clearAssistantMessageState, {
-            concurrency: 1,
-          }).pipe(Effect.asVoid);
-        }
-
         yield* Cache.invalidate(turnMessageIdsByTurnKey, key);
+        yield* Cache.invalidate(assistantChunkKeysByTurnKey, key);
       }),
       { concurrency: 1 },
     ).pipe(Effect.asVoid);
+    clearBufferedAssistantChunk(threadId);
     yield* Effect.forEach(
       proposedPlanKeys,
       (key) =>
@@ -853,6 +897,34 @@ const make = Effect.fn("make")(function* () {
     const now = event.createdAt;
     const eventTurnId = toTurnId(event.turnId);
     const activeTurnId = thread.session?.activeTurnId ?? null;
+    const assistantDeliveryMode: AssistantDeliveryMode = yield* Effect.map(
+      serverSettingsService.getSettings,
+      (settings) => (settings.enableAssistantStreaming ? "streaming" : "buffered"),
+    );
+    const assistantDelta =
+      event.type === "content.delta" && event.payload.streamKind === "assistant_text"
+        ? event.payload.delta
+        : undefined;
+    const proposedPlanDelta =
+      event.type === "turn.proposed.delta" ? event.payload.delta : undefined;
+    let flushedBufferedAssistantMessageId: MessageId | undefined;
+    const flushBufferedAssistantChunkAtBoundary = Effect.fn(
+      "flushBufferedAssistantChunkAtBoundary",
+    )(function* () {
+      if (
+        flushedBufferedAssistantMessageId !== undefined ||
+        assistantDeliveryMode !== "buffered" ||
+        assistantDelta !== undefined
+      ) {
+        return flushedBufferedAssistantMessageId;
+      }
+      flushedBufferedAssistantMessageId = yield* flushBufferedAssistantChunkForBoundary(
+        thread.id,
+        event,
+        "assistant-buffer-boundary",
+      );
+      return flushedBufferedAssistantMessageId;
+    });
 
     const conflictsWithActiveTurn =
       activeTurnId !== null && eventTurnId !== undefined && !sameId(activeTurnId, eventTurnId);
@@ -966,40 +1038,22 @@ const make = Effect.fn("make")(function* () {
       }
     }
 
-    const assistantDelta =
-      event.type === "content.delta" && event.payload.streamKind === "assistant_text"
-        ? event.payload.delta
-        : undefined;
-    const proposedPlanDelta =
-      event.type === "turn.proposed.delta" ? event.payload.delta : undefined;
-
     if (assistantDelta && assistantDelta.length > 0) {
-      const assistantMessageId = MessageId.makeUnsafe(
-        `assistant:${event.itemId ?? event.turnId ?? event.eventId}`,
-      );
       const turnId = toTurnId(event.turnId);
-      if (turnId) {
-        yield* rememberAssistantMessageId(thread.id, turnId, assistantMessageId);
-      }
-
-      const assistantDeliveryMode: AssistantDeliveryMode = yield* Effect.map(
-        serverSettingsService.getSettings,
-        (settings) => (settings.enableAssistantStreaming ? "streaming" : "buffered"),
-      );
       if (assistantDeliveryMode === "buffered") {
-        const spillChunk = yield* appendBufferedAssistantText(assistantMessageId, assistantDelta);
-        if (spillChunk.length > 0) {
-          yield* orchestrationEngine.dispatch({
-            type: "thread.message.assistant.delta",
-            commandId: providerCommandId(event, "assistant-delta-buffer-spill"),
-            threadId: thread.id,
-            messageId: assistantMessageId,
-            delta: spillChunk,
-            ...(turnId ? { turnId } : {}),
-            createdAt: now,
-          });
-        }
+        yield* bufferAssistantTextDelta({
+          delta: assistantDelta,
+          event,
+          threadId: thread.id,
+          ...(turnId ? { turnId } : {}),
+        });
       } else {
+        const assistantMessageId = MessageId.makeUnsafe(
+          `assistant:${event.itemId ?? event.turnId ?? event.eventId}`,
+        );
+        if (turnId) {
+          yield* rememberAssistantMessageId(thread.id, turnId, assistantMessageId);
+        }
         yield* orchestrationEngine.dispatch({
           type: "thread.message.assistant.delta",
           commandId: providerCommandId(event, "assistant-delta"),
@@ -1020,6 +1074,7 @@ const make = Effect.fn("make")(function* () {
     const assistantCompletion =
       event.type === "item.completed" && event.payload.itemType === "assistant_message"
         ? {
+            chunkKey: bufferedAssistantChunkKey(event),
             messageId: MessageId.makeUnsafe(
               `assistant:${event.itemId ?? event.turnId ?? event.eventId}`,
             ),
@@ -1036,36 +1091,64 @@ const make = Effect.fn("make")(function* () {
         : undefined;
 
     if (assistantCompletion) {
-      const assistantMessageId = assistantCompletion.messageId;
+      yield* flushBufferedAssistantChunkAtBoundary();
       const turnId = toTurnId(event.turnId);
-      const existingAssistantMessage = thread.messages.find(
-        (entry) => entry.id === assistantMessageId,
+      const existingAssistantChunkKeys =
+        turnId !== undefined
+          ? yield* getAssistantChunkKeysForTurn(thread.id, turnId)
+          : new Set<string>();
+      const completionMessageAlreadyExists = thread.messages.some(
+        (entry) => entry.id === assistantCompletion.messageId,
       );
-      const shouldApplyFallbackCompletionText =
-        !existingAssistantMessage || existingAssistantMessage.text.length === 0;
-      if (turnId) {
-        yield* rememberAssistantMessageId(thread.id, turnId, assistantMessageId);
-      }
+      if (assistantDeliveryMode === "streaming") {
+        const assistantMessageId = assistantCompletion.messageId;
+        const shouldEmitCompletionText =
+          assistantCompletion.fallbackText !== undefined && !completionMessageAlreadyExists;
+        if (turnId) {
+          yield* rememberAssistantMessageId(thread.id, turnId, assistantMessageId);
+        }
+        yield* orchestrationEngine.dispatch({
+          type: "thread.message.assistant.complete",
+          commandId: providerCommandId(event, "assistant-complete"),
+          threadId: thread.id,
+          messageId: assistantMessageId,
+          ...(shouldEmitCompletionText ? { text: assistantCompletion.fallbackText } : {}),
+          ...(turnId ? { turnId } : {}),
+          createdAt: now,
+          updatedAt: now,
+        });
+      } else {
+        const shouldEmitFallbackAssistantMessage =
+          assistantCompletion.fallbackText !== undefined &&
+          flushedBufferedAssistantMessageId === undefined &&
+          !existingAssistantChunkKeys.has(assistantCompletion.chunkKey);
 
-      yield* finalizeAssistantMessage({
-        event,
-        threadId: thread.id,
-        messageId: assistantMessageId,
-        ...(turnId ? { turnId } : {}),
-        createdAt: now,
-        commandTag: "assistant-complete",
-        finalDeltaCommandTag: "assistant-delta-finalize",
-        ...(assistantCompletion.fallbackText !== undefined && shouldApplyFallbackCompletionText
-          ? { fallbackText: assistantCompletion.fallbackText }
-          : {}),
-      });
-
-      if (turnId) {
-        yield* forgetAssistantMessageId(thread.id, turnId, assistantMessageId);
+        if (shouldEmitFallbackAssistantMessage) {
+          const assistantMessageId = assistantCompletion.messageId;
+          if (turnId) {
+            yield* rememberAssistantMessageId(thread.id, turnId, assistantMessageId);
+            yield* rememberAssistantChunkKeyForTurn(
+              thread.id,
+              turnId,
+              assistantCompletion.chunkKey,
+            );
+          }
+          yield* orchestrationEngine.dispatch({
+            type: "thread.message.assistant.complete",
+            commandId: providerCommandId(event, "assistant-complete-fallback"),
+            threadId: thread.id,
+            messageId: assistantMessageId,
+            text: assistantCompletion.fallbackText,
+            ...(turnId ? { turnId } : {}),
+            createdAt: now,
+            updatedAt: now,
+          });
+        }
       }
     }
 
     if (proposedPlanCompletion) {
+      yield* flushBufferedAssistantChunkAtBoundary();
       yield* finalizeBufferedProposedPlan({
         event,
         threadId: thread.id,
@@ -1078,24 +1161,11 @@ const make = Effect.fn("make")(function* () {
     }
 
     if (event.type === "turn.completed") {
+      yield* flushBufferedAssistantChunkAtBoundary();
       const turnId = toTurnId(event.turnId);
       if (turnId) {
-        const assistantMessageIds = yield* getAssistantMessageIdsForTurn(thread.id, turnId);
-        yield* Effect.forEach(
-          assistantMessageIds,
-          (assistantMessageId) =>
-            finalizeAssistantMessage({
-              event,
-              threadId: thread.id,
-              messageId: assistantMessageId,
-              turnId,
-              createdAt: now,
-              commandTag: "assistant-complete-finalize",
-              finalDeltaCommandTag: "assistant-delta-finalize-fallback",
-            }),
-          { concurrency: 1 },
-        ).pipe(Effect.asVoid);
         yield* clearAssistantMessageIdsForTurn(thread.id, turnId);
+        yield* clearAssistantChunkKeysForTurn(thread.id, turnId);
 
         yield* finalizeBufferedProposedPlan({
           event,
@@ -1110,6 +1180,7 @@ const make = Effect.fn("make")(function* () {
     }
 
     if (event.type === "session.exited") {
+      yield* flushBufferedAssistantChunkAtBoundary();
       yield* clearTurnStateForSession(thread.id);
     }
 
@@ -1332,6 +1403,10 @@ const make = Effect.fn("make")(function* () {
           }
         }
       }
+    }
+
+    if (activities.length > 0) {
+      yield* flushBufferedAssistantChunkAtBoundary();
     }
 
     yield* upsertThreadActivities({

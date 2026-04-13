@@ -511,6 +511,40 @@ describe("incremental orchestration updates", () => {
     });
   });
 
+  it("preserves runtime sequence on buffered assistant chunks", () => {
+    const threadId = ThreadId.makeUnsafe("thread-1");
+    const turnId = TurnId.makeUnsafe("turn-1");
+    const initialState = makeState(makeThread({ id: threadId }));
+
+    const next = applyOrchestrationEvent(
+      initialState,
+      makeEvent(
+        "thread.message-sent",
+        {
+          threadId,
+          messageId: MessageId.makeUnsafe("assistant-buffered"),
+          role: "assistant",
+          text: "Buffered answer",
+          turnId,
+          streaming: false,
+          createdAt: "2026-02-27T00:00:01.000Z",
+          updatedAt: "2026-02-27T00:00:05.000Z",
+        },
+        {
+          sequence: 25,
+        },
+      ),
+    );
+
+    expect(next.threads[0]?.messages.at(-1)).toMatchObject({
+      id: MessageId.makeUnsafe("assistant-buffered"),
+      createdAt: "2026-02-27T00:00:01.000Z",
+      completedAt: "2026-02-27T00:00:05.000Z",
+      sequence: 25,
+      streaming: false,
+    });
+  });
+
   it("applies forge turn lifecycle events to session state", () => {
     const threadId = ThreadId.makeUnsafe("thread-1");
     const turnId = TurnId.makeUnsafe("turn-1");
