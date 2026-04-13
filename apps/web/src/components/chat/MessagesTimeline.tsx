@@ -59,6 +59,7 @@ import { buildExpandedImagePreview, ExpandedImagePreview } from "./ExpandedImage
 import { ProposedPlanCard } from "./ProposedPlanCard";
 import { SummaryCard } from "./SummaryCard";
 import { MessageCopyButton } from "./MessageCopyButton";
+import { statusPresentation } from "./backgroundStatusPresentation";
 import {
   MAX_VISIBLE_WORK_LOG_ENTRIES,
   deriveMessagesTimelineRows,
@@ -1025,6 +1026,16 @@ function capitalizePhrase(value: string): string {
 }
 
 /** Map raw tool names to a clean display label for agent tool calls. */
+function BackgroundCommandStatusBadge({ status }: { status: "running" | "completed" | "failed" }) {
+  const { icon: StatusIcon, className, showLabel } = statusPresentation(status);
+  return (
+    <span className={cn("inline-flex items-center gap-1 text-[9px]", className)}>
+      <StatusIcon className="size-2.5" />
+      {showLabel ? status : null}
+    </span>
+  );
+}
+
 function normalizeAgentToolName(toolName: string | undefined): string {
   if (!toolName) return "Agent";
   const lower = toolName.toLowerCase();
@@ -1300,17 +1311,8 @@ const SimpleWorkEntryRow = memo(function SimpleWorkEntryRow(props: {
               background
             </span>
           )}
-          {isBackgroundCommandTerminalEntry && backgroundCommandStatus === "completed" ? (
-            <span className="inline-flex items-center gap-1 rounded px-1 py-px text-[9px] font-medium leading-none bg-emerald-500/10 text-emerald-400/80">
-              <CheckIcon className="size-2.5" />
-              completed
-            </span>
-          ) : null}
-          {isBackgroundCommandTerminalEntry && backgroundCommandStatus === "failed" ? (
-            <span className="inline-flex items-center gap-1 rounded px-1 py-px text-[9px] font-medium leading-none bg-rose-500/10 text-rose-400/80">
-              <CircleAlertIcon className="size-2.5" />
-              failed
-            </span>
+          {isBackgroundCommandTerminalEntry && backgroundCommandStatus != null ? (
+            <BackgroundCommandStatusBadge status={backgroundCommandStatus} />
           ) : null}
           {showExitCode && (
             <span
@@ -1463,16 +1465,10 @@ const AgentWorkEntryRow = memo(function AgentWorkEntryRow(props: { workEntry: Ti
             </span>
           ) : null}
           {isWaitAgent && isCompleted ? (
-            <span className="inline-flex items-center gap-1 rounded px-1 py-px text-[9px] font-medium leading-none text-emerald-400/80 bg-emerald-500/10">
-              <CheckIcon className="size-2.5" />
-              completed
-            </span>
+            <BackgroundCommandStatusBadge status="completed" />
           ) : null}
           {isFailed ? (
-            <span className="inline-flex items-center gap-1 rounded px-1 py-px text-[9px] font-medium leading-none text-rose-400/80 bg-rose-500/10">
-              <CircleAlertIcon className="size-2.5" />
-              failed
-            </span>
+            <BackgroundCommandStatusBadge status="failed" />
           ) : null}
           {durationLabel && (
             <span className="text-[9px] tabular-nums text-muted-foreground/40">

@@ -1,7 +1,7 @@
 import {
   AlertCircleIcon,
   BoxIcon,
-  CheckCircle2Icon,
+  CheckIcon,
   EyeIcon,
   FolderSearchIcon,
   GlobeIcon,
@@ -20,22 +20,26 @@ type BackgroundTaskStatus = "running" | "completed" | "failed";
 export function statusPresentation(status: BackgroundTaskStatus): {
   icon: LucideIcon;
   className: string;
+  showLabel: boolean;
 } {
   switch (status) {
     case "running":
       return {
         icon: LoaderIcon,
         className: "text-primary/80",
+        showLabel: true,
       };
     case "completed":
       return {
-        icon: CheckCircle2Icon,
-        className: "text-success/80",
+        icon: CheckIcon,
+        className: "rounded bg-emerald-500/10 px-1 py-px text-emerald-400/80",
+        showLabel: false,
       };
     case "failed":
       return {
         icon: AlertCircleIcon,
         className: "text-destructive/80",
+        showLabel: true,
       };
   }
 }

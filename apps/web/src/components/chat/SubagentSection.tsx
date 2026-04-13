@@ -60,7 +60,11 @@ const SubagentGroupRow = memo(function SubagentGroupRow(props: {
     onToggle(group.groupId);
   }, [group.groupId, onToggle]);
 
-  const { icon: StatusIcon, className: statusColor } = statusPresentation(group.status);
+  const {
+    icon: StatusIcon,
+    className: statusColor,
+    showLabel: showStatusLabel,
+  } = statusPresentation(group.status);
   const maxDurationRef = useRef(0);
   const presentation = deriveSubagentPresentation({
     agentModel: group.agentModel,
@@ -111,7 +115,7 @@ const SubagentGroupRow = memo(function SubagentGroupRow(props: {
         <div className="flex shrink-0 items-center gap-1.5">
           <span className={cn("flex items-center gap-0.5 text-[9px]", statusColor)}>
             <StatusIcon className={cn("size-2.5", group.status === "running" && "animate-spin")} />
-            {group.status}
+            {showStatusLabel ? group.status : null}
           </span>
           {durationMs !== undefined && durationMs > 0 ? (
             <span className="text-[9px] tabular-nums text-muted-foreground/40">

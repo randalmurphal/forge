@@ -365,7 +365,7 @@ describe("MessagesTimeline", () => {
     expect(markup).toContain("spawned");
   });
 
-  it("renders a completed badge for finished background commands", async () => {
+  it("renders a check icon for finished background commands", async () => {
     const { MessagesTimeline } = await import("./MessagesTimeline");
     const markup = renderTimeline(
       <MessagesTimeline
@@ -412,11 +412,10 @@ describe("MessagesTimeline", () => {
     );
 
     expect(markup).toContain("background");
-    expect(markup).toContain("completed");
     expect(markup).toContain("lucide-check");
   });
 
-  it("does not render a completed badge on the launch row for a finished background command", async () => {
+  it("does not render a check icon on the launch row for a finished background command", async () => {
     const { MessagesTimeline } = await import("./MessagesTimeline");
     const markup = renderTimeline(
       <MessagesTimeline
@@ -464,10 +463,9 @@ describe("MessagesTimeline", () => {
 
     expect(markup).toContain("background");
     expect(markup).not.toContain("lucide-check");
-    expect(markup).not.toContain("completed");
   });
 
-  it("renders a completed badge for finished wait agent calls", async () => {
+  it("renders a check icon for finished wait agent calls", async () => {
     const { MessagesTimeline } = await import("./MessagesTimeline");
     const markup = renderTimeline(
       <MessagesTimeline
@@ -514,7 +512,6 @@ describe("MessagesTimeline", () => {
       />,
     );
 
-    expect(markup).toContain("completed");
     expect(markup).toContain("lucide-check");
   });
 

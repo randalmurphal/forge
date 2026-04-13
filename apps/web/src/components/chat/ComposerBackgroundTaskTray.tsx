@@ -372,11 +372,11 @@ const TraySubagentWorkEntryRow = memo(function TraySubagentWorkEntryRow(props: {
 const BackgroundTaskStatusBadge = memo(function BackgroundTaskStatusBadge(props: {
   status: "running" | "completed" | "failed";
 }) {
-  const { icon: StatusIcon, className } = statusPresentation(props.status);
+  const { icon: StatusIcon, className, showLabel } = statusPresentation(props.status);
   return (
     <span className={cn("inline-flex items-center gap-1 text-[9px]", className)}>
       <StatusIcon className={cn("size-2.5", props.status === "running" && "animate-spin")} />
-      {props.status}
+      {showLabel ? props.status : null}
     </span>
   );
 });
