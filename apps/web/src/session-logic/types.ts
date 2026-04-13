@@ -84,6 +84,16 @@ export interface WorkLogEntry {
         agentModel?: string | undefined;
       }
     | undefined;
+  subagentGroupMeta?:
+    | {
+        childProviderThreadId: string;
+        status: "running" | "completed" | "failed";
+        startedAt: string;
+        completedAt?: string | undefined;
+        recordedActionCount: number;
+        fallbackEntries: WorkLogEntry[];
+      }
+    | undefined;
 }
 
 export interface DerivedWorkLogEntry extends WorkLogEntry {
@@ -92,9 +102,8 @@ export interface DerivedWorkLogEntry extends WorkLogEntry {
 }
 
 export interface BackgroundTrayState {
-  subagentGroups: SubagentGroup[];
+  agentEntries: WorkLogEntry[];
   commandEntries: WorkLogEntry[];
-  hiddenSubagentGroupIds: string[];
   hiddenWorkEntryIds: string[];
   hasRunningTasks: boolean;
   defaultCollapsed: boolean;
@@ -186,13 +195,6 @@ export type TimelineEntry =
       createdAt: string;
       sequence?: number | undefined;
       entry: WorkLogEntry;
-    }
-  | {
-      id: string;
-      kind: "subagent-section";
-      createdAt: string;
-      sequence?: number | undefined;
-      subagentGroups: SubagentGroup[];
     };
 
 export type LatestTurnTiming = Pick<
@@ -260,22 +262,6 @@ export interface CodexBackgroundCommandCandidate {
   backgrounded: boolean;
 }
 
-export interface SubagentGroup {
-  groupId: string;
-  taskId: string;
-  childProviderThreadId: string;
-  label: string;
-  entries: WorkLogEntry[];
-  recordedActionCount: number;
-  status: "running" | "completed" | "failed";
-  startedAt: string;
-  startedSequence?: number | undefined;
-  completedAt?: string | undefined;
-  completedSequence?: number | undefined;
-  agentDescription?: string | undefined;
-  agentPrompt?: string | undefined;
-  agentType?: string | undefined;
-  agentModel?: string | undefined;
-}
-
-export const COMPLETED_SUBAGENT_FALLBACK_ENTRY_LIMIT = 20;
+/** Max child entries to retain on a parent entry's subagentGroupMeta.fallbackEntries for
+ *  immediate display before the lazy RPC feed loads. */
+export const SUBAGENT_FALLBACK_ENTRY_LIMIT = 20;

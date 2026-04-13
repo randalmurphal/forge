@@ -2,8 +2,32 @@ import { EventId, type OrchestrationThreadActivity } from "@forgetools/contracts
 
 import { asArray, asRecord, asTrimmedString } from "@forgetools/shared/narrowing";
 
-import type { DerivedWorkLogEntry, SubagentGroup, WorkLogEntry } from "./types";
-import { COMPLETED_SUBAGENT_FALLBACK_ENTRY_LIMIT } from "./types";
+import type { DerivedWorkLogEntry, WorkLogEntry } from "./types";
+import { SUBAGENT_FALLBACK_ENTRY_LIMIT } from "./types";
+import { debugLog, isWebDebugEnabled } from "../debug";
+
+const DEBUG_BACKGROUND_TASKS = isWebDebugEnabled("background");
+
+/** Internal grouping structure used to correlate child-thread activities with their
+ *  parent agent tool call. Not exported — callers should use
+ *  `enrichParentEntriesWithSubagentGroupMetadata` instead. */
+interface SubagentGroup {
+  groupId: string;
+  taskId: string;
+  childProviderThreadId: string;
+  label: string;
+  entries: WorkLogEntry[];
+  recordedActionCount: number;
+  status: "running" | "completed" | "failed";
+  startedAt: string;
+  startedSequence?: number | undefined;
+  completedAt?: string | undefined;
+  completedSequence?: number | undefined;
+  agentDescription?: string | undefined;
+  agentPrompt?: string | undefined;
+  agentType?: string | undefined;
+  agentModel?: string | undefined;
+}
 
 export function isCodexControlCollabTool(toolName: string | null | undefined): boolean {
   return toolName === "sendInput" || toolName === "wait";
@@ -582,18 +606,198 @@ function normalizeCodexCollabAgentTerminalStatus(
   }
 }
 
-export function retainCompletedSubagentEntryTail(group: SubagentGroup): SubagentGroup {
-  // Keep a small local tail so completed history rows can still render some activity immediately
-  // if the lazy RPC feed is slow or unavailable, without duplicating the entire child transcript
-  // into every timeline projection.
-  if (group.entries.length <= COMPLETED_SUBAGENT_FALLBACK_ENTRY_LIMIT) {
-    return group;
+/**
+ * Groups child-attributed entries into subagent groups, then attaches group metadata
+ * directly onto the matching parent `collab_agent_tool_call` entry instead of producing
+ * separate SubagentGroup objects. Returns only standalone entries (child entries are
+ * consumed into `subagentGroupMeta` on the parent).
+ *
+ * Join logic:
+ * - Claude: parent `toolCallId` === group `childProviderThreadId`
+ * - Codex: parent `receiverThreadIds` contains group `childProviderThreadId`
+ */
+export function enrichParentEntriesWithSubagentGroupMetadata(
+  workEntries: ReadonlyArray<WorkLogEntry>,
+): WorkLogEntry[] {
+  const { standalone, subagentGroups } = groupSubagentEntries(workEntries);
+  if (subagentGroups.length === 0) {
+    return [...standalone];
   }
 
-  return {
-    ...group,
-    entries: group.entries.slice(-COMPLETED_SUBAGENT_FALLBACK_ENTRY_LIMIT),
-  };
+  if (DEBUG_BACKGROUND_TASKS) {
+    debugLog({
+      topic: "background",
+      source: "subagentGrouping",
+      label: "enrichParent.start",
+      details: {
+        standaloneCount: standalone.length,
+        groupCount: subagentGroups.length,
+        groups: subagentGroups.map((g) => ({
+          groupId: g.groupId,
+          childProviderThreadId: g.childProviderThreadId,
+          status: g.status,
+          completedAt: g.completedAt ?? null,
+          entryCount: g.entries.length,
+        })),
+        parentCandidates: standalone
+          .filter((e) => e.itemType === "collab_agent_tool_call")
+          .map((e) => ({
+            id: e.id,
+            toolCallId: e.toolCallId ?? null,
+            receiverThreadIds: e.receiverThreadIds ?? null,
+            isBackgroundCommand: e.isBackgroundCommand ?? false,
+          })),
+      },
+    });
+  }
+
+  const enrichedGroups = enrichSubagentGroupsWithControlMetadata(subagentGroups, standalone);
+
+  // Build a lookup from childProviderThreadId → enriched group
+  const groupByChildThreadId = new Map<string, SubagentGroup>();
+  for (const group of enrichedGroups) {
+    groupByChildThreadId.set(group.childProviderThreadId, group);
+  }
+
+  const completionEntries: WorkLogEntry[] = [];
+
+  const enrichedEntries = standalone.map((entry) => {
+    if (entry.itemType !== "collab_agent_tool_call") {
+      return entry;
+    }
+
+    // Claude: toolCallId IS the childProviderThreadId
+    const claudeMatch = entry.toolCallId ? groupByChildThreadId.get(entry.toolCallId) : undefined;
+
+    // Codex: receiverThreadIds contains childProviderThreadId(s)
+    const codexMatches: SubagentGroup[] = [];
+    if (!claudeMatch && entry.receiverThreadIds) {
+      for (const threadId of entry.receiverThreadIds) {
+        const group = groupByChildThreadId.get(threadId);
+        if (group) {
+          codexMatches.push(group);
+        }
+      }
+    }
+
+    // For Codex multi-agent fan-out a single spawn call can target multiple receiver threads.
+    // We attach the first matched group to the parent entry. Additional groups currently have
+    // no parent to attach to — their child activities won't surface in the timeline. This is
+    // acceptable for now since multi-child spawn is rare, but should be revisited if Codex
+    // starts using fan-out more broadly.
+    if (DEBUG_BACKGROUND_TASKS && codexMatches.length > 1) {
+      debugLog({
+        topic: "background",
+        source: "subagentGrouping",
+        label: "multi-child-spawn",
+        details: {
+          parentEntryId: entry.id,
+          matchedChildCount: codexMatches.length,
+          childThreadIds: codexMatches.map((g) => g.childProviderThreadId),
+        },
+      });
+    }
+
+    const matchedGroup = claudeMatch ?? codexMatches[0];
+    if (!matchedGroup) {
+      return entry;
+    }
+
+    const fallbackEntries =
+      matchedGroup.entries.length <= SUBAGENT_FALLBACK_ENTRY_LIMIT
+        ? matchedGroup.entries
+        : matchedGroup.entries.slice(-SUBAGENT_FALLBACK_ENTRY_LIMIT);
+
+    const isBackground = entry.isBackgroundCommand === true;
+    const isTerminal = matchedGroup.status === "completed" || matchedGroup.status === "failed";
+
+    const enrichedEntry: WorkLogEntry = {
+      ...entry,
+      subagentGroupMeta: {
+        childProviderThreadId: matchedGroup.childProviderThreadId,
+        status: matchedGroup.status,
+        startedAt: matchedGroup.startedAt,
+        completedAt: matchedGroup.completedAt,
+        recordedActionCount: matchedGroup.recordedActionCount,
+        fallbackEntries,
+      },
+      // Backfill agent metadata from the group onto the parent entry if missing
+      agentDescription: entry.agentDescription ?? matchedGroup.agentDescription,
+      agentPrompt: entry.agentPrompt ?? matchedGroup.agentPrompt,
+      agentType: entry.agentType ?? matchedGroup.agentType,
+      agentModel: entry.agentModel ?? matchedGroup.agentModel,
+      // For background agents, the spawn row is the "launch" half — the completion is separate.
+      ...(isBackground ? { backgroundLifecycleRole: "launch" as const } : {}),
+    };
+
+    // Background agents that have completed get a separate completion entry in the timeline,
+    // mirroring how background commands produce a completion row at the time they finish.
+    if (isBackground && isTerminal && matchedGroup.completedAt) {
+      const isFailed = matchedGroup.status === "failed";
+      completionEntries.push({
+        id: `${entry.id}:background-agent-completed`,
+        createdAt: matchedGroup.completedAt,
+        ...(matchedGroup.completedSequence !== undefined
+          ? { sequence: matchedGroup.completedSequence }
+          : {}),
+        startedAt: matchedGroup.startedAt,
+        completedAt: matchedGroup.completedAt,
+        label: isFailed ? "Background agent failed" : "Background agent completed",
+        tone: isFailed ? "error" : "tool",
+        itemType: "collab_agent_tool_call",
+        itemStatus: isFailed ? "failed" : "completed",
+        toolName: entry.toolName,
+        toolCallId: entry.toolCallId,
+        activityKind: "task.completed",
+        isBackgroundCommand: true,
+        backgroundLifecycleRole: "completion",
+        agentDescription: enrichedEntry.agentDescription,
+        agentPrompt: enrichedEntry.agentPrompt,
+        agentType: enrichedEntry.agentType,
+        agentModel: enrichedEntry.agentModel,
+        // Completion entries don't carry subagentGroupMeta — the child activities live on the
+        // spawn (launch) entry. This entry is just a temporal marker in the timeline.
+      });
+    }
+
+    return enrichedEntry;
+  });
+
+  if (DEBUG_BACKGROUND_TASKS) {
+    const enrichedAgents = enrichedEntries.filter((e) => e.subagentGroupMeta);
+    debugLog({
+      topic: "background",
+      source: "subagentGrouping",
+      label: "enrichParent.result",
+      details: {
+        enrichedAgentCount: enrichedAgents.length,
+        enrichedAgents: enrichedAgents.map((e) => ({
+          id: e.id,
+          isBackground: e.isBackgroundCommand ?? false,
+          lifecycleRole: e.backgroundLifecycleRole ?? null,
+          groupStatus: e.subagentGroupMeta?.status,
+          groupCompletedAt: e.subagentGroupMeta?.completedAt ?? null,
+        })),
+        completionEntryCount: completionEntries.length,
+        completionEntries: completionEntries.map((e) => ({
+          id: e.id,
+          createdAt: e.createdAt,
+          itemStatus: e.itemStatus,
+        })),
+      },
+    });
+  }
+
+  // Merge completion entries into the result at the correct chronological position.
+  if (completionEntries.length === 0) {
+    return enrichedEntries;
+  }
+  return [...enrichedEntries, ...completionEntries].toSorted((a, b) => {
+    if (a.sequence !== undefined && b.sequence !== undefined && a.sequence !== b.sequence) {
+      return a.sequence - b.sequence;
+    }
+    return a.createdAt.localeCompare(b.createdAt);
+  });
 }
 
 export function enrichSubagentGroupsWithControlMetadata(
@@ -728,13 +932,4 @@ export function enrichVisibleCollabControlEntriesWithTargetMetadata(
       agentModel: entry.agentModel ?? metadata.agentModel,
     };
   });
-}
-
-export function compactSubagentGroups(
-  subagentGroups: ReadonlyArray<SubagentGroup>,
-): SubagentGroup[] {
-  return subagentGroups.map((group) => ({
-    ...group,
-    entries: [],
-  }));
 }

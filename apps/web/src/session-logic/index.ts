@@ -22,12 +22,11 @@ export type {
   ProviderBackgroundTaskSignal,
   BackgroundCommandCompletionSignal,
   CodexBackgroundCommandCandidate,
-  SubagentGroup,
 } from "./types";
 export {
   PROVIDER_OPTIONS,
   BACKGROUND_TASK_RETENTION_MS,
-  COMPLETED_SUBAGENT_FALLBACK_ENTRY_LIMIT,
+  SUBAGENT_FALLBACK_ENTRY_LIMIT,
 } from "./types";
 
 // Utils
@@ -79,7 +78,7 @@ export {
   summarizeToolInlineDiffFiles,
 } from "./toolEnrichment";
 
-// Subagent grouping
+// Subagent grouping and enrichment
 export {
   isCodexControlCollabTool,
   extractCollabControlToolName,
@@ -88,14 +87,10 @@ export {
   isUnattributedCollabAgentToolEnvelope,
   shouldFilterToolStartedActivity,
   isGenericSubagentLabel,
-  groupSubagentEntries,
   synthesizeCodexSubagentLifecycleActivities,
   synthesizeClaudeTaskOutputLifecycleActivities,
-  retainCompletedSubagentEntryTail,
-  enrichSubagentGroupsWithControlMetadata,
-  collectChildThreadMetadata,
   enrichVisibleCollabControlEntriesWithTargetMetadata,
-  compactSubagentGroups,
+  enrichParentEntriesWithSubagentGroupMetadata,
 } from "./subagentGrouping";
 
 // Background signals

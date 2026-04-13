@@ -656,34 +656,30 @@ describe("deriveTimelineEntries", () => {
       ],
     );
 
+    // Child entries are consumed into subagentGroupMeta on the parent spawn entry.
+    // No separate subagent-section entry is created.
     expect(
       entries.map((entry) => ({ id: entry.id, kind: entry.kind, createdAt: entry.createdAt })),
     ).toEqual([
       { id: "message-before", kind: "message", createdAt: "2026-02-23T00:00:01.000Z" },
       { id: "spawn-agent", kind: "work", createdAt: "2026-02-23T00:00:02.000Z" },
-      {
-        id: "subagent-section:child-1:2026-02-23T00:00:04.000Z",
-        kind: "subagent-section",
-        createdAt: "2026-02-23T00:00:04.000Z",
-      },
       { id: "message-after", kind: "message", createdAt: "2026-02-23T00:00:05.000Z" },
     ]);
 
-    expect(entries[2]).toMatchObject({
-      kind: "subagent-section",
-      subagentGroups: [
-        expect.objectContaining({
-          groupId: "child-1",
-          status: "completed",
-          recordedActionCount: 1,
-          agentModel: "gpt-5.4-mini",
-          agentPrompt: "Inspect background history",
-        }),
-      ],
+    const spawnEntry = entries.find((e) => e.kind === "work" && e.id === "spawn-agent");
+    expect(spawnEntry).toBeDefined();
+    expect(spawnEntry!.kind).toBe("work");
+    const workEntry = (spawnEntry as Extract<(typeof entries)[number], { kind: "work" }>).entry;
+    expect(workEntry.subagentGroupMeta).toMatchObject({
+      childProviderThreadId: "child-1",
+      status: "completed",
+      recordedActionCount: 1,
     });
+    expect(workEntry.agentModel).toBe("gpt-5.4-mini");
+    expect(workEntry.agentPrompt).toBe("Inspect background history");
   });
 
-  it("orders completion-time subagent sections by runtime sequence before timestamps", () => {
+  it("enriches parent spawn entry with subagent group metadata for sequenced entries", () => {
     const entries = deriveTimelineEntries(
       [
         {
@@ -739,11 +735,19 @@ describe("deriveTimelineEntries", () => {
       ],
     );
 
+    // Parent spawn entry stays at its original position; no separate completion entry is created.
     expect(entries.map((entry) => entry.id)).toEqual([
       "spawn-agent-sequenced",
       "assistant-response",
-      "subagent-section:child-sequenced:2026-02-23T00:00:02.000Z",
     ]);
+
+    const spawnEntry = entries.find((e) => e.kind === "work" && e.id === "spawn-agent-sequenced");
+    expect(spawnEntry).toBeDefined();
+    const workEntry = (spawnEntry as Extract<(typeof entries)[number], { kind: "work" }>).entry;
+    expect(workEntry.subagentGroupMeta).toMatchObject({
+      childProviderThreadId: "child-sequenced",
+      status: "completed",
+    });
   });
 
   it("keeps background command completion rows ordered by runtime sequence instead of backfilling", () => {

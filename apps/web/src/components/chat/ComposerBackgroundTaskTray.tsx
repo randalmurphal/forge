@@ -10,7 +10,6 @@ import {
   deriveBackgroundCommandStatus,
   formatDuration,
   type BackgroundTrayState,
-  type SubagentGroup,
   type WorkLogEntry,
 } from "../../session-logic";
 
@@ -23,9 +22,9 @@ interface ComposerBackgroundTaskTrayProps {
 type BackgroundTrayTask =
   | {
       id: string;
-      kind: "subagent";
+      kind: "agent";
       createdAt: string;
-      group: SubagentGroup;
+      entry: WorkLogEntry;
     }
   | {
       id: string;
@@ -37,7 +36,7 @@ type BackgroundTrayTask =
 export const ComposerBackgroundTaskTray = memo(function ComposerBackgroundTaskTray(
   props: ComposerBackgroundTaskTrayProps,
 ) {
-  const taskCount = props.state.subagentGroups.length + props.state.commandEntries.length;
+  const taskCount = props.state.agentEntries.length + props.state.commandEntries.length;
   const previousTaskCountRef = useRef(taskCount);
   const [isExpanded, setIsExpanded] = useState(() => !props.state.defaultCollapsed);
   const [entered, setEntered] = useState(false);
@@ -65,11 +64,11 @@ export const ComposerBackgroundTaskTray = memo(function ComposerBackgroundTaskTr
   const tasks = useMemo<BackgroundTrayTask[]>(
     () =>
       [
-        ...props.state.subagentGroups.map((group) => ({
-          id: `subagent:${group.groupId}`,
-          kind: "subagent" as const,
-          createdAt: group.startedAt,
-          group,
+        ...props.state.agentEntries.map((entry) => ({
+          id: `agent:${entry.id}`,
+          kind: "agent" as const,
+          createdAt: entry.subagentGroupMeta?.startedAt ?? entry.startedAt ?? entry.createdAt,
+          entry,
         })),
         ...props.state.commandEntries.map((entry) => ({
           id: `command:${entry.id}`,
@@ -78,7 +77,7 @@ export const ComposerBackgroundTaskTray = memo(function ComposerBackgroundTaskTr
           entry,
         })),
       ].toSorted((left, right) => left.createdAt.localeCompare(right.createdAt)),
-    [props.state.commandEntries, props.state.subagentGroups],
+    [props.state.commandEntries, props.state.agentEntries],
   );
 
   const onToggleHeader = useCallback(() => {
@@ -130,11 +129,11 @@ export const ComposerBackgroundTaskTray = memo(function ComposerBackgroundTaskTr
         <div className="border-border/50 border-t px-2 py-2 sm:px-3">
           <div className="space-y-1">
             {tasks.map((task) =>
-              task.kind === "subagent" ? (
-                <BackgroundSubagentTaskRow
+              task.kind === "agent" ? (
+                <BackgroundAgentTaskRow
                   key={task.id}
                   threadId={props.threadId}
-                  group={task.group}
+                  entry={task.entry}
                   isExpanded={expandedTaskIds[task.id] ?? false}
                   nowIso={props.nowIso}
                   onToggle={() => onToggleTask(task.id)}
@@ -229,21 +228,25 @@ const BackgroundCommandTaskRow = memo(function BackgroundCommandTaskRow(props: {
   );
 });
 
-const BackgroundSubagentTaskRow = memo(function BackgroundSubagentTaskRow(props: {
+const BackgroundAgentTaskRow = memo(function BackgroundAgentTaskRow(props: {
   threadId: string;
-  group: SubagentGroup;
+  entry: WorkLogEntry;
   isExpanded: boolean;
   nowIso: string;
   onToggle: () => void;
 }) {
-  const elapsed = formatTrayTaskElapsed(
-    props.group.startedAt,
-    props.group.completedAt ?? props.group.startedAt,
-    props.group.status,
-    props.nowIso,
-  );
+  const meta = props.entry.subagentGroupMeta;
+  const status = meta?.status ?? "running";
+  const elapsed = meta
+    ? formatTrayTaskElapsed(
+        meta.startedAt,
+        meta.completedAt ?? meta.startedAt,
+        status,
+        props.nowIso,
+      )
+    : null;
   const renderEntry = useCallback(
-    (entry: WorkLogEntry) => <TraySubagentWorkEntryRow threadId={props.threadId} entry={entry} />,
+    (entry: WorkLogEntry) => <TrayAgentWorkEntryRow threadId={props.threadId} entry={entry} />,
     [props.threadId],
   );
 
@@ -266,21 +269,21 @@ const BackgroundSubagentTaskRow = memo(function BackgroundSubagentTaskRow(props:
         </span>
         <span className="min-w-0 flex-1 truncate text-[11px] leading-5">
           <SubagentHeading
-            agentType={props.group.agentType}
-            agentModel={props.group.agentModel}
-            agentDescription={props.group.agentDescription}
-            agentPrompt={props.group.agentPrompt}
-            fallbackLabel={props.group.label}
+            agentType={props.entry.agentType}
+            agentModel={props.entry.agentModel}
+            agentDescription={props.entry.agentDescription}
+            agentPrompt={props.entry.agentPrompt}
+            fallbackLabel={props.entry.agentDescription ?? props.entry.label}
           />
         </span>
         <div className="flex shrink-0 items-center gap-2">
-          <BackgroundTaskStatusBadge status={props.group.status} />
+          <BackgroundTaskStatusBadge status={status} />
           {elapsed ? (
             <span className="text-[9px] tabular-nums text-muted-foreground/40">{elapsed}</span>
           ) : null}
         </div>
       </button>
-      {props.isExpanded ? (
+      {props.isExpanded && meta ? (
         <div className="ml-7 mr-2 mb-2 rounded-lg border border-border/35 bg-background/35">
           <div className="border-border/20 border-b px-3 py-2">
             <p className="text-[9px] uppercase tracking-[0.16em] text-muted-foreground/55">
@@ -289,10 +292,10 @@ const BackgroundSubagentTaskRow = memo(function BackgroundSubagentTaskRow(props:
           </div>
           <LazySubagentEntries
             threadId={props.threadId}
-            childProviderThreadId={props.group.childProviderThreadId}
+            childProviderThreadId={meta.childProviderThreadId}
             expanded={props.isExpanded}
-            isRunning={props.group.status === "running"}
-            fallbackEntries={props.group.entries}
+            isRunning={status === "running"}
+            fallbackEntries={meta.fallbackEntries}
             renderEntry={renderEntry}
             maxHeightPx={240}
           />
@@ -302,7 +305,7 @@ const BackgroundSubagentTaskRow = memo(function BackgroundSubagentTaskRow(props:
   );
 });
 
-const TraySubagentWorkEntryRow = memo(function TraySubagentWorkEntryRow(props: {
+const TrayAgentWorkEntryRow = memo(function TrayAgentWorkEntryRow(props: {
   threadId: string | null;
   entry: WorkLogEntry;
 }) {

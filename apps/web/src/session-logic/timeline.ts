@@ -2,14 +2,9 @@ import type { OrchestrationLatestTurn, TurnId } from "@forgetools/contracts";
 
 import { debugLog, isWebDebugEnabled } from "../debug";
 
-import type { BackgroundTrayState, SubagentGroup, TimelineEntry, WorkLogEntry } from "./types";
+import type { BackgroundTrayState, TimelineEntry, WorkLogEntry } from "./types";
 import type { ChatMessage, ProposedPlan } from "../types";
-import {
-  groupSubagentEntries,
-  enrichSubagentGroupsWithControlMetadata,
-  retainCompletedSubagentEntryTail,
-  compactSubagentGroups,
-} from "./subagentGrouping";
+import { enrichParentEntriesWithSubagentGroupMetadata } from "./subagentGrouping";
 import {
   deriveBackgroundCommandStatus,
   deriveVisibleBackgroundCommandEntries,
@@ -32,7 +27,7 @@ export function deriveTimelineEntries(
   proposedPlans: ProposedPlan[],
   workEntries: WorkLogEntry[],
 ): TimelineEntry[] {
-  const { standalone, subagentGroups } = groupSubagentEntries(workEntries);
+  const enrichedEntries = enrichParentEntriesWithSubagentGroupMetadata(workEntries);
   const messageRows: TimelineEntry[] = messages.map((message) => ({
     id: message.id,
     kind: "message",
@@ -46,36 +41,14 @@ export function deriveTimelineEntries(
     createdAt: proposedPlan.createdAt,
     proposedPlan,
   }));
-  const workRows: TimelineEntry[] = standalone.map((entry) => ({
+  const workRows: TimelineEntry[] = enrichedEntries.map((entry) => ({
     id: entry.id,
     kind: "work",
     createdAt: entry.createdAt,
     ...(entry.sequence !== undefined ? { sequence: entry.sequence } : {}),
     entry,
   }));
-  const subagentSectionRows: TimelineEntry[] = enrichSubagentGroupsWithControlMetadata(
-    subagentGroups,
-    standalone,
-  )
-    .filter((group) => group.status !== "running" && group.completedAt)
-    .map((group) => {
-      const row: TimelineEntry = {
-        id: `subagent-section:${group.groupId}:${group.completedAt}`,
-        kind: "subagent-section",
-        // Completed subagents belong in history when the child task actually finishes, not when the
-        // earliest nested child activity started. Using completedAt here keeps history append-stable
-        // instead of backfilling old rows once the tray TTL expires.
-        createdAt: group.completedAt!,
-        subagentGroups: [retainCompletedSubagentEntryTail(group)],
-      };
-      if (group.completedSequence !== undefined) {
-        row.sequence = group.completedSequence;
-      }
-      return row;
-    });
-  return [...messageRows, ...proposedPlanRows, ...workRows, ...subagentSectionRows].toSorted(
-    compareTimelineEntries,
-  );
+  return [...messageRows, ...proposedPlanRows, ...workRows].toSorted(compareTimelineEntries);
 }
 
 function compareTimelineEntries(left: TimelineEntry, right: TimelineEntry): number {
@@ -146,17 +119,25 @@ export function deriveBackgroundTrayState(
   workEntries: ReadonlyArray<WorkLogEntry>,
   nowIso: string,
 ): BackgroundTrayState {
-  const { standalone, subagentGroups } = groupSubagentEntries(workEntries);
-  const visibleSubagentGroups = compactSubagentGroups(
-    enrichSubagentGroupsWithControlMetadata(
-      subagentGroups.filter((group) => isSubagentGroupVisibleInTray(group, nowIso)),
-      standalone,
-    ),
-  );
-  const visibleCommandEntries = deriveVisibleBackgroundCommandEntries(standalone, nowIso);
+  const enrichedEntries = enrichParentEntriesWithSubagentGroupMetadata(workEntries);
+
+  // Background agents: only entries explicitly marked as background with subagent group metadata.
+  // Foreground subagents render inline and never appear in the tray.
+  const visibleAgentEntries = enrichedEntries.filter((entry) => {
+    if (!entry.subagentGroupMeta || entry.isBackgroundCommand !== true) {
+      return false;
+    }
+    const meta = entry.subagentGroupMeta;
+    if (meta.status === "running") {
+      return true;
+    }
+    return isWithinBackgroundTaskRetention(meta.completedAt ?? meta.startedAt, nowIso);
+  });
+
+  const visibleCommandEntries = deriveVisibleBackgroundCommandEntries(enrichedEntries, nowIso);
 
   if (DEBUG_BACKGROUND_TASKS) {
-    const trayCommandDecisions = standalone
+    const trayCommandDecisions = enrichedEntries
       .map((entry) => summarizeBackgroundTrayCommandDecision(entry, nowIso))
       .filter((entry): entry is NonNullable<typeof entry> => entry !== null);
     debugLog({
@@ -176,33 +157,22 @@ export function deriveBackgroundTrayState(
           commandSource: entry.commandSource ?? null,
           status: deriveBackgroundCommandStatus(entry),
         })),
-        visibleSubagents: visibleSubagentGroups.map((group) => ({
-          groupId: group.groupId,
-          taskId: group.taskId,
-          status: group.status,
-          label: group.label,
+        visibleAgents: visibleAgentEntries.map((entry) => ({
+          id: entry.id,
+          status: entry.subagentGroupMeta?.status,
+          label: entry.agentDescription ?? entry.label,
         })),
       },
     });
   }
 
   return {
-    subagentGroups: visibleSubagentGroups,
+    agentEntries: visibleAgentEntries,
     commandEntries: visibleCommandEntries,
-    // The tray mirrors active background work. It is not allowed to own timeline visibility,
-    // otherwise rows disappear and later reappear at older timestamps.
-    hiddenSubagentGroupIds: [],
     hiddenWorkEntryIds: [],
     hasRunningTasks:
-      visibleSubagentGroups.some((group) => group.status === "running") ||
+      visibleAgentEntries.some((entry) => entry.subagentGroupMeta?.status === "running") ||
       visibleCommandEntries.some((entry) => deriveBackgroundCommandStatus(entry) === "running"),
-    defaultCollapsed: visibleSubagentGroups.length + visibleCommandEntries.length >= 5,
+    defaultCollapsed: visibleAgentEntries.length + visibleCommandEntries.length >= 5,
   };
-}
-
-function isSubagentGroupVisibleInTray(group: SubagentGroup, nowIso: string): boolean {
-  if (group.status === "running") {
-    return true;
-  }
-  return isWithinBackgroundTaskRetention(group.completedAt ?? group.startedAt, nowIso);
 }

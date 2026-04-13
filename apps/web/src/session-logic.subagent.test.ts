@@ -1,7 +1,11 @@
 import { EventId, type OrchestrationThreadActivity } from "@forgetools/contracts";
 import { describe, expect, it } from "vitest";
 
-import { deriveWorkLogEntries, groupSubagentEntries, type WorkLogEntry } from "./session-logic";
+import { deriveWorkLogEntries, type WorkLogEntry } from "./session-logic";
+import {
+  groupSubagentEntries,
+  enrichParentEntriesWithSubagentGroupMetadata,
+} from "./session-logic/subagentGrouping";
 
 /** Minimal builder — only fills required fields; callers override what matters. */
 function makeEntry(overrides: Partial<WorkLogEntry> & { id: string }): WorkLogEntry {
@@ -870,4 +874,393 @@ describe("groupSubagentEntries", () => {
       expect(result.subagentGroups).toEqual([]);
     },
   );
+});
+
+describe("enrichParentEntriesWithSubagentGroupMetadata", () => {
+  it("attaches subagentGroupMeta to a Claude parent entry matched by toolCallId", () => {
+    const entries: WorkLogEntry[] = [
+      makeEntry({
+        id: "parent-agent",
+        itemType: "collab_agent_tool_call",
+        toolCallId: "call_abc",
+        toolName: "Agent",
+        agentModel: "opus",
+        agentPrompt: "Research the codebase",
+      }),
+      makeEntry({
+        id: "child-started",
+        activityKind: "task.started",
+        label: "Task started",
+        tone: "info",
+        startedAt: "2026-04-01T00:00:01.000Z",
+        childThreadAttribution: { taskId: "task-1", childProviderThreadId: "call_abc" },
+      }),
+      makeEntry({
+        id: "child-work",
+        label: "Read file",
+        tone: "tool",
+        itemType: "file_read",
+        childThreadAttribution: { taskId: "task-1", childProviderThreadId: "call_abc" },
+      }),
+      makeEntry({
+        id: "child-completed",
+        activityKind: "task.completed",
+        label: "Task completed",
+        tone: "info",
+        itemStatus: "completed",
+        completedAt: "2026-04-01T00:00:05.000Z",
+        childThreadAttribution: { taskId: "task-1", childProviderThreadId: "call_abc" },
+      }),
+    ];
+
+    const result = enrichParentEntriesWithSubagentGroupMetadata(entries);
+
+    // Only the parent entry should remain (child entries consumed into metadata)
+    expect(result).toHaveLength(1);
+    expect(result[0]!.id).toBe("parent-agent");
+    expect(result[0]!.subagentGroupMeta).toBeDefined();
+    expect(result[0]!.subagentGroupMeta!.childProviderThreadId).toBe("call_abc");
+    expect(result[0]!.subagentGroupMeta!.status).toBe("completed");
+    expect(result[0]!.subagentGroupMeta!.recordedActionCount).toBe(1);
+    expect(result[0]!.subagentGroupMeta!.fallbackEntries).toHaveLength(1);
+    expect(result[0]!.subagentGroupMeta!.fallbackEntries[0]!.id).toBe("child-work");
+  });
+
+  it("attaches subagentGroupMeta to a Codex parent entry matched by receiverThreadIds", () => {
+    const entries: WorkLogEntry[] = [
+      makeEntry({
+        id: "codex-spawn",
+        itemType: "collab_agent_tool_call",
+        toolName: "spawnAgent",
+        receiverThreadIds: ["child-thread-1"],
+      }),
+      makeEntry({
+        id: "child-started",
+        activityKind: "task.started",
+        label: "Task started",
+        tone: "info",
+        startedAt: "2026-04-01T00:00:01.000Z",
+        childThreadAttribution: { taskId: "task-1", childProviderThreadId: "child-thread-1" },
+      }),
+      makeEntry({
+        id: "child-completed",
+        activityKind: "task.completed",
+        label: "Task completed",
+        tone: "info",
+        itemStatus: "completed",
+        completedAt: "2026-04-01T00:00:03.000Z",
+        childThreadAttribution: { taskId: "task-1", childProviderThreadId: "child-thread-1" },
+      }),
+    ];
+
+    const result = enrichParentEntriesWithSubagentGroupMetadata(entries);
+
+    expect(result).toHaveLength(1);
+    expect(result[0]!.subagentGroupMeta).toBeDefined();
+    expect(result[0]!.subagentGroupMeta!.childProviderThreadId).toBe("child-thread-1");
+    expect(result[0]!.subagentGroupMeta!.status).toBe("completed");
+  });
+
+  it("leaves non-agent entries and unmatched agent entries unchanged", () => {
+    const entries: WorkLogEntry[] = [
+      makeEntry({ id: "command", itemType: "command_execution", command: "ls" }),
+      makeEntry({
+        id: "unmatched-agent",
+        itemType: "collab_agent_tool_call",
+        toolCallId: "call_xyz",
+        toolName: "Agent",
+      }),
+    ];
+
+    const result = enrichParentEntriesWithSubagentGroupMetadata(entries);
+
+    expect(result).toHaveLength(2);
+    expect(result[0]!.subagentGroupMeta).toBeUndefined();
+    expect(result[1]!.subagentGroupMeta).toBeUndefined();
+  });
+
+  it("propagates failed status from child completion", () => {
+    const entries: WorkLogEntry[] = [
+      makeEntry({
+        id: "parent",
+        itemType: "collab_agent_tool_call",
+        toolCallId: "call_fail",
+        toolName: "Agent",
+      }),
+      makeEntry({
+        id: "child-started",
+        activityKind: "task.started",
+        label: "Task started",
+        tone: "info",
+        childThreadAttribution: { taskId: "t1", childProviderThreadId: "call_fail" },
+      }),
+      makeEntry({
+        id: "child-failed",
+        activityKind: "task.completed",
+        label: "Task failed",
+        tone: "error",
+        itemStatus: "failed",
+        completedAt: "2026-04-01T00:00:02.000Z",
+        childThreadAttribution: { taskId: "t1", childProviderThreadId: "call_fail" },
+      }),
+    ];
+
+    const result = enrichParentEntriesWithSubagentGroupMetadata(entries);
+
+    expect(result).toHaveLength(1);
+    expect(result[0]!.subagentGroupMeta!.status).toBe("failed");
+  });
+
+  it("shows running status when child has no completion event", () => {
+    const entries: WorkLogEntry[] = [
+      makeEntry({
+        id: "parent",
+        itemType: "collab_agent_tool_call",
+        toolCallId: "call_run",
+        toolName: "Agent",
+      }),
+      makeEntry({
+        id: "child-started",
+        activityKind: "task.started",
+        label: "Task started",
+        tone: "info",
+        childThreadAttribution: { taskId: "t1", childProviderThreadId: "call_run" },
+      }),
+      makeEntry({
+        id: "child-work",
+        label: "Editing",
+        tone: "tool",
+        itemType: "file_change",
+        childThreadAttribution: { taskId: "t1", childProviderThreadId: "call_run" },
+      }),
+    ];
+
+    const result = enrichParentEntriesWithSubagentGroupMetadata(entries);
+
+    expect(result).toHaveLength(1);
+    expect(result[0]!.subagentGroupMeta!.status).toBe("running");
+    expect(result[0]!.subagentGroupMeta!.recordedActionCount).toBe(1);
+  });
+
+  it("truncates fallbackEntries to SUBAGENT_FALLBACK_ENTRY_LIMIT", () => {
+    const childWork: WorkLogEntry[] = Array.from({ length: 30 }, (_, i) =>
+      makeEntry({
+        id: `child-work-${i}`,
+        label: `Action ${i}`,
+        tone: "tool",
+        itemType: "command_execution",
+        childThreadAttribution: { taskId: "t1", childProviderThreadId: "call_trunc" },
+      }),
+    );
+
+    const entries: WorkLogEntry[] = [
+      makeEntry({
+        id: "parent",
+        itemType: "collab_agent_tool_call",
+        toolCallId: "call_trunc",
+        toolName: "Agent",
+      }),
+      makeEntry({
+        id: "child-started",
+        activityKind: "task.started",
+        label: "Task started",
+        tone: "info",
+        childThreadAttribution: { taskId: "t1", childProviderThreadId: "call_trunc" },
+      }),
+      ...childWork,
+      makeEntry({
+        id: "child-completed",
+        activityKind: "task.completed",
+        label: "Task completed",
+        tone: "info",
+        itemStatus: "completed",
+        childThreadAttribution: { taskId: "t1", childProviderThreadId: "call_trunc" },
+      }),
+    ];
+
+    const result = enrichParentEntriesWithSubagentGroupMetadata(entries);
+
+    expect(result).toHaveLength(1);
+    expect(result[0]!.subagentGroupMeta!.recordedActionCount).toBe(30);
+    // fallbackEntries should be truncated to the last 20
+    expect(result[0]!.subagentGroupMeta!.fallbackEntries).toHaveLength(20);
+    expect(result[0]!.subagentGroupMeta!.fallbackEntries[0]!.id).toBe("child-work-10");
+    expect(result[0]!.subagentGroupMeta!.fallbackEntries[19]!.id).toBe("child-work-29");
+  });
+
+  it("backfills agent metadata from the group onto the parent entry", () => {
+    const entries: WorkLogEntry[] = [
+      makeEntry({
+        id: "parent",
+        itemType: "collab_agent_tool_call",
+        toolCallId: "call_meta",
+        toolName: "Agent",
+        // Parent has no agentDescription
+      }),
+      makeEntry({
+        id: "child-started",
+        activityKind: "task.started",
+        label: "Task started",
+        tone: "info",
+        agentDescription: "Explore the auth module",
+        agentType: "Explore",
+        agentModel: "opus",
+        childThreadAttribution: {
+          taskId: "t1",
+          childProviderThreadId: "call_meta",
+          agentType: "Explore",
+          agentModel: "opus",
+        },
+      }),
+      makeEntry({
+        id: "child-completed",
+        activityKind: "task.completed",
+        label: "Task completed",
+        tone: "info",
+        itemStatus: "completed",
+        childThreadAttribution: { taskId: "t1", childProviderThreadId: "call_meta" },
+      }),
+    ];
+
+    const result = enrichParentEntriesWithSubagentGroupMetadata(entries);
+
+    expect(result).toHaveLength(1);
+    expect(result[0]!.agentType).toBe("Explore");
+    expect(result[0]!.agentModel).toBe("opus");
+  });
+
+  it("emits a separate completion entry for completed background agents", () => {
+    const entries: WorkLogEntry[] = [
+      makeEntry({
+        id: "bg-parent",
+        itemType: "collab_agent_tool_call",
+        toolCallId: "call_bg",
+        toolName: "Agent",
+        isBackgroundCommand: true,
+        agentModel: "opus",
+        agentDescription: "Research task",
+      }),
+      makeEntry({
+        id: "child-started",
+        createdAt: "2026-04-01T00:00:01.000Z",
+        activityKind: "task.started",
+        label: "Task started",
+        tone: "info",
+        startedAt: "2026-04-01T00:00:01.000Z",
+        childThreadAttribution: { taskId: "t1", childProviderThreadId: "call_bg" },
+      }),
+      makeEntry({
+        id: "child-work",
+        label: "Read file",
+        tone: "tool",
+        itemType: "file_read",
+        childThreadAttribution: { taskId: "t1", childProviderThreadId: "call_bg" },
+      }),
+      makeEntry({
+        id: "child-completed",
+        createdAt: "2026-04-01T00:00:10.000Z",
+        activityKind: "task.completed",
+        label: "Task completed",
+        tone: "info",
+        itemStatus: "completed",
+        completedAt: "2026-04-01T00:00:10.000Z",
+        childThreadAttribution: { taskId: "t1", childProviderThreadId: "call_bg" },
+      }),
+    ];
+
+    const result = enrichParentEntriesWithSubagentGroupMetadata(entries);
+
+    // Should have the enriched parent + a separate completion entry
+    expect(result).toHaveLength(2);
+
+    // First entry: the parent launch row
+    const launch = result[0]!;
+    expect(launch.id).toBe("bg-parent");
+    expect(launch.backgroundLifecycleRole).toBe("launch");
+    expect(launch.subagentGroupMeta).toBeDefined();
+    expect(launch.subagentGroupMeta!.status).toBe("completed");
+
+    // Second entry: the completion marker
+    const completion = result[1]!;
+    expect(completion.id).toBe("bg-parent:background-agent-completed");
+    expect(completion.backgroundLifecycleRole).toBe("completion");
+    expect(completion.createdAt).toBe("2026-04-01T00:00:10.000Z");
+    expect(completion.itemStatus).toBe("completed");
+    expect(completion.agentModel).toBe("opus");
+    expect(completion.agentDescription).toBe("Research task");
+    expect(completion.subagentGroupMeta).toBeUndefined();
+  });
+
+  it("emits a failed completion entry for failed background agents", () => {
+    const entries: WorkLogEntry[] = [
+      makeEntry({
+        id: "bg-fail",
+        itemType: "collab_agent_tool_call",
+        toolCallId: "call_fail_bg",
+        toolName: "Agent",
+        isBackgroundCommand: true,
+      }),
+      makeEntry({
+        id: "child-started",
+        activityKind: "task.started",
+        label: "Task started",
+        tone: "info",
+        childThreadAttribution: { taskId: "t1", childProviderThreadId: "call_fail_bg" },
+      }),
+      makeEntry({
+        id: "child-failed",
+        createdAt: "2026-04-01T00:00:05.000Z",
+        activityKind: "task.completed",
+        label: "Task failed",
+        tone: "error",
+        itemStatus: "failed",
+        completedAt: "2026-04-01T00:00:05.000Z",
+        childThreadAttribution: { taskId: "t1", childProviderThreadId: "call_fail_bg" },
+      }),
+    ];
+
+    const result = enrichParentEntriesWithSubagentGroupMetadata(entries);
+
+    expect(result).toHaveLength(2);
+    const completion = result[1]!;
+    expect(completion.backgroundLifecycleRole).toBe("completion");
+    expect(completion.itemStatus).toBe("failed");
+    expect(completion.tone).toBe("error");
+    expect(completion.label).toBe("Background agent failed");
+  });
+
+  it("does not emit a completion entry for foreground agents", () => {
+    const entries: WorkLogEntry[] = [
+      makeEntry({
+        id: "fg-parent",
+        itemType: "collab_agent_tool_call",
+        toolCallId: "call_fg",
+        toolName: "Agent",
+        // no isBackgroundCommand
+      }),
+      makeEntry({
+        id: "child-started",
+        activityKind: "task.started",
+        label: "Task started",
+        tone: "info",
+        childThreadAttribution: { taskId: "t1", childProviderThreadId: "call_fg" },
+      }),
+      makeEntry({
+        id: "child-completed",
+        activityKind: "task.completed",
+        label: "Task completed",
+        tone: "info",
+        itemStatus: "completed",
+        completedAt: "2026-04-01T00:00:05.000Z",
+        childThreadAttribution: { taskId: "t1", childProviderThreadId: "call_fg" },
+      }),
+    ];
+
+    const result = enrichParentEntriesWithSubagentGroupMetadata(entries);
+
+    // Only the parent — no separate completion entry for foreground agents
+    expect(result).toHaveLength(1);
+    expect(result[0]!.backgroundLifecycleRole).toBeUndefined();
+    expect(result[0]!.subagentGroupMeta!.status).toBe("completed");
+  });
 });

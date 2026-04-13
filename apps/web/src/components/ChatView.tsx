@@ -2729,7 +2729,7 @@ export default function ChatView({ threadId }: ChatViewProps) {
   useEffect(() => {
     if (
       !isWorking &&
-      backgroundTrayState.subagentGroups.length === 0 &&
+      backgroundTrayState.agentEntries.length === 0 &&
       backgroundTrayState.commandEntries.length === 0
     ) {
       return;
@@ -2742,7 +2742,7 @@ export default function ChatView({ threadId }: ChatViewProps) {
     };
   }, [
     backgroundTrayState.commandEntries.length,
-    backgroundTrayState.subagentGroups.length,
+    backgroundTrayState.agentEntries.length,
     isWorking,
   ]);
 

@@ -61,14 +61,15 @@ import { SummaryCard } from "./SummaryCard";
 import { MessageCopyButton } from "./MessageCopyButton";
 import { statusPresentation } from "./backgroundStatusPresentation";
 import { SubagentHeading } from "./SubagentHeading";
+import { LazySubagentEntries } from "./LazySubagentEntries";
 import {
+  AGENT_CHILD_ENTRIES_MAX_HEIGHT_PX,
   MAX_VISIBLE_WORK_LOG_ENTRIES,
   deriveMessagesTimelineRows,
   estimateMessagesTimelineRowHeight,
   normalizeCompactToolLabel,
   type MessagesTimelineRow,
 } from "./MessagesTimeline.logic";
-import { SubagentSection } from "./SubagentSection";
 import { TerminalContextInlineChip } from "./TerminalContextInlineChip";
 import {
   deriveDisplayedUserMessageState,
@@ -157,15 +158,18 @@ export const MessagesTimeline = memo(function MessagesTimeline({
   const timelineRootRef = useRef<HTMLDivElement | null>(null);
   const [timelineWidthPx, setTimelineWidthPx] = useState<number | null>(null);
   const [expandedInlineDiff, setExpandedInlineDiff] = useState<ExpandedInlineDiffState>(null);
-  const [expandedSubagentGroupId, setExpandedSubagentGroupId] = useState<string | null>(null);
   const [expandedCommandOutputIds, setExpandedCommandOutputIds] = useState<Record<string, boolean>>(
     {},
   );
-  const onToggleSubagent = useCallback((groupId: string) => {
-    setExpandedSubagentGroupId((prev) => (prev === groupId ? null : groupId));
-  }, []);
+  const [expandedAgentEntryIds, setExpandedAgentEntryIds] = useState<Record<string, boolean>>({});
   const onToggleCommandOutput = useCallback((entryId: string) => {
     setExpandedCommandOutputIds((current) => ({
+      ...current,
+      [entryId]: !(current[entryId] ?? false),
+    }));
+  }, []);
+  const onToggleAgentEntry = useCallback((entryId: string) => {
+    setExpandedAgentEntryIds((current) => ({
       ...current,
       [entryId]: !(current[entryId] ?? false),
     }));
@@ -280,7 +284,7 @@ export const MessagesTimeline = memo(function MessagesTimeline({
         expandedWorkGroups,
         expandedInlineDiff,
         expandedCommandOutputIds,
-        expandedSubagentGroupId,
+        expandedAgentEntryIds,
         timelineWidthPx,
         turnDiffSummaryByAssistantMessageId,
       });
@@ -295,7 +299,7 @@ export const MessagesTimeline = memo(function MessagesTimeline({
   }, [
     expandedInlineDiff,
     expandedCommandOutputIds,
-    expandedSubagentGroupId,
+    expandedAgentEntryIds,
     expandedWorkGroups,
     rowVirtualizer,
     timelineWidthPx,
@@ -368,26 +372,6 @@ export const MessagesTimeline = memo(function MessagesTimeline({
     );
   }, []);
 
-  const renderSubagentWorkEntry = useCallback(
-    (entry: WorkLogEntry) => (
-      <SimpleWorkEntryRow
-        threadId={threadId}
-        workEntry={entry}
-        expandedInlineDiff={expandedInlineDiff}
-        onToggleInlineDiff={onToggleInlineDiff}
-        expandedCommandOutputIds={expandedCommandOutputIds}
-        onToggleCommandOutput={onToggleCommandOutput}
-      />
-    ),
-    [
-      expandedCommandOutputIds,
-      expandedInlineDiff,
-      onToggleCommandOutput,
-      onToggleInlineDiff,
-      threadId,
-    ],
-  );
-
   const renderRowContent = (row: TimelineRow) => (
     <div
       className="pb-4"
@@ -417,17 +401,8 @@ export const MessagesTimeline = memo(function MessagesTimeline({
           onToggleInlineDiff={onToggleInlineDiff}
           expandedCommandOutputIds={expandedCommandOutputIds}
           onToggleCommandOutput={onToggleCommandOutput}
-        />
-      )}
-
-      {row.kind === "subagent-section" && (
-        <SubagentSection
-          threadId={threadId}
-          groups={row.subagentGroups}
-          expandedGroupId={expandedSubagentGroupId}
-          onToggle={onToggleSubagent}
-          renderWorkEntry={renderSubagentWorkEntry}
-          nowIso={nowIso}
+          isAgentExpanded={expandedAgentEntryIds[row.entry.id] ?? false}
+          onToggleAgentEntry={onToggleAgentEntry}
         />
       )}
 
@@ -1161,6 +1136,8 @@ const StandaloneWorkEntryRow = memo(function StandaloneWorkEntryRow(props: {
   onToggleInlineDiff: (scope: "tool" | "turn", id: string) => void;
   expandedCommandOutputIds: Readonly<Record<string, boolean>>;
   onToggleCommandOutput: (entryId: string) => void;
+  isAgentExpanded: boolean;
+  onToggleAgentEntry: (entryId: string) => void;
 }) {
   return (
     <div className="rounded-xl border border-border/45 bg-card/25 px-2 py-1.5">
@@ -1171,6 +1148,8 @@ const StandaloneWorkEntryRow = memo(function StandaloneWorkEntryRow(props: {
         onToggleInlineDiff={props.onToggleInlineDiff}
         expandedCommandOutputIds={props.expandedCommandOutputIds}
         onToggleCommandOutput={props.onToggleCommandOutput}
+        isAgentExpanded={props.isAgentExpanded}
+        onToggleAgentEntry={props.onToggleAgentEntry}
       />
     </div>
   );
@@ -1183,6 +1162,8 @@ const SimpleWorkEntryRow = memo(function SimpleWorkEntryRow(props: {
   onToggleInlineDiff: (scope: "tool" | "turn", id: string) => void;
   expandedCommandOutputIds: Readonly<Record<string, boolean>>;
   onToggleCommandOutput: (entryId: string) => void;
+  isAgentExpanded?: boolean | undefined;
+  onToggleAgentEntry?: ((entryId: string) => void) | undefined;
 }) {
   const {
     threadId,
@@ -1193,9 +1174,16 @@ const SimpleWorkEntryRow = memo(function SimpleWorkEntryRow(props: {
     onToggleCommandOutput,
   } = props;
 
-  // Agent tool calls get a specialized row with collapsible prompt
-  if (workEntry.itemType === "collab_agent_tool_call") {
-    return <AgentWorkEntryRow workEntry={workEntry} />;
+  // Agent tool calls get a specialized row with collapsible prompt and child activities
+  if (workEntry.itemType === "collab_agent_tool_call" && props.onToggleAgentEntry) {
+    return (
+      <AgentWorkEntryRow
+        threadId={threadId}
+        workEntry={workEntry}
+        isExpanded={props.isAgentExpanded ?? false}
+        onToggle={props.onToggleAgentEntry}
+      />
+    );
   }
 
   if (workEntry.itemType === "file_change" && workEntry.inlineDiff) {
@@ -1385,34 +1373,74 @@ const FileChangeWorkEntryRow = memo(function FileChangeWorkEntryRow(props: {
   );
 });
 
-const AgentWorkEntryRow = memo(function AgentWorkEntryRow(props: { workEntry: TimelineWorkEntry }) {
-  const { workEntry } = props;
-  const [isExpanded, setIsExpanded] = useState(false);
+const AgentWorkEntryRow = memo(function AgentWorkEntryRow(props: {
+  threadId: ThreadId | null;
+  workEntry: TimelineWorkEntry;
+  isExpanded: boolean;
+  onToggle: (entryId: string) => void;
+}) {
+  const { threadId, workEntry, isExpanded, onToggle } = props;
   const iconConfig = workToneIcon(workEntry.tone);
-  const hasPrompt = Boolean(workEntry.agentPrompt);
   const normalizedToolName = workEntry.toolName?.toLowerCase();
   const isSpawnAgent = normalizedToolName === "spawnagent" || normalizedToolName === "agent";
-  const isWaitAgent = workEntry.toolName?.toLowerCase() === "wait";
-  const heading = isSpawnAgent ? null : toolWorkEntryHeading(workEntry);
-  const preview = isSpawnAgent ? null : workEntryPreview(workEntry);
+  const isWaitAgent = normalizedToolName === "wait";
+  const isCompletionEntry = workEntry.backgroundLifecycleRole === "completion";
+  const heading = isSpawnAgent || isCompletionEntry ? null : toolWorkEntryHeading(workEntry);
+  const preview = isSpawnAgent || isCompletionEntry ? null : workEntryPreview(workEntry);
 
+  const groupMeta = workEntry.subagentGroupMeta;
+  const hasPrompt = Boolean(workEntry.agentPrompt);
+  // Completion entries are non-expandable temporal markers — child activities live on the spawn row
+  const hasExpandableContent = !isCompletionEntry && (hasPrompt || groupMeta !== undefined);
+
+  // Duration: prefer group meta timing when available (covers the full subagent lifecycle),
+  // for completion entries use the entry's own start/completed timestamps
+  const entryDurationMs =
+    isCompletionEntry && workEntry.completedAt && workEntry.startedAt
+      ? new Date(workEntry.completedAt).getTime() - new Date(workEntry.startedAt).getTime()
+      : undefined;
+  const groupDurationMs =
+    groupMeta?.completedAt && groupMeta.startedAt
+      ? new Date(groupMeta.completedAt).getTime() - new Date(groupMeta.startedAt).getTime()
+      : undefined;
   const durationLabel =
-    workEntry.durationMs !== undefined ? formatDuration(workEntry.durationMs) : null;
-  const isCompleted = workEntry.itemStatus === "completed";
-  const isFailed = workEntry.itemStatus === "failed" || workEntry.tone === "error";
+    entryDurationMs !== undefined
+      ? formatDuration(entryDurationMs)
+      : groupDurationMs !== undefined
+        ? formatDuration(groupDurationMs)
+        : workEntry.durationMs !== undefined
+          ? formatDuration(workEntry.durationMs)
+          : null;
+
+  // Status: completion entries carry their own status; launch entries check group meta
+  const isBackgroundLaunch = workEntry.backgroundLifecycleRole === "launch";
+  const groupStatus = groupMeta?.status;
+  const isCompleted = isCompletionEntry
+    ? workEntry.itemStatus === "completed"
+    : groupStatus === "completed" || (!groupMeta && workEntry.itemStatus === "completed");
+  const isFailed = isCompletionEntry
+    ? workEntry.itemStatus === "failed" || workEntry.tone === "error"
+    : groupStatus === "failed" ||
+      (!groupMeta && (workEntry.itemStatus === "failed" || workEntry.tone === "error"));
+  const isRunning = !isCompletionEntry && groupStatus === "running";
 
   const handleToggle = useCallback(() => {
-    if (hasPrompt) setIsExpanded((prev) => !prev);
-  }, [hasPrompt]);
+    if (hasExpandableContent) onToggle(workEntry.id);
+  }, [hasExpandableContent, onToggle, workEntry.id]);
+
+  const renderChildEntry = useCallback(
+    (entry: WorkLogEntry) => <AgentChildWorkEntryRow workEntry={entry} />,
+    [],
+  );
 
   return (
     <div className="rounded-lg px-1 py-1">
       <div
-        role={hasPrompt ? "button" : undefined}
-        tabIndex={hasPrompt ? 0 : undefined}
-        onClick={handleToggle}
+        role={hasExpandableContent ? "button" : undefined}
+        tabIndex={hasExpandableContent ? 0 : undefined}
+        onClick={hasExpandableContent ? handleToggle : undefined}
         onKeyDown={
-          hasPrompt
+          hasExpandableContent
             ? (e) => {
                 if (e.key === "Enter" || e.key === " ") {
                   e.preventDefault();
@@ -1423,10 +1451,10 @@ const AgentWorkEntryRow = memo(function AgentWorkEntryRow(props: { workEntry: Ti
         }
         className={cn(
           "flex items-center gap-2 transition-[opacity,translate] duration-200",
-          hasPrompt && "cursor-pointer rounded-md hover:bg-muted/30",
+          hasExpandableContent && "cursor-pointer rounded-md hover:bg-muted/30",
         )}
       >
-        {hasPrompt ? (
+        {hasExpandableContent ? (
           <ChevronRightIcon
             className={cn(
               "size-3 shrink-0 text-muted-foreground/50 transition-transform duration-150",
@@ -1443,7 +1471,7 @@ const AgentWorkEntryRow = memo(function AgentWorkEntryRow(props: { workEntry: Ti
         </span>
         <div className="min-w-0 flex-1 overflow-hidden">
           <p className={cn("truncate text-[11px] leading-5", workToneClass(workEntry.tone))}>
-            {isSpawnAgent ? (
+            {isSpawnAgent || isCompletionEntry ? (
               <SubagentHeading
                 agentType={workEntry.agentType}
                 agentModel={workEntry.agentModel}
@@ -1464,10 +1492,39 @@ const AgentWorkEntryRow = memo(function AgentWorkEntryRow(props: { workEntry: Ti
           </p>
         </div>
         <div className="flex shrink-0 items-center gap-1.5">
-          {isSpawnAgent && isCompleted ? (
+          {isRunning ? (
+            <span className="flex items-center gap-0.5 text-[9px] text-blue-400/70">
+              {(() => {
+                const { icon: StatusIcon } = statusPresentation("running");
+                return <StatusIcon className="size-2.5 animate-spin" />;
+              })()}
+            </span>
+          ) : null}
+          {/* Spawn-only (no group meta, not backgrounded, not a completion entry): "spawned" badge */}
+          {isSpawnAgent && isCompleted && !groupMeta && !isBackgroundLaunch && !isCompletionEntry ? (
             <span className="inline-flex items-center rounded px-1 py-px text-[9px] font-medium uppercase tracking-[0.12em] text-primary/70 ring-1 ring-inset ring-primary/20">
               spawned
             </span>
+          ) : null}
+          {/* Background launch: always show "spawned" even when group meta shows completed,
+              because the completion has its own separate entry in the timeline */}
+          {isBackgroundLaunch ? (
+            <span className="inline-flex items-center rounded px-1 py-px text-[9px] font-medium uppercase tracking-[0.12em] text-primary/70 ring-1 ring-inset ring-primary/20">
+              spawned
+            </span>
+          ) : null}
+          {/* Foreground completed (non-background, with group meta) */}
+          {isCompleted && groupMeta && !isBackgroundLaunch && !isCompletionEntry ? (
+            <span className="flex items-center gap-0.5 text-[9px] text-green-500/70">
+              {(() => {
+                const { icon: StatusIcon } = statusPresentation("completed");
+                return <StatusIcon className="size-2.5" />;
+              })()}
+            </span>
+          ) : null}
+          {/* Background completion entry */}
+          {isCompletionEntry && isCompleted ? (
+            <BackgroundCommandStatusBadge status="completed" />
           ) : null}
           {isWaitAgent && isCompleted ? <BackgroundCommandStatusBadge status="completed" /> : null}
           {isFailed ? <BackgroundCommandStatusBadge status="failed" /> : null}
@@ -1478,7 +1535,7 @@ const AgentWorkEntryRow = memo(function AgentWorkEntryRow(props: { workEntry: Ti
           )}
         </div>
       </div>
-      {isExpanded && workEntry.agentPrompt && (
+      {isExpanded && hasPrompt && (
         <div className="ml-8 mt-1.5 rounded-lg border border-border/30 bg-background/30 px-3 py-2">
           <p className="mb-1 text-[9px] uppercase tracking-[0.16em] text-muted-foreground/55">
             Prompt
@@ -1488,6 +1545,56 @@ const AgentWorkEntryRow = memo(function AgentWorkEntryRow(props: { workEntry: Ti
           </p>
         </div>
       )}
+      {isExpanded && groupMeta && (
+        <div className="ml-5 mt-1.5 border-l border-border/30 pb-2 pl-3">
+          <div className="pt-1">
+            <LazySubagentEntries
+              threadId={threadId}
+              childProviderThreadId={groupMeta.childProviderThreadId}
+              expanded={isExpanded}
+              isRunning={isRunning}
+              fallbackEntries={groupMeta.fallbackEntries}
+              renderEntry={renderChildEntry}
+              maxHeightPx={AGENT_CHILD_ENTRIES_MAX_HEIGHT_PX}
+            />
+          </div>
+        </div>
+      )}
+    </div>
+  );
+});
+
+/** Compact row for a child work entry inside an expanded agent's activity feed. */
+const AgentChildWorkEntryRow = memo(function AgentChildWorkEntryRow(props: {
+  workEntry: TimelineWorkEntry;
+}) {
+  const { workEntry } = props;
+  const EntryIcon = workEntryIcon(workEntry);
+  const heading = toolWorkEntryHeading(workEntry);
+  const entryPreview = workEntryPreview(workEntry);
+  const isMonoPreview =
+    workEntry.itemType === "command_execution" ||
+    workEntry.itemType === "file_read" ||
+    workEntry.itemType === "file_change" ||
+    workEntry.itemType === "search" ||
+    Boolean(workEntry.command);
+
+  return (
+    <div className="flex items-center gap-2 rounded-md px-1 py-0.5">
+      <span className="flex size-4 shrink-0 items-center justify-center text-foreground/50">
+        <EntryIcon className="size-3" />
+      </span>
+      <p className="min-w-0 flex-1 truncate text-[11px] leading-5 text-foreground/70">
+        <span className="text-foreground/80">{heading}</span>
+        {entryPreview && (
+          <span
+            className={cn("text-muted-foreground/55", isMonoPreview && "font-mono text-[10px]")}
+          >
+            {" – "}
+            {entryPreview}
+          </span>
+        )}
+      </p>
     </div>
   );
 });

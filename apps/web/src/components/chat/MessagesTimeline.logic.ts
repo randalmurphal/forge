@@ -1,7 +1,6 @@
 import { type MessageId } from "@forgetools/contracts";
 import {
   type ExpandedInlineDiffState,
-  type SubagentGroup,
   type TimelineEntry,
   type WorkLogEntry,
 } from "../../session-logic";
@@ -9,7 +8,6 @@ import { type ChatMessage, type ProposedPlan, type TurnDiffSummary } from "../..
 import { estimateTimelineMessageHeight } from "../timelineHeight";
 
 export const MAX_VISIBLE_WORK_LOG_ENTRIES = 6;
-export const SUBAGENT_ENTRIES_MAX_HEIGHT_PX = 384;
 const COMMAND_OUTPUT_TIMELINE_MAX_HEIGHT_PX = 320;
 
 export interface TimelineDurationMessage {
@@ -45,12 +43,6 @@ export type MessagesTimelineRow =
       id: string;
       createdAt: string;
       proposedPlan: ProposedPlan;
-    }
-  | {
-      kind: "subagent-section";
-      id: string;
-      createdAt: string;
-      subagentGroups: SubagentGroup[];
     }
   | {
       kind: "working";
@@ -101,8 +93,8 @@ export function deriveMessagesTimelineRows(input: {
     }
 
     if (timelineEntry.kind === "work") {
-      // Collect all consecutive standalone work entries. Subagent completion rows are already
-      // lifted into explicit completion-time timeline entries by deriveTimelineEntries().
+      // Collect all consecutive work entries. Child-attributed entries have already been consumed
+      // into subagentGroupMeta on the parent entry by enrichParentEntriesWithSubagentGroupMetadata.
       const allWorkEntries = [timelineEntry.entry];
       let cursor = index + 1;
       while (cursor < input.timelineEntries.length) {
@@ -112,15 +104,14 @@ export function deriveMessagesTimelineRows(input: {
         cursor += 1;
       }
 
-      const standaloneEntries = allWorkEntries.filter((entry) => !entry.childThreadAttribution);
-      if (standaloneEntries.length === 0) {
+      if (allWorkEntries.length === 0) {
         index = cursor - 1;
         continue;
       }
 
-      let standaloneIndex = 0;
-      while (standaloneIndex < standaloneEntries.length) {
-        const entry = standaloneEntries[standaloneIndex]!;
+      let workIndex = 0;
+      while (workIndex < allWorkEntries.length) {
+        const entry = allWorkEntries[workIndex]!;
         if (shouldRenderStandaloneWorkEntry(entry)) {
           nextRows.push({
             kind: "work-entry",
@@ -128,14 +119,14 @@ export function deriveMessagesTimelineRows(input: {
             createdAt: entry.createdAt,
             entry,
           });
-          standaloneIndex += 1;
+          workIndex += 1;
           continue;
         }
 
         const groupedEntries = [entry];
-        let groupCursor = standaloneIndex + 1;
-        while (groupCursor < standaloneEntries.length) {
-          const nextEntry = standaloneEntries[groupCursor];
+        let groupCursor = workIndex + 1;
+        while (groupCursor < allWorkEntries.length) {
+          const nextEntry = allWorkEntries[groupCursor];
           if (!nextEntry || shouldRenderStandaloneWorkEntry(nextEntry)) break;
           groupedEntries.push(nextEntry);
           groupCursor += 1;
@@ -146,20 +137,10 @@ export function deriveMessagesTimelineRows(input: {
           createdAt: entry.createdAt,
           groupedEntries,
         });
-        standaloneIndex = groupCursor;
+        workIndex = groupCursor;
       }
 
       index = cursor - 1;
-      continue;
-    }
-
-    if (timelineEntry.kind === "subagent-section") {
-      nextRows.push({
-        kind: "subagent-section",
-        id: timelineEntry.id,
-        createdAt: timelineEntry.createdAt,
-        subagentGroups: timelineEntry.subagentGroups,
-      });
       continue;
     }
 
@@ -197,6 +178,8 @@ export function deriveMessagesTimelineRows(input: {
 
   return nextRows;
 }
+export const AGENT_CHILD_ENTRIES_MAX_HEIGHT_PX = 384;
+
 export function estimateMessagesTimelineRowHeight(
   row: MessagesTimelineRow,
   input: {
@@ -204,7 +187,7 @@ export function estimateMessagesTimelineRowHeight(
     expandedWorkGroups?: Readonly<Record<string, boolean>>;
     expandedInlineDiff?: ExpandedInlineDiffState;
     expandedCommandOutputIds?: Readonly<Record<string, boolean>>;
-    expandedSubagentGroupId?: string | null;
+    expandedAgentEntryIds?: Readonly<Record<string, boolean>>;
     turnDiffSummaryByAssistantMessageId?: ReadonlyMap<MessageId, TurnDiffSummary>;
   },
 ): number {
@@ -213,8 +196,6 @@ export function estimateMessagesTimelineRowHeight(
       return estimateWorkGroupRowHeight(row, input);
     case "work-entry":
       return estimateStandaloneWorkRowHeight(row, input);
-    case "subagent-section":
-      return estimateSubagentSectionHeight(row, input);
     case "proposed-plan":
       return estimateTimelineProposedPlanHeight(row.proposedPlan);
     case "working":
@@ -271,6 +252,7 @@ function estimateStandaloneWorkRowHeight(
   input: {
     expandedInlineDiff?: ExpandedInlineDiffState;
     expandedCommandOutputIds?: Readonly<Record<string, boolean>>;
+    expandedAgentEntryIds?: Readonly<Record<string, boolean>>;
   },
 ): number {
   let estimate = 58;
@@ -283,45 +265,18 @@ function estimateStandaloneWorkRowHeight(
           : 130
         : estimateCollapsedDiffCardHeight();
   }
-  return estimate;
-}
-
-function estimateSubagentSectionHeight(
-  row: Extract<MessagesTimelineRow, { kind: "subagent-section" }>,
-  input: {
-    expandedSubagentGroupId?: string | null;
-    expandedInlineDiff?: ExpandedInlineDiffState;
-    expandedCommandOutputIds?: Readonly<Record<string, boolean>>;
-  },
-): number {
-  // Section header
-  let totalHeight = 36;
-  for (const group of row.subagentGroups) {
-    const isExpanded = input.expandedSubagentGroupId === group.groupId;
-    // Collapsed row height for each group
-    totalHeight += 44;
-    if (isExpanded) {
-      // Calculate uncapped content height
-      let expandedContentHeight = group.recordedActionCount * 32;
-      for (const entry of group.entries) {
-        expandedContentHeight += estimateExpandedCommandOutputHeight(
-          entry,
-          input.expandedCommandOutputIds,
-        );
-        if (entry.inlineDiff) {
-          expandedContentHeight +=
-            input.expandedInlineDiff?.scope === "tool" && input.expandedInlineDiff.id === entry.id
-              ? entry.inlineDiff.availability === "exact_patch"
-                ? 420
-                : 130
-              : 52;
-        }
-      }
-      // Cap at scroll container max-height, then add outer padding
-      totalHeight += Math.min(expandedContentHeight, SUBAGENT_ENTRIES_MAX_HEIGHT_PX) + 16;
+  // Expanded agent rows show prompt + scrollable child activity feed
+  if (input.expandedAgentEntryIds?.[row.entry.id]) {
+    const meta = row.entry.subagentGroupMeta;
+    if (row.entry.agentPrompt) {
+      estimate += 80; // Prompt panel
+    }
+    if (meta) {
+      const childContentHeight = meta.recordedActionCount * 32;
+      estimate += Math.min(childContentHeight, AGENT_CHILD_ENTRIES_MAX_HEIGHT_PX) + 24;
     }
   }
-  return totalHeight;
+  return estimate;
 }
 
 function estimateTimelineProposedPlanHeight(proposedPlan: ProposedPlan): number {

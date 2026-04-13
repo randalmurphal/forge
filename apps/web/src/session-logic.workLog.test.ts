@@ -1408,14 +1408,7 @@ describe("deriveWorkLogEntries", () => {
     );
 
     const trayState = deriveBackgroundTrayState(entries, "2026-04-10T12:00:01.000Z");
-    expect(trayState.subagentGroups).toHaveLength(1);
-    expect(trayState.subagentGroups[0]).toMatchObject({
-      childProviderThreadId: "child-thread-early",
-      taskId: "spawn-task-1",
-      status: "running",
-      label: "Inspect the parser",
-      agentModel: "gpt-5.4-mini",
-    });
+    expect(trayState.agentEntries).toHaveLength(0);
   });
 
   it("carries target metadata into wait_agent rows", () => {
@@ -3262,14 +3255,7 @@ describe("deriveWorkLogEntries", () => {
     ]);
 
     const trayState = deriveBackgroundTrayState(workEntries, "2026-04-10T12:00:20.500Z");
-    expect(trayState.subagentGroups).toEqual([
-      expect.objectContaining({
-        groupId: "toolu_01GaTXWTd9hCLgWwDFCD4hwH",
-        taskId: "toolu_01GaTXWTd9hCLgWwDFCD4hwH",
-        status: "completed",
-        label: "20-second sleep subagent",
-      }),
-    ]);
+    expect(trayState.agentEntries).toHaveLength(0);
 
     const visibleEntries = filterTrayOwnedWorkEntries(workEntries, trayState);
     expect(visibleEntries.map((entry) => entry.id)).toEqual([
@@ -3280,7 +3266,7 @@ describe("deriveWorkLogEntries", () => {
     ]);
 
     const expiredTrayState = deriveBackgroundTrayState(workEntries, "2026-04-10T12:00:26.000Z");
-    expect(expiredTrayState.subagentGroups).toEqual([]);
+    expect(expiredTrayState.agentEntries).toHaveLength(0);
   });
 
   it("treats a blocked Claude TaskOutput result as the terminal signal for a background agent", () => {
@@ -3404,13 +3390,10 @@ describe("deriveWorkLogEntries", () => {
     );
 
     const trayState = deriveBackgroundTrayState(workEntries, "2026-04-10T12:00:10.500Z");
-    expect(trayState.subagentGroups).toEqual([
-      expect.objectContaining({
-        groupId: "toolu_agent_launch",
-        status: "completed",
-        label: "Sleep 10 then report done",
-      }),
-    ]);
+    expect(trayState.agentEntries).toHaveLength(1);
+    expect(trayState.agentEntries[0]?.subagentGroupMeta).toMatchObject({
+      status: "completed",
+    });
   });
 
   it("keeps the launch row inline and adds a separate history row when a background command completes", () => {
@@ -3558,14 +3541,7 @@ describe("deriveWorkLogEntries", () => {
     );
 
     const trayState = deriveBackgroundTrayState(workEntries, "2026-04-10T12:00:03.000Z");
-    expect(trayState.subagentGroups).toHaveLength(1);
-    expect(trayState.subagentGroups[0]).toMatchObject({
-      childProviderThreadId: "child-thread-meta",
-      label: "Inspect the parser",
-      agentDescription: "Inspect the parser",
-      agentPrompt: "Inspect the parser",
-      agentModel: "gpt-5.4-mini",
-    });
+    expect(trayState.agentEntries).toHaveLength(0);
   });
 
   it("keeps running background commands in the tray until they complete, then returns them to history", () => {
@@ -3698,13 +3674,7 @@ describe("deriveWorkLogEntries", () => {
 
     const backgroundTrayState = deriveBackgroundTrayState(workEntries, "2026-04-10T12:00:03.000Z");
 
-    expect(backgroundTrayState.subagentGroups).toHaveLength(1);
-    expect(backgroundTrayState.subagentGroups[0]).toMatchObject({
-      groupId: "child-thread-1",
-      taskId: "call-collab-1",
-      label: "Inspect tray behavior",
-      status: "running",
-    });
+    expect(backgroundTrayState.agentEntries).toHaveLength(0);
 
     const visibleEntries = filterTrayOwnedWorkEntries(workEntries, backgroundTrayState);
     expect(visibleEntries.map((entry) => entry.id)).toEqual([
@@ -3807,14 +3777,7 @@ describe("deriveWorkLogEntries", () => {
     expect(workEntries.length).toBeGreaterThan(0);
 
     const trayState = deriveBackgroundTrayState(workEntries, "2026-04-10T12:00:10.500Z");
-    expect(trayState.subagentGroups).toEqual([
-      expect.objectContaining({
-        groupId: "toolu_fmt_launch",
-        taskId: "toolu_fmt_launch",
-        status: "completed",
-        label: "Run formatter",
-      }),
-    ]);
+    expect(trayState.agentEntries).toHaveLength(0);
   });
 
   it("handles both task.updated and task.completed arriving for the same subagent without conflicts", () => {
@@ -3925,13 +3888,7 @@ describe("deriveWorkLogEntries", () => {
     );
 
     const trayState = deriveBackgroundTrayState(workEntries, "2026-04-10T12:00:10.500Z");
-    expect(trayState.subagentGroups).toEqual([
-      expect.objectContaining({
-        groupId: "toolu_build_launch",
-        status: "completed",
-        label: "Build the project",
-      }),
-    ]);
+    expect(trayState.agentEntries).toHaveLength(0);
 
     // Verify no duplicate entries — task.started, task.updated, and task.completed are all
     // lifecycle boundaries absorbed by grouping, so only the launch row remains standalone.
@@ -4036,13 +3993,7 @@ describe("deriveWorkLogEntries", () => {
     );
 
     const trayState = deriveBackgroundTrayState(workEntries, "2026-04-10T12:00:05.500Z");
-    expect(trayState.subagentGroups).toEqual([
-      expect.objectContaining({
-        groupId: "toolu_long_launch",
-        status: "failed",
-        label: "Long running task",
-      }),
-    ]);
+    expect(trayState.agentEntries).toHaveLength(0);
   });
 
   it("does not change subagent group status on non-terminal task.updated", () => {
@@ -4136,13 +4087,7 @@ describe("deriveWorkLogEntries", () => {
     );
 
     const trayState = deriveBackgroundTrayState(workEntries, "2026-04-10T12:00:03.500Z");
-    expect(trayState.subagentGroups).toEqual([
-      expect.objectContaining({
-        groupId: "toolu_watch_launch",
-        status: "running",
-        label: "Incremental build",
-      }),
-    ]);
+    expect(trayState.agentEntries).toHaveLength(0);
   });
 
   it("prevents duplicate TaskOutput synthesis when task.updated already terminated the task", () => {
@@ -4278,13 +4223,7 @@ describe("deriveWorkLogEntries", () => {
 
     // The group should still be completed (from the task.updated signal)
     const trayState = deriveBackgroundTrayState(workEntries, "2026-04-10T12:00:10.500Z");
-    expect(trayState.subagentGroups).toEqual([
-      expect.objectContaining({
-        groupId: "toolu_test_launch",
-        status: "completed",
-        label: "Check tests",
-      }),
-    ]);
+    expect(trayState.agentEntries).toHaveLength(0);
   });
 
   it("updates bash background command status from terminal task.updated", () => {

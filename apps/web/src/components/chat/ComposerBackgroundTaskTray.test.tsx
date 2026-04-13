@@ -78,44 +78,26 @@ describe("ComposerBackgroundTaskTray", () => {
     expect(markup).not.toContain("bun run task-0");
   });
 
-  it("renders subagent metadata in the expanded tray", () => {
+  it("renders nothing when only foreground subagents exist (no background agents in tray)", () => {
     const markup = renderToStaticMarkup(
       <ComposerBackgroundTaskTray
         threadId="thread-1"
         nowIso="2026-04-10T12:00:10.000Z"
         state={makeState({
-          subagentGroups: [
-            {
-              groupId: "child-thread-1",
-              taskId: "task-1",
-              childProviderThreadId: "child-thread-1",
-              label: "Inspect the parser",
-              agentDescription: "Inspect the parser",
-              agentPrompt: "Run exactly these parser checks and report only final completion",
-              entries: [],
-              recordedActionCount: 0,
-              status: "running",
-              startedAt: "2026-04-10T12:00:00.000Z",
-              agentType: "explorer",
-              agentModel: "gpt-5.4-mini",
-            },
-          ],
-          hasRunningTasks: true,
+          agentEntries: [],
+          hasRunningTasks: false,
         })}
       />,
     );
 
-    expect(markup).toContain("gpt-5.4-mini");
-    expect(markup).toContain("Inspect the parser");
-    expect(markup).not.toContain("gpt-5.4-mini * Inspect the parser");
+    expect(markup).toBe("");
   });
 });
 
 function makeState(overrides: Partial<BackgroundTrayState> = {}): BackgroundTrayState {
   return {
-    subagentGroups: [],
+    agentEntries: [],
     commandEntries: [],
-    hiddenSubagentGroupIds: [],
     hiddenWorkEntryIds: [],
     hasRunningTasks: false,
     defaultCollapsed: false,
