@@ -216,6 +216,22 @@ function deleteThreadWorkLogState(state: AppState, threadId: Thread["id"]): AppS
   };
 }
 
+function rebuildThreadWorkLogState(state: AppState, threadId: Thread["id"]): AppState {
+  const thread = state.threads.find((entry) => entry.id === threadId);
+  if (!thread) {
+    return state;
+  }
+  const latestTurn = state.threadSessionById[threadId]?.latestTurn ?? null;
+  return setThreadWorkLogState(
+    state,
+    threadId,
+    bootstrapWorkLogProjectionState(thread.activities, {
+      messages: thread.messages,
+      latestTurn,
+    }),
+  );
+}
+
 // ── Project events ───────────────────────────────────────────────────
 
 function handleProjectEvent(state: AppState, event: ForgeEvent): AppState | undefined {
@@ -1134,6 +1150,40 @@ function handleTurnEvent(state: AppState, event: ForgeEvent): AppState | undefin
 
 function handleDiffEvent(state: AppState, event: ForgeEvent): AppState | undefined {
   switch (event.type) {
+    case "thread.activity-inline-diff-upserted": {
+      const nextState = updateThreadState(state, event.payload.threadId, (thread) => {
+        let changed = false;
+        const activities = thread.activities.map((activity) => {
+          if (activity.id !== event.payload.activityId) {
+            return activity;
+          }
+          changed = true;
+          const payload =
+            typeof activity.payload === "object" && activity.payload !== null
+              ? activity.payload
+              : {};
+          return {
+            ...activity,
+            payload: {
+              ...payload,
+              inlineDiff: event.payload.inlineDiff,
+            },
+          };
+        });
+        if (!changed) {
+          return thread;
+        }
+        return {
+          ...thread,
+          activities,
+          updatedAt: event.payload.updatedAt,
+        };
+      });
+      return nextState === state
+        ? state
+        : rebuildThreadWorkLogState(nextState, event.payload.threadId);
+    }
+
     case "thread.turn-diff-completed": {
       // Update diffs slice
       let nextState = updateDiffsSlice(state, event.payload.threadId, (diffsSlice) => {

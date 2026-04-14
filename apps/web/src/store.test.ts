@@ -13,7 +13,11 @@ import {
 } from "@forgetools/contracts";
 import { describe, expect, it } from "vitest";
 
-import { deriveTimelineEntries, deriveWorkLogEntries } from "./session-logic";
+import {
+  bootstrapWorkLogProjectionState,
+  deriveTimelineEntries,
+  deriveWorkLogEntries,
+} from "./session-logic";
 import {
   applyOrchestrationEvent,
   applyOrchestrationEvents,
@@ -1321,6 +1325,110 @@ describe("incremental orchestration updates", () => {
       next.threadDiffsById[ThreadId.makeUnsafe("thread-1")]?.agentDiffSummaries?.[0]
         ?.assistantMessageId,
     ).toBe(MessageId.makeUnsafe("assistant-real"));
+  });
+
+  it("applies live activity inline diff upserts to the thread and work log state", () => {
+    const threadId = ThreadId.makeUnsafe("thread-1");
+    const activityId = EventId.makeUnsafe("activity-inline-diff-1");
+    const state: AppState = {
+      ...makeState(
+        makeThread({
+          id: threadId,
+          activities: [
+            {
+              id: activityId,
+              createdAt: "2026-02-27T00:00:01.000Z",
+              tone: "tool",
+              kind: "tool.completed",
+              summary: "Command",
+              turnId: TurnId.makeUnsafe("turn-1"),
+              sequence: 5,
+              payload: {
+                itemType: "command_execution",
+                itemId: "cmd-inline-diff-1",
+                status: "completed",
+                data: {
+                  item: {
+                    id: "cmd-inline-diff-1",
+                    command: ["/bin/zsh", "-lc", "git diff --stat"],
+                    aggregatedOutput: "done",
+                    exitCode: 0,
+                  },
+                },
+              },
+            },
+          ],
+        }),
+      ),
+      threadWorkLogById: {
+        [threadId]: bootstrapWorkLogProjectionState(
+          [
+            {
+              id: activityId,
+              createdAt: "2026-02-27T00:00:01.000Z",
+              tone: "tool",
+              kind: "tool.completed",
+              summary: "Command",
+              turnId: TurnId.makeUnsafe("turn-1"),
+              sequence: 5,
+              payload: {
+                itemType: "command_execution",
+                itemId: "cmd-inline-diff-1",
+                status: "completed",
+                data: {
+                  item: {
+                    id: "cmd-inline-diff-1",
+                    command: ["/bin/zsh", "-lc", "git diff --stat"],
+                    aggregatedOutput: "done",
+                    exitCode: 0,
+                  },
+                },
+              },
+            },
+          ],
+          { messages: [], latestTurn: null },
+        ),
+      },
+    };
+
+    const next = applyOrchestrationEvent(
+      state,
+      makeEvent("thread.activity-inline-diff-upserted", {
+        threadId,
+        activityId,
+        updatedAt: "2026-02-27T00:00:02.000Z",
+        inlineDiff: {
+          availability: "summary_only",
+          files: [{ path: "src/store.ts", additions: 3, deletions: 1 }],
+          additions: 3,
+          deletions: 1,
+        },
+      }),
+    );
+
+    const activity = next.threads[0]?.activities[0];
+    expect(activity).toMatchObject({
+      id: activityId,
+      payload: {
+        inlineDiff: {
+          availability: "summary_only",
+          additions: 3,
+          deletions: 1,
+        },
+      },
+    });
+
+    const workLogEntry = next.threadWorkLogById?.[threadId]?.entries.find(
+      (entry) => entry.id === activityId,
+    );
+    expect(workLogEntry).toMatchObject({
+      id: activityId,
+      inlineDiff: {
+        availability: "summary_only",
+        additions: 3,
+        deletions: 1,
+      },
+    });
   });
 
   it("reverts messages, plans, activities, and checkpoints by retained turns", () => {

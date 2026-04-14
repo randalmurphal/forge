@@ -86,7 +86,6 @@ export {
   isUnattributedCollabAgentToolEnvelope,
   shouldFilterToolStartedActivity,
   isGenericSubagentLabel,
-  synthesizeClaudeTaskOutputLifecycleActivities,
   enrichVisibleCollabControlEntriesWithTargetMetadata,
   enrichParentEntriesWithSubagentGroupMetadata,
 } from "./subagentGrouping";
@@ -95,10 +94,7 @@ export {
 export {
   collectStreamedCommandOutputByToolCallId,
   collectStreamedCommandOutputPresenceByToolCallId,
-  applyPreCollapseBackgroundCommandSignals,
   applyStreamedCommandOutput,
-  applyBackgroundCommandSignals,
-  appendBackgroundCommandCompletionEntries,
   backgroundCommandCompletionKey,
   deriveCodexBackgroundCommandSignals,
   deriveBackgroundCommandStatus,
