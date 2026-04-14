@@ -476,6 +476,11 @@ const TaskStartedPayload = Schema.Struct({
   taskType: Schema.optional(TrimmedNonEmptyString),
   prompt: Schema.optional(TrimmedNonEmptyString),
   workflowName: Schema.optional(TrimmedNonEmptyString),
+  sourceItemType: Schema.optional(ToolLifecycleItemType),
+  sourceToolName: Schema.optional(TrimmedNonEmptyString),
+  sourceDetail: Schema.optional(TrimmedNonEmptyString),
+  sourceTimeoutMs: Schema.optional(NonNegativeInt),
+  sourcePersistent: Schema.optional(Schema.Boolean),
 });
 export type TaskStartedPayload = typeof TaskStartedPayload.Type;
 
@@ -486,6 +491,11 @@ const TaskProgressPayload = Schema.Struct({
   summary: Schema.optional(TrimmedNonEmptyString),
   usage: Schema.optional(Schema.Unknown),
   lastToolName: Schema.optional(TrimmedNonEmptyString),
+  sourceItemType: Schema.optional(ToolLifecycleItemType),
+  sourceToolName: Schema.optional(TrimmedNonEmptyString),
+  sourceDetail: Schema.optional(TrimmedNonEmptyString),
+  sourceTimeoutMs: Schema.optional(NonNegativeInt),
+  sourcePersistent: Schema.optional(Schema.Boolean),
 });
 export type TaskProgressPayload = typeof TaskProgressPayload.Type;
 
@@ -496,6 +506,11 @@ const TaskCompletedPayload = Schema.Struct({
   outputFile: Schema.optional(TrimmedNonEmptyString),
   summary: Schema.optional(TrimmedNonEmptyString),
   usage: Schema.optional(Schema.Unknown),
+  sourceItemType: Schema.optional(ToolLifecycleItemType),
+  sourceToolName: Schema.optional(TrimmedNonEmptyString),
+  sourceDetail: Schema.optional(TrimmedNonEmptyString),
+  sourceTimeoutMs: Schema.optional(NonNegativeInt),
+  sourcePersistent: Schema.optional(Schema.Boolean),
 });
 export type TaskCompletedPayload = typeof TaskCompletedPayload.Type;
 
@@ -519,6 +534,11 @@ const TaskUpdatedPatch = Schema.Struct({
 const TaskUpdatedPayload = Schema.Struct({
   taskId: RuntimeTaskId,
   patch: TaskUpdatedPatch,
+  sourceItemType: Schema.optional(ToolLifecycleItemType),
+  sourceToolName: Schema.optional(TrimmedNonEmptyString),
+  sourceDetail: Schema.optional(TrimmedNonEmptyString),
+  sourceTimeoutMs: Schema.optional(NonNegativeInt),
+  sourcePersistent: Schema.optional(Schema.Boolean),
 });
 export type TaskUpdatedPayload = typeof TaskUpdatedPayload.Type;
 

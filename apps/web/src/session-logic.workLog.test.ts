@@ -1160,6 +1160,44 @@ describe("deriveWorkLogEntries", () => {
     expect(entry?.agentPrompt).toBeUndefined();
   });
 
+  it("extracts bash file metadata from Monitor tool results", () => {
+    const activities: OrchestrationThreadActivity[] = [
+      makeActivity({
+        id: "monitor-launch",
+        kind: "tool.completed",
+        summary: "Tool call",
+        payload: {
+          itemType: "dynamic_tool_call",
+          title: "Tool call",
+          toolName: "Monitor",
+          detail: "Monitor: Watch the dev server",
+          data: {
+            toolName: "Monitor",
+            input: {
+              command: "bun run dev",
+              description: "Watch the dev server",
+            },
+            toolUseResult: {
+              bash_file: "/tmp/forge-monitor-123.sh",
+            },
+          },
+        },
+      }),
+    ];
+
+    const [entry] = deriveWorkLogEntries(activities, undefined);
+    expect(entry).toMatchObject({
+      itemType: "dynamic_tool_call",
+      toolName: "Monitor",
+      detailItems: [
+        {
+          label: "Bash file",
+          value: "/tmp/forge-monitor-123.sh",
+        },
+      ],
+    });
+  });
+
   it("filters out unattributed collab noise while keeping visible parent control calls inline", () => {
     const activities: OrchestrationThreadActivity[] = [
       // Should be retained: visible control call without attribution
@@ -2774,6 +2812,109 @@ describe("deriveWorkLogEntries", () => {
     expect(visibleImmediatelyAfterCompletion.map((entry) => entry.id)).toEqual([
       "claude-background-command",
       "claude-background-command:background-task-completed",
+    ]);
+  });
+
+  it("keeps Monitor task rows append-only and out of the background command tray", () => {
+    const workEntries = deriveWorkLogEntries(
+      [
+        makeActivity({
+          id: "monitor-launch",
+          createdAt: "2026-04-10T12:00:00.000Z",
+          kind: "tool.completed",
+          summary: "Tool call",
+          payload: {
+            itemType: "dynamic_tool_call",
+            itemId: "tool-monitor-1",
+            status: "completed",
+            toolName: "Monitor",
+            detail: "Monitor: Watch the dev server",
+            data: {
+              toolName: "Monitor",
+              input: {
+                command: "bun run dev",
+                description: "Watch the dev server",
+                timeout_ms: 30000,
+                persistent: false,
+              },
+            },
+          },
+        }),
+        makeActivity({
+          id: "monitor-task-started",
+          createdAt: "2026-04-10T12:00:00.100Z",
+          kind: "task.started",
+          summary: "Monitor started",
+          payload: {
+            taskId: "task-monitor-1",
+            toolUseId: "tool-monitor-1",
+            itemType: "dynamic_tool_call",
+            toolName: "Monitor",
+            detail: "Watch the dev server",
+            sourceDetail: "Monitor: Watch the dev server",
+            sourceTimeoutMs: 30000,
+            sourcePersistent: false,
+          },
+        }),
+        makeActivity({
+          id: "monitor-task-completed",
+          createdAt: "2026-04-10T12:00:30.000Z",
+          kind: "task.completed",
+          summary: "Monitor stopped",
+          payload: {
+            taskId: "task-monitor-1",
+            toolUseId: "tool-monitor-1",
+            status: "stopped",
+            itemType: "dynamic_tool_call",
+            toolName: "Monitor",
+            detail: "Monitor stopped after timeout",
+            sourceDetail: "Monitor: Watch the dev server",
+            sourceTimeoutMs: 30000,
+            sourcePersistent: false,
+          },
+        }),
+        makeActivity({
+          id: "monitor-task-updated",
+          createdAt: "2026-04-10T12:00:30.001Z",
+          kind: "task.updated",
+          summary: "Monitor killed",
+          tone: "error",
+          payload: {
+            taskId: "task-monitor-1",
+            itemType: "dynamic_tool_call",
+            toolName: "Monitor",
+            sourceDetail: "Monitor: Watch the dev server",
+            sourceTimeoutMs: 30000,
+            sourcePersistent: false,
+            patch: {
+              status: "killed",
+              error: "Monitor timed out after 30000ms",
+            },
+          },
+        }),
+      ],
+      undefined,
+    );
+
+    expect(workEntries.map((entry) => entry.id)).toEqual([
+      "monitor-launch",
+      "monitor-task-started",
+      "monitor-task-completed",
+      "monitor-task-updated",
+    ]);
+    expect(workEntries.filter((entry) => entry.toolName === "Monitor")).toHaveLength(4);
+    expect(workEntries.every((entry) => entry.backgroundTaskId === undefined)).toBe(true);
+
+    const trayState = deriveBackgroundTrayState(workEntries, "2026-04-10T12:00:31.000Z");
+    expect(trayState.commandEntries).toEqual([]);
+    expect(trayState.hiddenWorkEntryIds).toEqual([]);
+
+    const visibleEntries = filterTrayOwnedWorkEntries(workEntries, trayState);
+    expect(visibleEntries.map((entry) => entry.id)).toEqual([
+      "monitor-launch",
+      "monitor-task-started",
+      "monitor-task-completed",
+      "monitor-task-updated",
     ]);
   });
 

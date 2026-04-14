@@ -435,6 +435,11 @@ function deriveProviderBackgroundTaskSignals(
       continue;
     }
 
+    const sourceItemType = extractWorkLogItemType(payload);
+    if (sourceItemType && sourceItemType !== "command_execution") {
+      continue;
+    }
+
     const taskId = asTrimmedString(payload?.taskId);
     const toolUseId = asTrimmedString(payload?.toolUseId);
     if (!taskId && !toolUseId) {

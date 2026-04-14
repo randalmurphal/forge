@@ -1226,9 +1226,11 @@ const SimpleWorkEntryRow = memo(function SimpleWorkEntryRow(props: {
   const toolInlineDiff = workEntry.inlineDiff;
   const isToolDiffExpanded =
     expandedInlineDiff?.scope === "tool" && expandedInlineDiff.id === workEntry.id;
-  const isCommandOutputExpanded = expandedCommandOutputIds[workEntry.id] ?? false;
+  const isEntryExpanded = expandedCommandOutputIds[workEntry.id] ?? false;
   const hasCommandOutput =
     workEntry.itemType === "command_execution" && Boolean(workEntry.hasOutput || workEntry.output);
+  const hasDetailItems = (workEntry.detailItems?.length ?? 0) > 0;
+  const isExpandable = hasCommandOutput || hasDetailItems;
   const isCommandEntry = workEntry.itemType === "command_execution";
 
   // Determine if preview should be monospace (commands, file paths, search patterns)
@@ -1262,42 +1264,43 @@ const SimpleWorkEntryRow = memo(function SimpleWorkEntryRow(props: {
   // Duration
   const durationLabel =
     workEntry.durationMs !== undefined ? formatDuration(workEntry.durationMs) : null;
-  const handleToggleCommandOutput = useCallback(() => {
-    if (hasCommandOutput) {
+  const handleToggleExpandedContent = useCallback(() => {
+    if (isExpandable) {
       onToggleCommandOutput(workEntry.id);
     }
-  }, [hasCommandOutput, onToggleCommandOutput, workEntry.id]);
+  }, [isExpandable, onToggleCommandOutput, workEntry.id]);
 
   return (
     <div className="rounded-lg px-1 py-1">
       <div
-        role={hasCommandOutput ? "button" : undefined}
-        tabIndex={hasCommandOutput ? 0 : undefined}
-        aria-expanded={hasCommandOutput ? isCommandOutputExpanded : undefined}
-        onClick={handleToggleCommandOutput}
+        role={isExpandable ? "button" : undefined}
+        tabIndex={isExpandable ? 0 : undefined}
+        aria-expanded={isExpandable ? isEntryExpanded : undefined}
+        onClick={handleToggleExpandedContent}
         onKeyDown={
-          hasCommandOutput
+          isExpandable
             ? (event) => {
                 if (event.key === "Enter" || event.key === " ") {
                   event.preventDefault();
-                  handleToggleCommandOutput();
+                  handleToggleExpandedContent();
                 }
               }
             : undefined
         }
         className={cn(
           "flex items-center gap-2 transition-[opacity,translate] duration-200",
-          hasCommandOutput && "cursor-pointer rounded-md hover:bg-muted/30",
+          isExpandable && "cursor-pointer rounded-md hover:bg-muted/30",
         )}
       >
-        {isCommandEntry ? (
+        {isExpandable ? (
           <ChevronRightIcon
             className={cn(
               "size-3 shrink-0 text-muted-foreground/50 transition-transform duration-150",
-              isCommandOutputExpanded && "rotate-90",
-              !hasCommandOutput && "opacity-35",
+              isEntryExpanded && "rotate-90",
             )}
           />
+        ) : isCommandEntry ? (
+          <ChevronRightIcon className="size-3 shrink-0 text-muted-foreground/20" />
         ) : null}
         <span
           className={cn("flex size-5 shrink-0 items-center justify-center", iconConfig.className)}
@@ -1369,12 +1372,17 @@ const SimpleWorkEntryRow = memo(function SimpleWorkEntryRow(props: {
           onToggle={() => onToggleInlineDiff("tool", workEntry.id)}
         />
       ) : null}
-      {hasCommandOutput && isCommandOutputExpanded ? (
+      {hasDetailItems && isEntryExpanded ? (
+        <div className="ml-7 mt-1.5">
+          <WorkEntryDetailItemsBlock items={workEntry.detailItems ?? []} />
+        </div>
+      ) : null}
+      {hasCommandOutput && isEntryExpanded ? (
         <div className="ml-7 mt-1.5">
           <LazyCommandOutput
             threadId={threadId}
             entry={workEntry}
-            expanded={isCommandOutputExpanded}
+            expanded={isEntryExpanded}
             maxHeightPx={320}
           />
         </div>
@@ -1637,6 +1645,36 @@ const AgentChildWorkEntryRow = memo(function AgentChildWorkEntryRow(props: {
           </span>
         )}
       </p>
+    </div>
+  );
+});
+
+const WorkEntryDetailItemsBlock = memo(function WorkEntryDetailItemsBlock(props: {
+  items: ReadonlyArray<{
+    label: string;
+    value: string;
+  }>;
+}) {
+  return (
+    <div className="rounded-lg border border-border/30 bg-background/30 px-3 py-2">
+      <p className="mb-1 text-[9px] uppercase tracking-[0.16em] text-muted-foreground/55">
+        Details
+      </p>
+      <dl className="space-y-1">
+        {props.items.map((item) => (
+          <div key={`${item.label}:${item.value}`} className="grid grid-cols-[auto,1fr] gap-2">
+            <dt className="text-[10px] uppercase tracking-[0.12em] text-muted-foreground/50">
+              {item.label}
+            </dt>
+            <dd
+              className="min-w-0 truncate font-mono text-[11px] leading-5 text-foreground/70"
+              title={item.value}
+            >
+              {item.value}
+            </dd>
+          </div>
+        ))}
+      </dl>
     </div>
   );
 });

@@ -237,6 +237,20 @@ export function extractToolEnrichments(
     enrichments.receiverThreadIds = receiverThreadIds;
   }
 
+  const detailItems: Array<{ label: string; value: string }> = [];
+  const bashFile =
+    asTrimmedString(claudeToolUseResult?.bash_file) ??
+    asTrimmedString(claudeToolUseResult?.bashFile);
+  if (bashFile) {
+    detailItems.push({
+      label: "Bash file",
+      value: bashFile,
+    });
+  }
+  if (detailItems.length > 0) {
+    enrichments.detailItems = detailItems;
+  }
+
   return enrichments;
 }
 
@@ -332,6 +346,7 @@ export function toDerivedWorkLogEntry(activity: OrchestrationThreadActivity): De
   if (enrichments.agentModel) entry.agentModel = enrichments.agentModel;
   if (enrichments.agentPrompt) entry.agentPrompt = enrichments.agentPrompt;
   if (enrichments.receiverThreadIds) entry.receiverThreadIds = enrichments.receiverThreadIds;
+  if (enrichments.detailItems) entry.detailItems = enrichments.detailItems;
 
   // Extract child thread attribution for subagent grouping
   const childThreadAttribution = extractChildThreadAttribution(payload);

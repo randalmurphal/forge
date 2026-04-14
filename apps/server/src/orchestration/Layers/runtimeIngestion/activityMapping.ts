@@ -551,6 +551,8 @@ export function runtimeEventToActivities(
 
     case "task.started": {
       const taskStartedChildAttr = extractChildThreadAttribution(event.payload);
+      const taskStartedSourceItemType = event.payload.sourceItemType;
+      const taskStartedSourceToolName = event.payload.sourceToolName;
       logBackgroundDebug("ingestion", "runtime.task.started", {
         threadId: event.threadId,
         turnId: event.turnId ?? null,
@@ -565,13 +567,17 @@ export function runtimeEventToActivities(
           tone: "info",
           kind: "task.started",
           summary:
-            event.payload.taskType === "plan"
-              ? "Plan task started"
-              : event.payload.taskType
-                ? `${event.payload.taskType} task started`
-                : "Task started",
+            taskStartedSourceItemType === "dynamic_tool_call" && taskStartedSourceToolName
+              ? `${taskStartedSourceToolName} started`
+              : event.payload.taskType === "plan"
+                ? "Plan task started"
+                : event.payload.taskType
+                  ? `${event.payload.taskType} task started`
+                  : "Task started",
           payload: {
             taskId: event.payload.taskId,
+            ...(taskStartedSourceItemType ? { itemType: taskStartedSourceItemType } : {}),
+            ...(taskStartedSourceToolName ? { toolName: taskStartedSourceToolName } : {}),
             ...(event.payload.taskType ? { taskType: event.payload.taskType } : {}),
             ...(event.payload.toolUseId ? { toolUseId: event.payload.toolUseId } : {}),
             ...(event.payload.description
@@ -579,6 +585,15 @@ export function runtimeEventToActivities(
               : {}),
             ...(event.payload.prompt ? { prompt: event.payload.prompt } : {}),
             ...(event.payload.workflowName ? { workflowName: event.payload.workflowName } : {}),
+            ...(event.payload.sourceDetail
+              ? { sourceDetail: truncateDetail(event.payload.sourceDetail) }
+              : {}),
+            ...(event.payload.sourceTimeoutMs !== undefined
+              ? { sourceTimeoutMs: event.payload.sourceTimeoutMs }
+              : {}),
+            ...(event.payload.sourcePersistent !== undefined
+              ? { sourcePersistent: event.payload.sourcePersistent }
+              : {}),
             ...(taskStartedChildAttr ? { childThreadAttribution: taskStartedChildAttr } : {}),
           },
           turnId: toTurnId(event.turnId) ?? null,
@@ -589,20 +604,36 @@ export function runtimeEventToActivities(
 
     case "task.progress": {
       const taskProgressChildAttr = extractChildThreadAttribution(event.payload);
+      const taskProgressSourceItemType = event.payload.sourceItemType;
+      const taskProgressSourceToolName = event.payload.sourceToolName;
       return [
         {
           id: event.eventId,
           createdAt: event.createdAt,
           tone: "info",
           kind: "task.progress",
-          summary: "Reasoning update",
+          summary:
+            taskProgressSourceItemType === "dynamic_tool_call" && taskProgressSourceToolName
+              ? `${taskProgressSourceToolName} progress`
+              : "Reasoning update",
           payload: {
             taskId: event.payload.taskId,
+            ...(taskProgressSourceItemType ? { itemType: taskProgressSourceItemType } : {}),
+            ...(taskProgressSourceToolName ? { toolName: taskProgressSourceToolName } : {}),
             ...(event.payload.toolUseId ? { toolUseId: event.payload.toolUseId } : {}),
             detail: truncateDetail(event.payload.summary ?? event.payload.description),
             ...(event.payload.summary ? { summary: truncateDetail(event.payload.summary) } : {}),
             ...(event.payload.lastToolName ? { lastToolName: event.payload.lastToolName } : {}),
             ...(event.payload.usage !== undefined ? { usage: event.payload.usage } : {}),
+            ...(event.payload.sourceDetail
+              ? { sourceDetail: truncateDetail(event.payload.sourceDetail) }
+              : {}),
+            ...(event.payload.sourceTimeoutMs !== undefined
+              ? { sourceTimeoutMs: event.payload.sourceTimeoutMs }
+              : {}),
+            ...(event.payload.sourcePersistent !== undefined
+              ? { sourcePersistent: event.payload.sourcePersistent }
+              : {}),
             ...(taskProgressChildAttr ? { childThreadAttribution: taskProgressChildAttr } : {}),
           },
           turnId: toTurnId(event.turnId) ?? null,
@@ -613,6 +644,8 @@ export function runtimeEventToActivities(
 
     case "task.completed": {
       const taskCompletedChildAttr = extractChildThreadAttribution(event.payload);
+      const taskCompletedSourceItemType = event.payload.sourceItemType;
+      const taskCompletedSourceToolName = event.payload.sourceToolName;
       logBackgroundDebug("ingestion", "runtime.task.completed", {
         threadId: event.threadId,
         turnId: event.turnId ?? null,
@@ -627,18 +660,35 @@ export function runtimeEventToActivities(
           tone: event.payload.status === "failed" ? "error" : "info",
           kind: "task.completed",
           summary:
-            event.payload.status === "failed"
-              ? "Task failed"
-              : event.payload.status === "stopped"
-                ? "Task stopped"
-                : "Task completed",
+            taskCompletedSourceItemType === "dynamic_tool_call" && taskCompletedSourceToolName
+              ? event.payload.status === "failed"
+                ? `${taskCompletedSourceToolName} failed`
+                : event.payload.status === "stopped"
+                  ? `${taskCompletedSourceToolName} stopped`
+                  : `${taskCompletedSourceToolName} completed`
+              : event.payload.status === "failed"
+                ? "Task failed"
+                : event.payload.status === "stopped"
+                  ? "Task stopped"
+                  : "Task completed",
           payload: {
             taskId: event.payload.taskId,
             status: event.payload.status,
+            ...(taskCompletedSourceItemType ? { itemType: taskCompletedSourceItemType } : {}),
+            ...(taskCompletedSourceToolName ? { toolName: taskCompletedSourceToolName } : {}),
             ...(event.payload.toolUseId ? { toolUseId: event.payload.toolUseId } : {}),
             ...(event.payload.summary ? { detail: truncateDetail(event.payload.summary) } : {}),
             ...(event.payload.usage !== undefined ? { usage: event.payload.usage } : {}),
             ...(event.payload.outputFile ? { outputFile: event.payload.outputFile } : {}),
+            ...(event.payload.sourceDetail
+              ? { sourceDetail: truncateDetail(event.payload.sourceDetail) }
+              : {}),
+            ...(event.payload.sourceTimeoutMs !== undefined
+              ? { sourceTimeoutMs: event.payload.sourceTimeoutMs }
+              : {}),
+            ...(event.payload.sourcePersistent !== undefined
+              ? { sourcePersistent: event.payload.sourcePersistent }
+              : {}),
             ...(taskCompletedChildAttr ? { childThreadAttribution: taskCompletedChildAttr } : {}),
           },
           turnId: toTurnId(event.turnId) ?? null,
@@ -652,6 +702,8 @@ export function runtimeEventToActivities(
       const patchPayload = asRecord(event.payload.patch);
       const patchStatus =
         typeof patchPayload?.status === "string" ? patchPayload.status : undefined;
+      const taskUpdatedSourceItemType = event.payload.sourceItemType;
+      const taskUpdatedSourceToolName = event.payload.sourceToolName;
       logBackgroundDebug("ingestion", "runtime.task.updated", {
         threadId: event.threadId,
         turnId: event.turnId ?? null,
@@ -665,10 +717,30 @@ export function runtimeEventToActivities(
           createdAt: event.createdAt,
           tone: patchStatus === "failed" || patchStatus === "killed" ? "error" : "info",
           kind: "task.updated",
-          summary: "Task updated",
+          summary:
+            taskUpdatedSourceItemType === "dynamic_tool_call" && taskUpdatedSourceToolName
+              ? patchStatus === "failed"
+                ? `${taskUpdatedSourceToolName} failed`
+                : patchStatus === "killed"
+                  ? `${taskUpdatedSourceToolName} killed`
+                  : patchStatus === "completed"
+                    ? `${taskUpdatedSourceToolName} completed`
+                    : `${taskUpdatedSourceToolName} updated`
+              : "Task updated",
           payload: {
             taskId: event.payload.taskId,
             patch: event.payload.patch,
+            ...(taskUpdatedSourceItemType ? { itemType: taskUpdatedSourceItemType } : {}),
+            ...(taskUpdatedSourceToolName ? { toolName: taskUpdatedSourceToolName } : {}),
+            ...(event.payload.sourceDetail
+              ? { sourceDetail: truncateDetail(event.payload.sourceDetail) }
+              : {}),
+            ...(event.payload.sourceTimeoutMs !== undefined
+              ? { sourceTimeoutMs: event.payload.sourceTimeoutMs }
+              : {}),
+            ...(event.payload.sourcePersistent !== undefined
+              ? { sourcePersistent: event.payload.sourcePersistent }
+              : {}),
             ...(taskUpdatedChildAttr ? { childThreadAttribution: taskUpdatedChildAttr } : {}),
           },
           turnId: toTurnId(event.turnId) ?? null,

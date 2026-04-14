@@ -2817,6 +2817,159 @@ describe("ClaudeAdapterLive", () => {
     );
   });
 
+  it.effect("preserves originating Monitor tool metadata on task lifecycle events", () => {
+    const harness = makeHarness();
+    return Effect.gen(function* () {
+      const services = yield* Effect.services();
+      const runFork = Effect.runForkWith(services);
+      const adapter = yield* ClaudeAdapter;
+      const runtimeEvents: Array<ProviderRuntimeEvent> = [];
+      const runtimeEventsFiber = runFork(
+        Stream.runForEach(adapter.streamEvents, (event) =>
+          Effect.sync(() => {
+            runtimeEvents.push(event);
+          }),
+        ),
+      );
+
+      yield* adapter.startSession({
+        threadId: THREAD_ID,
+        provider: "claudeAgent",
+        runtimeMode: "full-access",
+      });
+
+      yield* adapter.sendTurn({
+        threadId: THREAD_ID,
+        input: "watch the dev server",
+        attachments: [],
+      });
+
+      harness.query.emit({
+        type: "stream_event",
+        session_id: "sdk-session-monitor",
+        uuid: "stream-monitor-tool",
+        parent_tool_use_id: null,
+        event: {
+          type: "content_block_start",
+          index: 0,
+          content_block: {
+            type: "tool_use",
+            id: "tool-monitor-1",
+            name: "Monitor",
+            input: {
+              command: "bun run dev",
+              description: "Watch the dev server",
+              timeout_ms: 30000,
+              persistent: false,
+            },
+          },
+        },
+      } as unknown as SDKMessage);
+
+      harness.query.emit({
+        type: "system",
+        subtype: "task_started",
+        task_id: "task-monitor-1",
+        tool_use_id: "tool-monitor-1",
+        description: "Watch the dev server",
+        task_type: "local_bash",
+        session_id: "sdk-session-monitor",
+        uuid: "task-started-monitor-1",
+      } as unknown as SDKMessage);
+
+      harness.query.emit({
+        type: "user",
+        session_id: "sdk-session-monitor",
+        uuid: "user-monitor-result",
+        parent_tool_use_id: null,
+        tool_use_result: {
+          message: "Monitor started (task task-monitor-1, timeout 30000ms)",
+        },
+        message: {
+          role: "user",
+          content: [
+            {
+              type: "tool_result",
+              tool_use_id: "tool-monitor-1",
+              content: "Monitor started (task task-monitor-1, timeout 30000ms)",
+            },
+          ],
+        },
+      } as unknown as SDKMessage);
+
+      harness.query.emit({
+        type: "system",
+        subtype: "task_notification",
+        task_id: "task-monitor-1",
+        tool_use_id: "tool-monitor-1",
+        status: "stopped",
+        summary: "Monitor stopped after timeout",
+        session_id: "sdk-session-monitor",
+        uuid: "task-notification-monitor-1",
+      } as unknown as SDKMessage);
+
+      harness.query.emit({
+        type: "system",
+        subtype: "task_updated",
+        task_id: "task-monitor-1",
+        patch: {
+          status: "killed",
+          error: "Monitor timed out after 30000ms",
+        },
+        session_id: "sdk-session-monitor",
+        uuid: "task-updated-monitor-1",
+      } as unknown as SDKMessage);
+      harness.query.finish();
+
+      yield* Effect.yieldNow;
+      yield* Effect.yieldNow;
+      yield* Effect.promise(() => new Promise((resolve) => setTimeout(resolve, 25)));
+      runtimeEventsFiber.interruptUnsafe();
+
+      const startedEvent = runtimeEvents.find((event) => event.type === "task.started");
+      const completedEvent = runtimeEvents.find((event) => event.type === "task.completed");
+      const updatedEvent = runtimeEvents.find((event) => event.type === "task.updated");
+
+      assert.equal(startedEvent?.type, "task.started");
+      if (startedEvent?.type === "task.started") {
+        const payload = startedEvent.payload as Record<string, unknown>;
+        assert.equal(payload.sourceItemType, "dynamic_tool_call");
+        assert.equal(payload.sourceToolName, "Monitor");
+        assert.equal(payload.sourceDetail, "Monitor: Watch the dev server");
+        assert.equal(payload.sourceTimeoutMs, 30000);
+        assert.equal(payload.sourcePersistent, false);
+      }
+
+      assert.equal(completedEvent?.type, "task.completed");
+      if (completedEvent?.type === "task.completed") {
+        const payload = completedEvent.payload as Record<string, unknown>;
+        assert.equal(payload.sourceItemType, "dynamic_tool_call");
+        assert.equal(payload.sourceToolName, "Monitor");
+        assert.equal(payload.sourceDetail, "Monitor: Watch the dev server");
+        assert.equal(payload.sourceTimeoutMs, 30000);
+        assert.equal(payload.sourcePersistent, false);
+        assert.equal(payload.status, "stopped");
+      }
+
+      assert.equal(updatedEvent?.type, "task.updated");
+      if (updatedEvent?.type === "task.updated") {
+        const payload = updatedEvent.payload as Record<string, unknown>;
+        assert.equal(payload.sourceItemType, "dynamic_tool_call");
+        assert.equal(payload.sourceToolName, "Monitor");
+        assert.equal(payload.sourceDetail, "Monitor: Watch the dev server");
+        assert.equal(payload.sourceTimeoutMs, 30000);
+        assert.equal(payload.sourcePersistent, false);
+        assert.deepEqual(payload.patch, {
+          status: "killed",
+          error: "Monitor timed out after 30000ms",
+        });
+      }
+    }).pipe(
+      Effect.provideService(Random.Random, makeDeterministicRandomService()),
+      Effect.provide(harness.layer),
+    );
+  });
+
   it.effect("forwards outputFile from task_notification", () => {
     const harness = makeHarness();
     return Effect.gen(function* () {

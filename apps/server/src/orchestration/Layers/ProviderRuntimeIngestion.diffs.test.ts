@@ -2132,6 +2132,128 @@ describe("ProviderRuntimeIngestion diffs and advanced events", () => {
     ).toBe("# Plan title");
   });
 
+  it("projects Monitor-owned task lifecycle chunks as separate dynamic tool activities", async () => {
+    const harness = await createHarness();
+    const now = new Date().toISOString();
+
+    harness.emit({
+      type: "task.started",
+      eventId: asEventId("evt-monitor-task-started"),
+      provider: "claudeAgent",
+      createdAt: now,
+      threadId: asThreadId("thread-1"),
+      turnId: asTurnId("turn-monitor-1"),
+      payload: {
+        taskId: "task-monitor-1",
+        taskType: "local_bash",
+        toolUseId: "tool-monitor-1",
+        sourceItemType: "dynamic_tool_call",
+        sourceToolName: "Monitor",
+        sourceDetail: "Monitor: Watch the dev server",
+        sourceTimeoutMs: 30000,
+        sourcePersistent: false,
+      },
+    });
+
+    harness.emit({
+      type: "task.completed",
+      eventId: asEventId("evt-monitor-task-completed"),
+      provider: "claudeAgent",
+      createdAt: now,
+      threadId: asThreadId("thread-1"),
+      turnId: asTurnId("turn-monitor-1"),
+      payload: {
+        taskId: "task-monitor-1",
+        toolUseId: "tool-monitor-1",
+        status: "stopped",
+        summary: "Monitor stopped after timeout",
+        sourceItemType: "dynamic_tool_call",
+        sourceToolName: "Monitor",
+        sourceDetail: "Monitor: Watch the dev server",
+        sourceTimeoutMs: 30000,
+        sourcePersistent: false,
+      },
+    });
+
+    harness.emit({
+      type: "task.updated",
+      eventId: asEventId("evt-monitor-task-updated"),
+      provider: "claudeAgent",
+      createdAt: now,
+      threadId: asThreadId("thread-1"),
+      turnId: asTurnId("turn-monitor-1"),
+      payload: {
+        taskId: "task-monitor-1",
+        patch: {
+          status: "killed",
+          error: "Monitor timed out after 30000ms",
+        },
+        sourceItemType: "dynamic_tool_call",
+        sourceToolName: "Monitor",
+        sourceDetail: "Monitor: Watch the dev server",
+        sourceTimeoutMs: 30000,
+        sourcePersistent: false,
+      },
+    });
+
+    const thread = await waitForThread(harness.engine, (entry) =>
+      entry.activities.some(
+        (activity: ProviderRuntimeTestActivity) => activity.id === "evt-monitor-task-updated",
+      ),
+    );
+
+    const started = thread.activities.find(
+      (activity: ProviderRuntimeTestActivity) => activity.id === "evt-monitor-task-started",
+    );
+    const completed = thread.activities.find(
+      (activity: ProviderRuntimeTestActivity) => activity.id === "evt-monitor-task-completed",
+    );
+    const updated = thread.activities.find(
+      (activity: ProviderRuntimeTestActivity) => activity.id === "evt-monitor-task-updated",
+    );
+
+    expect(started?.kind).toBe("task.started");
+    expect(started?.summary).toBe("Monitor started");
+    expect(activityPayload(started)).toMatchObject({
+      taskId: "task-monitor-1",
+      toolUseId: "tool-monitor-1",
+      itemType: "dynamic_tool_call",
+      toolName: "Monitor",
+      sourceDetail: "Monitor: Watch the dev server",
+      sourceTimeoutMs: 30000,
+      sourcePersistent: false,
+    });
+
+    expect(completed?.kind).toBe("task.completed");
+    expect(completed?.summary).toBe("Monitor stopped");
+    expect(activityPayload(completed)).toMatchObject({
+      taskId: "task-monitor-1",
+      toolUseId: "tool-monitor-1",
+      status: "stopped",
+      itemType: "dynamic_tool_call",
+      toolName: "Monitor",
+      detail: "Monitor stopped after timeout",
+      sourceDetail: "Monitor: Watch the dev server",
+      sourceTimeoutMs: 30000,
+      sourcePersistent: false,
+    });
+
+    expect(updated?.kind).toBe("task.updated");
+    expect(updated?.summary).toBe("Monitor killed");
+    expect(activityPayload(updated)).toMatchObject({
+      taskId: "task-monitor-1",
+      itemType: "dynamic_tool_call",
+      toolName: "Monitor",
+      sourceDetail: "Monitor: Watch the dev server",
+      sourceTimeoutMs: 30000,
+      sourcePersistent: false,
+      patch: {
+        status: "killed",
+        error: "Monitor timed out after 30000ms",
+      },
+    });
+  });
+
   it("projects structured user input request and resolution as thread activities", async () => {
     const harness = await createHarness();
     const now = new Date().toISOString();

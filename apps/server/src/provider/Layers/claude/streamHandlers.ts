@@ -54,6 +54,7 @@ import {
   type AssistantTextBlockState,
   type ClaudeAdapterContext,
   type ClaudeSessionContext,
+  type TaskAttribution,
   type ToolInFlight,
 } from "./types.ts";
 
@@ -157,6 +158,57 @@ function trackedTaskDebugState(
     alreadyCompleted: context.completedTaskIds.has(taskId),
     storedToolUseId: attribution?.toolUseId ?? null,
     hasStoredChildThreadAttribution: attribution?.childThreadAttribution != null,
+  };
+}
+
+function findInFlightToolByItemId(
+  context: ClaudeSessionContext,
+  toolUseId: string | null | undefined,
+): ToolInFlight | undefined {
+  if (!toolUseId) {
+    return undefined;
+  }
+  return Array.from(context.inFlightTools.values()).find((tool) => tool.itemId === toolUseId);
+}
+
+function taskAttributionFromTool(
+  tool: ToolInFlight | undefined,
+): Omit<TaskAttribution, "toolUseId" | "childThreadAttribution"> {
+  if (!tool) {
+    return {};
+  }
+
+  const sourceTimeoutMs =
+    typeof tool.input.timeout_ms === "number" && Number.isFinite(tool.input.timeout_ms)
+      ? tool.input.timeout_ms
+      : undefined;
+  const sourcePersistent =
+    typeof tool.input.persistent === "boolean" ? tool.input.persistent : undefined;
+
+  return {
+    sourceItemType: tool.itemType,
+    sourceToolName: tool.toolName,
+    ...(tool.detail ? { sourceDetail: tool.detail } : {}),
+    ...(sourceTimeoutMs !== undefined ? { sourceTimeoutMs } : {}),
+    ...(sourcePersistent !== undefined ? { sourcePersistent } : {}),
+  };
+}
+
+function taskAttributionPayload(attribution: TaskAttribution | undefined): Record<string, unknown> {
+  if (!attribution) {
+    return {};
+  }
+
+  return {
+    ...(attribution.sourceItemType ? { sourceItemType: attribution.sourceItemType } : {}),
+    ...(attribution.sourceToolName ? { sourceToolName: attribution.sourceToolName } : {}),
+    ...(attribution.sourceDetail ? { sourceDetail: attribution.sourceDetail } : {}),
+    ...(attribution.sourceTimeoutMs !== undefined
+      ? { sourceTimeoutMs: attribution.sourceTimeoutMs }
+      : {}),
+    ...(attribution.sourcePersistent !== undefined
+      ? { sourcePersistent: attribution.sourcePersistent }
+      : {}),
   };
 }
 
@@ -1543,6 +1595,9 @@ export const handleSystemMessage = Effect.fn("handleSystemMessage")(function* (
     case "task_started": {
       const taskToolUseId = sdkToolUseId(message);
       const taskStartedAttribution = buildChildThreadAttribution(context, taskToolUseId);
+      const taskSourceAttribution = taskAttributionFromTool(
+        findInFlightToolByItemId(context, taskToolUseId),
+      );
       appendServerDebugRecord({
         topic: "claude-subagent",
         source: "handleSystemMessage/task_started",
@@ -1563,8 +1618,10 @@ export const handleSystemMessage = Effect.fn("handleSystemMessage")(function* (
         context.taskAttributionByTaskId.set(message.task_id, {
           ...(taskToolUseId ? { toolUseId: taskToolUseId } : {}),
           ...(taskStartedAttribution ? { childThreadAttribution: taskStartedAttribution } : {}),
+          ...taskSourceAttribution,
         });
       }
+      const storedTaskAttribution = context.taskAttributionByTaskId.get(message.task_id);
       const sdkPrompt = (message as Record<string, unknown>).prompt;
       const sdkWorkflowName = (message as Record<string, unknown>).workflow_name;
       yield* ctx.offerRuntimeEvent({
@@ -1579,6 +1636,7 @@ export const handleSystemMessage = Effect.fn("handleSystemMessage")(function* (
           ...(typeof sdkWorkflowName === "string" && sdkWorkflowName.length > 0
             ? { workflowName: sdkWorkflowName }
             : {}),
+          ...taskAttributionPayload(storedTaskAttribution),
           ...(taskStartedAttribution ? { childThreadAttribution: taskStartedAttribution } : {}),
         },
       });
@@ -1605,6 +1663,9 @@ export const handleSystemMessage = Effect.fn("handleSystemMessage")(function* (
         }
       }
       const taskProgressAttribution = buildChildThreadAttribution(context, sdkToolUseId(message));
+      const taskSourceAttribution = taskAttributionFromTool(
+        findInFlightToolByItemId(context, sdkToolUseId(message)),
+      );
       // Backfill attribution if task_started was missed (e.g. during reconnect).
       if (
         (message.tool_use_id || taskProgressAttribution) &&
@@ -1613,8 +1674,10 @@ export const handleSystemMessage = Effect.fn("handleSystemMessage")(function* (
         context.taskAttributionByTaskId.set(message.task_id, {
           ...(message.tool_use_id ? { toolUseId: message.tool_use_id } : {}),
           ...(taskProgressAttribution ? { childThreadAttribution: taskProgressAttribution } : {}),
+          ...taskSourceAttribution,
         });
       }
+      const storedTaskAttribution = context.taskAttributionByTaskId.get(message.task_id);
       yield* ctx.offerRuntimeEvent({
         ...base,
         type: "task.progress",
@@ -1625,6 +1688,7 @@ export const handleSystemMessage = Effect.fn("handleSystemMessage")(function* (
           ...(message.summary ? { summary: message.summary } : {}),
           ...(message.usage ? { usage: message.usage } : {}),
           ...(message.last_tool_name ? { lastToolName: message.last_tool_name } : {}),
+          ...taskAttributionPayload(storedTaskAttribution),
           ...(taskProgressAttribution ? { childThreadAttribution: taskProgressAttribution } : {}),
         },
       });
@@ -1680,6 +1744,7 @@ export const handleSystemMessage = Effect.fn("handleSystemMessage")(function* (
             ...(message.output_file ? { outputFile: message.output_file } : {}),
             ...(message.summary ? { summary: message.summary } : {}),
             ...(message.usage ? { usage: message.usage } : {}),
+            ...taskAttributionPayload(storedTaskAttribution),
             ...(taskCompletedAttribution
               ? { childThreadAttribution: taskCompletedAttribution }
               : {}),
@@ -1706,11 +1771,11 @@ export const handleSystemMessage = Effect.fn("handleSystemMessage")(function* (
       if (completedToolUseId) {
         context.activeSubagentTools.delete(completedToolUseId);
       }
-      context.taskAttributionByTaskId.delete(message.task_id);
       logClaudeTaskLifecycleDebug(context, "task_notification.cleanup", {
         taskId: message.task_id,
         cleanedToolUseId: completedToolUseId ?? null,
-        removedStoredChildThreadAttribution: storedTaskAttribution?.childThreadAttribution != null,
+        removedStoredChildThreadAttribution: false,
+        cleanupDeferredUntilLateTerminalUpdate: storedTaskAttribution != null,
       });
       return;
     }
@@ -1796,6 +1861,7 @@ export const handleSystemMessage = Effect.fn("handleSystemMessage")(function* (
         payload: {
           taskId: RuntimeTaskId.makeUnsafe(message.task_id),
           patch: patchPayload,
+          ...taskAttributionPayload(taskUpdatedAttribution),
           ...(taskUpdatedAttribution?.childThreadAttribution
             ? { childThreadAttribution: taskUpdatedAttribution.childThreadAttribution }
             : {}),

@@ -236,6 +236,7 @@ function estimateWorkGroupRowHeight(
   let estimate = 28 + (showHeader ? 26 : 0) + visibleEntries * 32;
   for (const entry of row.groupedEntries.slice(-visibleEntries)) {
     estimate += estimateExpandedCommandOutputHeight(entry, input.expandedCommandOutputIds);
+    estimate += estimateExpandedDetailItemsHeight(entry, input.expandedCommandOutputIds);
     if (!entry.inlineDiff) continue;
     estimate +=
       input.expandedInlineDiff?.scope === "tool" && input.expandedInlineDiff.id === entry.id
@@ -257,6 +258,7 @@ function estimateStandaloneWorkRowHeight(
 ): number {
   let estimate = 58;
   estimate += estimateExpandedCommandOutputHeight(row.entry, input.expandedCommandOutputIds);
+  estimate += estimateExpandedDetailItemsHeight(row.entry, input.expandedCommandOutputIds);
   if (row.entry.inlineDiff) {
     estimate +=
       input.expandedInlineDiff?.scope === "tool" && input.expandedInlineDiff.id === row.entry.id
@@ -302,6 +304,21 @@ function estimateExpandedCommandOutputHeight(
   const lineCount = entry.output ? entry.output.split("\n").length : 12;
   const estimatedBodyHeight = Math.min(COMMAND_OUTPUT_TIMELINE_MAX_HEIGHT_PX, lineCount * 17 + 20);
   return 16 + 30 + estimatedBodyHeight;
+}
+
+function estimateExpandedDetailItemsHeight(
+  entry: WorkLogEntry,
+  expandedCommandOutputIds: Readonly<Record<string, boolean>> | undefined,
+): number {
+  if (!(expandedCommandOutputIds?.[entry.id] ?? false) || (entry.detailItems?.length ?? 0) === 0) {
+    return 0;
+  }
+
+  const estimatedValueLines = (entry.detailItems ?? []).reduce((total, item) => {
+    return total + Math.max(1, Math.ceil(item.value.length / 56));
+  }, 0);
+
+  return 16 + 26 + estimatedValueLines * 18;
 }
 
 function shouldRenderStandaloneWorkEntry(entry: WorkLogEntry): boolean {

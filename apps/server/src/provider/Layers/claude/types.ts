@@ -116,6 +116,16 @@ export interface ActiveSubagentTool {
   readonly agentModel: string | undefined;
 }
 
+export interface TaskAttribution {
+  readonly toolUseId?: string | undefined;
+  readonly childThreadAttribution?: Record<string, unknown> | undefined;
+  readonly sourceItemType?: CanonicalItemType | undefined;
+  readonly sourceToolName?: string | undefined;
+  readonly sourceDetail?: string | undefined;
+  readonly sourceTimeoutMs?: number | undefined;
+  readonly sourcePersistent?: boolean | undefined;
+}
+
 export interface ClaudeSessionContext {
   session: ProviderSession;
   readonly promptQueue: Queue.Queue<PromptQueueItem>;
@@ -136,13 +146,7 @@ export interface ClaudeSessionContext {
   readonly activeSubagentTools: Map<string, ActiveSubagentTool>;
   /** Maps runtime task_id → attribution from earlier task_started/task_progress events.
    *  Used by task_updated (which carries task_id but no tool_use_id) to resolve childThreadAttribution. */
-  readonly taskAttributionByTaskId: Map<
-    string,
-    {
-      toolUseId?: string | undefined;
-      childThreadAttribution?: Record<string, unknown> | undefined;
-    }
-  >;
+  readonly taskAttributionByTaskId: Map<string, TaskAttribution>;
   /** Tracks tasks that have already reached a terminal state so late TaskOutput polls do not emit duplicates. */
   readonly terminalTaskIds: Set<string>;
   /** Tracks tasks that have already had a task.completed event emitted, preventing task_notification from emitting a duplicate that would shift timeline entries. */

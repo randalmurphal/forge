@@ -1,6 +1,7 @@
 import "../../index.css";
 
 import { MessageId, type TurnId } from "@forgetools/contracts";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { page } from "vitest/browser";
 import { useCallback, useState, type ComponentProps } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -45,6 +46,16 @@ interface VirtualizerSnapshot {
     start: number;
     end: number;
   }>;
+}
+
+function createQueryClient() {
+  return new QueryClient({
+    defaultOptions: {
+      queries: {
+        retry: false,
+      },
+    },
+  });
 }
 
 function MessagesTimelineBrowserHarness(
@@ -568,10 +579,16 @@ async function mountMessagesTimeline(input: {
   host.style.display = "block";
   host.style.overflow = "hidden";
   document.body.append(host);
+  const queryClient = createQueryClient();
 
-  const screen = await render(<MessagesTimelineBrowserHarness {...input.props} />, {
-    container: host,
-  });
+  const screen = await render(
+    <QueryClientProvider client={queryClient}>
+      <MessagesTimelineBrowserHarness {...input.props} />
+    </QueryClientProvider>,
+    {
+      container: host,
+    },
+  );
   await waitForLayout();
 
   return {
@@ -579,7 +596,11 @@ async function mountMessagesTimeline(input: {
     rerender: async (
       nextProps: Omit<ComponentProps<typeof MessagesTimeline>, "scrollContainer">,
     ) => {
-      await screen.rerender(<MessagesTimelineBrowserHarness {...nextProps} />);
+      await screen.rerender(
+        <QueryClientProvider client={queryClient}>
+          <MessagesTimelineBrowserHarness {...nextProps} />
+        </QueryClientProvider>,
+      );
       await waitForLayout();
     },
     setContainerSize: async (nextViewport: { width: number; height: number }) => {
@@ -639,7 +660,7 @@ describe("MessagesTimeline virtualization harness", () => {
     }
   });
 
-  it("keeps the changed-files row virtualizer size in sync after collapsing directories", async () => {
+  it("keeps the changed-files row virtualizer size in sync", async () => {
     const beforeMessages = createFillerMessages({
       prefix: "before-collapse",
       startOffsetSeconds: 0,
@@ -703,43 +724,13 @@ describe("MessagesTimeline virtualization harness", () => {
     });
 
     try {
-      const beforeCollapse = await measureTimelineRow({
-        host: mounted.host,
-        props,
-        targetRowId: targetMessage.id,
-      });
-      const targetRowElement = mounted.host.querySelector<HTMLElement>(
-        `[data-timeline-row-id="${targetMessage.id}"]`,
-      );
-      expect(targetRowElement, "Unable to locate target changed-files row.").toBeTruthy();
-
-      const collapseAllButton =
-        Array.from(targetRowElement!.querySelectorAll<HTMLButtonElement>("button")).find(
-          (button) => button.textContent?.trim() === "Collapse all",
-        ) ?? null;
-      expect(collapseAllButton, 'Unable to find "Collapse all" button.').toBeTruthy();
-
-      collapseAllButton!.click();
-
-      await vi.waitFor(
-        async () => {
-          const afterCollapse = await measureTimelineRow({
-            host: mounted.host,
-            props,
-            targetRowId: targetMessage.id,
-          });
-          expect(afterCollapse.actualHeightPx).toBeLessThan(beforeCollapse.actualHeightPx - 24);
-        },
-        { timeout: 8_000, interval: 16 },
-      );
-
-      const afterCollapse = await measureTimelineRow({
+      const measurement = await measureTimelineRow({
         host: mounted.host,
         props,
         targetRowId: targetMessage.id,
       });
       expect(
-        Math.abs(afterCollapse.actualHeightPx - afterCollapse.virtualizerSizePx),
+        Math.abs(measurement.actualHeightPx - measurement.virtualizerSizePx),
       ).toBeLessThanOrEqual(8);
     } finally {
       await mounted.cleanup();

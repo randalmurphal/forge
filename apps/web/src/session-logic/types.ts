@@ -75,6 +75,12 @@ export interface WorkLogEntry {
   agentModel?: string | undefined;
   agentPrompt?: string | undefined;
   receiverThreadIds?: string[] | undefined;
+  detailItems?:
+    | ReadonlyArray<{
+        label: string;
+        value: string;
+      }>
+    | undefined;
   childThreadAttribution?:
     | {
         taskId: string;
@@ -235,6 +241,10 @@ export interface ToolEnrichments {
   agentModel?: string;
   agentPrompt?: string;
   receiverThreadIds?: string[];
+  detailItems?: ReadonlyArray<{
+    label: string;
+    value: string;
+  }>;
 }
 
 export interface ProviderBackgroundTaskSignal {

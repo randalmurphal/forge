@@ -70,6 +70,7 @@ import {
   type PendingUserInput,
   type PromptQueueItem,
   type StartSessionServices,
+  type TaskAttribution,
   type ToolInFlight,
 } from "./types.ts";
 
@@ -276,13 +277,7 @@ export const startSession = (
     const pendingUserInputs = new Map<ApprovalRequestId, PendingUserInput>();
     const inFlightTools = new Map<number, ToolInFlight>();
     const activeSubagentTools = new Map<string, ActiveSubagentTool>();
-    const taskAttributionByTaskId = new Map<
-      string,
-      {
-        toolUseId?: string | undefined;
-        childThreadAttribution?: Record<string, unknown> | undefined;
-      }
-    >();
+    const taskAttributionByTaskId = new Map<string, TaskAttribution>();
     const terminalTaskIds = new Set<string>();
     const completedTaskIds = new Set<string>();
 

@@ -212,11 +212,11 @@ function ingestActivity(
     return;
   }
 
+  const activityItemType = extractWorkLogItemType(payload);
+
   if (activity.kind !== "tool.output.delta" && activity.kind !== "tool.terminal.interaction") {
     const currentToolCallId =
-      extractWorkLogItemType(payload) === "command_execution"
-        ? extractToolCallId(payload)
-        : undefined;
+      activityItemType === "command_execution" ? extractToolCallId(payload) : undefined;
     markCodexBackgroundCandidatesForTurnAdvance(
       state,
       activity.turnId ?? undefined,
@@ -236,7 +236,8 @@ function ingestActivity(
 
   if (
     payload?.childThreadAttribution == null &&
-    (activity.kind === "task.started" || activity.kind === "task.completed")
+    (activity.kind === "task.started" || activity.kind === "task.completed") &&
+    (activityItemType == null || activityItemType === "command_execution")
   ) {
     return;
   }
@@ -599,6 +600,10 @@ function isParentThreadTaskSignal(
   activity: OrchestrationThreadActivity,
   payload: Record<string, unknown> | undefined,
 ): boolean {
+  const itemType = extractWorkLogItemType(payload);
+  if (itemType && itemType !== "command_execution") {
+    return false;
+  }
   if (
     activity.kind !== "task.started" &&
     activity.kind !== "task.completed" &&
@@ -700,6 +705,10 @@ function ingestOwnedParentThreadTaskProgress(
   activity: OrchestrationThreadActivity,
   payload: Record<string, unknown> | undefined,
 ): boolean {
+  const itemType = extractWorkLogItemType(payload);
+  if (itemType && itemType !== "command_execution") {
+    return false;
+  }
   if (activity.kind !== "task.progress" || payload?.childThreadAttribution != null) {
     return false;
   }
