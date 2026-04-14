@@ -1241,12 +1241,16 @@ function handleDiffEvent(state: AppState, event: ForgeEvent): AppState | undefin
 function handleActivityEvent(state: AppState, event: ForgeEvent): AppState | undefined {
   switch (event.type) {
     case "thread.activity-appended": {
+      const activity = {
+        ...event.payload.activity,
+        sequence: event.sequence,
+      };
       const nextState = updateThreadState(state, event.payload.threadId, (thread) => {
         // Append-only: skip duplicates (idempotent for replay/recovery)
-        if (thread.activities.some((a) => a.id === event.payload.activity.id)) {
+        if (thread.activities.some((a) => a.id === activity.id)) {
           return thread;
         }
-        const activities = [...thread.activities, { ...event.payload.activity }]
+        const activities = [...thread.activities, activity]
           .toSorted(compareActivities)
           .slice(-MAX_THREAD_ACTIVITIES);
         return {
@@ -1259,7 +1263,7 @@ function handleActivityEvent(state: AppState, event: ForgeEvent): AppState | und
         ? setThreadWorkLogState(
             nextState,
             event.payload.threadId,
-            applyActivityToWorkLogProjectionState(workLogState, event.payload.activity),
+            applyActivityToWorkLogProjectionState(workLogState, activity),
           )
         : nextState;
     }

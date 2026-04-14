@@ -13,6 +13,7 @@ import {
 } from "@forgetools/contracts";
 import { describe, expect, it } from "vitest";
 
+import { deriveTimelineEntries, deriveWorkLogEntries } from "./session-logic";
 import {
   applyOrchestrationEvent,
   applyOrchestrationEvents,
@@ -635,6 +636,82 @@ describe("incremental orchestration updates", () => {
       sequence: 25,
       streaming: false,
     });
+  });
+
+  it("anchors appended activities to orchestration event order for timeline stability", () => {
+    const threadId = ThreadId.makeUnsafe("thread-1");
+    const turnId = TurnId.makeUnsafe("turn-1");
+    const initialState = makeState(
+      makeThread({
+        id: threadId,
+        messages: [
+          {
+            id: MessageId.makeUnsafe("assistant-before-command"),
+            role: "assistant",
+            text: "I am about to run a command.",
+            turnId,
+            createdAt: "2026-02-27T00:00:05.000Z",
+            sequence: 10,
+            streaming: false,
+            completedAt: "2026-02-27T00:00:05.000Z",
+          },
+        ],
+      }),
+    );
+
+    const next = applyOrchestrationEvent(
+      initialState,
+      makeEvent(
+        "thread.activity-appended",
+        {
+          threadId,
+          activity: {
+            id: EventId.makeUnsafe("activity-inline-command"),
+            tone: "tool",
+            kind: "tool.started",
+            summary: "Command started",
+            payload: {
+              itemType: "command_execution",
+              data: {
+                item: {
+                  command: ["sleep", "2"],
+                },
+              },
+            },
+            turnId,
+            createdAt: "2026-02-27T00:00:05.000Z",
+            sequence: 1,
+          },
+        },
+        {
+          sequence: 11,
+        },
+      ),
+    );
+
+    expect(next.threads[0]?.activities[0]).toMatchObject({
+      id: EventId.makeUnsafe("activity-inline-command"),
+      sequence: 11,
+    });
+    const workEntries = deriveWorkLogEntries(next.threads[0]?.activities ?? [], undefined);
+    expect(workEntries[0]).toMatchObject({
+      id: EventId.makeUnsafe("activity-inline-command"),
+      sequence: 11,
+    });
+
+    const timeline = deriveTimelineEntries(next.threads[0]?.messages ?? [], [], workEntries);
+    expect(
+      timeline.map((entry) =>
+        entry.kind === "message"
+          ? entry.message.id
+          : entry.kind === "work"
+            ? entry.entry.id
+            : entry.id,
+      ),
+    ).toEqual([
+      MessageId.makeUnsafe("assistant-before-command"),
+      EventId.makeUnsafe("activity-inline-command"),
+    ]);
   });
 
   it("applies forge turn lifecycle events to session state", () => {

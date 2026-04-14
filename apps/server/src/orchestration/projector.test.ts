@@ -2216,4 +2216,74 @@ describe("orchestration projector", () => {
     const thread = finalState.threads.find((entry) => entry.id === "thread-channel");
     expect(thread?.updatedAt).toBe(channelClosedAt);
   });
+
+  it("anchors appended thread activities to orchestration event sequence", async () => {
+    const now = new Date().toISOString();
+    const model = createEmptyReadModel(now);
+
+    const afterCreate = await Effect.runPromise(
+      projectEvent(
+        model,
+        makeEvent({
+          sequence: 1,
+          type: "thread.created",
+          aggregateKind: "thread",
+          aggregateId: "thread-activity-sequence",
+          occurredAt: now,
+          commandId: "cmd-thread-create",
+          payload: {
+            threadId: "thread-activity-sequence",
+            projectId: "project-1",
+            title: "demo",
+            modelSelection: {
+              provider: "codex",
+              model: "gpt-5-codex",
+            },
+            runtimeMode: "full-access",
+            branch: null,
+            worktreePath: null,
+            interactionMode: "default",
+            createdAt: now,
+            updatedAt: now,
+          },
+        }),
+      ),
+    );
+
+    const next = await Effect.runPromise(
+      projectEvent(
+        afterCreate,
+        makeEvent({
+          sequence: 9,
+          type: "thread.activity-appended",
+          aggregateKind: "thread",
+          aggregateId: "thread-activity-sequence",
+          occurredAt: now,
+          commandId: "cmd-activity-append",
+          payload: {
+            threadId: "thread-activity-sequence",
+            activity: {
+              id: "activity-runtime-sequence-mismatch",
+              tone: "tool",
+              kind: "tool.started",
+              summary: "Command started",
+              payload: {
+                itemType: "command_execution",
+              },
+              turnId: null,
+              createdAt: now,
+              sequence: 1,
+            },
+          },
+        }),
+      ),
+    );
+
+    expect(next.threads[0]?.activities).toMatchObject([
+      {
+        id: "activity-runtime-sequence-mismatch",
+        sequence: 9,
+      },
+    ]);
+  });
 });

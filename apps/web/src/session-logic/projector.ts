@@ -1215,22 +1215,39 @@ function upsertBackgroundCompletionEntry(
     completionEntry?.id ??
     state.backgroundCompletionEntryIdByToolCallId.get(launchEntry.toolCallId ?? "") ??
     `${launchEntry.id}:background-task-completed`;
+  const existingCompletionEntryCandidate = findEntryById(state, completionId);
+  const existingCompletionEntry =
+    existingCompletionEntryCandidate?.backgroundLifecycleRole === "completion"
+      ? existingCompletionEntryCandidate
+      : undefined;
+  const completionEntryProvidesAnchor =
+    completionEntry?.backgroundLifecycleRole === "completion" ||
+    completionEntry?.activityKind === "tool.completed" ||
+    completionEntry?.activityKind === "task.completed" ||
+    completionEntry?.activityKind === "task.updated";
   const completedAt =
+    existingCompletionEntry?.completedAt ??
+    existingCompletionEntry?.createdAt ??
     signal?.completedAt ??
-    completionEntry?.completedAt ??
+    (completionEntryProvidesAnchor
+      ? (completionEntry?.completedAt ?? completionEntry?.createdAt)
+      : undefined) ??
     launchEntry.backgroundCompletedAt ??
     launchEntry.completedAt ??
     launchEntry.createdAt;
   const nextEntry: WorkLogEntry = {
     ...launchEntry,
+    ...existingCompletionEntry,
     ...completionEntry,
     id: completionId,
     createdAt: completedAt,
-    ...(signal?.completedSequence !== undefined
-      ? { sequence: signal.completedSequence }
-      : completionEntry?.sequence !== undefined
-        ? { sequence: completionEntry.sequence }
-        : {}),
+    ...(existingCompletionEntry?.sequence !== undefined
+      ? { sequence: existingCompletionEntry.sequence }
+      : signal?.completedSequence !== undefined
+        ? { sequence: signal.completedSequence }
+        : completionEntryProvidesAnchor && completionEntry?.sequence !== undefined
+          ? { sequence: completionEntry.sequence }
+          : {}),
     completedAt,
     label: status === "failed" ? "Background command failed" : "Background command completed",
     tone: completionEntry?.tone ?? (status === "failed" ? "error" : "tool"),
@@ -1240,7 +1257,7 @@ function upsertBackgroundCompletionEntry(
     backgroundTaskStatus: status,
     backgroundLifecycleRole: "completion",
   };
-  if (!completionEntry) {
+  if (!completionEntry && !existingCompletionEntry) {
     delete (nextEntry as Partial<WorkLogEntry>).detail;
     delete (nextEntry as Partial<WorkLogEntry>).output;
     delete (nextEntry as Partial<WorkLogEntry>).hasOutput;
@@ -1438,6 +1455,7 @@ function mergeDerivedWorkLogEntries(
   next: DerivedWorkLogEntry,
 ): DerivedWorkLogEntry {
   const createdAt = earliestIsoValue(previous.createdAt, next.createdAt) ?? next.createdAt;
+  const sequence = previous.sequence ?? next.sequence;
   const changedFiles = mergeChangedFiles(previous.changedFiles, next.changedFiles);
   const detail = next.detail ?? previous.detail;
   const command = next.command ?? previous.command;
@@ -1482,6 +1500,7 @@ function mergeDerivedWorkLogEntries(
     ...previous,
     ...next,
     createdAt,
+    ...(sequence !== undefined ? { sequence } : {}),
     ...(detail ? { detail } : {}),
     ...(command ? { command } : {}),
     ...(changedFiles.length > 0 ? { changedFiles } : {}),

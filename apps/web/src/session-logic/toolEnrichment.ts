@@ -15,7 +15,7 @@ import type {
 } from "./types";
 import type { TurnDiffFileChange } from "../types";
 import { requestKindFromRequestType } from "./approvals";
-import { isVisibleCollabControlWorkEntry } from "./subagentGrouping";
+import { isVisibleInlineToolStartEntry } from "./subagentGrouping";
 import { normalizeCompactToolLabel } from "./utils";
 
 export function extractToolEnrichments(
@@ -708,11 +708,7 @@ function deriveToolLifecycleCollapseKey(entry: DerivedWorkLogEntry): string | un
   ) {
     return undefined;
   }
-  if (
-    entry.activityKind === "tool.started" &&
-    entry.itemType !== "command_execution" &&
-    !isVisibleCollabControlWorkEntry(entry)
-  ) {
+  if (entry.activityKind === "tool.started" && !isVisibleInlineToolStartEntry(entry)) {
     return undefined;
   }
   const normalizedLabel = normalizeCompactToolLabel(entry.toolTitle ?? entry.label);

@@ -9,6 +9,7 @@ import { describe, expect, it } from "vitest";
 import {
   deriveBackgroundTrayState,
   deriveWorkLogEntries,
+  enrichParentEntriesWithSubagentGroupMetadata,
   filterTrayOwnedWorkEntries,
 } from "./session-logic";
 
@@ -96,6 +97,7 @@ describe("deriveWorkLogEntries", () => {
         makeActivity({
           id: "command-start",
           createdAt: "2026-02-23T00:00:02.000Z",
+          sequence: 10,
           kind: "tool.started",
           summary: "Command started",
           payload: {
@@ -113,6 +115,7 @@ describe("deriveWorkLogEntries", () => {
         makeActivity({
           id: "command-complete",
           createdAt: "2026-02-23T00:00:07.000Z",
+          sequence: 20,
           kind: "tool.completed",
           summary: "Command",
           payload: {
@@ -140,7 +143,164 @@ describe("deriveWorkLogEntries", () => {
       itemStatus: "completed",
       toolCallId: "command-collapse-1",
       startedAt: "2026-02-23T00:00:02.000Z",
+      sequence: 10,
       output: "done",
+    });
+  });
+
+  it("anchors a Claude TaskOutput row to tool.started so later background completions stay after it", () => {
+    const workEntries = deriveWorkLogEntries(
+      [
+        makeActivity({
+          id: "background-agent-launch",
+          createdAt: "2026-04-10T12:00:00.000Z",
+          sequence: 1,
+          kind: "tool.completed",
+          summary: "Subagent task",
+          payload: {
+            itemType: "collab_agent_tool_call",
+            itemId: "toolu_agent_launch_anchor",
+            status: "completed",
+            toolName: "Agent",
+            detail: "Agent: Sleep 10 then report done",
+            data: {
+              toolName: "Agent",
+              input: {
+                description: "Sleep 10 then report done",
+                prompt: 'Run the command `sleep 10` in bash, then report "done".',
+                run_in_background: true,
+              },
+              toolUseResult: {
+                isAsync: true,
+                status: "async_launched",
+                agentId: "anchored-agent-001",
+                description: "Sleep 10 then report done",
+                prompt: 'Run the command `sleep 10` in bash, then report "done".',
+              },
+            },
+          },
+        }),
+        makeActivity({
+          id: "background-agent-task-started",
+          createdAt: "2026-04-10T12:00:00.050Z",
+          sequence: 2,
+          kind: "task.started",
+          summary: "local_agent task started",
+          payload: {
+            taskId: "anchored-agent-001",
+            toolUseId: "toolu_agent_launch_anchor",
+            detail: "Sleep 10 then report done",
+            childThreadAttribution: {
+              taskId: "toolu_agent_launch_anchor",
+              childProviderThreadId: "toolu_agent_launch_anchor",
+              label: "Sleep 10 then report done",
+            },
+          },
+        }),
+        makeActivity({
+          id: "taskoutput-wait-started",
+          createdAt: "2026-04-10T12:00:05.000Z",
+          sequence: 3,
+          kind: "tool.started",
+          summary: "Tool call",
+          payload: {
+            itemType: "dynamic_tool_call",
+            itemId: "toolu_taskoutput_anchor_wait",
+            status: "inProgress",
+            toolName: "TaskOutput",
+            detail: 'TaskOutput: {"task_id":"command-task-001","block":true,"timeout":60000}',
+            data: {
+              toolName: "TaskOutput",
+              input: {
+                task_id: "command-task-001",
+                block: true,
+                timeout: 60000,
+              },
+            },
+          },
+        }),
+        makeActivity({
+          id: "background-agent-task-updated-terminal",
+          createdAt: "2026-04-10T12:00:06.000Z",
+          sequence: 4,
+          kind: "task.updated",
+          summary: "Task updated",
+          tone: "info",
+          payload: {
+            taskId: "anchored-agent-001",
+            patch: {
+              status: "completed",
+            },
+            childThreadAttribution: {
+              taskId: "toolu_agent_launch_anchor",
+              childProviderThreadId: "toolu_agent_launch_anchor",
+              label: "Sleep 10 then report done",
+            },
+          },
+        }),
+        makeActivity({
+          id: "taskoutput-wait-completed",
+          createdAt: "2026-04-10T12:00:07.000Z",
+          sequence: 7,
+          kind: "tool.completed",
+          summary: "Tool call",
+          payload: {
+            itemType: "dynamic_tool_call",
+            itemId: "toolu_taskoutput_anchor_wait",
+            status: "completed",
+            toolName: "TaskOutput",
+            detail: 'TaskOutput: {"task_id":"command-task-001","block":true,"timeout":60000}',
+            data: {
+              toolName: "TaskOutput",
+              input: {
+                task_id: "command-task-001",
+                block: true,
+                timeout: 60000,
+              },
+              toolUseResult: {
+                retrieval_status: "success",
+                task: {
+                  task_id: "command-task-001",
+                  task_type: "local_bash",
+                  status: "completed",
+                  description: "Check a different background command",
+                  output: "done\n",
+                  exitCode: 0,
+                },
+              },
+            },
+          },
+        }),
+      ],
+      undefined,
+    );
+
+    const timelineEntries = enrichParentEntriesWithSubagentGroupMetadata(workEntries);
+
+    expect(timelineEntries.map((entry) => entry.id)).toEqual([
+      "background-agent-launch",
+      "taskoutput-wait-completed",
+      "background-agent-launch:background-agent-completed",
+    ]);
+
+    expect(timelineEntries.find((entry) => entry.id === "taskoutput-wait-completed")).toMatchObject(
+      {
+        id: "taskoutput-wait-completed",
+        activityKind: "tool.completed",
+        sequence: 3,
+        startedAt: "2026-04-10T12:00:05.000Z",
+      },
+    );
+
+    expect(
+      timelineEntries.find(
+        (entry) => entry.id === "background-agent-launch:background-agent-completed",
+      ),
+    ).toMatchObject({
+      id: "background-agent-launch:background-agent-completed",
+      activityKind: "task.completed",
+      sequence: 4,
+      createdAt: "2026-04-10T12:00:06.000Z",
     });
   });
 
@@ -3348,6 +3508,93 @@ describe("deriveWorkLogEntries", () => {
     expect(trayState.commandEntries).toEqual([]);
   });
 
+  it("keeps a background bash completion row anchored to the first terminal signal", () => {
+    const workEntries = deriveWorkLogEntries(
+      [
+        makeActivity({
+          id: "claude-bash-launch-completed",
+          createdAt: "2026-04-10T12:00:00.100Z",
+          sequence: 1,
+          kind: "tool.completed",
+          summary: "Command",
+          payload: {
+            itemType: "command_execution",
+            itemId: "toolu_bash_launch_anchor",
+            status: "completed",
+            toolName: "Bash",
+            detail: "Bash: Command running in background with ID: anchored-bash.",
+            data: {
+              toolName: "Bash",
+              input: {
+                command: "sleep 20 && echo done",
+                description: "Sleep 20 seconds then print done",
+                run_in_background: true,
+              },
+              toolUseResult: {
+                backgroundTaskId: "anchored-bash",
+              },
+            },
+          },
+        }),
+        makeActivity({
+          id: "claude-bash-task-started",
+          createdAt: "2026-04-10T12:00:00.120Z",
+          sequence: 2,
+          kind: "task.started",
+          summary: "local_bash task started",
+          payload: {
+            taskId: "anchored-bash",
+            toolUseId: "toolu_bash_launch_anchor",
+            detail: "Sleep 20 seconds then print done",
+          },
+        }),
+        makeActivity({
+          id: "bash-task-updated-terminal",
+          createdAt: "2026-04-10T12:00:20.000Z",
+          sequence: 4,
+          kind: "task.updated",
+          summary: "Task updated",
+          tone: "info",
+          payload: {
+            taskId: "anchored-bash",
+            patch: {
+              status: "completed",
+              end_time: 1776047120000,
+            },
+          },
+        }),
+        makeActivity({
+          id: "bash-task-completed-late",
+          createdAt: "2026-04-10T12:00:21.000Z",
+          sequence: 6,
+          kind: "task.completed",
+          summary: "Task completed",
+          payload: {
+            taskId: "anchored-bash",
+            toolUseId: "toolu_bash_launch_anchor",
+            status: "completed",
+            detail: 'Background command "sleep 20 && echo done" completed (exit code 0)',
+          },
+        }),
+      ],
+      undefined,
+    );
+
+    expect(
+      workEntries.find(
+        (entry) => entry.id === "claude-bash-launch-completed:background-task-completed",
+      ),
+    ).toMatchObject({
+      id: "claude-bash-launch-completed:background-task-completed",
+      activityKind: "task.completed",
+      sequence: 4,
+      createdAt: "2026-04-10T12:00:20.000Z",
+      completedAt: "2026-04-10T12:00:20.000Z",
+      backgroundLifecycleRole: "completion",
+      backgroundTaskStatus: "completed",
+    });
+  });
+
   it("moves a Claude background agent from running to completed on task notification", () => {
     const workEntries = deriveWorkLogEntries(
       [
@@ -3611,6 +3858,112 @@ describe("deriveWorkLogEntries", () => {
     expect(trayState.agentEntries).toHaveLength(1);
     expect(trayState.agentEntries[0]?.subagentGroupMeta).toMatchObject({
       status: "completed",
+    });
+  });
+
+  it("keeps a background agent completion row anchored to the first terminal child signal", () => {
+    const workEntries = deriveWorkLogEntries(
+      [
+        makeActivity({
+          id: "claude-agent-launch-completed",
+          createdAt: "2026-04-10T12:00:00.100Z",
+          sequence: 1,
+          kind: "tool.completed",
+          summary: "Subagent task",
+          payload: {
+            itemType: "collab_agent_tool_call",
+            itemId: "toolu_agent_launch_anchor_2",
+            status: "completed",
+            toolName: "Agent",
+            detail: "Agent: Sleep 10 then report done",
+            data: {
+              toolName: "Agent",
+              input: {
+                description: "Sleep 10 then report done",
+                prompt: 'Run the command `sleep 10` in bash, then report "done".',
+                run_in_background: true,
+              },
+              toolUseResult: {
+                isAsync: true,
+                status: "async_launched",
+                agentId: "anchor-agent-002",
+                description: "Sleep 10 then report done",
+                prompt: 'Run the command `sleep 10` in bash, then report "done".',
+              },
+            },
+          },
+        }),
+        makeActivity({
+          id: "claude-agent-task-started",
+          createdAt: "2026-04-10T12:00:00.120Z",
+          sequence: 2,
+          kind: "task.started",
+          summary: "local_agent task started",
+          payload: {
+            taskId: "anchor-agent-002",
+            toolUseId: "toolu_agent_launch_anchor_2",
+            detail: "Sleep 10 then report done",
+            childThreadAttribution: {
+              taskId: "toolu_agent_launch_anchor_2",
+              childProviderThreadId: "toolu_agent_launch_anchor_2",
+              label: "Sleep 10 then report done",
+            },
+          },
+        }),
+        makeActivity({
+          id: "claude-agent-task-updated-terminal",
+          createdAt: "2026-04-10T12:00:10.000Z",
+          sequence: 4,
+          kind: "task.updated",
+          summary: "Task updated",
+          tone: "info",
+          payload: {
+            taskId: "anchor-agent-002",
+            patch: {
+              status: "completed",
+            },
+            childThreadAttribution: {
+              taskId: "toolu_agent_launch_anchor_2",
+              childProviderThreadId: "toolu_agent_launch_anchor_2",
+              label: "Sleep 10 then report done",
+            },
+          },
+        }),
+        makeActivity({
+          id: "claude-agent-task-completed-late",
+          createdAt: "2026-04-10T12:00:12.000Z",
+          sequence: 8,
+          kind: "task.completed",
+          summary: "Task completed",
+          payload: {
+            taskId: "anchor-agent-002",
+            toolUseId: "toolu_agent_launch_anchor_2",
+            status: "completed",
+            detail: 'Agent "Sleep 10 then report done" completed',
+            childThreadAttribution: {
+              taskId: "toolu_agent_launch_anchor_2",
+              childProviderThreadId: "toolu_agent_launch_anchor_2",
+              label: "Sleep 10 then report done",
+            },
+          },
+        }),
+      ],
+      undefined,
+    );
+
+    const timelineEntries = enrichParentEntriesWithSubagentGroupMetadata(workEntries);
+
+    expect(
+      timelineEntries.find(
+        (entry) => entry.id === "claude-agent-launch-completed:background-agent-completed",
+      ),
+    ).toMatchObject({
+      id: "claude-agent-launch-completed:background-agent-completed",
+      activityKind: "task.completed",
+      sequence: 4,
+      createdAt: "2026-04-10T12:00:10.000Z",
+      completedAt: "2026-04-10T12:00:10.000Z",
+      backgroundLifecycleRole: "completion",
     });
   });
 

@@ -77,9 +77,10 @@ export function isVisibleCollabControlTool(toolName: string | null | undefined):
   );
 }
 
-export function isVisibleCollabControlWorkEntry(
-  entry: Pick<DerivedWorkLogEntry, "itemType" | "toolName">,
-): boolean {
+export function isVisibleCollabControlWorkEntry(entry: {
+  itemType?: DerivedWorkLogEntry["itemType"] | undefined;
+  toolName?: string | undefined;
+}): boolean {
   // Claude emits user-visible Agent launch rows through the same lifecycle collapse path as Codex
   // spawn/wait controls. If we only whitelist Codex names here, the empty start payload and richer
   // completion payload split into duplicate inline rows instead of one collapsed control entry.
@@ -87,6 +88,19 @@ export function isVisibleCollabControlWorkEntry(
     entry.itemType === "collab_agent_tool_call" &&
     isVisibleCollabControlTool(entry.toolName ?? null)
   );
+}
+
+export function isVisibleInlineToolStartEntry(entry: {
+  itemType?: DerivedWorkLogEntry["itemType"] | undefined;
+  toolName?: string | undefined;
+}): boolean {
+  if (entry.itemType === "command_execution") {
+    return true;
+  }
+  if (isVisibleCollabControlWorkEntry(entry)) {
+    return true;
+  }
+  return entry.itemType === "dynamic_tool_call" && entry.toolName === "TaskOutput";
 }
 
 export function isUnattributedCollabAgentToolEnvelope(
@@ -114,10 +128,13 @@ export function shouldFilterToolStartedActivity(activity: OrchestrationThreadAct
     return false;
   }
   const payload = asRecord(activity.payload);
-  if (payload?.itemType === "collab_agent_tool_call") {
-    return !isVisibleCollabControlTool(extractCollabControlToolName(payload));
-  }
-  return payload?.itemType !== "command_execution";
+  return !isVisibleInlineToolStartEntry({
+    itemType:
+      typeof payload?.itemType === "string"
+        ? (payload.itemType as DerivedWorkLogEntry["itemType"])
+        : undefined,
+    toolName: extractCollabControlToolName(payload) ?? undefined,
+  });
 }
 
 export function isGenericSubagentLabel(label: string | undefined): boolean {
@@ -235,15 +252,11 @@ export function groupSubagentEntries(workEntries: ReadonlyArray<WorkLogEntry>): 
         group.agentPrompt = entry.detail;
       }
     } else if (entry.activityKind === "task.completed") {
-      group.completedAt =
-        group.completedAt && group.completedAt > entry.createdAt
-          ? group.completedAt
-          : entry.createdAt;
-      if (entry.sequence !== undefined) {
-        group.completedSequence =
-          group.completedSequence !== undefined
-            ? Math.max(group.completedSequence, entry.sequence)
-            : entry.sequence;
+      if (!group.completedAt) {
+        group.completedAt = entry.createdAt;
+      }
+      if (group.completedSequence === undefined && entry.sequence !== undefined) {
+        group.completedSequence = entry.sequence;
       }
       const completedStatus =
         entry.itemStatus === "failed" || entry.itemStatus === "declined" || entry.tone === "error"
@@ -257,15 +270,11 @@ export function groupSubagentEntries(workEntries: ReadonlyArray<WorkLogEntry>): 
       const isTerminal =
         entry.itemStatus === "completed" || entry.itemStatus === "failed" || entry.tone === "error";
       if (isTerminal) {
-        group.completedAt =
-          group.completedAt && group.completedAt > entry.createdAt
-            ? group.completedAt
-            : entry.createdAt;
-        if (entry.sequence !== undefined) {
-          group.completedSequence =
-            group.completedSequence !== undefined
-              ? Math.max(group.completedSequence, entry.sequence)
-              : entry.sequence;
+        if (!group.completedAt) {
+          group.completedAt = entry.createdAt;
+        }
+        if (group.completedSequence === undefined && entry.sequence !== undefined) {
+          group.completedSequence = entry.sequence;
         }
         const completedStatus =
           entry.itemStatus === "failed" || entry.itemStatus === "declined" || entry.tone === "error"
