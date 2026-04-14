@@ -1740,7 +1740,7 @@ describe("ClaudeAdapterLive", () => {
   );
 
   it.effect(
-    "emits task.updated from task_updated and task.completed only from task_notification",
+    "emits task.completed from task_notification when task_updated marked terminal but no task.completed was emitted",
     () => {
       const harness = makeHarness();
       return Effect.gen(function* () {
@@ -1762,6 +1762,7 @@ describe("ClaudeAdapterLive", () => {
           runtimeMode: "full-access",
         });
 
+        // task_updated with terminal status arrives first
         harness.query.emit({
           type: "system",
           subtype: "task_updated",
@@ -1774,6 +1775,7 @@ describe("ClaudeAdapterLive", () => {
           uuid: "task-updated-bg-1",
         } as unknown as SDKMessage);
 
+        // task_notification arrives later for the same task
         harness.query.emit({
           type: "system",
           subtype: "task_notification",
@@ -1797,15 +1799,15 @@ describe("ClaudeAdapterLive", () => {
         const completedEvents = runtimeEvents.filter((event) => event.type === "task.completed");
 
         assert.deepEqual(warningEvents, []);
-        // task_updated emits task.updated, task_notification emits task.completed
+        // task_updated emits task.updated and marks the task terminal (in
+        // terminalTaskIds). task_notification checks completedTaskIds —
+        // since no task.completed was emitted yet, it emits task.completed.
         assert.equal(updatedEvents.length, 1);
         assert.equal(completedEvents.length, 1);
-        const completedEvent = completedEvents[0];
-        assert.equal(completedEvent?.type, "task.completed");
-        if (completedEvent?.type === "task.completed") {
-          assert.equal(completedEvent.payload.taskId, "task-bash-bg-3");
-          assert.equal(completedEvent.payload.toolUseId, "tool-bash-bg-3");
-          assert.equal(completedEvent.payload.status, "completed");
+        assert.equal(completedEvents[0]?.type, "task.completed");
+        if (completedEvents[0]?.type === "task.completed") {
+          assert.equal(completedEvents[0].payload.taskId, "task-bash-bg-3");
+          assert.equal(completedEvents[0].payload.status, "completed");
         }
       }).pipe(
         Effect.provideService(Random.Random, makeDeterministicRandomService()),
@@ -1814,7 +1816,124 @@ describe("ClaudeAdapterLive", () => {
     },
   );
 
-  it.effect("does not emit terminal task events from Claude task_updated alone", () => {
+  it.effect(
+    "preserves childThreadAttribution when task_notification completes a task after terminal task.updated",
+    () => {
+      const harness = makeHarness();
+      return Effect.gen(function* () {
+        const services = yield* Effect.services();
+        const runFork = Effect.runForkWith(services);
+        const adapter = yield* ClaudeAdapter;
+        const runtimeEvents: Array<ProviderRuntimeEvent> = [];
+        const runtimeEventsFiber = runFork(
+          Stream.runForEach(adapter.streamEvents, (event) =>
+            Effect.sync(() => {
+              runtimeEvents.push(event);
+            }),
+          ),
+        );
+
+        yield* adapter.startSession({
+          threadId: THREAD_ID,
+          provider: "claudeAgent",
+          runtimeMode: "full-access",
+        });
+
+        yield* adapter.sendTurn({
+          threadId: THREAD_ID,
+          input: "launch a background agent",
+          attachments: [],
+        });
+
+        harness.query.emit({
+          type: "assistant",
+          session_id: "sdk-session-task-updated-agent",
+          uuid: "assistant-task-updated-agent",
+          parent_tool_use_id: null,
+          message: {
+            model: "claude-opus-4-6",
+            id: "msg-task-updated-agent",
+            type: "message",
+            role: "assistant",
+            content: [
+              {
+                type: "tool_use",
+                id: "tool-agent-task-updated",
+                name: "Agent",
+                input: {
+                  description: "Background verifier",
+                  subagent_type: "Reviewer",
+                  model: "opus",
+                  prompt: "Check the generated output.",
+                },
+              },
+            ],
+          },
+        } as unknown as SDKMessage);
+
+        harness.query.emit({
+          type: "system",
+          subtype: "task_started",
+          task_id: "task-agent-task-updated",
+          tool_use_id: "tool-agent-task-updated",
+          description: "Background verifier",
+          task_type: "agent",
+          session_id: "sdk-session-task-updated-agent",
+          uuid: "task-started-task-updated-agent",
+        } as unknown as SDKMessage);
+
+        harness.query.emit({
+          type: "system",
+          subtype: "task_updated",
+          task_id: "task-agent-task-updated",
+          patch: {
+            status: "completed",
+            end_time: 1_775_969_368_152,
+          },
+          session_id: "sdk-session-task-updated-agent",
+          uuid: "task-updated-task-updated-agent",
+        } as unknown as SDKMessage);
+
+        harness.query.emit({
+          type: "system",
+          subtype: "task_notification",
+          task_id: "task-agent-task-updated",
+          tool_use_id: "tool-agent-task-updated",
+          status: "completed",
+          output_file: "/tmp/task-agent-task-updated.output",
+          summary: "Background verifier completed",
+          session_id: "sdk-session-task-updated-agent",
+          uuid: "task-notification-task-updated-agent",
+        } as unknown as SDKMessage);
+        harness.query.finish();
+
+        yield* Effect.yieldNow;
+        yield* Effect.yieldNow;
+        yield* Effect.promise(() => new Promise((resolve) => setTimeout(resolve, 25)));
+        runtimeEventsFiber.interruptUnsafe();
+
+        const completedEvent = runtimeEvents.find((event) => event.type === "task.completed");
+        assert.equal(completedEvent?.type, "task.completed");
+        if (completedEvent?.type === "task.completed") {
+          assert.deepEqual(
+            (completedEvent.payload as Record<string, unknown>).childThreadAttribution,
+            {
+              taskId: "tool-agent-task-updated",
+              childProviderThreadId: "tool-agent-task-updated",
+              label: "Background verifier",
+              agentType: "Reviewer",
+              agentModel: "opus",
+            },
+          );
+        }
+      }).pipe(
+        Effect.provideService(Random.Random, makeDeterministicRandomService()),
+        Effect.provide(harness.layer),
+      );
+    },
+  );
+
+  it.effect("marks task terminal from task_updated but does not emit task.completed", () => {
     const harness = makeHarness();
     return Effect.gen(function* () {
       const services = yield* Effect.services();
@@ -1854,14 +1973,14 @@ describe("ClaudeAdapterLive", () => {
       runtimeEventsFiber.interruptUnsafe();
 
       const warningEvents = runtimeEvents.filter((event) => event.type === "runtime.warning");
-      const terminalTaskEvents = runtimeEvents.filter((event) => event.type === "task.completed");
+      const completedEvents = runtimeEvents.filter((event) => event.type === "task.completed");
       const updatedEvents = runtimeEvents.filter((event) => event.type === "task.updated");
 
       assert.deepEqual(warningEvents, []);
-      // task_updated emits task.updated, NOT task.completed — terminal completion is
-      // signaled by the richer task_notification message, not task_updated.
-      assert.deepEqual(terminalTaskEvents, []);
+      // task_updated emits task.updated only — task.completed comes from
+      // TaskOutput (authoritative) or task_notification (fallback).
       assert.equal(updatedEvents.length, 1);
+      assert.equal(completedEvents.length, 0);
     }).pipe(
       Effect.provideService(Random.Random, makeDeterministicRandomService()),
       Effect.provide(harness.layer),
@@ -2109,8 +2228,151 @@ describe("ClaudeAdapterLive", () => {
         const completedEvents = runtimeEvents.filter((event) => event.type === "task.completed");
         const updatedEvents = runtimeEvents.filter((event) => event.type === "task.updated");
 
-        assert.deepEqual(completedEvents, []);
+        // TaskOutput is the authoritative completion signal — it always emits
+        // task.completed even if task_updated already marked the task terminal.
+        // This fixture only seeds task_started metadata, so we can recover the
+        // original toolUseId but not full childThreadAttribution.
+        assert.equal(completedEvents.length, 1);
+        assert.equal(completedEvents[0]?.type, "task.completed");
+        if (completedEvents[0]?.type === "task.completed") {
+          assert.equal(completedEvents[0].payload.taskId, "task-agent-terminal");
+          assert.equal(completedEvents[0].payload.toolUseId, "tool-agent-launch-terminal");
+          assert.equal(completedEvents[0].payload.status, "completed");
+          assert.equal(
+            (completedEvents[0].payload as Record<string, unknown>).childThreadAttribution,
+            undefined,
+          );
+        }
         assert.equal(updatedEvents.length, 1);
+      }).pipe(
+        Effect.provideService(Random.Random, makeDeterministicRandomService()),
+        Effect.provide(harness.layer),
+      );
+    },
+  );
+
+  it.effect(
+    "suppresses duplicate task_notification after TaskOutput already emitted task.completed",
+    () => {
+      const harness = makeHarness();
+      return Effect.gen(function* () {
+        const services = yield* Effect.services();
+        const runFork = Effect.runForkWith(services);
+        const adapter = yield* ClaudeAdapter;
+        const runtimeEvents: Array<ProviderRuntimeEvent> = [];
+        const runtimeEventsFiber = runFork(
+          Stream.runForEach(adapter.streamEvents, (event) =>
+            Effect.sync(() => {
+              runtimeEvents.push(event);
+            }),
+          ),
+        );
+
+        const session = yield* adapter.startSession({
+          threadId: THREAD_ID,
+          provider: "claudeAgent",
+          runtimeMode: "full-access",
+        });
+
+        yield* adapter.sendTurn({
+          threadId: session.threadId,
+          input: "wait for the background bash task",
+          attachments: [],
+        });
+
+        harness.query.emit({
+          type: "stream_event",
+          session_id: "sdk-session-taskoutput-duplicate-notification",
+          uuid: "stream-taskoutput-duplicate-notification-start",
+          parent_tool_use_id: null,
+          event: {
+            type: "content_block_start",
+            index: 1,
+            content_block: {
+              type: "tool_use",
+              id: "tool-taskoutput-duplicate-notification",
+              name: "TaskOutput",
+              input: {
+                task_id: "task-bash-duplicate-notification",
+                block: true,
+                timeout: 60_000,
+              },
+            },
+          },
+        } as unknown as SDKMessage);
+
+        harness.query.emit({
+          type: "stream_event",
+          session_id: "sdk-session-taskoutput-duplicate-notification",
+          uuid: "stream-taskoutput-duplicate-notification-stop",
+          parent_tool_use_id: null,
+          event: {
+            type: "content_block_stop",
+            index: 1,
+          },
+        } as unknown as SDKMessage);
+
+        harness.query.emit({
+          type: "system",
+          subtype: "task_started",
+          task_id: "task-bash-duplicate-notification",
+          tool_use_id: "tool-bash-duplicate-notification",
+          description: "Background bash duplicate notification",
+          task_type: "local_bash",
+          session_id: "sdk-session-taskoutput-duplicate-notification",
+          uuid: "task-started-duplicate-notification",
+        } as unknown as SDKMessage);
+
+        harness.query.emit({
+          type: "user",
+          session_id: "sdk-session-taskoutput-duplicate-notification",
+          uuid: "user-taskoutput-duplicate-notification",
+          parent_tool_use_id: null,
+          tool_use_result: {
+            retrieval_status: "success",
+            task: {
+              task_id: "task-bash-duplicate-notification",
+              task_type: "local_bash",
+              status: "completed",
+              description: "Background bash duplicate notification",
+              output_file: "/tmp/task-bash-duplicate-notification.output",
+            },
+          },
+          message: {
+            role: "user",
+            content: [
+              {
+                type: "tool_result",
+                tool_use_id: "tool-taskoutput-duplicate-notification",
+                content: "",
+              },
+            ],
+          },
+        } as unknown as SDKMessage);
+
+        harness.query.emit({
+          type: "system",
+          subtype: "task_notification",
+          task_id: "task-bash-duplicate-notification",
+          tool_use_id: "tool-bash-duplicate-notification",
+          status: "completed",
+          output_file: "/tmp/task-bash-duplicate-notification.output",
+          summary: "Background bash duplicate notification completed",
+          session_id: "sdk-session-taskoutput-duplicate-notification",
+          uuid: "task-notification-duplicate-notification",
+        } as unknown as SDKMessage);
+        harness.query.finish();
+
+        yield* Effect.yieldNow;
+        yield* Effect.yieldNow;
+        yield* Effect.promise(() => new Promise((resolve) => setTimeout(resolve, 25)));
+        runtimeEventsFiber.interruptUnsafe();
+
+        const completedEvents = runtimeEvents.filter((event) => event.type === "task.completed");
+        const updatedEvents = runtimeEvents.filter((event) => event.type === "task.updated");
+
+        assert.equal(completedEvents.length, 1);
+        assert.equal(updatedEvents.length, 0);
       }).pipe(
         Effect.provideService(Random.Random, makeDeterministicRandomService()),
         Effect.provide(harness.layer),

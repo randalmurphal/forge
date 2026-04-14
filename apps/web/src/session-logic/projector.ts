@@ -627,6 +627,19 @@ function ingestParentThreadTaskSignal(
     });
   }
   const status = normalizeProviderBackgroundTaskStatus(activity.kind, payload);
+
+  // Guard: skip re-processing non-authoritative terminal signals for tasks
+  // that already reached terminal state. task.completed (from TaskOutput) is
+  // authoritative and always processes; task.updated with terminal status is
+  // informational and skips when already terminal to prevent shifting.
+  if (
+    taskId &&
+    status !== "running" &&
+    activity.kind !== "task.completed" &&
+    state.terminalTaskIds.has(taskId)
+  ) {
+    return true;
+  }
   const existing =
     (toolUseId ? state.providerBackgroundTaskByToolUseId.get(toolUseId) : undefined) ??
     (taskId ? state.providerBackgroundTaskByTaskId.get(taskId) : undefined);
@@ -658,8 +671,8 @@ function ingestParentThreadTaskSignal(
   const entry =
     (toolUseId ? findCommandLaunchEntryByToolCallId(state, toolUseId) : undefined) ??
     (taskId ? findCommandLaunchEntryByBackgroundTaskId(state, taskId) : undefined);
-  if (!entry) {
-    return false;
+  if (!entry || !isProviderOwnedBackgroundCommandLaunch(state, entry)) {
+    return true;
   }
   patchEntry(state, entry.id, {
     isBackgroundCommand: true,
@@ -692,11 +705,14 @@ function ingestOwnedParentThreadTaskProgress(
   }
   const taskId = asTrimmedString(payload?.taskId);
   const toolUseId = asTrimmedString(payload?.toolUseId);
+  if (!taskId && !toolUseId) {
+    return false;
+  }
   const entry =
     (toolUseId ? findCommandLaunchEntryByToolCallId(state, toolUseId) : undefined) ??
     (taskId ? findCommandLaunchEntryByBackgroundTaskId(state, taskId) : undefined);
-  if (!entry) {
-    return false;
+  if (!entry || !isProviderOwnedBackgroundCommandLaunch(state, entry)) {
+    return true;
   }
 
   if (taskId) {
@@ -981,17 +997,15 @@ function applyStoredBackgroundSignals(state: WorkLogProjectionState, toolCallId:
   if (!launchEntry || launchEntry.itemType !== "command_execution") {
     return;
   }
+  if (!isProviderOwnedBackgroundCommandLaunch(state, launchEntry)) {
+    return;
+  }
   const providerTaskSignal =
     state.providerBackgroundTaskByToolUseId.get(toolCallId) ??
     (launchEntry.backgroundTaskId
       ? state.providerBackgroundTaskByTaskId.get(launchEntry.backgroundTaskId)
       : undefined);
-  const codexCandidate = state.codexCandidatesByToolCallId.get(toolCallId);
-  const isBackground =
-    launchEntry.isBackgroundCommand === true ||
-    providerTaskSignal !== undefined ||
-    codexCandidate?.backgrounded === true;
-  if (!isBackground) {
+  if (!providerTaskSignal) {
     return;
   }
   const patch: Partial<WorkLogEntry> = {
@@ -1166,6 +1180,22 @@ function findCommandLaunchEntryByBackgroundTaskId(
       entry.backgroundLifecycleRole !== "completion" &&
       entry.backgroundTaskId === backgroundTaskId,
   );
+}
+
+function isProviderOwnedBackgroundCommandLaunch(
+  state: WorkLogProjectionState,
+  entry: WorkLogEntry,
+): boolean {
+  if (entry.itemType !== "command_execution") {
+    return false;
+  }
+  if (entry.isBackgroundCommand === true || entry.backgroundTaskId) {
+    return true;
+  }
+  if (!entry.toolCallId) {
+    return false;
+  }
+  return state.codexCandidatesByToolCallId.get(entry.toolCallId)?.backgrounded === true;
 }
 
 function upsertBackgroundCompletionEntry(

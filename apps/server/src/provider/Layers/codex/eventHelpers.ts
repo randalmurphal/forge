@@ -282,10 +282,11 @@ export function mapItemLifecycle(
     return undefined;
   }
 
-  const itemType = toCanonicalItemType(source.type ?? source.kind);
-  if (itemType === "unknown" && lifecycle !== "item.updated") {
-    return undefined;
-  }
+  const rawItemType = toCanonicalItemType(source.type ?? source.kind);
+  // Unrecognized item types are treated as dynamic_tool_call so new tools
+  // from provider updates are visible in the UI rather than silently dropped.
+  // This matches the Claude adapter's classifyToolItemType fallback behavior.
+  const itemType = rawItemType === "unknown" ? "dynamic_tool_call" : rawItemType;
 
   const detail = itemDetail(source, payload ?? {});
   const status =

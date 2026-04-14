@@ -134,6 +134,32 @@ export const createSyntheticAssistantTextBlock = Effect.fn("createSyntheticAssis
   },
 );
 
+function logClaudeTaskLifecycleDebug(
+  context: ClaudeSessionContext,
+  label: string,
+  details: Record<string, unknown>,
+): void {
+  logBackgroundDebug("claude.taskLifecycle", label, {
+    threadId: context.session.threadId,
+    turnId: context.turnState ? asCanonicalTurnId(context.turnState.turnId) : null,
+    ...details,
+  });
+}
+
+function trackedTaskDebugState(
+  context: ClaudeSessionContext,
+  taskId: string,
+): Record<string, unknown> {
+  const attribution = context.taskAttributionByTaskId.get(taskId);
+  return {
+    taskId,
+    alreadyTerminal: context.terminalTaskIds.has(taskId),
+    alreadyCompleted: context.completedTaskIds.has(taskId),
+    storedToolUseId: attribution?.toolUseId ?? null,
+    hasStoredChildThreadAttribution: attribution?.childThreadAttribution != null,
+  };
+}
+
 // ---------------------------------------------------------------------------
 // Context-dependent helpers
 // ---------------------------------------------------------------------------
@@ -1135,13 +1161,25 @@ export const handleUserMessage = Effect.fn("handleUserMessage")(function* (
       },
     });
 
+    // TaskOutput is the authoritative completion signal for background tasks.
+    // Always emit task.completed when a terminal TaskOutput result arrives,
+    // even if task_updated already marked the task terminal — TaskOutput
+    // carries the definitive result data (output, exit code, output file).
     const taskOutputTerminal = extractTaskOutputTerminalResult(
       tool.toolName,
       toolData.toolUseResult,
     );
-    if (taskOutputTerminal && !context.terminalTaskIds.has(taskOutputTerminal.taskId)) {
-      context.terminalTaskIds.add(taskOutputTerminal.taskId);
+    if (taskOutputTerminal) {
       const taskAttribution = context.taskAttributionByTaskId.get(taskOutputTerminal.taskId);
+      logClaudeTaskLifecycleDebug(context, "taskoutput.received.terminal_result", {
+        ...trackedTaskDebugState(context, taskOutputTerminal.taskId),
+        sourceToolUseId: tool.itemId,
+        status: taskOutputTerminal.status,
+        summary: taskOutputTerminal.description ?? null,
+        outputFile: taskOutputTerminal.outputFile ?? null,
+      });
+      context.terminalTaskIds.add(taskOutputTerminal.taskId);
+      context.completedTaskIds.add(taskOutputTerminal.taskId);
       const taskCompletedStamp = yield* ctx.makeEventStamp();
       yield* ctx.offerRuntimeEvent({
         type: "task.completed",
@@ -1167,9 +1205,23 @@ export const handleUserMessage = Effect.fn("handleUserMessage")(function* (
           payload: message,
         },
       });
-      context.taskAttributionByTaskId.delete(taskOutputTerminal.taskId);
-      if (taskAttribution?.toolUseId) {
-        context.activeSubagentTools.delete(taskAttribution.toolUseId);
+      logClaudeTaskLifecycleDebug(context, "taskoutput.emit.task_completed", {
+        ...trackedTaskDebugState(context, taskOutputTerminal.taskId),
+        sourceToolUseId: tool.itemId,
+        emittedEventId: taskCompletedStamp.eventId,
+        status: taskOutputTerminal.status,
+        emittedToolUseId: taskAttribution?.toolUseId ?? null,
+      });
+      if (taskAttribution) {
+        context.taskAttributionByTaskId.delete(taskOutputTerminal.taskId);
+        if (taskAttribution.toolUseId) {
+          context.activeSubagentTools.delete(taskAttribution.toolUseId);
+        }
+        logClaudeTaskLifecycleDebug(context, "taskoutput.cleanup", {
+          taskId: taskOutputTerminal.taskId,
+          cleanedToolUseId: taskAttribution.toolUseId ?? null,
+          removedStoredChildThreadAttribution: taskAttribution.childThreadAttribution != null,
+        });
       }
     }
 
@@ -1598,25 +1650,68 @@ export const handleSystemMessage = Effect.fn("handleSystemMessage")(function* (
           });
         }
       }
-      const taskCompletedAttribution = buildChildThreadAttribution(context, sdkToolUseId(message));
-      yield* ctx.offerRuntimeEvent({
-        ...base,
-        type: "task.completed",
-        payload: {
-          taskId: RuntimeTaskId.makeUnsafe(message.task_id),
-          status: message.status,
-          ...(message.tool_use_id ? { toolUseId: message.tool_use_id } : {}),
-          ...(message.output_file ? { outputFile: message.output_file } : {}),
-          ...(message.summary ? { summary: message.summary } : {}),
-          ...(message.usage ? { usage: message.usage } : {}),
-          ...(taskCompletedAttribution ? { childThreadAttribution: taskCompletedAttribution } : {}),
-        },
+
+      const storedTaskAttribution = context.taskAttributionByTaskId.get(message.task_id);
+      logClaudeTaskLifecycleDebug(context, "task_notification.received", {
+        ...trackedTaskDebugState(context, message.task_id),
+        status: message.status,
+        toolUseId: message.tool_use_id ?? null,
+        outputFile: message.output_file ?? null,
+        summary: message.summary ?? null,
       });
+
+      if (!context.completedTaskIds.has(message.task_id)) {
+        // No task.completed has been emitted yet — emit it now.
+        // This handles: (a) task_notification as the first completion signal
+        // (backward compat), and (b) task_notification arriving after
+        // task_updated (which marks terminal but does not emit task.completed).
+        const taskCompletedAttribution =
+          storedTaskAttribution?.childThreadAttribution ??
+          buildChildThreadAttribution(context, sdkToolUseId(message));
+        yield* ctx.offerRuntimeEvent({
+          ...base,
+          type: "task.completed",
+          payload: {
+            taskId: RuntimeTaskId.makeUnsafe(message.task_id),
+            status: message.status,
+            ...((message.tool_use_id ?? storedTaskAttribution?.toolUseId)
+              ? { toolUseId: message.tool_use_id ?? storedTaskAttribution?.toolUseId }
+              : {}),
+            ...(message.output_file ? { outputFile: message.output_file } : {}),
+            ...(message.summary ? { summary: message.summary } : {}),
+            ...(message.usage ? { usage: message.usage } : {}),
+            ...(taskCompletedAttribution
+              ? { childThreadAttribution: taskCompletedAttribution }
+              : {}),
+          },
+        });
+        context.completedTaskIds.add(message.task_id);
+        logClaudeTaskLifecycleDebug(context, "task_notification.emit.task_completed", {
+          ...trackedTaskDebugState(context, message.task_id),
+          status: message.status,
+          emittedToolUseId: message.tool_use_id ?? storedTaskAttribution?.toolUseId ?? null,
+        });
+      } else {
+        logClaudeTaskLifecycleDebug(context, "task_notification.skip.duplicate_completed", {
+          ...trackedTaskDebugState(context, message.task_id),
+          status: message.status,
+          toolUseId: message.tool_use_id ?? storedTaskAttribution?.toolUseId ?? null,
+        });
+      }
+
+      // Always do cleanup regardless of whether this task_notification emitted
+      // task.completed or only confirmed an already-recorded completion.
       context.terminalTaskIds.add(message.task_id);
-      if (message.tool_use_id) {
-        context.activeSubagentTools.delete(message.tool_use_id);
+      const completedToolUseId = message.tool_use_id ?? storedTaskAttribution?.toolUseId;
+      if (completedToolUseId) {
+        context.activeSubagentTools.delete(completedToolUseId);
       }
       context.taskAttributionByTaskId.delete(message.task_id);
+      logClaudeTaskLifecycleDebug(context, "task_notification.cleanup", {
+        taskId: message.task_id,
+        cleanedToolUseId: completedToolUseId ?? null,
+        removedStoredChildThreadAttribution: storedTaskAttribution?.childThreadAttribution != null,
+      });
       return;
     }
     case "local_command_output": {
@@ -1684,6 +1779,17 @@ export const handleSystemMessage = Effect.fn("handleSystemMessage")(function* (
       if (taskUpdatedPatch.is_backgrounded != null) {
         patchPayload.isBackgrounded = taskUpdatedPatch.is_backgrounded;
       }
+      const isTerminal =
+        taskUpdatedPatch.status === "completed" ||
+        taskUpdatedPatch.status === "failed" ||
+        taskUpdatedPatch.status === "killed";
+      logClaudeTaskLifecycleDebug(context, "task_updated.received", {
+        ...trackedTaskDebugState(context, message.task_id),
+        patchStatus: taskUpdatedPatch.status ?? null,
+        patchDescription:
+          typeof taskUpdatedPatch.description === "string" ? taskUpdatedPatch.description : null,
+        isTerminal,
+      });
       yield* ctx.offerRuntimeEvent({
         ...base,
         type: "task.updated",
@@ -1695,16 +1801,34 @@ export const handleSystemMessage = Effect.fn("handleSystemMessage")(function* (
             : {}),
         },
       });
-      const isTerminal =
-        taskUpdatedPatch.status === "completed" ||
-        taskUpdatedPatch.status === "failed" ||
-        taskUpdatedPatch.status === "killed";
+      logClaudeTaskLifecycleDebug(context, "task_updated.emit.task_updated", {
+        ...trackedTaskDebugState(context, message.task_id),
+        patchStatus: taskUpdatedPatch.status ?? null,
+        isTerminal,
+      });
       if (isTerminal) {
         context.terminalTaskIds.add(message.task_id);
-        if (taskUpdatedAttribution?.toolUseId) {
+        // Keep attribution alive until an authoritative completion signal
+        // (TaskOutput or task_notification) arrives so late completion events
+        // can still resolve the originating tool/subagent metadata.
+        const alreadyCompleted = context.completedTaskIds.has(message.task_id);
+        let cleanedToolUseId: string | null = null;
+        let removedStoredChildThreadAttribution = false;
+        if (alreadyCompleted && taskUpdatedAttribution?.toolUseId) {
           context.activeSubagentTools.delete(taskUpdatedAttribution.toolUseId);
+          cleanedToolUseId = taskUpdatedAttribution.toolUseId;
         }
-        context.taskAttributionByTaskId.delete(message.task_id);
+        if (alreadyCompleted) {
+          context.taskAttributionByTaskId.delete(message.task_id);
+          removedStoredChildThreadAttribution =
+            taskUpdatedAttribution?.childThreadAttribution != null;
+        }
+        logClaudeTaskLifecycleDebug(context, "task_updated.terminal_cleanup", {
+          ...trackedTaskDebugState(context, message.task_id),
+          cleanedToolUseId,
+          removedStoredChildThreadAttribution,
+          cleanupDeferredUntilCompletion: !alreadyCompleted,
+        });
       }
       return;
     }

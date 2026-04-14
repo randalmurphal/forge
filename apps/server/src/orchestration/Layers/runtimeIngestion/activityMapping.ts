@@ -1066,3 +1066,118 @@ export function runtimeEventToActivities(
 
   return [];
 }
+
+/**
+ * Determines whether a runtime event represents a semantic boundary in the
+ * assistant's text output stream. Boundary events cause any buffered assistant
+ * text to be flushed as a complete message before the event is processed.
+ *
+ * Non-boundary events (telemetry, progress, status updates) are processed
+ * without interrupting the text buffer, even if they produce activities.
+ *
+ * DEFAULT IS NON-BOUNDARY. New event types must be explicitly added as
+ * boundary cases if they represent a break in the assistant's text flow.
+ * This prevents telemetry or informational events from accidentally splitting
+ * assistant messages.
+ */
+export function isAssistantTextBoundary(event: ProviderRuntimeEvent): boolean {
+  switch (event.type) {
+    // Tool lifecycle — tool execution creates a visible break in assistant text.
+    // Must check isToolLifecycleItemType to avoid triggering on assistant_message,
+    // reasoning, plan, etc. which have their own explicit flush paths.
+    case "item.started":
+    case "item.updated":
+    case "item.completed":
+      return isToolLifecycleItemType(event.payload.itemType);
+
+    // Approval/permission/input dialogs interrupt the text flow — the user
+    // needs to see preceding text before interacting with the dialog.
+    case "request.opened":
+    case "user-input.requested":
+      return true;
+
+    // Command output interleaves with assistant text in the conversation.
+    // Other stream kinds (assistant_text, reasoning_text, etc.) are the
+    // buffered content itself and must NOT trigger a flush.
+    case "content.delta":
+      return event.payload.streamKind === "command_output";
+
+    // Terminal interactions appear inline between text chunks.
+    case "terminal.interaction":
+      return true;
+
+    // Hook execution is a visible inline boundary.
+    case "hook.started":
+    case "hook.completed":
+      return true;
+
+    // Errors interrupt the text flow — preceding text should be visible.
+    case "runtime.error":
+      return true;
+
+    // --- Non-boundary events below ---
+    // These produce activities but should NOT flush the assistant text buffer.
+
+    // Telemetry / status — the primary bug triggers.
+    case "thread.token-usage.updated":
+    case "task.started":
+    case "task.progress":
+    case "task.completed":
+    case "task.updated":
+    case "tool.progress":
+    case "tool.summary":
+    case "turn.plan.updated":
+    case "model.rerouted":
+    case "runtime.warning":
+    case "mcp.status.updated":
+      return false;
+
+    // Resolution events — the subsequent tool lifecycle event is the boundary.
+    case "request.resolved":
+    case "user-input.resolved":
+      return false;
+
+    // Session/thread/turn lifecycle — handled by explicit flush paths
+    // (assistantCompletion, turn.completed, session.exited).
+    case "session.started":
+    case "session.configured":
+    case "session.state.changed":
+    case "session.exited":
+    case "thread.started":
+    case "thread.state.changed":
+    case "thread.metadata.updated":
+    case "turn.started":
+    case "turn.completed":
+    case "turn.aborted":
+    case "turn.proposed.delta":
+    case "turn.proposed.completed":
+    case "turn.diff.updated":
+      return false;
+
+    // Informational / infrastructure events.
+    case "hook.progress":
+    case "auth.status":
+    case "account.updated":
+    case "account.rate-limits.updated":
+    case "mcp.oauth.completed":
+    case "config.warning":
+    case "deprecation.notice":
+    case "files.persisted":
+      return false;
+
+    // Realtime (voice) events — separate rendering path.
+    case "thread.realtime.started":
+    case "thread.realtime.item-added":
+    case "thread.realtime.audio.delta":
+    case "thread.realtime.error":
+    case "thread.realtime.closed":
+      return false;
+
+    default: {
+      // Exhaustiveness guard — TypeScript will error here if a new event type
+      // is added to ProviderRuntimeEventType without being handled above.
+      const _exhaustive: never = event;
+      return false;
+    }
+  }
+}

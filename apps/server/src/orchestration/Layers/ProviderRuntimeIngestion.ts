@@ -47,6 +47,7 @@ import { DEBUG_BACKGROUND_TASKS } from "../../provider/adapterUtils.ts";
 
 import {
   extractActivityInlineDiff,
+  isAssistantTextBoundary,
   runtimeEventToActivities,
   upgradeActivitiesFromExactTurnDiff,
 } from "./runtimeIngestion/activityMapping.ts";
@@ -1885,7 +1886,7 @@ const make = Effect.fn("make")(function* () {
       }
     }
 
-    if (activities.length > 0) {
+    if (isAssistantTextBoundary(event)) {
       yield* flushBufferedAssistantChunkAtBoundary();
     }
 

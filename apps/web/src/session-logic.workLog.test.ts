@@ -3504,6 +3504,98 @@ describe("deriveWorkLogEntries", () => {
     );
   });
 
+  it("does not classify an inline Claude bash command as background from parent task signals alone", () => {
+    const workEntries = deriveWorkLogEntries(
+      [
+        makeActivity({
+          id: "inline-bash-started",
+          createdAt: "2026-04-10T12:00:00.000Z",
+          kind: "tool.started",
+          summary: "Command started",
+          payload: {
+            itemType: "command_execution",
+            itemId: "toolu_inline_bash",
+            status: "inProgress",
+            toolName: "Bash",
+            detail: "Bash: python3 -c \"import time; time.sleep(10); print('inline done')\"",
+            data: {
+              toolName: "Bash",
+              input: {
+                command: "python3 -c \"import time; time.sleep(10); print('inline done')\"",
+                description:
+                  "Block inline for 10 seconds using Python sleep, then print completion",
+              },
+            },
+          },
+        }),
+        makeActivity({
+          id: "inline-bash-task-started",
+          createdAt: "2026-04-10T12:00:00.100Z",
+          kind: "task.started",
+          summary: "local_bash task started",
+          payload: {
+            taskId: "inline-bash-task-1",
+            toolUseId: "toolu_inline_bash",
+            description: "Block inline for 10 seconds using Python sleep, then print completion",
+          },
+        }),
+        makeActivity({
+          id: "inline-bash-task-completed",
+          createdAt: "2026-04-10T12:00:10.000Z",
+          kind: "task.completed",
+          summary: "Task completed",
+          payload: {
+            taskId: "inline-bash-task-1",
+            toolUseId: "toolu_inline_bash",
+            status: "completed",
+            summary: "Block inline for 10 seconds using Python sleep, then print completion",
+          },
+        }),
+        makeActivity({
+          id: "inline-bash-completed",
+          createdAt: "2026-04-10T12:00:10.010Z",
+          kind: "tool.completed",
+          summary: "Command",
+          payload: {
+            itemType: "command_execution",
+            itemId: "toolu_inline_bash",
+            status: "completed",
+            toolName: "Bash",
+            detail: "Bash: python3 -c \"import time; time.sleep(10); print('inline done')\"",
+            data: {
+              toolName: "Bash",
+              input: {
+                command: "python3 -c \"import time; time.sleep(10); print('inline done')\"",
+                description:
+                  "Block inline for 10 seconds using Python sleep, then print completion",
+              },
+              result: {
+                stdout: "inline done\n",
+                stderr: "",
+                exit_code: 0,
+              },
+            },
+          },
+        }),
+      ],
+      undefined,
+    );
+
+    expect(workEntries.map((entry) => entry.id)).toEqual(["inline-bash-completed"]);
+    expect(workEntries[0]).toMatchObject({
+      id: "inline-bash-completed",
+      toolCallId: "toolu_inline_bash",
+      itemType: "command_execution",
+      itemStatus: "completed",
+    });
+    expect(workEntries[0]).not.toHaveProperty("isBackgroundCommand");
+    expect(workEntries[0]).not.toHaveProperty("backgroundTaskId");
+    expect(workEntries[0]).not.toHaveProperty("backgroundLifecycleRole");
+
+    const trayState = deriveBackgroundTrayState(workEntries, "2026-04-10T12:00:10.500Z");
+    expect(trayState.commandEntries).toEqual([]);
+  });
+
   it("carries spawn agent metadata into background tray subagent groups", () => {
     const workEntries = deriveWorkLogEntries(
       [

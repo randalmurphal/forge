@@ -2408,4 +2408,360 @@ describe("ProviderRuntimeIngestion", () => {
     expect(item?.source).toBe("unifiedExecStartup");
     expect(item?.processId).toBe("proc-123");
   });
+
+  it("does not split buffered assistant text when token-usage events arrive mid-stream", async () => {
+    const harness = await createHarness();
+    const now = new Date().toISOString();
+
+    harness.emit({
+      type: "turn.started",
+      eventId: asEventId("evt-turn-started-token-usage"),
+      provider: "codex",
+      createdAt: now,
+      threadId: asThreadId("thread-1"),
+      turnId: asTurnId("turn-token-usage"),
+    });
+    await waitForThread(
+      harness.engine,
+      (thread) =>
+        thread.session?.status === "running" && thread.session?.activeTurnId === "turn-token-usage",
+    );
+
+    harness.emit({
+      type: "content.delta",
+      eventId: asEventId("evt-delta-before-usage"),
+      provider: "codex",
+      createdAt: now,
+      threadId: asThreadId("thread-1"),
+      turnId: asTurnId("turn-token-usage"),
+      itemId: asItemId("item-token-usage"),
+      payload: {
+        streamKind: "assistant_text",
+        delta: "hello",
+      },
+    });
+    harness.emit({
+      type: "thread.token-usage.updated",
+      eventId: asEventId("evt-token-usage-mid-stream"),
+      provider: "codex",
+      createdAt: now,
+      threadId: asThreadId("thread-1"),
+      turnId: asTurnId("turn-token-usage"),
+      payload: {
+        usage: {
+          usedTokens: 500,
+          maxTokens: 128000,
+          totalProcessedTokens: 500,
+        },
+      },
+    });
+    harness.emit({
+      type: "content.delta",
+      eventId: asEventId("evt-delta-after-usage"),
+      provider: "codex",
+      createdAt: now,
+      threadId: asThreadId("thread-1"),
+      turnId: asTurnId("turn-token-usage"),
+      itemId: asItemId("item-token-usage"),
+      payload: {
+        streamKind: "assistant_text",
+        delta: " world",
+      },
+    });
+    harness.emit({
+      type: "item.completed",
+      eventId: asEventId("evt-completed-token-usage"),
+      provider: "codex",
+      createdAt: now,
+      threadId: asThreadId("thread-1"),
+      turnId: asTurnId("turn-token-usage"),
+      itemId: asItemId("item-token-usage"),
+      payload: {
+        itemType: "assistant_message",
+        status: "completed",
+      },
+    });
+
+    const thread = await waitForThread(harness.engine, (entry) =>
+      entry.messages.some(
+        (message: ProviderRuntimeTestMessage) =>
+          message.id === "assistant:item-token-usage:flush:evt-completed-token-usage" &&
+          !message.streaming,
+      ),
+    );
+    const assistantMessages = thread.messages.filter(
+      (message: ProviderRuntimeTestMessage) => message.role === "assistant",
+    );
+    expect(assistantMessages).toHaveLength(1);
+    expect(assistantMessages[0]?.text).toBe("hello world");
+  });
+
+  it("does not split buffered assistant text when task.progress arrives mid-stream", async () => {
+    const harness = await createHarness();
+    const now = new Date().toISOString();
+
+    harness.emit({
+      type: "turn.started",
+      eventId: asEventId("evt-turn-started-task-progress"),
+      provider: "codex",
+      createdAt: now,
+      threadId: asThreadId("thread-1"),
+      turnId: asTurnId("turn-task-progress"),
+    });
+    await waitForThread(
+      harness.engine,
+      (thread) =>
+        thread.session?.status === "running" &&
+        thread.session?.activeTurnId === "turn-task-progress",
+    );
+
+    harness.emit({
+      type: "content.delta",
+      eventId: asEventId("evt-delta-before-task-progress"),
+      provider: "codex",
+      createdAt: now,
+      threadId: asThreadId("thread-1"),
+      turnId: asTurnId("turn-task-progress"),
+      itemId: asItemId("item-task-progress"),
+      payload: {
+        streamKind: "assistant_text",
+        delta: "before",
+      },
+    });
+    harness.emit({
+      type: "task.progress",
+      eventId: asEventId("evt-task-progress-mid-stream"),
+      provider: "codex",
+      createdAt: now,
+      threadId: asThreadId("thread-1"),
+      turnId: asTurnId("turn-task-progress"),
+      payload: {
+        taskId: "task-1",
+        description: "Reasoning update",
+      },
+    });
+    harness.emit({
+      type: "content.delta",
+      eventId: asEventId("evt-delta-after-task-progress"),
+      provider: "codex",
+      createdAt: now,
+      threadId: asThreadId("thread-1"),
+      turnId: asTurnId("turn-task-progress"),
+      itemId: asItemId("item-task-progress"),
+      payload: {
+        streamKind: "assistant_text",
+        delta: " after",
+      },
+    });
+    harness.emit({
+      type: "item.completed",
+      eventId: asEventId("evt-completed-task-progress"),
+      provider: "codex",
+      createdAt: now,
+      threadId: asThreadId("thread-1"),
+      turnId: asTurnId("turn-task-progress"),
+      itemId: asItemId("item-task-progress"),
+      payload: {
+        itemType: "assistant_message",
+        status: "completed",
+      },
+    });
+
+    const thread = await waitForThread(harness.engine, (entry) =>
+      entry.messages.some(
+        (message: ProviderRuntimeTestMessage) =>
+          message.id === "assistant:item-task-progress:flush:evt-completed-task-progress" &&
+          !message.streaming,
+      ),
+    );
+    const assistantMessages = thread.messages.filter(
+      (message: ProviderRuntimeTestMessage) => message.role === "assistant",
+    );
+    expect(assistantMessages).toHaveLength(1);
+    expect(assistantMessages[0]?.text).toBe("before after");
+  });
+
+  it("flushes buffered assistant text when runtime.error arrives", async () => {
+    const harness = await createHarness();
+    const now = new Date().toISOString();
+
+    harness.emit({
+      type: "turn.started",
+      eventId: asEventId("evt-turn-started-error-flush"),
+      provider: "codex",
+      createdAt: now,
+      threadId: asThreadId("thread-1"),
+      turnId: asTurnId("turn-error-flush"),
+    });
+    await waitForThread(
+      harness.engine,
+      (thread) =>
+        thread.session?.status === "running" && thread.session?.activeTurnId === "turn-error-flush",
+    );
+
+    harness.emit({
+      type: "content.delta",
+      eventId: asEventId("evt-delta-before-error"),
+      provider: "codex",
+      createdAt: now,
+      threadId: asThreadId("thread-1"),
+      turnId: asTurnId("turn-error-flush"),
+      itemId: asItemId("item-error-flush"),
+      payload: {
+        streamKind: "assistant_text",
+        delta: "text before error",
+      },
+    });
+    harness.emit({
+      type: "runtime.error",
+      eventId: asEventId("evt-runtime-error"),
+      provider: "codex",
+      createdAt: now,
+      threadId: asThreadId("thread-1"),
+      turnId: asTurnId("turn-error-flush"),
+      payload: {
+        message: "Something went wrong",
+      },
+    });
+
+    const thread = await waitForThread(harness.engine, (entry) =>
+      entry.messages.some(
+        (message: ProviderRuntimeTestMessage) =>
+          message.role === "assistant" && message.text === "text before error",
+      ),
+    );
+    const assistantMessages = thread.messages.filter(
+      (message: ProviderRuntimeTestMessage) => message.role === "assistant",
+    );
+    expect(assistantMessages).toHaveLength(1);
+    expect(assistantMessages[0]?.text).toBe("text before error");
+  });
+
+  it("flushes buffered assistant text when command output arrives", async () => {
+    const harness = await createHarness();
+    const now = new Date().toISOString();
+
+    harness.emit({
+      type: "turn.started",
+      eventId: asEventId("evt-turn-started-cmd-output"),
+      provider: "codex",
+      createdAt: now,
+      threadId: asThreadId("thread-1"),
+      turnId: asTurnId("turn-cmd-output"),
+    });
+    await waitForThread(
+      harness.engine,
+      (thread) =>
+        thread.session?.status === "running" && thread.session?.activeTurnId === "turn-cmd-output",
+    );
+
+    harness.emit({
+      type: "content.delta",
+      eventId: asEventId("evt-delta-before-cmd-output"),
+      provider: "codex",
+      createdAt: now,
+      threadId: asThreadId("thread-1"),
+      turnId: asTurnId("turn-cmd-output"),
+      itemId: asItemId("item-cmd-output-text"),
+      payload: {
+        streamKind: "assistant_text",
+        delta: "running command",
+      },
+    });
+    harness.emit({
+      type: "content.delta",
+      eventId: asEventId("evt-cmd-output-delta"),
+      provider: "codex",
+      createdAt: now,
+      threadId: asThreadId("thread-1"),
+      turnId: asTurnId("turn-cmd-output"),
+      itemId: asItemId("item-cmd-output-cmd"),
+      payload: {
+        streamKind: "command_output",
+        delta: "$ echo hello",
+      },
+    });
+
+    const thread = await waitForThread(harness.engine, (entry) =>
+      entry.messages.some(
+        (message: ProviderRuntimeTestMessage) =>
+          message.role === "assistant" && message.text === "running command",
+      ),
+    );
+    const assistantMessages = thread.messages.filter(
+      (message: ProviderRuntimeTestMessage) => message.role === "assistant",
+    );
+    expect(assistantMessages).toHaveLength(1);
+    expect(assistantMessages[0]?.text).toBe("running command");
+  });
+
+  it("treats unknown Codex item types as dynamic_tool_call and flushes buffer", async () => {
+    const harness = await createHarness();
+    const now = new Date().toISOString();
+
+    harness.emit({
+      type: "turn.started",
+      eventId: asEventId("evt-turn-started-unknown-tool"),
+      provider: "codex",
+      createdAt: now,
+      threadId: asThreadId("thread-1"),
+      turnId: asTurnId("turn-unknown-tool"),
+    });
+    await waitForThread(
+      harness.engine,
+      (thread) =>
+        thread.session?.status === "running" &&
+        thread.session?.activeTurnId === "turn-unknown-tool",
+    );
+
+    harness.emit({
+      type: "content.delta",
+      eventId: asEventId("evt-delta-before-unknown-tool"),
+      provider: "codex",
+      createdAt: now,
+      threadId: asThreadId("thread-1"),
+      turnId: asTurnId("turn-unknown-tool"),
+      itemId: asItemId("item-unknown-tool-text"),
+      payload: {
+        streamKind: "assistant_text",
+        delta: "let me monitor that",
+      },
+    });
+    // Simulate a new tool type that Codex added (e.g., "Monitor") which
+    // toCanonicalItemType doesn't recognize. It should be treated as
+    // dynamic_tool_call, produce an activity, and flush the buffer.
+    harness.emit({
+      type: "item.started",
+      eventId: asEventId("evt-unknown-tool-started"),
+      provider: "codex",
+      createdAt: now,
+      threadId: asThreadId("thread-1"),
+      turnId: asTurnId("turn-unknown-tool"),
+      itemId: asItemId("item-unknown-tool"),
+      payload: {
+        itemType: "dynamic_tool_call",
+        status: "inProgress",
+        title: "Tool call",
+      },
+    });
+
+    const thread = await waitForThread(harness.engine, (entry) =>
+      entry.messages.some(
+        (message: ProviderRuntimeTestMessage) =>
+          message.role === "assistant" && message.text === "let me monitor that",
+      ),
+    );
+    const assistantMessages = thread.messages.filter(
+      (message: ProviderRuntimeTestMessage) => message.role === "assistant",
+    );
+    expect(assistantMessages).toHaveLength(1);
+    expect(assistantMessages[0]?.text).toBe("let me monitor that");
+
+    // Verify the unknown tool produced an activity
+    const toolActivity = thread.activities.find(
+      (a: ProviderRuntimeTestActivity) => a.kind === "tool.started",
+    );
+    expect(toolActivity).toBeDefined();
+    expect(activityPayload(toolActivity)?.itemType).toBe("dynamic_tool_call");
+  });
 });

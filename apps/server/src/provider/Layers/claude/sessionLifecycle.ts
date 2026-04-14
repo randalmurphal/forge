@@ -284,6 +284,7 @@ export const startSession = (
       }
     >();
     const terminalTaskIds = new Set<string>();
+    const completedTaskIds = new Set<string>();
 
     let sessionContext: ClaudeSessionContext | undefined;
 
@@ -662,6 +663,7 @@ export const startSession = (
       activeSubagentTools,
       taskAttributionByTaskId,
       terminalTaskIds,
+      completedTaskIds,
       turnState: undefined,
       lastKnownContextWindow: undefined,
       lastKnownTokenUsage: undefined,

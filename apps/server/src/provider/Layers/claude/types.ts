@@ -145,6 +145,8 @@ export interface ClaudeSessionContext {
   >;
   /** Tracks tasks that have already reached a terminal state so late TaskOutput polls do not emit duplicates. */
   readonly terminalTaskIds: Set<string>;
+  /** Tracks tasks that have already had a task.completed event emitted, preventing task_notification from emitting a duplicate that would shift timeline entries. */
+  readonly completedTaskIds: Set<string>;
   turnState: ClaudeTurnState | undefined;
   lastKnownContextWindow: number | undefined;
   lastKnownTokenUsage: ThreadTokenUsageSnapshot | undefined;
