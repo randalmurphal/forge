@@ -855,6 +855,29 @@ function workToneClass(tone: "thinking" | "tool" | "info" | "error"): string {
   return "text-muted-foreground/40";
 }
 
+function deriveInlineCommandStatus(
+  workEntry: TimelineWorkEntry,
+): "running" | "completed" | "failed" | null {
+  if (workEntry.itemType !== "command_execution" || workEntry.isBackgroundCommand === true) {
+    return null;
+  }
+  if (workEntry.itemStatus === "inProgress") {
+    return "running";
+  }
+  if (
+    workEntry.itemStatus === "failed" ||
+    workEntry.itemStatus === "declined" ||
+    workEntry.tone === "error" ||
+    (workEntry.exitCode !== undefined && workEntry.exitCode !== 0)
+  ) {
+    return "failed";
+  }
+  if (workEntry.itemStatus === "completed" || workEntry.exitCode === 0) {
+    return "completed";
+  }
+  return null;
+}
+
 function extractSubagentPreview(detail: string | undefined): string | null {
   if (!detail) return null;
   // The detail often looks like 'Agent: {"description":"...","model":"opus","prompt":"..."}'
@@ -1216,14 +1239,11 @@ const SimpleWorkEntryRow = memo(function SimpleWorkEntryRow(props: {
     workEntry.itemType === "search" ||
     Boolean(workEntry.command);
 
-  // Exit code badge for commands
-  const showExitCode =
-    workEntry.itemType === "command_execution" && workEntry.exitCode !== undefined;
-  const exitSuccess = workEntry.exitCode === 0;
   const showBackgroundBadge =
     workEntry.itemType === "command_execution" &&
     workEntry.isBackgroundCommand === true &&
     workEntry.activityKind !== "task.completed";
+  const inlineCommandStatus = deriveInlineCommandStatus(workEntry);
   const backgroundCommandStatus =
     workEntry.itemType === "command_execution" && workEntry.isBackgroundCommand === true
       ? workEntry.backgroundTaskStatus
@@ -1232,6 +1252,12 @@ const SimpleWorkEntryRow = memo(function SimpleWorkEntryRow(props: {
     workEntry.itemType === "command_execution" &&
     workEntry.isBackgroundCommand === true &&
     workEntry.activityKind === "task.completed";
+  // Exit code badge for commands
+  const showExitCode =
+    workEntry.itemType === "command_execution" &&
+    workEntry.exitCode !== undefined &&
+    !(inlineCommandStatus === "completed" && workEntry.exitCode === 0);
+  const exitSuccess = workEntry.exitCode === 0;
 
   // Duration
   const durationLabel =
@@ -1301,6 +1327,18 @@ const SimpleWorkEntryRow = memo(function SimpleWorkEntryRow(props: {
               background
             </span>
           )}
+          {inlineCommandStatus === "running" ? (
+            <span className="flex items-center gap-0.5 text-[9px] text-blue-400/70">
+              {(() => {
+                const { icon: StatusIcon } = statusPresentation("running");
+                return <StatusIcon className="size-2.5 animate-spin" />;
+              })()}
+            </span>
+          ) : null}
+          {(inlineCommandStatus === "completed" || inlineCommandStatus === "failed") &&
+          !isBackgroundCommandTerminalEntry ? (
+            <BackgroundCommandStatusBadge status={inlineCommandStatus} />
+          ) : null}
           {isBackgroundCommandTerminalEntry && backgroundCommandStatus != null ? (
             <BackgroundCommandStatusBadge status={backgroundCommandStatus} />
           ) : null}
