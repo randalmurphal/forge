@@ -1142,7 +1142,7 @@ describe("ProviderRuntimeIngestion", () => {
     expect(message?.streaming).toBe(false);
   });
 
-  it("preserves buffered assistant start timing on completion", async () => {
+  it("timestamps buffered assistant messages when they become visible", async () => {
     const harness = await createHarness();
     const deltaAt = "2026-04-10T12:00:00.000Z";
     const completedAt = "2026-04-10T12:00:05.000Z";
@@ -1204,7 +1204,7 @@ describe("ProviderRuntimeIngestion", () => {
         entry.id === "assistant:item-buffered-order:flush:evt-message-completed-buffered-order",
     );
     expect(message?.text).toBe("first chunk");
-    expect(message?.createdAt).toBe(deltaAt);
+    expect(message?.createdAt).toBe(completedAt);
     expect(message?.updatedAt).toBe(completedAt);
 
     const events = await Effect.runPromise(
@@ -1223,7 +1223,7 @@ describe("ProviderRuntimeIngestion", () => {
       payload: {
         streaming: false,
         text: "first chunk",
-        createdAt: deltaAt,
+        createdAt: completedAt,
         updatedAt: completedAt,
       },
     });
@@ -1345,6 +1345,216 @@ describe("ProviderRuntimeIngestion", () => {
       "thread.activity-appended:tool.started",
       "thread.message-sent: after tool",
     ]);
+  });
+
+  it("keeps child assistant deltas out of the parent transcript and records them as child activity", async () => {
+    const harness = await createHarness();
+    const turnAt = "2026-04-10T12:10:00.000Z";
+    const childAt = "2026-04-10T12:10:01.000Z";
+    const finalAt = "2026-04-10T12:10:02.000Z";
+
+    harness.emit({
+      type: "turn.started",
+      eventId: asEventId("evt-turn-started-child-assistant"),
+      provider: "codex",
+      createdAt: turnAt,
+      threadId: asThreadId("thread-1"),
+      turnId: asTurnId("turn-child-assistant"),
+    });
+    await waitForThread(
+      harness.engine,
+      (thread) =>
+        thread.session?.status === "running" &&
+        thread.session?.activeTurnId === "turn-child-assistant",
+    );
+
+    harness.emit({
+      type: "content.delta",
+      eventId: asEventId("evt-parent-delta-before-child-assistant"),
+      provider: "codex",
+      createdAt: turnAt,
+      threadId: asThreadId("thread-1"),
+      turnId: asTurnId("turn-child-assistant"),
+      itemId: asItemId("item-parent-child-assistant"),
+      payload: {
+        streamKind: "assistant_text",
+        delta: "before",
+      },
+    });
+    harness.emit({
+      type: "content.delta",
+      eventId: asEventId("evt-child-assistant-delta"),
+      provider: "codex",
+      createdAt: childAt,
+      threadId: asThreadId("thread-1"),
+      turnId: asTurnId("turn-child-assistant"),
+      itemId: asItemId("item-child-assistant"),
+      payload: {
+        streamKind: "assistant_text",
+        delta: "subagent-inline-done",
+        childThreadAttribution: {
+          taskId: "task-child-1",
+          childProviderThreadId: "child-thread-1",
+        },
+      },
+    });
+    harness.emit({
+      type: "content.delta",
+      eventId: asEventId("evt-parent-delta-after-child-assistant"),
+      provider: "codex",
+      createdAt: finalAt,
+      threadId: asThreadId("thread-1"),
+      turnId: asTurnId("turn-child-assistant"),
+      itemId: asItemId("item-parent-child-assistant"),
+      payload: {
+        streamKind: "assistant_text",
+        delta: " after",
+      },
+    });
+    harness.emit({
+      type: "item.completed",
+      eventId: asEventId("evt-parent-completed-child-assistant"),
+      provider: "codex",
+      createdAt: finalAt,
+      threadId: asThreadId("thread-1"),
+      turnId: asTurnId("turn-child-assistant"),
+      itemId: asItemId("item-parent-child-assistant"),
+      payload: {
+        itemType: "assistant_message",
+        status: "completed",
+      },
+    });
+
+    const thread = await waitForThread(harness.engine, (entry) =>
+      entry.messages.some(
+        (message: ProviderRuntimeTestMessage) =>
+          message.id ===
+            "assistant:item-parent-child-assistant:flush:evt-parent-completed-child-assistant" &&
+          !message.streaming,
+      ),
+    );
+
+    const assistantMessages = thread.messages.filter(
+      (message: ProviderRuntimeTestMessage) => message.role === "assistant",
+    );
+    expect(assistantMessages).toHaveLength(1);
+    expect(assistantMessages[0]?.text).toBe("before after");
+
+    const childActivity = thread.activities.find(
+      (activity: ProviderRuntimeTestActivity) => activity.id === "evt-child-assistant-delta",
+    );
+    expect(childActivity).toMatchObject({
+      kind: "task.progress",
+      summary: "Subagent response",
+      payload: {
+        itemType: "assistant_message",
+        detail: "subagent-inline-done",
+        childThreadAttribution: {
+          taskId: "task-child-1",
+          childProviderThreadId: "child-thread-1",
+        },
+      },
+    });
+  });
+
+  it("does not split buffered parent assistant text on child-attributed tool boundaries", async () => {
+    const harness = await createHarness();
+    const turnAt = "2026-04-10T12:20:00.000Z";
+    const childCompletedAt = "2026-04-10T12:20:01.000Z";
+    const finalAt = "2026-04-10T12:20:02.000Z";
+
+    harness.emit({
+      type: "turn.started",
+      eventId: asEventId("evt-turn-started-child-boundary"),
+      provider: "codex",
+      createdAt: turnAt,
+      threadId: asThreadId("thread-1"),
+      turnId: asTurnId("turn-child-boundary"),
+    });
+    await waitForThread(
+      harness.engine,
+      (thread) =>
+        thread.session?.status === "running" &&
+        thread.session?.activeTurnId === "turn-child-boundary",
+    );
+
+    harness.emit({
+      type: "content.delta",
+      eventId: asEventId("evt-parent-delta-before-child-boundary"),
+      provider: "codex",
+      createdAt: turnAt,
+      threadId: asThreadId("thread-1"),
+      turnId: asTurnId("turn-child-boundary"),
+      itemId: asItemId("item-parent-child-boundary"),
+      payload: {
+        streamKind: "assistant_text",
+        delta: "before",
+      },
+    });
+    harness.emit({
+      type: "item.completed",
+      eventId: asEventId("evt-child-command-completed-boundary"),
+      provider: "codex",
+      createdAt: childCompletedAt,
+      threadId: asThreadId("thread-1"),
+      turnId: asTurnId("turn-child-boundary"),
+      itemId: asItemId("item-child-command-boundary"),
+      payload: {
+        itemType: "command_execution",
+        status: "completed",
+        title: "Command",
+        childThreadAttribution: {
+          taskId: "task-child-boundary",
+          childProviderThreadId: "child-thread-boundary",
+        },
+      },
+    });
+    harness.emit({
+      type: "content.delta",
+      eventId: asEventId("evt-parent-delta-after-child-boundary"),
+      provider: "codex",
+      createdAt: finalAt,
+      threadId: asThreadId("thread-1"),
+      turnId: asTurnId("turn-child-boundary"),
+      itemId: asItemId("item-parent-child-boundary"),
+      payload: {
+        streamKind: "assistant_text",
+        delta: " after",
+      },
+    });
+    harness.emit({
+      type: "item.completed",
+      eventId: asEventId("evt-parent-completed-child-boundary"),
+      provider: "codex",
+      createdAt: finalAt,
+      threadId: asThreadId("thread-1"),
+      turnId: asTurnId("turn-child-boundary"),
+      itemId: asItemId("item-parent-child-boundary"),
+      payload: {
+        itemType: "assistant_message",
+        status: "completed",
+      },
+    });
+
+    const thread = await waitForThread(harness.engine, (entry) =>
+      entry.messages.some(
+        (message: ProviderRuntimeTestMessage) =>
+          message.id ===
+            "assistant:item-parent-child-boundary:flush:evt-parent-completed-child-boundary" &&
+          !message.streaming,
+      ),
+    );
+    expect(
+      thread.messages
+        .filter((message: ProviderRuntimeTestMessage) => message.role === "assistant")
+        .map((message: ProviderRuntimeTestMessage) => message.text),
+    ).toEqual(["before after"]);
+
+    const childCommandActivity = thread.activities.find(
+      (activity: ProviderRuntimeTestActivity) =>
+        activity.id === "evt-child-command-completed-boundary",
+    );
+    expect(childCommandActivity?.kind).toBe("tool.completed");
   });
 
   it("does not split buffered assistant chunks on non-transcript metadata events", async () => {

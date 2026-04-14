@@ -135,6 +135,7 @@ export const OrchestrationMessage = Schema.Struct({
   attachments: Schema.optional(Schema.Array(ChatAttachment)),
   attribution: Schema.optional(OrchestrationMessageAttribution),
   turnId: Schema.NullOr(TurnId),
+  sequence: Schema.optional(NonNegativeInt),
   streaming: Schema.Boolean,
   createdAt: IsoDateTime,
   updatedAt: IsoDateTime,

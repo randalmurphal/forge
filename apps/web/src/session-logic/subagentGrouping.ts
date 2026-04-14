@@ -158,6 +158,19 @@ export function groupSubagentEntries(workEntries: ReadonlyArray<WorkLogEntry>): 
       standalone.push(entry);
       continue;
     }
+
+    // Collab control tools (wait, closeAgent, sendInput, resumeAgent) are standalone
+    // timeline entries that should render at their actual chronological position, NOT
+    // be consumed into a subagent group. Spawn/Agent are the only tool calls that
+    // anchor a subagent group.
+    if (
+      isCodexControlCollabTool(entry.toolName) ||
+      entry.toolName?.toLowerCase() === "closeagent" ||
+      entry.toolName?.toLowerCase() === "resumeagent"
+    ) {
+      standalone.push(entry);
+      continue;
+    }
     const groupId = childThreadAttribution.childProviderThreadId;
     const taskId = childThreadAttribution.taskId;
 
@@ -760,7 +773,7 @@ export function collectChildThreadMetadata(
       const current = metadataByChildThreadId.get(childThreadId) ?? {};
       const description = current.description ?? entry.agentDescription;
       const prompt = current.prompt ?? entry.agentPrompt;
-      const label = current.label ?? description ?? prompt ?? entry.detail;
+      const label = current.label ?? description ?? entry.detail;
       const agentType = current.agentType ?? entry.agentType;
       const agentModel = current.agentModel ?? entry.agentModel;
       metadataByChildThreadId.set(childThreadId, {

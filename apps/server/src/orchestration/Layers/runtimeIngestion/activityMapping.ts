@@ -919,9 +919,6 @@ export function runtimeEventToActivities(
     }
 
     case "content.delta": {
-      if (event.payload.streamKind !== "command_output") {
-        return [];
-      }
       const contentDeltaChildAttr = extractChildThreadAttribution(event.payload);
       logBackgroundDebug("ingestion", "runtime.content.delta", {
         threadId: event.threadId,
@@ -931,6 +928,32 @@ export function runtimeEventToActivities(
         deltaLength: event.payload.delta.length,
         childThreadAttribution: extractBackgroundDebugChildThread(event.payload) ?? null,
       });
+      if (event.payload.streamKind === "assistant_text" && contentDeltaChildAttr) {
+        return [
+          {
+            id: event.eventId,
+            createdAt: event.createdAt,
+            tone: "info",
+            kind: "task.progress",
+            summary: "Subagent response",
+            payload: {
+              taskId:
+                typeof contentDeltaChildAttr.taskId === "string"
+                  ? contentDeltaChildAttr.taskId
+                  : "subagent-response",
+              itemType: "assistant_message",
+              ...(event.itemId ? { itemId: event.itemId } : {}),
+              detail: truncateDetail(event.payload.delta),
+              childThreadAttribution: contentDeltaChildAttr,
+            },
+            turnId: toTurnId(event.turnId) ?? null,
+            ...maybeSequence,
+          },
+        ];
+      }
+      if (event.payload.streamKind !== "command_output") {
+        return [];
+      }
       return [
         {
           id: event.eventId,

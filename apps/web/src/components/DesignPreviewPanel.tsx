@@ -5,7 +5,7 @@ import { MonitorIcon, SmartphoneIcon, TabletIcon, PaletteIcon } from "lucide-rea
 import { InteractiveRequestId, type ThreadId } from "@forgetools/contracts";
 
 import { cn, newThreadId, resolveServerUrl } from "~/lib/utils";
-import { useThreadById } from "~/storeSelectors";
+import { useThreadById, useThreadDesign } from "~/storeSelectors";
 import { useComposerDraftStore } from "~/composerDraftStore";
 import { getWsRpcClient } from "~/wsRpcClient";
 import type { DesignArtifact, DesignPendingOptions } from "~/types";
@@ -131,6 +131,7 @@ const EmptyState = memo(function EmptyState() {
 const DesignPreviewPanel = memo(function DesignPreviewPanel(props: DesignPreviewPanelProps) {
   const { mode, threadId } = props;
   const thread = useThreadById(threadId);
+  const threadDesignSlice = useThreadDesign(threadId);
   const navigate = useNavigate();
 
   // Fetch persisted artifacts from the server (survives page refresh)
@@ -153,7 +154,7 @@ const DesignPreviewPanel = memo(function DesignPreviewPanel(props: DesignPreview
   }, [threadId]);
 
   // Merge server-persisted artifacts with real-time store artifacts, dedup by ID
-  const storeArtifacts = thread?.designArtifacts ?? EMPTY_ARTIFACTS;
+  const storeArtifacts = threadDesignSlice?.designArtifacts ?? EMPTY_ARTIFACTS;
   const artifacts = useMemo(() => {
     const byId = new Map<string, DesignArtifact>();
     for (const a of serverArtifacts) byId.set(a.artifactId, a);
@@ -163,7 +164,7 @@ const DesignPreviewPanel = memo(function DesignPreviewPanel(props: DesignPreview
     );
   }, [serverArtifacts, storeArtifacts]);
 
-  const pendingOptions = thread?.designPendingOptions ?? null;
+  const pendingOptions = threadDesignSlice?.designPendingOptions ?? null;
   const showOptionsPicker = pendingOptions !== null && pendingOptions.chosenOptionId === null;
 
   // The active artifact is the latest by default, or overridden by dropdown/option selection

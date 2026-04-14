@@ -9,6 +9,7 @@
 import {
   ChatAttachment,
   MessageId,
+  NonNegativeInt,
   OrchestrationMessageAttribution,
   OrchestrationMessageRole,
   ThreadId,
@@ -29,6 +30,7 @@ export const ProjectionThreadMessage = Schema.Struct({
   text: Schema.String,
   attachments: Schema.optional(Schema.Array(ChatAttachment)),
   attribution: Schema.optional(OrchestrationMessageAttribution),
+  sequence: Schema.optional(NonNegativeInt),
   isStreaming: Schema.Boolean,
   createdAt: IsoDateTime,
   updatedAt: IsoDateTime,
@@ -73,7 +75,7 @@ export interface ProjectionThreadMessageRepositoryShape {
   /**
    * List projected thread messages for a thread.
    *
-   * Returned in ascending creation order.
+   * Returned in ascending visible order, preferring persisted sequence when present.
    */
   readonly listByThreadId: (
     input: ListProjectionThreadMessagesInput,

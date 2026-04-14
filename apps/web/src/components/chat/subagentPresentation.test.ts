@@ -38,16 +38,16 @@ describe("deriveSubagentPresentation", () => {
     expect(result.preview).toBe("Inspect the parser");
   });
 
-  it("uses prompt as preview when description is absent", () => {
+  it("does not use prompt as preview (prompt is internal metadata)", () => {
     const result = deriveSubagentPresentation({
       agentType: "Explore",
       agentPrompt: "Find all usages of the auth middleware",
     });
     expect(result.heading).toBe("Explore");
-    expect(result.preview).toBe("Find all usages of the auth middleware");
+    expect(result.preview).toBeNull();
   });
 
-  it("does not use prompt as preview when it matches heading", () => {
+  it("does not use prompt as preview even when it differs from heading", () => {
     const result = deriveSubagentPresentation({
       agentPrompt: "Agent",
     });

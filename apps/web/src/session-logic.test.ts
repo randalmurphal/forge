@@ -190,7 +190,7 @@ describe("findSidebarProposedPlan", () => {
   it("prefers the running turn source proposed plan when available on the same thread", () => {
     expect(
       findSidebarProposedPlan({
-        threads: [
+        plansByThreadId: [
           {
             id: ThreadId.makeUnsafe("thread-1"),
             proposedPlans: [
@@ -244,7 +244,7 @@ describe("findSidebarProposedPlan", () => {
   it("falls back to the latest proposed plan once the turn is settled", () => {
     expect(
       findSidebarProposedPlan({
-        threads: [
+        plansByThreadId: [
           {
             id: ThreadId.makeUnsafe("thread-1"),
             proposedPlans: [
@@ -418,6 +418,35 @@ describe("deriveTimelineEntries", () => {
     });
     expect(workEntry.agentModel).toBe("gpt-5.4-mini");
     expect(workEntry.agentPrompt).toBe("Inspect background history");
+  });
+
+  it("orders sequenced assistant messages by event order instead of backdated timestamps", () => {
+    const entries = deriveTimelineEntries(
+      [
+        {
+          id: MessageId.makeUnsafe("message-earlier-visible"),
+          role: "assistant",
+          text: "visible first",
+          createdAt: "2026-02-23T00:00:05.000Z",
+          sequence: 10,
+          streaming: false,
+        },
+        {
+          id: MessageId.makeUnsafe("message-later-visible"),
+          role: "assistant",
+          text: "visible second",
+          createdAt: "2026-02-23T00:00:01.000Z",
+          sequence: 11,
+          streaming: false,
+        },
+      ],
+      [],
+      [],
+    );
+
+    expect(
+      entries.map((entry) => (entry.kind === "message" ? entry.message.text : entry.kind)),
+    ).toEqual(["visible first", "visible second"]);
   });
 
   it("enriches parent spawn entry with subagent group metadata for sequenced entries", () => {

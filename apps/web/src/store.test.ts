@@ -20,7 +20,15 @@ import {
   syncServerReadModel,
   type AppState,
 } from "./store";
-import { DEFAULT_INTERACTION_MODE, DEFAULT_RUNTIME_MODE, type Thread } from "./types";
+import {
+  DEFAULT_INTERACTION_MODE,
+  DEFAULT_RUNTIME_MODE,
+  type Thread,
+  type ThreadDesignSlice,
+  type ThreadDiffsSlice,
+  type ThreadPlansSlice,
+  type ThreadSessionSlice,
+} from "./types";
 
 function makeThread(overrides: Partial<Thread> = {}): Thread {
   return {
@@ -41,17 +49,10 @@ function makeThread(overrides: Partial<Thread> = {}): Thread {
     currentPhaseId: null,
     role: null,
     childThreadIds: [],
-    session: null,
     messages: [],
-    designArtifacts: [],
-    designPendingOptions: null,
-    turnDiffSummaries: [],
     activities: [],
-    proposedPlans: [],
-    error: null,
     createdAt: "2026-02-13T00:00:00.000Z",
     archivedAt: null,
-    latestTurn: null,
     branch: null,
     worktreePath: null,
     ...overrides,
@@ -59,7 +60,62 @@ function makeThread(overrides: Partial<Thread> = {}): Thread {
   };
 }
 
-function makeState(thread: Thread): AppState {
+interface SliceOverrides {
+  session?: Partial<ThreadSessionSlice>;
+  diffs?: Partial<ThreadDiffsSlice>;
+  plans?: Partial<ThreadPlansSlice>;
+  design?: Partial<ThreadDesignSlice>;
+}
+
+function makeSlices(
+  threadId: string,
+  overrides: SliceOverrides = {},
+): {
+  threadSessionById: Record<string, ThreadSessionSlice>;
+  threadDiffsById: Record<string, ThreadDiffsSlice>;
+  threadPlansById: Record<string, ThreadPlansSlice>;
+  threadDesignById: Record<string, ThreadDesignSlice>;
+} {
+  return {
+    threadSessionById: {
+      [threadId]: {
+        session: null,
+        latestTurn: null,
+        error: null,
+        ...overrides.session,
+      },
+    },
+    threadDiffsById: {
+      [threadId]: {
+        turnDiffSummaries: [],
+        ...overrides.diffs,
+      },
+    },
+    threadPlansById: {
+      [threadId]: {
+        proposedPlans: [],
+        ...overrides.plans,
+      },
+    },
+    threadDesignById: {
+      [threadId]: {
+        designArtifacts: [],
+        designPendingOptions: null,
+        ...overrides.design,
+      },
+    },
+  };
+}
+
+const EMPTY_SLICES = {
+  threadSessionById: {},
+  threadDiffsById: {},
+  threadPlansById: {},
+  threadDesignById: {},
+  streamingMessageByThreadId: {},
+} as const;
+
+function makeState(thread: Thread, sliceOverrides: SliceOverrides = {}): AppState {
   const threadIdsByProjectId: AppState["threadIdsByProjectId"] = {
     [thread.projectId]: [thread.id],
   };
@@ -80,6 +136,8 @@ function makeState(thread: Thread): AppState {
     sidebarThreadsById: {},
     threadIdsByProjectId,
     bootstrapComplete: true,
+    streamingMessageByThreadId: {},
+    ...makeSlices(thread.id, sliceOverrides),
   };
 }
 
@@ -363,15 +421,15 @@ describe("store read model sync", () => {
 
     const next = syncServerReadModel(initialState, readModel);
 
-    expect(next.threads[0]?.designPendingOptions).toMatchObject({
+    const threadId = ThreadId.makeUnsafe("thread-1");
+    expect(next.threadDesignById[threadId]?.designPendingOptions).toMatchObject({
       requestId: InteractiveRequestId.makeUnsafe("design-request-1"),
       prompt: "Pick a direction",
       chosenOptionId: null,
     });
-    expect(next.threads[0]?.pendingRequests?.map((request) => request.type)).toEqual([
-      "design-option",
-      "permission",
-    ]);
+    expect(
+      next.threadSessionById[threadId]?.pendingRequests?.map((request) => request.type),
+    ).toEqual(["design-option", "permission"]);
     expect(next.sidebarThreadsById[ThreadId.makeUnsafe("thread-1")]?.hasPendingDesignChoice).toBe(
       true,
     );
@@ -411,6 +469,7 @@ describe("store read model sync", () => {
       sidebarThreadsById: {},
       threadIdsByProjectId: {},
       bootstrapComplete: true,
+      ...EMPTY_SLICES,
     };
     const readModel: OrchestrationReadModel = {
       snapshotSequence: 2,
@@ -500,9 +559,8 @@ describe("incremental orchestration updates", () => {
   it("applies session-style thread.message-sent events", () => {
     const threadId = ThreadId.makeUnsafe("thread-1");
     const turnId = TurnId.makeUnsafe("turn-1");
-    const initialState = makeState(
-      makeThread({
-        id: threadId,
+    const initialState = makeState(makeThread({ id: threadId }), {
+      session: {
         session: {
           provider: "codex",
           status: "running",
@@ -519,8 +577,9 @@ describe("incremental orchestration updates", () => {
           completedAt: null,
           assistantMessageId: null,
         },
-      }),
-    );
+        error: null,
+      },
+    });
 
     const next = applyOrchestrationEvent(
       initialState,
@@ -536,7 +595,7 @@ describe("incremental orchestration updates", () => {
     );
 
     expect(next.threads[0]?.messages.at(-1)?.text).toBe("Done.");
-    expect(next.threads[0]?.latestTurn).toMatchObject({
+    expect(next.threadSessionById[threadId]?.latestTurn).toMatchObject({
       turnId,
       state: "completed",
       assistantMessageId: MessageId.makeUnsafe("message-1"),
@@ -581,9 +640,8 @@ describe("incremental orchestration updates", () => {
   it("applies forge turn lifecycle events to session state", () => {
     const threadId = ThreadId.makeUnsafe("thread-1");
     const turnId = TurnId.makeUnsafe("turn-1");
-    const initialState = makeState(
-      makeThread({
-        id: threadId,
+    const initialState = makeState(makeThread({ id: threadId }), {
+      session: {
         session: {
           provider: "codex",
           status: "ready",
@@ -592,8 +650,10 @@ describe("incremental orchestration updates", () => {
           createdAt: "2026-02-27T00:00:00.000Z",
           updatedAt: "2026-02-27T00:00:00.000Z",
         },
-      }),
-    );
+        latestTurn: null,
+        error: null,
+      },
+    });
 
     const started = applyOrchestrationEvent(
       initialState,
@@ -604,7 +664,7 @@ describe("incremental orchestration updates", () => {
       }),
     );
 
-    expect(started.threads[0]?.session).toMatchObject({
+    expect(started.threadSessionById[threadId]?.session).toMatchObject({
       status: "running",
       orchestrationStatus: "running",
       activeTurnId: turnId,
@@ -619,11 +679,11 @@ describe("incremental orchestration updates", () => {
       }),
     );
 
-    expect(completed.threads[0]?.session).toMatchObject({
+    expect(completed.threadSessionById[threadId]?.session).toMatchObject({
       status: "ready",
       orchestrationStatus: "ready",
     });
-    expect(completed.threads[0]?.latestTurn).toMatchObject({
+    expect(completed.threadSessionById[threadId]?.latestTurn).toMatchObject({
       turnId,
       state: "completed",
       completedAt: "2026-02-27T00:00:02.000Z",
@@ -632,9 +692,8 @@ describe("incremental orchestration updates", () => {
 
   it("maps forge session status changes onto the UI session model", () => {
     const threadId = ThreadId.makeUnsafe("thread-1");
-    const initialState = makeState(
-      makeThread({
-        id: threadId,
+    const initialState = makeState(makeThread({ id: threadId }), {
+      session: {
         session: {
           provider: "codex",
           status: "running",
@@ -643,8 +702,10 @@ describe("incremental orchestration updates", () => {
           createdAt: "2026-02-27T00:00:00.000Z",
           updatedAt: "2026-02-27T00:00:00.000Z",
         },
-      }),
-    );
+        latestTurn: null,
+        error: null,
+      },
+    });
 
     const next = applyOrchestrationEvent(
       initialState,
@@ -656,7 +717,7 @@ describe("incremental orchestration updates", () => {
       }),
     );
 
-    expect(next.threads[0]?.session).toMatchObject({
+    expect(next.threadSessionById[threadId]?.session).toMatchObject({
       status: "closed",
       orchestrationStatus: "idle",
       activeTurnId: undefined,
@@ -699,7 +760,7 @@ describe("incremental orchestration updates", () => {
     );
 
     expect(next.threads[0]?.updatedAt).toBe("2026-02-27T00:05:00.000Z");
-    expect(next.threads[0]?.designPendingOptions?.requestId).toBe(
+    expect(next.threadDesignById[threadId]?.designPendingOptions?.requestId).toBe(
       InteractiveRequestId.makeUnsafe("design-request-1"),
     );
     expect(next.sidebarThreadsById[threadId]?.hasPendingDesignChoice).toBe(true);
@@ -712,21 +773,25 @@ describe("incremental orchestration updates", () => {
         id: threadId,
         interactionMode: "design",
         updatedAt: "2026-02-27T00:00:00.000Z",
-        designPendingOptions: {
-          requestId: InteractiveRequestId.makeUnsafe("design-request-1"),
-          prompt: "Pick a direction",
-          options: [
-            {
-              id: "option-a",
-              title: "Option A",
-              description: "First option",
-              artifactId: "artifact-a",
-              artifactPath: "/tmp/artifact-a.html",
-            },
-          ],
-          chosenOptionId: null,
-        },
       }),
+      {
+        design: {
+          designPendingOptions: {
+            requestId: InteractiveRequestId.makeUnsafe("design-request-1"),
+            prompt: "Pick a direction",
+            options: [
+              {
+                id: "option-a",
+                title: "Option A",
+                description: "First option",
+                artifactId: "artifact-a",
+                artifactPath: "/tmp/artifact-a.html",
+              },
+            ],
+            chosenOptionId: null,
+          },
+        },
+      },
     );
 
     const next = applyOrchestrationEvent(
@@ -741,7 +806,7 @@ describe("incremental orchestration updates", () => {
     );
 
     expect(next.threads[0]?.updatedAt).toBe("2026-02-27T00:06:00.000Z");
-    expect(next.threads[0]?.designPendingOptions).toBeNull();
+    expect(next.threadDesignById[threadId]?.designPendingOptions).toBeNull();
   });
 
   it("clears pending design choice state from request.stale events", () => {
@@ -751,21 +816,25 @@ describe("incremental orchestration updates", () => {
         id: threadId,
         interactionMode: "design",
         updatedAt: "2026-02-27T00:00:00.000Z",
-        designPendingOptions: {
-          requestId: InteractiveRequestId.makeUnsafe("design-request-1"),
-          prompt: "Pick a direction",
-          options: [
-            {
-              id: "option-a",
-              title: "Option A",
-              description: "First option",
-              artifactId: "artifact-a",
-              artifactPath: "/tmp/artifact-a.html",
-            },
-          ],
-          chosenOptionId: null,
-        },
       }),
+      {
+        design: {
+          designPendingOptions: {
+            requestId: InteractiveRequestId.makeUnsafe("design-request-1"),
+            prompt: "Pick a direction",
+            options: [
+              {
+                id: "option-a",
+                title: "Option A",
+                description: "First option",
+                artifactId: "artifact-a",
+                artifactPath: "/tmp/artifact-a.html",
+              },
+            ],
+            chosenOptionId: null,
+          },
+        },
+      },
     );
 
     const next = applyOrchestrationEvent(
@@ -778,7 +847,7 @@ describe("incremental orchestration updates", () => {
     );
 
     expect(next.threads[0]?.updatedAt).toBe("2026-02-27T00:07:00.000Z");
-    expect(next.threads[0]?.designPendingOptions).toBeNull();
+    expect(next.threadDesignById[threadId]?.designPendingOptions).toBeNull();
   });
 
   it("preserves state identity for no-op project and thread deletes", () => {
@@ -824,6 +893,7 @@ describe("incremental orchestration updates", () => {
       sidebarThreadsById: {},
       threadIdsByProjectId: {},
       bootstrapComplete: true,
+      ...EMPTY_SLICES,
     };
 
     const next = applyOrchestrationEvent(
@@ -885,6 +955,7 @@ describe("incremental orchestration updates", () => {
         [originalProjectId]: [threadId],
       },
       bootstrapComplete: true,
+      ...EMPTY_SLICES,
     };
 
     const next = applyOrchestrationEvent(
@@ -917,20 +988,9 @@ describe("incremental orchestration updates", () => {
     expect(next.threadIdsByProjectId[recreatedProjectId]).toEqual([threadId]);
   });
 
-  it("updates only the affected thread for message events", () => {
+  it("streaming deltas go to the streaming buffer without mutating committed messages", () => {
     const thread1 = makeThread({
       id: ThreadId.makeUnsafe("thread-1"),
-      messages: [
-        {
-          id: MessageId.makeUnsafe("message-1"),
-          role: "assistant",
-          text: "hello",
-          turnId: TurnId.makeUnsafe("turn-1"),
-          createdAt: "2026-02-27T00:00:00.000Z",
-          completedAt: "2026-02-27T00:00:00.000Z",
-          streaming: false,
-        },
-      ],
     });
     const thread2 = makeThread({ id: ThreadId.makeUnsafe("thread-2") });
     const state: AppState = {
@@ -938,8 +998,30 @@ describe("incremental orchestration updates", () => {
       threads: [thread1, thread2],
     };
 
-    const next = applyOrchestrationEvent(
+    // First streaming delta creates the buffer entry
+    const next1 = applyOrchestrationEvent(
       state,
+      makeEvent("thread.message-sent", {
+        threadId: thread1.id,
+        messageId: MessageId.makeUnsafe("message-1"),
+        role: "assistant",
+        text: "hello",
+        turnId: TurnId.makeUnsafe("turn-1"),
+        streaming: true,
+        createdAt: "2026-02-27T00:00:00.000Z",
+        updatedAt: "2026-02-27T00:00:00.000Z",
+      }),
+    );
+
+    // Committed messages unchanged; streaming buffer populated
+    expect(next1.threads[0]?.messages).toHaveLength(0);
+    expect(next1.streamingMessageByThreadId[thread1.id]?.text).toBe("hello");
+    expect(next1.threadSessionById[thread1.id]?.latestTurn?.state).toBe("running");
+    expect(next1.threads[1]).toBe(thread2);
+
+    // Second delta concatenates in the buffer
+    const next2 = applyOrchestrationEvent(
+      next1,
       makeEvent("thread.message-sent", {
         threadId: thread1.id,
         messageId: MessageId.makeUnsafe("message-1"),
@@ -952,23 +1034,45 @@ describe("incremental orchestration updates", () => {
       }),
     );
 
-    expect(next.threads[0]?.messages[0]?.text).toBe("hello world");
-    expect(next.threads[0]?.latestTurn?.state).toBe("running");
-    expect(next.threads[1]).toBe(thread2);
+    expect(next2.threads[0]?.messages).toHaveLength(0);
+    expect(next2.streamingMessageByThreadId[thread1.id]?.text).toBe("hello world");
+
+    // Completion commits the message and clears the buffer
+    const next3 = applyOrchestrationEvent(
+      next2,
+      makeEvent("thread.message-sent", {
+        threadId: thread1.id,
+        messageId: MessageId.makeUnsafe("message-1"),
+        role: "assistant",
+        text: "hello world",
+        turnId: TurnId.makeUnsafe("turn-1"),
+        streaming: false,
+        createdAt: "2026-02-27T00:00:02.000Z",
+        updatedAt: "2026-02-27T00:00:02.000Z",
+      }),
+    );
+
+    expect(next3.threads[0]?.messages).toHaveLength(1);
+    expect(next3.threads[0]?.messages[0]?.text).toBe("hello world");
+    expect(next3.threads[0]?.messages[0]?.streaming).toBe(false);
+    expect(next3.streamingMessageByThreadId[thread1.id]).toBeUndefined();
+    expect(next3.threadSessionById[thread1.id]?.latestTurn?.state).toBe("completed");
   });
 
   it("applies replay batches in sequence and updates session state", () => {
-    const thread = makeThread({
-      latestTurn: {
-        turnId: TurnId.makeUnsafe("turn-1"),
-        state: "running",
-        requestedAt: "2026-02-27T00:00:00.000Z",
-        startedAt: "2026-02-27T00:00:00.000Z",
-        completedAt: null,
-        assistantMessageId: null,
+    const thread = makeThread();
+    const state = makeState(thread, {
+      session: {
+        latestTurn: {
+          turnId: TurnId.makeUnsafe("turn-1"),
+          state: "running",
+          requestedAt: "2026-02-27T00:00:00.000Z",
+          startedAt: "2026-02-27T00:00:00.000Z",
+          completedAt: null,
+          assistantMessageId: null,
+        },
       },
     });
-    const state = makeState(thread);
 
     const next = applyOrchestrationEvents(state, [
       makeEvent(
@@ -1003,14 +1107,14 @@ describe("incremental orchestration updates", () => {
       ),
     ]);
 
-    expect(next.threads[0]?.session?.status).toBe("running");
-    expect(next.threads[0]?.latestTurn?.state).toBe("completed");
+    expect(next.threadSessionById[thread.id]?.session?.status).toBe("running");
+    expect(next.threadSessionById[thread.id]?.latestTurn?.state).toBe("completed");
     expect(next.threads[0]?.messages).toHaveLength(1);
   });
 
   it("does not regress latestTurn when an older turn diff completes late", () => {
-    const state = makeState(
-      makeThread({
+    const state = makeState(makeThread(), {
+      session: {
         latestTurn: {
           turnId: TurnId.makeUnsafe("turn-2"),
           state: "running",
@@ -1019,8 +1123,8 @@ describe("incremental orchestration updates", () => {
           completedAt: null,
           assistantMessageId: null,
         },
-      }),
-    );
+      },
+    });
 
     const next = applyOrchestrationEvent(
       state,
@@ -1036,14 +1140,17 @@ describe("incremental orchestration updates", () => {
       }),
     );
 
-    expect(next.threads[0]?.turnDiffSummaries).toHaveLength(1);
-    expect(next.threads[0]?.latestTurn).toEqual(state.threads[0]?.latestTurn);
+    const threadId = ThreadId.makeUnsafe("thread-1");
+    expect(next.threadDiffsById[threadId]?.turnDiffSummaries).toHaveLength(1);
+    expect(next.threadSessionById[threadId]?.latestTurn).toEqual(
+      state.threadSessionById[threadId]?.latestTurn,
+    );
   });
 
   it("rebinds live turn diffs to the authoritative assistant message when it arrives later", () => {
     const turnId = TurnId.makeUnsafe("turn-1");
-    const state = makeState(
-      makeThread({
+    const state = makeState(makeThread(), {
+      session: {
         latestTurn: {
           turnId,
           state: "completed",
@@ -1052,6 +1159,8 @@ describe("incremental orchestration updates", () => {
           completedAt: "2026-02-27T00:00:02.000Z",
           assistantMessageId: MessageId.makeUnsafe("assistant:turn-1"),
         },
+      },
+      diffs: {
         turnDiffSummaries: [
           {
             turnId,
@@ -1063,8 +1172,8 @@ describe("incremental orchestration updates", () => {
             files: [{ path: "src/app.ts", additions: 1, deletions: 0 }],
           },
         ],
-      }),
-    );
+      },
+    });
 
     const next = applyOrchestrationEvent(
       state,
@@ -1080,18 +1189,19 @@ describe("incremental orchestration updates", () => {
       }),
     );
 
-    expect(next.threads[0]?.turnDiffSummaries[0]?.assistantMessageId).toBe(
+    const threadId = ThreadId.makeUnsafe("thread-1");
+    expect(next.threadDiffsById[threadId]?.turnDiffSummaries[0]?.assistantMessageId).toBe(
       MessageId.makeUnsafe("assistant-real"),
     );
-    expect(next.threads[0]?.latestTurn?.assistantMessageId).toBe(
+    expect(next.threadSessionById[threadId]?.latestTurn?.assistantMessageId).toBe(
       MessageId.makeUnsafe("assistant-real"),
     );
   });
 
   it("rebinds agent diffs to the authoritative assistant message when it arrives later", () => {
     const turnId = TurnId.makeUnsafe("turn-1");
-    const state = makeState(
-      makeThread({
+    const state = makeState(makeThread(), {
+      session: {
         latestTurn: {
           turnId,
           state: "completed",
@@ -1100,6 +1210,8 @@ describe("incremental orchestration updates", () => {
           completedAt: "2026-02-27T00:00:02.000Z",
           assistantMessageId: MessageId.makeUnsafe("assistant:turn-1"),
         },
+      },
+      diffs: {
         agentDiffSummaries: [
           {
             turnId,
@@ -1111,8 +1223,8 @@ describe("incremental orchestration updates", () => {
             files: [{ path: "src/app.ts", additions: 1, deletions: 0 }],
           },
         ],
-      }),
-    );
+      },
+    });
 
     const next = applyOrchestrationEvent(
       state,
@@ -1128,12 +1240,14 @@ describe("incremental orchestration updates", () => {
       }),
     );
 
-    expect(next.threads[0]?.agentDiffSummaries?.[0]?.assistantMessageId).toBe(
-      MessageId.makeUnsafe("assistant-real"),
-    );
+    expect(
+      next.threadDiffsById[ThreadId.makeUnsafe("thread-1")]?.agentDiffSummaries?.[0]
+        ?.assistantMessageId,
+    ).toBe(MessageId.makeUnsafe("assistant-real"));
   });
 
   it("reverts messages, plans, activities, and checkpoints by retained turns", () => {
+    const threadId = ThreadId.makeUnsafe("thread-1");
     const state = makeState(
       makeThread({
         messages: [
@@ -1165,26 +1279,6 @@ describe("incremental orchestration updates", () => {
             streaming: false,
           },
         ],
-        proposedPlans: [
-          {
-            id: "plan-1",
-            turnId: TurnId.makeUnsafe("turn-1"),
-            planMarkdown: "plan 1",
-            implementedAt: null,
-            implementationThreadId: null,
-            createdAt: "2026-02-27T00:00:00.000Z",
-            updatedAt: "2026-02-27T00:00:00.000Z",
-          },
-          {
-            id: "plan-2",
-            turnId: TurnId.makeUnsafe("turn-2"),
-            planMarkdown: "plan 2",
-            implementedAt: null,
-            implementationThreadId: null,
-            createdAt: "2026-02-27T00:00:02.000Z",
-            updatedAt: "2026-02-27T00:00:02.000Z",
-          },
-        ],
         activities: [
           {
             id: EventId.makeUnsafe("activity-1"),
@@ -1205,6 +1299,98 @@ describe("incremental orchestration updates", () => {
             createdAt: "2026-02-27T00:00:02.000Z",
           },
         ],
+      }),
+      {
+        plans: {
+          proposedPlans: [
+            {
+              id: "plan-1",
+              turnId: TurnId.makeUnsafe("turn-1"),
+              planMarkdown: "plan 1",
+              implementedAt: null,
+              implementationThreadId: null,
+              createdAt: "2026-02-27T00:00:00.000Z",
+              updatedAt: "2026-02-27T00:00:00.000Z",
+            },
+            {
+              id: "plan-2",
+              turnId: TurnId.makeUnsafe("turn-2"),
+              planMarkdown: "plan 2",
+              implementedAt: null,
+              implementationThreadId: null,
+              createdAt: "2026-02-27T00:00:02.000Z",
+              updatedAt: "2026-02-27T00:00:02.000Z",
+            },
+          ],
+        },
+        diffs: {
+          turnDiffSummaries: [
+            {
+              turnId: TurnId.makeUnsafe("turn-1"),
+              completedAt: "2026-02-27T00:00:01.000Z",
+              status: "ready",
+              checkpointTurnCount: 1,
+              checkpointRef: CheckpointRef.makeUnsafe("ref-1"),
+              files: [],
+            },
+            {
+              turnId: TurnId.makeUnsafe("turn-2"),
+              completedAt: "2026-02-27T00:00:03.000Z",
+              status: "ready",
+              checkpointTurnCount: 2,
+              checkpointRef: CheckpointRef.makeUnsafe("ref-2"),
+              files: [],
+            },
+          ],
+        },
+      },
+    );
+
+    const next = applyOrchestrationEvent(
+      state,
+      makeEvent("thread.reverted", {
+        threadId,
+        turnCount: 1,
+      }),
+    );
+
+    expect(next.threads[0]?.messages.map((message) => message.id)).toEqual([
+      "user-1",
+      "assistant-1",
+    ]);
+    expect(next.threadPlansById[threadId]?.proposedPlans.map((plan) => plan.id)).toEqual([
+      "plan-1",
+    ]);
+    expect(next.threads[0]?.activities.map((activity) => activity.id)).toEqual([
+      EventId.makeUnsafe("activity-1"),
+    ]);
+    expect(
+      next.threadDiffsById[threadId]?.turnDiffSummaries.map((summary) => summary.turnId),
+    ).toEqual([TurnId.makeUnsafe("turn-1")]);
+  });
+
+  it("clears pending source proposed plans after revert before a new session-set event", () => {
+    const thread = makeThread();
+    const state = makeState(thread, {
+      session: {
+        latestTurn: {
+          turnId: TurnId.makeUnsafe("turn-2"),
+          state: "completed",
+          requestedAt: "2026-02-27T00:00:02.000Z",
+          startedAt: "2026-02-27T00:00:02.000Z",
+          completedAt: "2026-02-27T00:00:03.000Z",
+          assistantMessageId: MessageId.makeUnsafe("assistant-2"),
+          sourceProposedPlan: {
+            threadId: ThreadId.makeUnsafe("thread-source"),
+            planId: "plan-2" as never,
+          },
+        },
+        pendingSourceProposedPlan: {
+          threadId: ThreadId.makeUnsafe("thread-source"),
+          planId: "plan-2" as never,
+        },
+      },
+      diffs: {
         turnDiffSummaries: [
           {
             turnId: TurnId.makeUnsafe("turn-1"),
@@ -1223,76 +1409,17 @@ describe("incremental orchestration updates", () => {
             files: [],
           },
         ],
-      }),
-    );
-
-    const next = applyOrchestrationEvent(
-      state,
-      makeEvent("thread.reverted", {
-        threadId: ThreadId.makeUnsafe("thread-1"),
-        turnCount: 1,
-      }),
-    );
-
-    expect(next.threads[0]?.messages.map((message) => message.id)).toEqual([
-      "user-1",
-      "assistant-1",
-    ]);
-    expect(next.threads[0]?.proposedPlans.map((plan) => plan.id)).toEqual(["plan-1"]);
-    expect(next.threads[0]?.activities.map((activity) => activity.id)).toEqual([
-      EventId.makeUnsafe("activity-1"),
-    ]);
-    expect(next.threads[0]?.turnDiffSummaries.map((summary) => summary.turnId)).toEqual([
-      TurnId.makeUnsafe("turn-1"),
-    ]);
-  });
-
-  it("clears pending source proposed plans after revert before a new session-set event", () => {
-    const thread = makeThread({
-      latestTurn: {
-        turnId: TurnId.makeUnsafe("turn-2"),
-        state: "completed",
-        requestedAt: "2026-02-27T00:00:02.000Z",
-        startedAt: "2026-02-27T00:00:02.000Z",
-        completedAt: "2026-02-27T00:00:03.000Z",
-        assistantMessageId: MessageId.makeUnsafe("assistant-2"),
-        sourceProposedPlan: {
-          threadId: ThreadId.makeUnsafe("thread-source"),
-          planId: "plan-2" as never,
-        },
       },
-      pendingSourceProposedPlan: {
-        threadId: ThreadId.makeUnsafe("thread-source"),
-        planId: "plan-2" as never,
-      },
-      turnDiffSummaries: [
-        {
-          turnId: TurnId.makeUnsafe("turn-1"),
-          completedAt: "2026-02-27T00:00:01.000Z",
-          status: "ready",
-          checkpointTurnCount: 1,
-          checkpointRef: CheckpointRef.makeUnsafe("ref-1"),
-          files: [],
-        },
-        {
-          turnId: TurnId.makeUnsafe("turn-2"),
-          completedAt: "2026-02-27T00:00:03.000Z",
-          status: "ready",
-          checkpointTurnCount: 2,
-          checkpointRef: CheckpointRef.makeUnsafe("ref-2"),
-          files: [],
-        },
-      ],
     });
     const reverted = applyOrchestrationEvent(
-      makeState(thread),
+      state,
       makeEvent("thread.reverted", {
         threadId: thread.id,
         turnCount: 1,
       }),
     );
 
-    expect(reverted.threads[0]?.pendingSourceProposedPlan).toBeUndefined();
+    expect(reverted.threadSessionById[thread.id]?.pendingSourceProposedPlan).toBeUndefined();
 
     const next = applyOrchestrationEvent(
       reverted,
@@ -1310,11 +1437,11 @@ describe("incremental orchestration updates", () => {
       }),
     );
 
-    expect(next.threads[0]?.latestTurn).toMatchObject({
+    expect(next.threadSessionById[thread.id]?.latestTurn).toMatchObject({
       turnId: TurnId.makeUnsafe("turn-3"),
       state: "running",
     });
-    expect(next.threads[0]?.latestTurn?.sourceProposedPlan).toBeUndefined();
+    expect(next.threadSessionById[thread.id]?.latestTurn?.sourceProposedPlan).toBeUndefined();
   });
 });
 

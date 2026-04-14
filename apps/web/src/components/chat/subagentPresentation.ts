@@ -17,17 +17,13 @@ export function deriveSubagentPresentation(input: SubagentPresentationInput): Su
   const description =
     normalizeSubagentText(input.agentDescription) ??
     normalizeMeaningfulFallbackLabel(input.fallbackLabel);
-  const prompt = normalizeSubagentText(input.agentPrompt);
 
   // Heading: "Type · model" when both exist, or just "Type" (which defaults to "Agent")
   const heading = model ? `${type} \u00b7 ${model}` : type;
 
-  // Preview: description first, else prompt if it differs from the heading
-  const preview =
-    description ??
-    (prompt && normalizeSubagentComparison(prompt) !== normalizeSubagentComparison(heading)
-      ? prompt
-      : null);
+  // Preview: only show the explicit description. The prompt is internal metadata
+  // and should not leak into the timeline as visible text.
+  const preview = description ?? null;
 
   return { heading, preview };
 }
@@ -43,8 +39,4 @@ function normalizeMeaningfulFallbackLabel(label: string | undefined): string | u
 function normalizeSubagentText(value: string | undefined): string | undefined {
   const normalized = value?.trim();
   return normalized && normalized.length > 0 ? normalized : undefined;
-}
-
-function normalizeSubagentComparison(value: string): string {
-  return value.replace(/\s+/g, " ").trim();
 }

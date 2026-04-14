@@ -945,13 +945,37 @@ export function deriveVisibleBackgroundCommandEntries(
       .map((entry) => backgroundCommandCompletionKey(entry)),
   );
 
-  return standaloneEntries.filter((entry) =>
-    isBackgroundCommandVisibleInTray(entry, nowIso, {
+  // Track which launch entries have a matching completion entry.
+  // Once a completion entry exists, the launch entry should no longer
+  // appear as "running" in the tray — the completion entry handles
+  // the retention/fade logic.
+  const completedLaunchKeys = new Set(
+    standaloneEntries
+      .filter(
+        (entry) =>
+          entry.itemType === "command_execution" &&
+          entry.isBackgroundCommand === true &&
+          entry.backgroundLifecycleRole === "completion",
+      )
+      .map((entry) => backgroundCommandCompletionKey(entry)),
+  );
+
+  return standaloneEntries.filter((entry) => {
+    // Launch entries that have a matching completion entry are superseded —
+    // the completion entry will show in the tray instead (with retention).
+    if (
+      entry.backgroundLifecycleRole === "launch" &&
+      completedLaunchKeys.has(backgroundCommandCompletionKey(entry))
+    ) {
+      return false;
+    }
+
+    return isBackgroundCommandVisibleInTray(entry, nowIso, {
       hasSeparateLaunchRow:
         entry.backgroundLifecycleRole === "completion" &&
         launchKeys.has(backgroundCommandCompletionKey(entry)),
-    }),
-  );
+    });
+  });
 }
 
 // Debug helpers

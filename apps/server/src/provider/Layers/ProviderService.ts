@@ -544,7 +544,7 @@ const makeProviderService = Effect.fn("makeProviderService")(function* (
           counter: providerTurnsTotal,
           outcomeAttributes: () =>
             providerMetricAttributes(metricProvider, {
-              operation: "interactive-request-response",
+              operation: `${resolutionKind}-response`,
             }),
         }),
       );

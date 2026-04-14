@@ -13,7 +13,16 @@ import {
 } from "@forgetools/contracts";
 import { resolveModelSlugForProvider } from "@forgetools/shared/model";
 import { resolveThreadSpawnWorkspace } from "@forgetools/shared/threadWorkspace";
-import type { ChatMessage, DesignPendingOptions, Project, Thread } from "./types";
+import type {
+  ChatMessage,
+  DesignPendingOptions,
+  Project,
+  Thread,
+  ThreadDesignSlice,
+  ThreadDiffsSlice,
+  ThreadPlansSlice,
+  ThreadSessionSlice,
+} from "./types";
 
 // ── URL helpers ──────────────────────────────────────────────────────
 
@@ -118,7 +127,7 @@ export function mapProjectScripts(
 
 // ── Session / message / turn mappers ─────────────────────────────────
 
-export function mapSession(session: OrchestrationSession): Thread["session"] {
+export function mapSession(session: OrchestrationSession): ThreadSessionSlice["session"] {
   return {
     provider: toLegacyProvider(session.providerName),
     status: toLegacySessionStatus(session.status),
@@ -152,6 +161,7 @@ export function mapMessage(message: OrchestrationMessage): ChatMessage {
     text: message.text,
     turnId: message.turnId,
     createdAt: message.createdAt,
+    ...(message.sequence !== undefined ? { sequence: message.sequence } : {}),
     streaming: message.streaming,
     ...(message.attribution !== undefined ? { attribution: message.attribution } : {}),
     ...(message.streaming ? {} : { completedAt: message.updatedAt }),
@@ -161,7 +171,7 @@ export function mapMessage(message: OrchestrationMessage): ChatMessage {
 
 export function mapProposedPlan(
   proposedPlan: OrchestrationProposedPlan,
-): Thread["proposedPlans"][number] {
+): ThreadPlansSlice["proposedPlans"][number] {
   return {
     id: proposedPlan.id,
     turnId: proposedPlan.turnId,
@@ -175,7 +185,7 @@ export function mapProposedPlan(
 
 export function mapTurnDiffSummary(
   checkpoint: OrchestrationCheckpointSummary,
-): Thread["turnDiffSummaries"][number] {
+): ThreadDiffsSlice["turnDiffSummaries"][number] {
   return {
     turnId: checkpoint.turnId,
     completedAt: checkpoint.completedAt,
@@ -190,7 +200,7 @@ export function mapTurnDiffSummary(
 
 export function mapAgentDiffSummary(
   agentDiff: OrchestrationAgentDiffSummary,
-): NonNullable<Thread["agentDiffSummaries"]>[number] {
+): ThreadDiffsSlice["turnDiffSummaries"][number] {
   return {
     turnId: agentDiff.turnId,
     completedAt: agentDiff.completedAt,
@@ -284,59 +294,88 @@ export function resolvePendingDesignOptions(
   });
 }
 
-export function hasPendingDesignChoice(thread: Pick<Thread, "designPendingOptions">): boolean {
+export function hasPendingDesignChoice(
+  designSlice: Pick<ThreadDesignSlice, "designPendingOptions"> | null | undefined,
+): boolean {
   return (
-    thread.designPendingOptions !== null && thread.designPendingOptions.chosenOptionId === null
+    designSlice?.designPendingOptions !== null &&
+    designSlice?.designPendingOptions !== undefined &&
+    designSlice.designPendingOptions.chosenOptionId === null
   );
 }
 
 // ── Thread / project read-model mappers ──────────────────────────────
 
-export function mapThread(
-  thread: OrchestrationThread,
+export interface MappedThreadAndSlices {
+  thread: Thread;
+  sessionSlice: ThreadSessionSlice;
+  diffsSlice: ThreadDiffsSlice;
+  plansSlice: ThreadPlansSlice;
+  designSlice: ThreadDesignSlice;
+}
+
+export function mapThreadAndSlices(
+  source: OrchestrationThread,
   pendingRequests: ReadonlyArray<InteractiveRequest>,
-): Thread {
-  const spawnWorkspace = resolveThreadSpawnWorkspace(thread);
-  return {
-    id: thread.id,
+): MappedThreadAndSlices {
+  const spawnWorkspace = resolveThreadSpawnWorkspace(source);
+  const session = source.session ? mapSession(source.session) : null;
+  const filteredPendingRequests = pendingRequests
+    .filter((request) => request.threadId === source.id && request.status === "pending")
+    .map((request) => Object.assign({}, request));
+
+  const thread: Thread = {
+    id: source.id,
     codexThreadId: null,
-    projectId: thread.projectId,
-    parentThreadId: thread.parentThreadId ?? null,
-    forkedFromThreadId: thread.forkedFromThreadId ?? null,
-    phaseRunId: thread.phaseRunId ?? null,
-    title: thread.title,
-    modelSelection: normalizeModelSelection(thread.modelSelection),
-    runtimeMode: thread.runtimeMode,
-    interactionMode: thread.interactionMode,
-    workflowId: thread.workflowId ?? null,
-    currentPhaseId: thread.currentPhaseId ?? null,
-    discussionId: thread.discussionId ?? null,
-    role: thread.role ?? null,
-    childThreadIds: [...(thread.childThreadIds ?? [])],
-    session: thread.session ? mapSession(thread.session) : null,
-    messages: thread.messages.map(mapMessage),
-    proposedPlans: thread.proposedPlans.map(mapProposedPlan),
-    error: thread.session?.lastError ?? null,
-    createdAt: thread.createdAt,
-    pinnedAt: thread.pinnedAt,
-    archivedAt: thread.archivedAt,
-    updatedAt: thread.updatedAt,
-    latestTurn: thread.latestTurn,
-    pendingSourceProposedPlan: thread.latestTurn?.sourceProposedPlan,
-    branch: thread.branch,
-    worktreePath: thread.worktreePath,
+    projectId: source.projectId,
+    parentThreadId: source.parentThreadId ?? null,
+    forkedFromThreadId: source.forkedFromThreadId ?? null,
+    phaseRunId: source.phaseRunId ?? null,
+    title: source.title,
+    modelSelection: normalizeModelSelection(source.modelSelection),
+    runtimeMode: source.runtimeMode,
+    interactionMode: source.interactionMode,
+    workflowId: source.workflowId ?? null,
+    currentPhaseId: source.currentPhaseId ?? null,
+    discussionId: source.discussionId ?? null,
+    role: source.role ?? null,
+    childThreadIds: [...(source.childThreadIds ?? [])],
+    messages: source.messages.map(mapMessage),
+    createdAt: source.createdAt,
+    pinnedAt: source.pinnedAt,
+    archivedAt: source.archivedAt,
+    updatedAt: source.updatedAt,
+    branch: source.branch,
+    worktreePath: source.worktreePath,
     spawnBranch: spawnWorkspace.branch,
     spawnWorktreePath: spawnWorkspace.worktreePath,
-    designArtifacts: [],
-    designPendingOptions: resolvePendingDesignOptions(thread.id, pendingRequests),
-    agentDiffSummaries: (thread.agentDiffs ?? []).map(mapAgentDiffSummary),
-    turnDiffSummaries: thread.checkpoints.map(mapTurnDiffSummary),
-    activities: thread.activities.map((activity) => ({ ...activity })),
-    pendingRequests: pendingRequests
-      .filter((request) => request.threadId === thread.id && request.status === "pending")
-      .map((request) => Object.assign({}, request)),
-    ...(thread.spawnMode !== undefined ? { spawnMode: thread.spawnMode } : {}),
+    activities: source.activities.map((activity) => ({ ...activity })),
+    ...(source.spawnMode !== undefined ? { spawnMode: source.spawnMode } : {}),
   };
+
+  const sessionSlice: ThreadSessionSlice = {
+    session,
+    latestTurn: source.latestTurn,
+    pendingSourceProposedPlan: source.latestTurn?.sourceProposedPlan,
+    error: source.session?.lastError ?? null,
+    pendingRequests: filteredPendingRequests,
+  };
+
+  const diffsSlice: ThreadDiffsSlice = {
+    turnDiffSummaries: source.checkpoints.map(mapTurnDiffSummary),
+    agentDiffSummaries: (source.agentDiffs ?? []).map(mapAgentDiffSummary),
+  };
+
+  const plansSlice: ThreadPlansSlice = {
+    proposedPlans: source.proposedPlans.map(mapProposedPlan),
+  };
+
+  const designSlice: ThreadDesignSlice = {
+    designArtifacts: [],
+    designPendingOptions: resolvePendingDesignOptions(source.id, pendingRequests),
+  };
+
+  return { thread, sessionSlice, diffsSlice, plansSlice, designSlice };
 }
 
 export function mapProject(project: OrchestrationReadModel["projects"][number]): Project {

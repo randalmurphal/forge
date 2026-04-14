@@ -76,6 +76,7 @@ import {
   type ParsedTerminalContextEntry,
 } from "~/lib/terminalContext";
 import { cn } from "~/lib/utils";
+import { useNowTick } from "~/hooks/useNowTick";
 import { type TimestampFormat } from "@forgetools/contracts/settings";
 import { useSettings } from "../../hooks/useSettings";
 import { formatTimestamp } from "../../timestampFormat";
@@ -90,7 +91,7 @@ import {
   textContainsInlineTerminalContextLabels,
 } from "./userMessageTerminalContexts";
 import { LazyCommandOutput } from "./LazyCommandOutput";
-const ALWAYS_UNVIRTUALIZED_TAIL_ROWS = 8;
+const ALWAYS_UNVIRTUALIZED_TAIL_ROWS = 4;
 
 interface MessagesTimelineProps {
   threadId: ThreadId | null;
@@ -104,7 +105,6 @@ interface MessagesTimelineProps {
   completionDividerBeforeEntryId: string | null;
   completionSummary: string | null;
   turnDiffSummaryByAssistantMessageId: Map<MessageId, TurnDiffSummary>;
-  nowIso: string;
   expandedWorkGroups: Record<string, boolean>;
   onToggleWorkGroup: (groupId: string) => void;
   onOpenTurnDiff: (turnId: TurnId, filePath?: string) => void;
@@ -141,7 +141,6 @@ export const MessagesTimeline = memo(function MessagesTimeline({
   completionDividerBeforeEntryId,
   completionSummary,
   turnDiffSummaryByAssistantMessageId,
-  nowIso,
   expandedWorkGroups,
   onToggleWorkGroup,
   onOpenTurnDiff,
@@ -155,6 +154,10 @@ export const MessagesTimeline = memo(function MessagesTimeline({
   workspaceRoot,
   onVirtualizerSnapshot,
 }: MessagesTimelineProps) {
+  // Internal 1Hz timer — runs only while the turn is active, keeping the
+  // re-render cascade inside the memo boundary instead of triggering ChatView.
+  const nowIso = useNowTick(activeTurnInProgress || isWorking);
+
   const timelineRootRef = useRef<HTMLDivElement | null>(null);
   const [timelineWidthPx, setTimelineWidthPx] = useState<number | null>(null);
   const [expandedInlineDiff, setExpandedInlineDiff] = useState<ExpandedInlineDiffState>(null);
@@ -422,7 +425,8 @@ export const MessagesTimeline = memo(function MessagesTimeline({
                       (image: NonNullable<TimelineMessage["attachments"]>[number]) => (
                         <div
                           key={image.id}
-                          className="overflow-hidden rounded-lg border border-border/80 bg-background/70"
+                          className="min-h-[72px] overflow-hidden rounded-lg border border-border/80 bg-background/70"
+                          style={{ aspectRatio: "4/3" }}
                         >
                           {image.previewUrl ? (
                             <button
@@ -943,11 +947,6 @@ function workEntryPreview(workEntry: TimelineWorkEntry): string | null {
   // Subagent: use structured fields, falling back to JSON parsing
   if (workEntry.itemType === "collab_agent_tool_call") {
     if (workEntry.agentDescription) return workEntry.agentDescription;
-    if (workEntry.agentPrompt) {
-      return workEntry.agentPrompt.length > 120
-        ? `${workEntry.agentPrompt.slice(0, 117)}...`
-        : workEntry.agentPrompt;
-    }
     const [firstReceiverThreadId] = workEntry.receiverThreadIds ?? [];
     if (firstReceiverThreadId) {
       return workEntry.receiverThreadIds!.length === 1

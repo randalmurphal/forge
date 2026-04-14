@@ -124,4 +124,25 @@ describe("classifyOrchestrationActivityPresentation", () => {
       assistantBoundary: false,
     });
   });
+
+  it("keeps child-attributed tool rows visible without splitting parent assistant text", () => {
+    expect(
+      classifyOrchestrationActivityPresentation(
+        makeActivity({
+          kind: "tool.completed",
+          payload: {
+            itemType: "command_execution",
+            itemId: "child-cmd-1",
+            childThreadAttribution: {
+              taskId: "task-1",
+              childProviderThreadId: "child-thread-1",
+            },
+          },
+        }),
+      ),
+    ).toEqual({
+      visibility: "row",
+      assistantBoundary: false,
+    });
+  });
 });

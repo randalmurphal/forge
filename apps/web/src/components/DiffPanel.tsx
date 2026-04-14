@@ -37,6 +37,7 @@ import {
 } from "../lib/diffRendering";
 import { useTurnDiffSummaries } from "../hooks/useTurnDiffSummaries";
 import { useStore } from "../store";
+import { useThreadDiffs } from "../storeSelectors";
 import { useSettings } from "../hooks/useSettings";
 import { formatShortTimestamp } from "../timestampFormat";
 import { DiffPanelShell, type DiffPanelMode } from "./DiffPanelShell";
@@ -93,10 +94,11 @@ export default function DiffPanel({ mode = "inline" }: DiffPanelProps) {
   const activeCwd = activeThread?.worktreePath ?? activeProject?.cwd;
   const gitStatusQuery = useQuery(gitStatusQueryOptions(activeCwd ?? null));
   const isGitRepo = gitStatusQuery.data?.isRepo ?? true;
-  const { inferredCheckpointTurnCountByTurnId } = useTurnDiffSummaries(activeThread);
+  const threadDiffsSlice = useThreadDiffs(activeThreadId);
+  const { inferredCheckpointTurnCountByTurnId } = useTurnDiffSummaries(threadDiffsSlice);
   const orderedAgentDiffSummaries = useMemo(
     () =>
-      [...(activeThread?.agentDiffSummaries ?? [])].toSorted((left, right) => {
+      [...(threadDiffsSlice?.agentDiffSummaries ?? [])].toSorted((left, right) => {
         const leftTurnCount =
           left.checkpointTurnCount ?? inferredCheckpointTurnCountByTurnId[left.turnId] ?? 0;
         const rightTurnCount =
@@ -106,7 +108,7 @@ export default function DiffPanel({ mode = "inline" }: DiffPanelProps) {
         }
         return right.completedAt.localeCompare(left.completedAt);
       }),
-    [activeThread?.agentDiffSummaries, inferredCheckpointTurnCountByTurnId],
+    [threadDiffsSlice?.agentDiffSummaries, inferredCheckpointTurnCountByTurnId],
   );
 
   const selectedTurnId = diffMode === "agent" ? (diffSearch.diffTurnId ?? null) : null;

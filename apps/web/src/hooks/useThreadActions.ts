@@ -35,9 +35,14 @@ export function useThreadActions() {
     async (threadId: ThreadId) => {
       const api = readNativeApi();
       if (!api) return;
-      const thread = useStore.getState().threads.find((entry) => entry.id === threadId);
+      const storeState = useStore.getState();
+      const thread = storeState.threads.find((entry) => entry.id === threadId);
       if (!thread) return;
-      if (thread.session?.status === "running" && thread.session.activeTurnId != null) {
+      const sessionSlice = storeState.threadSessionById[threadId];
+      if (
+        sessionSlice?.session?.status === "running" &&
+        sessionSlice.session.activeTurnId != null
+      ) {
         throw new Error("Cannot archive a running thread.");
       }
 
@@ -117,7 +122,8 @@ export function useThreadActions() {
           ].join("\n"),
         ));
 
-      if (thread.session && thread.session.status !== "closed") {
+      const deleteSessionSlice = useStore.getState().threadSessionById[threadId];
+      if (deleteSessionSlice?.session && deleteSessionSlice.session.status !== "closed") {
         await api.orchestration
           .dispatchCommand({
             type: "thread.session.stop",

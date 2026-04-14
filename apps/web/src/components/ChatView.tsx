@@ -72,7 +72,15 @@ import {
   type PendingUserInputDraftAnswer,
 } from "../pendingUserInput";
 import { useStore } from "../store";
-import { useProjectById, useThreadById, useThreadsByIds } from "../storeSelectors";
+import {
+  useProjectById,
+  useStreamingMessage,
+  useThreadById,
+  useThreadDiffs,
+  useThreadPlans,
+  useThreadSession,
+  useThreadsByIds,
+} from "../storeSelectors";
 import { useUiStateStore } from "../uiStateStore";
 import {
   buildPlanImplementationThreadTitle,
@@ -86,11 +94,14 @@ import {
   DEFAULT_THREAD_TERMINAL_ID,
   MAX_TERMINALS_PER_GROUP,
   type ChatMessage,
+  type ProposedPlan,
   type SessionPhase,
   type Thread,
+  type ThreadPlansSlice,
+  type ThreadSessionSlice,
   type TurnDiffSummary,
 } from "../types";
-import { LRUCache } from "../lib/lruCache";
+import type { AppState } from "../store";
 
 import { basenameOfPath } from "../vscode-icons";
 import { useTheme } from "../hooks/useTheme";
@@ -266,74 +277,33 @@ const EMPTY_PROJECT_ENTRIES: ProjectEntry[] = [];
 const EMPTY_PROVIDERS: ServerProvider[] = [];
 const EMPTY_PENDING_USER_INPUT_ANSWERS: Record<string, PendingUserInputDraftAnswer> = {};
 
-type ThreadPlanCatalogEntry = Pick<Thread, "id" | "proposedPlans">;
-
-const MAX_THREAD_PLAN_CATALOG_CACHE_ENTRIES = 500;
-const MAX_THREAD_PLAN_CATALOG_CACHE_MEMORY_BYTES = 512 * 1024;
-const threadPlanCatalogCache = new LRUCache<{
-  proposedPlans: Thread["proposedPlans"];
-  entry: ThreadPlanCatalogEntry;
-}>(MAX_THREAD_PLAN_CATALOG_CACHE_ENTRIES, MAX_THREAD_PLAN_CATALOG_CACHE_MEMORY_BYTES);
-
-function estimateThreadPlanCatalogEntrySize(thread: Thread): number {
-  return Math.max(
-    64,
-    thread.id.length +
-      thread.proposedPlans.reduce(
-        (total, plan) =>
-          total +
-          plan.id.length +
-          plan.planMarkdown.length +
-          plan.updatedAt.length +
-          (plan.turnId?.length ?? 0),
-        0,
-      ),
-  );
-}
-
-function toThreadPlanCatalogEntry(thread: Thread): ThreadPlanCatalogEntry {
-  const cached = threadPlanCatalogCache.get(thread.id);
-  if (cached && cached.proposedPlans === thread.proposedPlans) {
-    return cached.entry;
-  }
-
-  const entry: ThreadPlanCatalogEntry = {
-    id: thread.id,
-    proposedPlans: thread.proposedPlans,
-  };
-  threadPlanCatalogCache.set(
-    thread.id,
-    {
-      proposedPlans: thread.proposedPlans,
-      entry,
-    },
-    estimateThreadPlanCatalogEntrySize(thread),
-  );
-  return entry;
+interface ThreadPlanCatalogEntry {
+  id: string;
+  proposedPlans: ProposedPlan[];
 }
 
 function useThreadPlanCatalog(threadIds: readonly ThreadId[]): ThreadPlanCatalogEntry[] {
   const selector = useMemo(() => {
-    let previousThreads: Array<Thread | undefined> | null = null;
+    let previousSlices: Array<ThreadPlansSlice | undefined> | null = null;
     let previousEntries: ThreadPlanCatalogEntry[] = [];
 
-    return (state: { threads: Thread[] }): ThreadPlanCatalogEntry[] => {
-      const nextThreads = threadIds.map((threadId) =>
-        state.threads.find((thread) => thread.id === threadId),
-      );
-      const cachedThreads = previousThreads;
+    return (state: AppState): ThreadPlanCatalogEntry[] => {
+      const nextSlices = threadIds.map((id) => state.threadPlansById[id]);
+      const cached = previousSlices;
       if (
-        cachedThreads &&
-        nextThreads.length === cachedThreads.length &&
-        nextThreads.every((thread, index) => thread === cachedThreads[index])
+        cached &&
+        nextSlices.length === cached.length &&
+        nextSlices.every((slice, index) => slice === cached[index])
       ) {
         return previousEntries;
       }
 
-      previousThreads = nextThreads;
-      previousEntries = nextThreads.flatMap((thread) =>
-        thread ? [toThreadPlanCatalogEntry(thread)] : [],
-      );
+      previousSlices = nextSlices;
+      previousEntries = threadIds.flatMap((id, index) => {
+        const plansSlice = nextSlices[index];
+        if (!plansSlice || plansSlice.proposedPlans.length === 0) return [];
+        return [{ id, proposedPlans: plansSlice.proposedPlans }];
+      });
       return previousEntries;
     };
   }, [threadIds]);
@@ -429,7 +399,9 @@ function mapPendingUserInputRequest(request: InteractiveRequest): PendingUserInp
 
 function useLocalDispatchState(input: {
   activeThread: Thread | undefined;
-  activeLatestTurn: Thread["latestTurn"] | null;
+  activeLatestTurn: ThreadSessionSlice["latestTurn"] | null;
+  session: ThreadSessionSlice["session"] | null;
+  sessionSlice: ThreadSessionSlice | null | undefined;
   phase: SessionPhase;
   activePendingApproval: InteractiveRequestId | null;
   activePendingUserInput: InteractiveRequestId | null;
@@ -446,10 +418,10 @@ function useLocalDispatchState(input: {
             ? current
             : { ...current, preparingWorktree };
         }
-        return createLocalDispatchSnapshot(input.activeThread, options);
+        return createLocalDispatchSnapshot(input.activeThread, input.sessionSlice, options);
       });
     },
-    [input.activeThread],
+    [input.activeThread, input.sessionSlice],
   );
 
   const resetLocalDispatch = useCallback(() => {
@@ -462,7 +434,7 @@ function useLocalDispatchState(input: {
         localDispatch,
         phase: input.phase,
         latestTurn: input.activeLatestTurn,
-        session: input.activeThread?.session ?? null,
+        session: input.session,
         hasPendingApproval: input.activePendingApproval !== null,
         hasPendingUserInput: input.activePendingUserInput !== null,
         threadError: input.threadError,
@@ -471,7 +443,7 @@ function useLocalDispatchState(input: {
       input.activeLatestTurn,
       input.activePendingApproval,
       input.activePendingUserInput,
-      input.activeThread?.session,
+      input.session,
       input.phase,
       input.threadError,
       localDispatch,
@@ -494,14 +466,14 @@ function useLocalDispatchState(input: {
   };
 }
 
-function threadHasActiveTurn(thread: Thread | undefined): boolean {
-  if (!thread) {
+function threadHasActiveTurn(sessionSlice: ThreadSessionSlice | undefined): boolean {
+  if (!sessionSlice) {
     return false;
   }
-  if (thread.session?.activeTurnId != null) {
+  if (sessionSlice.session?.activeTurnId != null) {
     return true;
   }
-  return thread.latestTurn?.state === "running";
+  return sessionSlice.latestTurn?.state === "running";
 }
 
 interface PersistentThreadTerminalDrawerProps {
@@ -684,6 +656,10 @@ function formatDiscussionParticipant(thread: Pick<Thread, "role" | "modelSelecti
 
 export default function ChatView({ threadId }: ChatViewProps) {
   const serverThread = useThreadById(threadId);
+  const threadSessionSlice = useThreadSession(threadId);
+  const threadDiffsSlice = useThreadDiffs(threadId);
+  const threadPlansSlice = useThreadPlans(threadId);
+  const streamingMessage = useStreamingMessage(threadId);
   const setStoreThreadError = useStore((store) => store.setError);
   const setStoreThreadBranch = useStore((store) => store.setThreadBranch);
   const syncServerReadModel = useStore((store) => store.syncServerReadModel);
@@ -767,7 +743,7 @@ export default function ChatView({ threadId }: ChatViewProps) {
   const optimisticUserMessagesRef = useRef(optimisticUserMessages);
   optimisticUserMessagesRef.current = optimisticUserMessages;
   const composerTerminalContextsRef = useRef<TerminalContextDraft[]>(composerTerminalContexts);
-  const [localDraftErrorsByThreadId, setLocalDraftErrorsByThreadId] = useState<
+  const [_localDraftErrorsByThreadId, setLocalDraftErrorsByThreadId] = useState<
     Record<ThreadId, string | null>
   >({});
   const [isConnecting, _setIsConnecting] = useState(false);
@@ -867,8 +843,19 @@ export default function ChatView({ threadId }: ChatViewProps) {
   const storeNewTerminal = useTerminalStateStore((s) => s.newTerminal);
   const storeSetActiveTerminal = useTerminalStateStore((s) => s.setActiveTerminal);
   const storeCloseTerminal = useTerminalStateStore((s) => s.closeTerminal);
-  const threads = useStore((state) => state.threads);
-  const serverThreadIds = useMemo(() => threads.map((thread) => thread.id), [threads]);
+  const serverThreadIds = useStore(
+    useMemo(() => {
+      let prev: ThreadId[] = [];
+      return (state: { threads: { id: ThreadId }[] }) => {
+        const next = state.threads.map((t) => t.id);
+        if (prev.length === next.length && prev.every((id, i) => id === next[i])) {
+          return prev;
+        }
+        prev = next;
+        return next;
+      };
+    }, []),
+  );
   const draftThreadsByThreadId = useComposerDraftStore((store) => store.draftThreadsByThreadId);
   const draftThreadIds = useMemo(
     () => Object.keys(draftThreadsByThreadId) as ThreadId[],
@@ -930,7 +917,6 @@ export default function ChatView({ threadId }: ChatViewProps) {
   );
 
   const fallbackDraftProject = useProjectById(draftThread?.projectId);
-  const localDraftError = serverThread ? null : (localDraftErrorsByThreadId[threadId] ?? null);
   const localDraftThread = useMemo(
     () =>
       draftThread
@@ -941,16 +927,16 @@ export default function ChatView({ threadId }: ChatViewProps) {
               provider: "codex",
               model: DEFAULT_MODEL_BY_PROVIDER.codex,
             },
-            localDraftError,
           )
         : undefined,
-    [draftThread, fallbackDraftProject?.defaultModelSelection, localDraftError, threadId],
+    [draftThread, fallbackDraftProject?.defaultModelSelection, threadId],
   );
   const activeThread = serverThread ?? localDraftThread;
   const threadWorkLog = useStore((state) =>
     activeThread?.id ? state.threadWorkLogById?.[activeThread.id] : undefined,
   );
   const childThreads = useThreadsByIds(activeThread?.childThreadIds);
+  const childSessionSliceById = useStore((store) => store.threadSessionById);
   const forkedFromThread = useThreadById(activeThread?.forkedFromThreadId);
   const onNavigateToForkedSource = useMemo(() => {
     if (!forkedFromThread) return null;
@@ -973,11 +959,12 @@ export default function ChatView({ threadId }: ChatViewProps) {
     () =>
       isDiscussionContainerThread
         ? childThreads.filter((thread) => {
-            const childPhase = derivePhase(thread.session ?? null);
-            return childPhase === "connecting" || threadHasActiveTurn(thread);
+            const childSession = childSessionSliceById[thread.id];
+            const childPhase = derivePhase(childSession?.session ?? null);
+            return childPhase === "connecting" || threadHasActiveTurn(childSession);
           })
         : [],
-    [childThreads, isDiscussionContainerThread],
+    [childThreads, childSessionSliceById, isDiscussionContainerThread],
   );
   const discussionWorkingParticipantLabels = useMemo(
     () => activeDiscussionChildren.map(formatDiscussionParticipant),
@@ -989,11 +976,11 @@ export default function ChatView({ threadId }: ChatViewProps) {
     }
     return (
       activeDiscussionChildren
-        .map((thread) => thread.latestTurn?.startedAt ?? null)
+        .map((thread) => childSessionSliceById[thread.id]?.latestTurn?.startedAt ?? null)
         .filter((value): value is string => value !== null)
         .toSorted((left, right) => left.localeCompare(right))[0] ?? null
     );
-  }, [activeDiscussionChildren, isDiscussionContainerThread]);
+  }, [activeDiscussionChildren, childSessionSliceById, isDiscussionContainerThread]);
   const runtimeMode =
     composerDraft.runtimeMode ?? activeThread?.runtimeMode ?? DEFAULT_RUNTIME_MODE;
   const interactionMode =
@@ -1008,7 +995,7 @@ export default function ChatView({ threadId }: ChatViewProps) {
     const existingThreadIds = new Set<ThreadId>([...serverThreadIds, ...draftThreadIds]);
     return openTerminalThreadIds.filter((nextThreadId) => existingThreadIds.has(nextThreadId));
   }, [draftThreadIds, openTerminalThreadIds, serverThreadIds]);
-  const activeLatestTurn = activeThread?.latestTurn ?? null;
+  const activeLatestTurn = threadSessionSlice?.latestTurn ?? null;
   const threadPlanCatalog = useThreadPlanCatalog(
     useMemo(() => {
       const threadIds: ThreadId[] = [];
@@ -1043,7 +1030,7 @@ export default function ChatView({ threadId }: ChatViewProps) {
   }, [activeThreadId, existingOpenTerminalThreadIds, terminalState.terminalOpen]);
   const latestTurnSettled = isDiscussionContainerThread
     ? activeDiscussionChildren.length === 0
-    : isLatestTurnSettled(activeLatestTurn, activeThread?.session ?? null);
+    : isLatestTurnSettled(activeLatestTurn, threadSessionSlice?.session ?? null);
   const activeProject = useProjectById(activeThread?.projectId);
 
   const openPullRequestDialog = useCallback(
@@ -1156,11 +1143,11 @@ export default function ChatView({ threadId }: ChatViewProps) {
     serverThread?.id,
   ]);
 
-  const sessionProvider = activeThread?.session?.provider ?? null;
+  const sessionProvider = threadSessionSlice?.session?.provider ?? null;
   const selectedProviderByThreadId = composerDraft.activeProvider ?? null;
   const threadProvider =
     activeThread?.modelSelection.provider ?? activeProject?.defaultModelSelection?.provider ?? null;
-  const hasThreadStarted = threadHasStarted(activeThread);
+  const hasThreadStarted = threadHasStarted(activeThread, threadSessionSlice);
   const lockedProvider: ProviderKind | null = hasThreadStarted
     ? (sessionProvider ?? threadProvider ?? selectedProviderByThreadId ?? null)
     : null;
@@ -1206,7 +1193,7 @@ export default function ChatView({ threadId }: ChatViewProps) {
     ? activeDiscussionChildren.length > 0
       ? "running"
       : "ready"
-    : derivePhase(activeThread?.session ?? null);
+    : derivePhase(threadSessionSlice?.session ?? null);
   const threadActivities = activeThread?.activities ?? EMPTY_ACTIVITIES;
   const workLogEntries = threadWorkLog?.entries ?? EMPTY_WORK_LOG_ENTRIES;
   const latestTurnHasToolActivity = useMemo(
@@ -1215,10 +1202,10 @@ export default function ChatView({ threadId }: ChatViewProps) {
   );
   const threadPendingRequests = useMemo(
     () =>
-      (activeThread?.pendingRequests ?? [])
+      (threadSessionSlice?.pendingRequests ?? [])
         .filter((request) => request.status === "pending" && request.type !== "design-option")
         .toSorted((left, right) => left.createdAt.localeCompare(right.createdAt)),
-    [activeThread?.pendingRequests],
+    [threadSessionSlice?.pendingRequests],
   );
   const hasPendingRequests = threadPendingRequests.length > 0;
   const activePendingRequest = threadPendingRequests[0] ?? null;
@@ -1275,14 +1262,14 @@ export default function ChatView({ threadId }: ChatViewProps) {
       return null;
     }
     return findLatestProposedPlan(
-      activeThread?.proposedPlans ?? [],
+      threadPlansSlice?.proposedPlans ?? [],
       activeLatestTurn?.turnId ?? null,
     );
-  }, [activeLatestTurn?.turnId, activeThread?.proposedPlans, latestTurnSettled]);
+  }, [activeLatestTurn?.turnId, threadPlansSlice?.proposedPlans, latestTurnSettled]);
   const sidebarProposedPlan = useMemo(
     () =>
       findSidebarProposedPlan({
-        threads: threadPlanCatalog,
+        plansByThreadId: threadPlanCatalog,
         latestTurn: activeLatestTurn,
         latestTurnSettled,
         threadId: activeThread?.id ?? null,
@@ -1309,10 +1296,12 @@ export default function ChatView({ threadId }: ChatViewProps) {
   } = useLocalDispatchState({
     activeThread,
     activeLatestTurn,
+    session: threadSessionSlice?.session ?? null,
+    sessionSlice: threadSessionSlice,
     phase,
     activePendingApproval: activePendingRequestId,
     activePendingUserInput: activePendingRequestId,
-    threadError: activeThread?.error,
+    threadError: threadSessionSlice?.error,
   });
   const isWorking =
     isConnecting ||
@@ -1320,7 +1309,7 @@ export default function ChatView({ threadId }: ChatViewProps) {
     isRevertingCheckpoint ||
     (isDiscussionContainerThread
       ? activeDiscussionChildren.length > 0
-      : threadHasActiveTurn(activeThread));
+      : threadHasActiveTurn(threadSessionSlice ?? undefined));
   const nowIso = new Date(nowTick).toISOString();
   const backgroundTrayState = useMemo(
     () => deriveBackgroundTrayState(workLogEntries, nowIso),
@@ -1330,7 +1319,7 @@ export default function ChatView({ threadId }: ChatViewProps) {
     ? discussionActiveTurnStartedAt
     : deriveActiveWorkStartedAt(
         activeLatestTurn,
-        activeThread?.session ?? null,
+        threadSessionSlice?.session ?? null,
         localDispatchStartedAt,
       );
   const isComposerRequestState = hasPendingRequests && activePendingUserInput === null;
@@ -1509,16 +1498,29 @@ export default function ChatView({ threadId }: ChatViewProps) {
             return changed ? { ...message, attachments } : message;
           });
 
-    if (optimisticUserMessages.length === 0) {
-      return serverMessagesWithPreviewHandoff;
+    // Merge optimistic user messages that haven't been confirmed yet
+    let merged = serverMessagesWithPreviewHandoff;
+    if (optimisticUserMessages.length > 0) {
+      const serverIds = new Set(serverMessagesWithPreviewHandoff.map((message) => message.id));
+      const pendingMessages = optimisticUserMessages.filter(
+        (message) => !serverIds.has(message.id),
+      );
+      if (pendingMessages.length > 0) {
+        merged = [...serverMessagesWithPreviewHandoff, ...pendingMessages];
+      }
     }
-    const serverIds = new Set(serverMessagesWithPreviewHandoff.map((message) => message.id));
-    const pendingMessages = optimisticUserMessages.filter((message) => !serverIds.has(message.id));
-    if (pendingMessages.length === 0) {
-      return serverMessagesWithPreviewHandoff;
+
+    // Append the streaming assistant message from the separate buffer
+    if (streamingMessage) {
+      return [...merged, streamingMessage];
     }
-    return [...serverMessagesWithPreviewHandoff, ...pendingMessages];
-  }, [serverMessages, attachmentPreviewHandoffByMessageId, optimisticUserMessages]);
+    return merged;
+  }, [
+    serverMessages,
+    attachmentPreviewHandoffByMessageId,
+    optimisticUserMessages,
+    streamingMessage,
+  ]);
   const visibleWorkLogEntries = useMemo(
     () => filterTrayOwnedWorkEntries(workLogEntries, backgroundTrayState),
     [backgroundTrayState, workLogEntries],
@@ -1527,13 +1529,13 @@ export default function ChatView({ threadId }: ChatViewProps) {
     () =>
       deriveTimelineEntries(
         timelineMessages,
-        activeThread?.proposedPlans ?? [],
+        threadPlansSlice?.proposedPlans ?? [],
         visibleWorkLogEntries,
       ),
-    [activeThread?.proposedPlans, timelineMessages, visibleWorkLogEntries],
+    [threadPlansSlice?.proposedPlans, timelineMessages, visibleWorkLogEntries],
   );
   const { turnDiffSummaries, inferredCheckpointTurnCountByTurnId } =
-    useTurnDiffSummaries(activeThread);
+    useTurnDiffSummaries(threadDiffsSlice);
   const checkpointTurnDiffSummaryByAssistantMessageId = useMemo(() => {
     const byMessageId = new Map<MessageId, TurnDiffSummary>();
     const assistantMessageIdByTurnId = new Map<TurnId, MessageId>();
@@ -1552,11 +1554,11 @@ export default function ChatView({ threadId }: ChatViewProps) {
   const turnDiffSummaryByAssistantMessageId = useMemo(
     () =>
       deriveInlineTurnDiffSummaryByAssistantMessageId({
-        agentDiffSummaries: activeThread?.agentDiffSummaries,
+        agentDiffSummaries: threadDiffsSlice?.agentDiffSummaries,
         latestTurnId: activeLatestTurn?.turnId ?? null,
         latestTurnSettled,
       }),
-    [activeLatestTurn?.turnId, activeThread?.agentDiffSummaries, latestTurnSettled],
+    [activeLatestTurn?.turnId, threadDiffsSlice?.agentDiffSummaries, latestTurnSettled],
   );
   const revertTurnCountByUserMessageId = useMemo(() => {
     const byUserMessageId = new Map<MessageId, number>();
@@ -4433,13 +4435,16 @@ export default function ChatView({ threadId }: ChatViewProps) {
     },
     [navigate, threadId],
   );
-  const onRevertUserMessage = (messageId: MessageId) => {
-    const targetTurnCount = revertTurnCountByUserMessageId.get(messageId);
-    if (typeof targetTurnCount !== "number") {
-      return;
-    }
-    void onRevertToTurnCount(targetTurnCount);
-  };
+  const onRevertUserMessage = useCallback(
+    (messageId: MessageId) => {
+      const targetTurnCount = revertTurnCountByUserMessageId.get(messageId);
+      if (typeof targetTurnCount !== "number") {
+        return;
+      }
+      void onRevertToTurnCount(targetTurnCount);
+    },
+    [revertTurnCountByUserMessageId, onRevertToTurnCount],
+  );
 
   // Empty state: no active thread
   if (!activeThread) {
@@ -4514,7 +4519,7 @@ export default function ChatView({ threadId }: ChatViewProps) {
       {/* Error banner */}
       <ProviderStatusBanner status={activeProviderStatus} />
       <ThreadErrorBanner
-        error={activeThread.error}
+        error={threadSessionSlice?.error ?? null}
         onDismiss={() => setThreadError(activeThread.id, null)}
       />
       {/* Main content area with optional plan sidebar */}
@@ -4553,7 +4558,6 @@ export default function ChatView({ threadId }: ChatViewProps) {
                 completionDividerBeforeEntryId={completionDividerBeforeEntryId}
                 completionSummary={completionSummary}
                 turnDiffSummaryByAssistantMessageId={turnDiffSummaryByAssistantMessageId}
-                nowIso={nowIso}
                 expandedWorkGroups={expandedWorkGroups}
                 onToggleWorkGroup={onToggleWorkGroup}
                 onOpenTurnDiff={onOpenTurnDiff}

@@ -7,7 +7,16 @@ import {
   syncServerReadModel,
 } from "./storeEventHandlers";
 import { EMPTY_THREAD_IDS, EMPTY_THREADS, updateThreadState } from "./storeStateHelpers";
-import type { Project, SidebarThreadSummary, Thread } from "./types";
+import type {
+  ChatMessage,
+  Project,
+  SidebarThreadSummary,
+  Thread,
+  ThreadDesignSlice,
+  ThreadDiffsSlice,
+  ThreadPlansSlice,
+  ThreadSessionSlice,
+} from "./types";
 import type { WorkLogProjectionState } from "./session-logic";
 
 // ── State ────────────────────────────────────────────────────────────
@@ -19,6 +28,16 @@ export interface AppState {
   threadIdsByProjectId: Record<string, ThreadId[]>;
   threadWorkLogById?: Record<string, WorkLogProjectionState>;
   bootstrapComplete: boolean;
+
+  // ── Normalized per-thread slices ────────────────────────────────────
+  // Each slice isolates a high-churn concern so that mutations in one
+  // (e.g. session status flips) don't trigger re-renders in components
+  // that only consume another (e.g. the message list).
+  threadSessionById: Record<string, ThreadSessionSlice>;
+  threadDiffsById: Record<string, ThreadDiffsSlice>;
+  threadPlansById: Record<string, ThreadPlansSlice>;
+  threadDesignById: Record<string, ThreadDesignSlice>;
+  streamingMessageByThreadId: Record<string, ChatMessage>;
 }
 
 const initialState: AppState = {
@@ -28,6 +47,11 @@ const initialState: AppState = {
   threadIdsByProjectId: {},
   threadWorkLogById: {},
   bootstrapComplete: false,
+  threadSessionById: {},
+  threadDiffsById: {},
+  threadPlansById: {},
+  threadDesignById: {},
+  streamingMessageByThreadId: {},
 };
 
 // ── Re-exports ───────────────────────────────────────────────────────
@@ -62,6 +86,31 @@ export const selectThreadIdsByProjectId =
   (state: AppState): ThreadId[] =>
     projectId ? (state.threadIdsByProjectId[projectId] ?? EMPTY_THREAD_IDS) : EMPTY_THREAD_IDS;
 
+export const selectThreadSessionById =
+  (threadId: ThreadId | null | undefined) =>
+  (state: AppState): ThreadSessionSlice | undefined =>
+    threadId ? state.threadSessionById[threadId] : undefined;
+
+export const selectThreadDiffsById =
+  (threadId: ThreadId | null | undefined) =>
+  (state: AppState): ThreadDiffsSlice | undefined =>
+    threadId ? state.threadDiffsById[threadId] : undefined;
+
+export const selectThreadPlansById =
+  (threadId: ThreadId | null | undefined) =>
+  (state: AppState): ThreadPlansSlice | undefined =>
+    threadId ? state.threadPlansById[threadId] : undefined;
+
+export const selectThreadDesignById =
+  (threadId: ThreadId | null | undefined) =>
+  (state: AppState): ThreadDesignSlice | undefined =>
+    threadId ? state.threadDesignById[threadId] : undefined;
+
+export const selectStreamingMessageByThreadId =
+  (threadId: ThreadId | null | undefined) =>
+  (state: AppState): ChatMessage | undefined =>
+    threadId ? state.streamingMessageByThreadId[threadId] : undefined;
+
 export const selectThreadsByIds =
   (threadIds: readonly ThreadId[] | null | undefined) =>
   (state: AppState): Thread[] => {
@@ -81,10 +130,21 @@ export const selectThreadsByIds =
 // ── State mutators ───────────────────────────────────────────────────
 
 export function setError(state: AppState, threadId: ThreadId, error: string | null): AppState {
-  return updateThreadState(state, threadId, (t) => {
-    if (t.error === error) return t;
-    return { ...t, error };
-  });
+  const prev = state.threadSessionById[threadId];
+  if (prev?.error === error) return state;
+  return {
+    ...state,
+    threadSessionById: {
+      ...state.threadSessionById,
+      [threadId]: {
+        session: prev?.session ?? null,
+        latestTurn: prev?.latestTurn ?? null,
+        error,
+        pendingSourceProposedPlan: prev?.pendingSourceProposedPlan,
+        pendingRequests: prev?.pendingRequests,
+      },
+    },
+  };
 }
 
 export function setThreadBranch(
@@ -93,16 +153,28 @@ export function setThreadBranch(
   branch: string | null,
   worktreePath: string | null,
 ): AppState {
-  return updateThreadState(state, threadId, (t) => {
+  let next = updateThreadState(state, threadId, (t) => {
     if (t.branch === branch && t.worktreePath === worktreePath) return t;
-    const cwdChanged = t.worktreePath !== worktreePath;
-    return {
-      ...t,
-      branch,
-      worktreePath,
-      ...(cwdChanged ? { session: null } : {}),
-    };
+    return { ...t, branch, worktreePath };
   });
+  // If the working directory changed, clear the session.
+  const thread = next.threads.find((t) => t.id === threadId);
+  if (
+    thread &&
+    thread.worktreePath !== state.threads.find((t) => t.id === threadId)?.worktreePath
+  ) {
+    const prev = next.threadSessionById[threadId];
+    if (prev?.session !== null) {
+      next = {
+        ...next,
+        threadSessionById: {
+          ...next.threadSessionById,
+          [threadId]: { ...prev!, session: null },
+        },
+      };
+    }
+  }
+  return next;
 }
 
 // ── Zustand store ────────────────────────────────────────────────────
@@ -113,6 +185,7 @@ interface AppStore extends AppState {
   applyOrchestrationEvents: (events: ReadonlyArray<ForgeEvent>) => void;
   setError: (threadId: ThreadId, error: string | null) => void;
   setThreadBranch: (threadId: ThreadId, branch: string | null, worktreePath: string | null) => void;
+  clearStreamingMessage: (threadId: ThreadId) => void;
 }
 
 export const useStore = create<AppStore>((set) => ({
@@ -123,4 +196,10 @@ export const useStore = create<AppStore>((set) => ({
   setError: (threadId, error) => set((state) => setError(state, threadId, error)),
   setThreadBranch: (threadId, branch, worktreePath) =>
     set((state) => setThreadBranch(state, threadId, branch, worktreePath)),
+  clearStreamingMessage: (threadId) =>
+    set((state) => {
+      if (!state.streamingMessageByThreadId[threadId]) return state;
+      const { [threadId]: _, ...rest } = state.streamingMessageByThreadId;
+      return { ...state, streamingMessageByThreadId: rest };
+    }),
 }));

@@ -36,6 +36,7 @@ export default function BranchToolbar({
 }: BranchToolbarProps) {
   const threads = useStore((store) => store.threads);
   const projects = useStore((store) => store.projects);
+  const sessionSlice = useStore((store) => store.threadSessionById[threadId]);
   const setThreadBranchAction = useStore((store) => store.setThreadBranch);
   const draftThread = useComposerDraftStore((store) => store.getDraftThread(threadId));
   const setDraftThreadContext = useComposerDraftStore((store) => store.setDraftThreadContext);
@@ -55,7 +56,7 @@ export default function BranchToolbar({
       const api = readNativeApi();
       // If the effective cwd is about to change, stop the running session so the
       // next message creates a new one with the correct cwd.
-      if (serverThread?.session && worktreePath !== activeWorktreePath && api) {
+      if (sessionSlice?.session && worktreePath !== activeWorktreePath && api) {
         void api.orchestration
           .dispatchCommand({
             type: "thread.session.stop",
@@ -91,7 +92,7 @@ export default function BranchToolbar({
     },
     [
       activeThreadId,
-      serverThread?.session,
+      sessionSlice?.session,
       activeWorktreePath,
       hasServerThread,
       setThreadBranchAction,

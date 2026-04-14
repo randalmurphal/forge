@@ -122,6 +122,33 @@ export interface DesignPendingOptions {
   chosenOptionId: string | null;
 }
 
+// ── Normalized state slices ─────────────────────────────────────────
+// These allow components to subscribe to only the thread data they need,
+// preventing session/turn/diff/plan/design churn from cascading re-renders
+// to the message list and vice versa.
+
+export interface ThreadSessionSlice {
+  session: ThreadSession | null;
+  latestTurn: OrchestrationLatestTurn | null;
+  pendingSourceProposedPlan?: OrchestrationLatestTurn["sourceProposedPlan"] | undefined;
+  error: string | null;
+  pendingRequests?: InteractiveRequest[] | undefined;
+}
+
+export interface ThreadDiffsSlice {
+  turnDiffSummaries: TurnDiffSummary[];
+  agentDiffSummaries?: TurnDiffSummary[] | undefined;
+}
+
+export interface ThreadPlansSlice {
+  proposedPlans: ProposedPlan[];
+}
+
+export interface ThreadDesignSlice {
+  designArtifacts: DesignArtifact[];
+  designPendingOptions: DesignPendingOptions | null;
+}
+
 export interface Thread {
   id: ThreadId;
   codexThreadId: string | null;
@@ -138,27 +165,17 @@ export interface Thread {
   discussionId?: string | null;
   role?: string | null;
   childThreadIds?: ThreadId[];
-  session: ThreadSession | null;
   messages: ChatMessage[];
-  proposedPlans: ProposedPlan[];
-  error: string | null;
   createdAt: string;
   pinnedAt: string | null;
   archivedAt: string | null;
   updatedAt?: string | undefined;
-  latestTurn: OrchestrationLatestTurn | null;
-  pendingSourceProposedPlan?: OrchestrationLatestTurn["sourceProposedPlan"];
   branch: string | null;
   worktreePath: string | null;
   spawnMode?: ThreadSpawnMode;
   spawnBranch?: string | null;
   spawnWorktreePath?: string | null;
-  designArtifacts: DesignArtifact[];
-  designPendingOptions: DesignPendingOptions | null;
-  agentDiffSummaries?: TurnDiffSummary[];
-  turnDiffSummaries: TurnDiffSummary[];
   activities: OrchestrationThreadActivity[];
-  pendingRequests?: InteractiveRequest[];
 }
 
 export interface SidebarThreadSummary {

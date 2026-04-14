@@ -4,7 +4,13 @@ import {
   isLatestTurnSettled,
 } from "./session-logic";
 import { hasPendingDesignChoice } from "./storeMappers";
-import type { SidebarThreadSummary, Thread } from "./types";
+import type {
+  SidebarThreadSummary,
+  Thread,
+  ThreadDesignSlice,
+  ThreadPlansSlice,
+  ThreadSessionSlice,
+} from "./types";
 
 // ── Sidebar derivation helpers ───────────────────────────────────────
 
@@ -49,7 +55,11 @@ interface AttentionFlags {
  *
  * Falls back to updatedAt → createdAt for threads with no qualifying events.
  */
-function getLastSortableActivityAt(thread: Thread, attention: AttentionFlags): string | null {
+function getLastSortableActivityAt(
+  thread: Thread,
+  sessionSlice: ThreadSessionSlice | undefined,
+  attention: AttentionFlags,
+): string | null {
   const candidates: string[] = [];
 
   const latestUserMsg = getLatestUserMessageAt(thread.messages);
@@ -57,8 +67,10 @@ function getLastSortableActivityAt(thread: Thread, attention: AttentionFlags): s
     candidates.push(latestUserMsg);
   }
 
-  if (thread.latestTurn?.completedAt && isLatestTurnSettled(thread.latestTurn, thread.session)) {
-    candidates.push(thread.latestTurn.completedAt);
+  const latestTurn = sessionSlice?.latestTurn ?? null;
+  const session = sessionSlice?.session ?? null;
+  if (latestTurn?.completedAt && isLatestTurnSettled(latestTurn, session)) {
+    candidates.push(latestTurn.completedAt);
   }
 
   const needsAttention =
@@ -83,8 +95,13 @@ function getLastSortableActivityAt(thread: Thread, attention: AttentionFlags): s
  * `hasActionableProposedPlan`) are each computed once, then forwarded to
  * `getLastSortableActivityAt` to avoid the previous double-computation.
  */
-export function buildSidebarThreadSummary(thread: Thread): SidebarThreadSummary {
-  const pendingRequests = thread.pendingRequests ?? [];
+export function buildSidebarThreadSummary(
+  thread: Thread,
+  sessionSlice: ThreadSessionSlice | undefined,
+  plansSlice: ThreadPlansSlice | undefined,
+  designSlice: ThreadDesignSlice | undefined,
+): SidebarThreadSummary {
+  const pendingRequests = sessionSlice?.pendingRequests ?? [];
   const pendingApprovals = pendingRequests.some(
     (request) => request.type === "approval" && request.status === "pending",
   );
@@ -94,12 +111,13 @@ export function buildSidebarThreadSummary(thread: Thread): SidebarThreadSummary 
       request.type !== "approval" &&
       request.type !== "design-option",
   );
-  const designChoice = hasPendingDesignChoice(thread);
+  const designChoice = hasPendingDesignChoice(designSlice);
+  const latestTurn = sessionSlice?.latestTurn ?? null;
   const proposedPlan = hasActionableProposedPlan(
-    findLatestProposedPlan(thread.proposedPlans, thread.latestTurn?.turnId ?? null),
+    findLatestProposedPlan(plansSlice?.proposedPlans ?? [], latestTurn?.turnId ?? null),
   );
 
-  const lastSortableActivityAt = getLastSortableActivityAt(thread, {
+  const lastSortableActivityAt = getLastSortableActivityAt(thread, sessionSlice, {
     hasPendingApprovals: pendingApprovals,
     hasPendingUserInputs: pendingUserInputs,
     hasDesignChoice: designChoice,
@@ -118,12 +136,12 @@ export function buildSidebarThreadSummary(thread: Thread): SidebarThreadSummary 
     discussionId: thread.discussionId ?? null,
     role: thread.role ?? null,
     childThreadIds: [...(thread.childThreadIds ?? [])],
-    session: thread.session,
+    session: sessionSlice?.session ?? null,
     createdAt: thread.createdAt,
     pinnedAt: thread.pinnedAt,
     archivedAt: thread.archivedAt,
     updatedAt: thread.updatedAt,
-    latestTurn: thread.latestTurn,
+    latestTurn,
     branch: thread.branch,
     worktreePath: thread.worktreePath,
     spawnBranch: thread.spawnBranch ?? null,
@@ -180,8 +198,19 @@ export function sidebarThreadSummariesEqual(
 
 export function buildSidebarThreadsById(
   threads: ReadonlyArray<Thread>,
+  sessionById: Record<string, ThreadSessionSlice>,
+  plansById: Record<string, ThreadPlansSlice>,
+  designById: Record<string, ThreadDesignSlice>,
 ): Record<string, SidebarThreadSummary> {
   return Object.fromEntries(
-    threads.map((thread) => [thread.id, buildSidebarThreadSummary(thread)]),
+    threads.map((thread) => [
+      thread.id,
+      buildSidebarThreadSummary(
+        thread,
+        sessionById[thread.id],
+        plansById[thread.id],
+        designById[thread.id],
+      ),
+    ]),
   );
 }

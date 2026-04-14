@@ -10,6 +10,7 @@ import {
   type SessionPhase,
   type Thread,
   type ThreadSession,
+  type ThreadSessionSlice,
   type TurnDiffSummary,
 } from "../types";
 import { randomUUID } from "~/lib/utils";
@@ -57,7 +58,6 @@ export function buildLocalDraftThread(
   threadId: ThreadId,
   draftThread: DraftThreadState,
   fallbackModelSelection: ModelSelection,
-  error: string | null,
 ): Thread {
   return {
     id: threadId,
@@ -69,20 +69,13 @@ export function buildLocalDraftThread(
     runtimeMode: draftThread.runtimeMode,
     interactionMode: draftThread.interactionMode,
     workflowId: draftThread.workflowId,
-    session: null,
     messages: [],
-    error,
     createdAt: draftThread.createdAt,
     pinnedAt: null,
     archivedAt: null,
-    latestTurn: null,
     branch: draftThread.branch,
     worktreePath: draftThread.worktreePath,
-    designArtifacts: [],
-    designPendingOptions: null,
-    turnDiffSummaries: [],
     activities: [],
-    proposedPlans: [],
   };
 }
 
@@ -277,21 +270,31 @@ export function buildExpiredTerminalContextToastCopy(
   };
 }
 
-export function threadHasStarted(thread: Thread | null | undefined): boolean {
+export function threadHasStarted(
+  thread: Thread | null | undefined,
+  sessionSlice?: ThreadSessionSlice | null,
+): boolean {
   return Boolean(
-    thread && (thread.latestTurn !== null || thread.messages.length > 0 || thread.session !== null),
+    thread &&
+    ((sessionSlice?.latestTurn ?? null) !== null ||
+      thread.messages.length > 0 ||
+      (sessionSlice?.session ?? null) !== null),
   );
 }
 
 export async function waitForServerThreadMatch(
   threadId: ThreadId,
-  matches: (thread: Thread) => boolean,
+  matches: (thread: Thread, sessionSlice?: ThreadSessionSlice) => boolean,
   timeoutMs = 1_000,
 ): Promise<boolean> {
-  const getThread = () => useStore.getState().threads.find((thread) => thread.id === threadId);
-  const thread = getThread();
+  const getState = () => useStore.getState();
+  const check = (state: ReturnType<typeof getState>) => {
+    const thread = state.threads.find((t) => t.id === threadId);
+    if (!thread) return false;
+    return matches(thread, state.threadSessionById[threadId]);
+  };
 
-  if (thread && matches(thread)) {
+  if (check(getState())) {
     return true;
   }
 
@@ -311,15 +314,12 @@ export async function waitForServerThreadMatch(
     };
 
     const unsubscribe = useStore.subscribe((state) => {
-      const nextThread = state.threads.find((thread) => thread.id === threadId);
-      if (!nextThread || !matches(nextThread)) {
-        return;
+      if (check(state)) {
+        finish(true);
       }
-      finish(true);
     });
 
-    const currentThread = getThread();
-    if (currentThread && matches(currentThread)) {
+    if (check(getState())) {
       finish(true);
       return;
     }
@@ -350,10 +350,11 @@ export interface LocalDispatchSnapshot {
 
 export function createLocalDispatchSnapshot(
   activeThread: Thread | undefined,
+  sessionSlice?: ThreadSessionSlice | null,
   options?: { preparingWorktree?: boolean },
 ): LocalDispatchSnapshot {
-  const latestTurn = activeThread?.latestTurn ?? null;
-  const session = activeThread?.session ?? null;
+  const latestTurn = sessionSlice?.latestTurn ?? null;
+  const session = sessionSlice?.session ?? null;
   return {
     startedAt: new Date().toISOString(),
     preparingWorktree: Boolean(options?.preparingWorktree),
@@ -369,8 +370,8 @@ export function createLocalDispatchSnapshot(
 export function hasServerAcknowledgedLocalDispatch(input: {
   localDispatch: LocalDispatchSnapshot | null;
   phase: SessionPhase;
-  latestTurn: Thread["latestTurn"] | null;
-  session: Thread["session"] | null;
+  latestTurn: ThreadSessionSlice["latestTurn"] | null;
+  session: ThreadSessionSlice["session"] | null;
   hasPendingApproval: boolean;
   hasPendingUserInput: boolean;
   threadError: string | null | undefined;

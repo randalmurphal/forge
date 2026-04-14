@@ -18,7 +18,7 @@ import {
 } from "../diffRouteSearch";
 import { useMediaQuery } from "../hooks/useMediaQuery";
 import { useStore } from "../store";
-import { useThreadById } from "../storeSelectors";
+import { useThreadById, useThreadDesign } from "../storeSelectors";
 import { Sheet, SheetPopup } from "../components/ui/sheet";
 import { Sidebar, SidebarInset, SidebarProvider, SidebarRail } from "~/components/ui/sidebar";
 
@@ -260,11 +260,13 @@ function ChatThreadRouteView() {
 
   // Read thread to determine interaction mode and design artifact availability
   const thread = useThreadById(threadId);
+  const threadDesignSlice = useThreadDesign(threadId);
   const isDesignMode = thread?.interactionMode === "design";
   const hasDesignArtifacts =
     isDesignMode &&
-    ((thread?.designArtifacts?.length ?? 0) > 0 ||
-      (thread?.designPendingOptions !== null && thread?.designPendingOptions !== undefined));
+    ((threadDesignSlice?.designArtifacts?.length ?? 0) > 0 ||
+      (threadDesignSlice?.designPendingOptions !== null &&
+        threadDesignSlice?.designPendingOptions !== undefined));
 
   const designPanelOpen = search.designPanel === "1";
   const toggleDesignPanel = useCallback(() => {

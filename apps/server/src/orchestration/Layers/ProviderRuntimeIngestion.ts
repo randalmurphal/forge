@@ -17,7 +17,13 @@ import {
 } from "@forgetools/contracts";
 import { Cache, Cause, Effect, Layer, Option, Stream } from "effect";
 import { makeDrainableWorker } from "@forgetools/shared/DrainableWorker";
-import { asArray, asRecord, asString, asTrimmedString } from "@forgetools/shared/narrowing";
+import {
+  asArray,
+  asRecord,
+  asString,
+  asTrimmedString,
+  truncateDetail,
+} from "@forgetools/shared/narrowing";
 import { CheckpointStore } from "../../checkpointing/Services/CheckpointStore.ts";
 import { ProviderService } from "../../provider/Services/ProviderService.ts";
 import { ProjectionAgentDiffRepositoryLive } from "../../persistence/Layers/ProjectionAgentDiffs.ts";
@@ -79,6 +85,7 @@ import {
   pendingCommandInlineDiffKey,
   orchestrationSessionStatusFromRuntimeState,
   normalizeRuntimeTurnState,
+  extractChildThreadAttribution,
 } from "./runtimeIngestion/helpers.ts";
 
 appendServerDebugRecord({
@@ -1095,7 +1102,7 @@ const make = Effect.fn("make")(function* () {
       messageId,
       text: input.chunk.text,
       ...(input.chunk.turnId ? { turnId: input.chunk.turnId } : {}),
-      createdAt: input.chunk.createdAt,
+      createdAt: input.event.createdAt,
       updatedAt: input.event.createdAt,
     });
     clearBufferedAssistantChunk(input.threadId);
@@ -1403,6 +1410,12 @@ const make = Effect.fn("make")(function* () {
     const conflictsWithActiveTurn =
       activeTurnId !== null && eventTurnId !== undefined && !sameId(activeTurnId, eventTurnId);
     const missingTurnForActiveTurn = activeTurnId !== null && eventTurnId === undefined;
+    const childThreadAttribution =
+      "payload" in event ? extractChildThreadAttribution(event.payload) : undefined;
+    const isChildThreadAssistantEvent =
+      childThreadAttribution !== undefined &&
+      ((event.type === "content.delta" && event.payload.streamKind === "assistant_text") ||
+        (event.type === "item.completed" && event.payload.itemType === "assistant_message"));
 
     const shouldApplyThreadLifecycle = (() => {
       if (!STRICT_PROVIDER_LIFECYCLE_GUARD) {
@@ -1512,7 +1525,7 @@ const make = Effect.fn("make")(function* () {
       }
     }
 
-    if (assistantDelta && assistantDelta.length > 0) {
+    if (assistantDelta && assistantDelta.length > 0 && !isChildThreadAssistantEvent) {
       const turnId = toTurnId(event.turnId);
       if (assistantDeliveryMode === "buffered") {
         yield* bufferAssistantTextDelta({
@@ -1546,7 +1559,9 @@ const make = Effect.fn("make")(function* () {
     }
 
     const assistantCompletion =
-      event.type === "item.completed" && event.payload.itemType === "assistant_message"
+      event.type === "item.completed" &&
+      event.payload.itemType === "assistant_message" &&
+      !isChildThreadAssistantEvent
         ? {
             chunkKey: bufferedAssistantChunkKey(event),
             messageId: MessageId.makeUnsafe(
@@ -1836,6 +1851,54 @@ const make = Effect.fn("make")(function* () {
       event,
       itemInlineDiff ? { inlineDiff: itemInlineDiff } : undefined,
     );
+
+    if (
+      isChildThreadAssistantEvent &&
+      event.type === "item.completed" &&
+      event.payload.itemType === "assistant_message" &&
+      typeof event.payload.detail === "string" &&
+      event.payload.detail.trim().length > 0
+    ) {
+      const childItemId = event.itemId ?? undefined;
+      const childResponseAlreadyRecorded = childItemId
+        ? [...thread.activities, ...activities].some((activity) => {
+            if (activity.kind !== "task.progress") {
+              return false;
+            }
+            const payload = asRecord(activity.payload);
+            if (payload?.itemType !== "assistant_message" || payload?.itemId !== childItemId) {
+              return false;
+            }
+            return (
+              extractChildThreadAttribution(payload)?.childProviderThreadId ===
+              childThreadAttribution?.childProviderThreadId
+            );
+          })
+        : false;
+      if (!childResponseAlreadyRecorded) {
+        activities = [
+          ...activities,
+          {
+            id: EventId.makeUnsafe(`${event.eventId}:child-assistant-complete`),
+            createdAt: event.createdAt,
+            tone: "info",
+            kind: "task.progress",
+            summary: "Subagent response",
+            payload: {
+              taskId:
+                typeof childThreadAttribution?.taskId === "string"
+                  ? childThreadAttribution.taskId
+                  : (event.itemId ?? "subagent-response"),
+              itemType: "assistant_message",
+              ...(event.itemId ? { itemId: event.itemId } : {}),
+              detail: truncateDetail(event.payload.detail),
+              ...(childThreadAttribution ? { childThreadAttribution } : {}),
+            },
+            turnId: turnId ?? null,
+          },
+        ];
+      }
+    }
 
     if (event.provider === "codex") {
       const syntheticActivities = synthesizeCodexSubagentLifecycleActivities({

@@ -1,6 +1,18 @@
-import { type ProjectId, type ThreadId, type TurnId } from "@forgetools/contracts";
-import { buildSidebarThreadSummary, sidebarThreadSummariesEqual } from "./storeSidebar";
-import type { ChatMessage, Project, Thread } from "./types";
+import type {
+  MessageId,
+  OrchestrationLatestTurn,
+  ProjectId,
+  ThreadId,
+  TurnId,
+} from "@forgetools/contracts";
+import type {
+  ChatMessage,
+  ProposedPlan,
+  Project,
+  Thread,
+  ThreadSession,
+  TurnDiffSummary,
+} from "./types";
 import type { AppState } from "./store";
 
 // ── Constants ────────────────────────────────────────────────────────
@@ -132,15 +144,15 @@ export function compareActivities(
 }
 
 export function buildLatestTurn(params: {
-  previous: Thread["latestTurn"];
-  turnId: NonNullable<Thread["latestTurn"]>["turnId"];
-  state: NonNullable<Thread["latestTurn"]>["state"];
+  previous: OrchestrationLatestTurn | null;
+  turnId: TurnId;
+  state: OrchestrationLatestTurn["state"];
   requestedAt: string;
   startedAt: string | null;
   completedAt: string | null;
-  assistantMessageId: NonNullable<Thread["latestTurn"]>["assistantMessageId"];
-  sourceProposedPlan?: Thread["pendingSourceProposedPlan"];
-}): NonNullable<Thread["latestTurn"]> {
+  assistantMessageId: MessageId | null;
+  sourceProposedPlan?: OrchestrationLatestTurn["sourceProposedPlan"];
+}): OrchestrationLatestTurn {
   const resolvedPlan =
     params.previous?.turnId === params.turnId
       ? params.previous.sourceProposedPlan
@@ -158,32 +170,23 @@ export function buildLatestTurn(params: {
 
 // ── Session patching ─────────────────────────────────────────────────
 
-export function patchThreadSession(
-  thread: Thread,
-  patch: Partial<NonNullable<Thread["session"]>>,
-  nextError?: string | null,
-): Thread {
-  if (thread.session === null) {
-    return thread;
+export function patchSessionSlice(
+  session: ThreadSession | null,
+  patch: Partial<ThreadSession>,
+): ThreadSession | null {
+  if (session === null) {
+    return null;
   }
-
-  return {
-    ...thread,
-    session: {
-      ...thread.session,
-      ...patch,
-    },
-    ...(nextError !== undefined ? { error: nextError } : {}),
-  };
+  return { ...session, ...patch };
 }
 
 // ── Diff rebinding ───────────────────────────────────────────────────
 
 export function rebindTurnDiffSummariesForAssistantMessage(
-  turnDiffSummaries: ReadonlyArray<Thread["turnDiffSummaries"][number]>,
-  turnId: Thread["turnDiffSummaries"][number]["turnId"],
-  assistantMessageId: NonNullable<Thread["latestTurn"]>["assistantMessageId"],
-): Thread["turnDiffSummaries"] {
+  turnDiffSummaries: ReadonlyArray<TurnDiffSummary>,
+  turnId: TurnId,
+  assistantMessageId: MessageId | null,
+): TurnDiffSummary[] {
   let changed = false;
   const nextSummaries = turnDiffSummaries.map((summary) => {
     if (summary.turnId !== turnId || summary.assistantMessageId === assistantMessageId) {
@@ -199,10 +202,10 @@ export function rebindTurnDiffSummariesForAssistantMessage(
 }
 
 export function rebindAgentDiffSummariesForAssistantMessage(
-  agentDiffSummaries: ReadonlyArray<NonNullable<Thread["agentDiffSummaries"]>[number]>,
+  agentDiffSummaries: ReadonlyArray<TurnDiffSummary>,
   turnId: TurnId,
-  assistantMessageId: NonNullable<Thread["latestTurn"]>["assistantMessageId"],
-): NonNullable<Thread["agentDiffSummaries"]> {
+  assistantMessageId: MessageId | null,
+): TurnDiffSummary[] {
   let changed = false;
   const nextSummaries = agentDiffSummaries.map((summary) => {
     if (summary.turnId !== turnId || summary.assistantMessageId === assistantMessageId) {
@@ -300,9 +303,9 @@ export function retainThreadActivitiesAfterRevert(
 }
 
 export function retainThreadProposedPlansAfterRevert(
-  proposedPlans: ReadonlyArray<Thread["proposedPlans"][number]>,
+  proposedPlans: ReadonlyArray<ProposedPlan>,
   retainedTurnIds: ReadonlySet<string>,
-): Thread["proposedPlans"] {
+): ProposedPlan[] {
   return proposedPlans.filter(
     (proposedPlan) => proposedPlan.turnId === null || retainedTurnIds.has(proposedPlan.turnId),
   );
@@ -327,37 +330,14 @@ export function updateThreadState(
     return state;
   }
 
-  const nextSummary = buildSidebarThreadSummary(updatedThread);
-  const previousSummary = state.sidebarThreadsById[threadId];
-  const sidebarThreadsById = sidebarThreadSummariesEqual(previousSummary, nextSummary)
-    ? state.sidebarThreadsById
-    : {
-        ...state.sidebarThreadsById,
-        [threadId]: nextSummary,
-      };
-
-  if (sidebarThreadsById === state.sidebarThreadsById) {
-    return {
-      ...state,
-      threads,
-    };
-  }
-
-  return {
-    ...state,
-    threads,
-    sidebarThreadsById,
-  };
+  return { ...state, threads };
 }
 
-export function updateThreadByDesignRequestId(
-  state: AppState,
-  requestId: string,
-  updater: (thread: Thread) => Thread,
-): AppState {
-  const thread = state.threads.find((entry) => entry.designPendingOptions?.requestId === requestId);
-  if (!thread) {
-    return state;
+export function findThreadIdByDesignRequestId(state: AppState, requestId: string): ThreadId | null {
+  for (const [threadId, designSlice] of Object.entries(state.threadDesignById)) {
+    if (designSlice.designPendingOptions?.requestId === requestId) {
+      return threadId as ThreadId;
+    }
   }
-  return updateThreadState(state, thread.id, updater);
+  return null;
 }

@@ -12,7 +12,7 @@ import type {
   WorkflowDefinition,
   WorkflowPhase,
 } from "@forgetools/contracts";
-import type { Thread } from "../types";
+import type { Thread, ThreadSession } from "../types";
 import {
   deriveGateApprovalChangesSummary,
   deriveGateApprovalSummaryMarkdown,
@@ -35,8 +35,8 @@ export interface WorkflowTimelineChildSession {
   threadId: Thread["id"];
   title: string;
   role: Thread["role"];
-  provider: NonNullable<Thread["session"]>["provider"] | null;
-  status: NonNullable<Thread["session"]>["status"] | null;
+  provider: ThreadSession["provider"] | null;
+  status: ThreadSession["status"] | null;
   updatedAt: string | undefined;
   messages: Thread["messages"];
 }

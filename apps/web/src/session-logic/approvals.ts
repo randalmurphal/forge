@@ -6,7 +6,7 @@ import {
 } from "@forgetools/contracts";
 
 import type { ActivePlanState, LatestProposedPlanState, PendingApproval } from "./types";
-import type { ProposedPlan, Thread } from "../types";
+import type { ProposedPlan } from "../types";
 import { compareActivitiesByOrder } from "./utils";
 
 export function requestKindFromRequestType(
@@ -130,19 +130,19 @@ export function findLatestProposedPlan(
 }
 
 export function findSidebarProposedPlan(input: {
-  threads: ReadonlyArray<Pick<Thread, "id" | "proposedPlans">>;
+  plansByThreadId: ReadonlyArray<{ id: string; proposedPlans: ReadonlyArray<ProposedPlan> }>;
   latestTurn: Pick<OrchestrationLatestTurn, "turnId" | "sourceProposedPlan"> | null;
   latestTurnSettled: boolean;
   threadId: ThreadId | string | null | undefined;
 }): LatestProposedPlanState | null {
   const activeThreadPlans =
-    input.threads.find((thread) => thread.id === input.threadId)?.proposedPlans ?? [];
+    input.plansByThreadId.find((entry) => entry.id === input.threadId)?.proposedPlans ?? [];
 
   if (!input.latestTurnSettled) {
     const sourceProposedPlan = input.latestTurn?.sourceProposedPlan;
     if (sourceProposedPlan) {
-      const sourcePlan = input.threads
-        .find((thread) => thread.id === sourceProposedPlan.threadId)
+      const sourcePlan = input.plansByThreadId
+        .find((entry) => entry.id === sourceProposedPlan.threadId)
         ?.proposedPlans.find((plan) => plan.id === sourceProposedPlan.planId);
       if (sourcePlan) {
         return toLatestProposedPlanState(sourcePlan);

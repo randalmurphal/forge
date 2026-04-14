@@ -29,6 +29,11 @@ const IGNORE: OrchestrationActivityPresentation = {
   assistantBoundary: false,
 };
 
+function hasChildThreadAttribution(activity: OrchestrationThreadActivity): boolean {
+  const payload = asRecord(activity.payload);
+  return asRecord(payload?.childThreadAttribution) !== undefined;
+}
+
 export function classifyOrchestrationActivityPresentation(
   activity: OrchestrationThreadActivity,
 ): OrchestrationActivityPresentation {
@@ -45,7 +50,7 @@ export function classifyOrchestrationActivityPresentation(
     case "hook.started":
     case "hook.completed":
     case "runtime.error":
-      return ROW_BOUNDARY;
+      return hasChildThreadAttribution(activity) ? ROW_INLINE : ROW_BOUNDARY;
 
     case "runtime.warning":
       return ROW_INLINE;

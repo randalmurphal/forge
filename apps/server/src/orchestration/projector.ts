@@ -682,6 +682,7 @@ export function projectEvent(
             ...(payload.attachments !== undefined ? { attachments: payload.attachments } : {}),
             ...(payload.attribution !== undefined ? { attribution: payload.attribution } : {}),
             turnId: payload.turnId,
+            ...(event.sequence !== undefined ? { sequence: event.sequence } : {}),
             streaming: payload.streaming,
             createdAt: payload.createdAt,
             updatedAt: payload.updatedAt,

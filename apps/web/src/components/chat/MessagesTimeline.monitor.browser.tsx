@@ -48,7 +48,6 @@ function createTimelineProps(
     completionDividerBeforeEntryId: null,
     completionSummary: null,
     turnDiffSummaryByAssistantMessageId: new Map(),
-    nowIso: "2026-04-10T12:00:31.000Z",
     expandedWorkGroups: {},
     onToggleWorkGroup: () => {},
     onOpenTurnDiff: () => {},

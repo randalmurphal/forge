@@ -1,6 +1,7 @@
 import { MessageId, ProjectId, ThreadId, TurnId, WorkflowId } from "@forgetools/contracts";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { useStore } from "../store";
+import type { Thread, ThreadSessionSlice } from "../types";
 
 import {
   MAX_HIDDEN_MOUNTED_TERMINAL_THREADS,
@@ -39,7 +40,6 @@ describe("buildLocalDraftThread", () => {
         provider: "codex",
         model: "gpt-5.4",
       },
-      null,
     );
 
     expect(thread.workflowId).toBe(workflowId);
@@ -313,7 +313,7 @@ const makeThread = (input?: {
     startedAt: string | null;
     completedAt: string | null;
   } | null;
-}) => ({
+}): Thread => ({
   id: input?.id ?? ThreadId.makeUnsafe("thread-1"),
   codexThreadId: null,
   projectId: ProjectId.makeUnsafe("project-1"),
@@ -322,26 +322,14 @@ const makeThread = (input?: {
   modelSelection: { provider: "codex" as const, model: "gpt-5.4" },
   runtimeMode: "full-access" as const,
   interactionMode: "default" as const,
-  session: null,
   messages: [],
-  proposedPlans: [],
-  error: null,
   createdAt: "2026-03-29T00:00:00.000Z",
   pinnedAt: null,
   archivedAt: null,
   updatedAt: "2026-03-29T00:00:00.000Z",
-  latestTurn: input?.latestTurn
-    ? {
-        ...input.latestTurn,
-        assistantMessageId: null,
-      }
-    : null,
   branch: null,
   worktreePath: null,
   childThreadIds: input?.childThreadIds ?? [],
-  designArtifacts: [],
-  designPendingOptions: null,
-  turnDiffSummaries: [],
   activities: [],
 });
 
@@ -390,18 +378,22 @@ describe("waitForStartedServerThread", () => {
     const threadId = ThreadId.makeUnsafe("thread-started");
     useStore.setState((state) => ({
       ...state,
-      threads: [
-        makeThread({
-          id: threadId,
+      threads: [makeThread({ id: threadId })],
+      threadSessionById: {
+        ...state.threadSessionById,
+        [threadId]: {
+          session: null,
           latestTurn: {
             turnId: TurnId.makeUnsafe("turn-started"),
             state: "running",
             requestedAt: "2026-03-29T00:00:01.000Z",
             startedAt: "2026-03-29T00:00:01.000Z",
             completedAt: null,
+            assistantMessageId: null,
           },
-        }),
-      ],
+          error: null,
+        },
+      },
     }));
 
     await expect(waitForStartedServerThread(threadId)).resolves.toBe(true);
@@ -418,18 +410,22 @@ describe("waitForStartedServerThread", () => {
 
     useStore.setState((state) => ({
       ...state,
-      threads: [
-        makeThread({
-          id: threadId,
+      threads: [makeThread({ id: threadId })],
+      threadSessionById: {
+        ...state.threadSessionById,
+        [threadId]: {
+          session: null,
           latestTurn: {
             turnId: TurnId.makeUnsafe("turn-started"),
             state: "running",
             requestedAt: "2026-03-29T00:00:01.000Z",
             startedAt: "2026-03-29T00:00:01.000Z",
             completedAt: null,
+            assistantMessageId: null,
           },
-        }),
-      ],
+          error: null,
+        },
+      },
     }));
 
     await expect(promise).resolves.toBe(true);
@@ -449,18 +445,22 @@ describe("waitForStartedServerThread", () => {
         raced = true;
         useStore.setState((state) => ({
           ...state,
-          threads: [
-            makeThread({
-              id: threadId,
+          threads: [makeThread({ id: threadId })],
+          threadSessionById: {
+            ...state.threadSessionById,
+            [threadId]: {
+              session: null,
               latestTurn: {
                 turnId: TurnId.makeUnsafe("turn-race"),
                 state: "running",
                 requestedAt: "2026-03-29T00:00:01.000Z",
                 startedAt: "2026-03-29T00:00:01.000Z",
                 completedAt: null,
+                assistantMessageId: null,
               },
-            }),
-          ],
+              error: null,
+            },
+          },
         }));
       }
       return originalSubscribe(listener);
@@ -505,7 +505,7 @@ describe("hasServerAcknowledgedLocalDispatch", () => {
   };
 
   it("does not clear local dispatch before server state changes", () => {
-    const localDispatch = createLocalDispatchSnapshot({
+    const dispatchThread: Thread = {
       id: ThreadId.makeUnsafe("thread-1"),
       codexThreadId: null,
       projectId,
@@ -514,22 +514,21 @@ describe("hasServerAcknowledgedLocalDispatch", () => {
       modelSelection: { provider: "codex", model: "gpt-5.4" },
       runtimeMode: "full-access",
       interactionMode: "default",
-      session: previousSession,
       messages: [],
-      proposedPlans: [],
-      error: null,
       createdAt: "2026-03-29T00:00:00.000Z",
       pinnedAt: null,
       archivedAt: null,
       updatedAt: "2026-03-29T00:00:10.000Z",
-      latestTurn: previousLatestTurn,
       branch: null,
       worktreePath: null,
-      designArtifacts: [],
-      designPendingOptions: null,
-      turnDiffSummaries: [],
       activities: [],
-    });
+    };
+    const dispatchSessionSlice: ThreadSessionSlice = {
+      session: previousSession,
+      latestTurn: previousLatestTurn,
+      error: null,
+    };
+    const localDispatch = createLocalDispatchSnapshot(dispatchThread, dispatchSessionSlice);
 
     expect(
       hasServerAcknowledgedLocalDispatch({
@@ -545,7 +544,7 @@ describe("hasServerAcknowledgedLocalDispatch", () => {
   });
 
   it("clears local dispatch when a new turn is already settled", () => {
-    const localDispatch = createLocalDispatchSnapshot({
+    const dispatchThread: Thread = {
       id: ThreadId.makeUnsafe("thread-1"),
       codexThreadId: null,
       projectId,
@@ -554,22 +553,21 @@ describe("hasServerAcknowledgedLocalDispatch", () => {
       modelSelection: { provider: "codex", model: "gpt-5.4" },
       runtimeMode: "full-access",
       interactionMode: "default",
-      session: previousSession,
       messages: [],
-      proposedPlans: [],
-      error: null,
       createdAt: "2026-03-29T00:00:00.000Z",
       pinnedAt: null,
       archivedAt: null,
       updatedAt: "2026-03-29T00:00:10.000Z",
-      latestTurn: previousLatestTurn,
       branch: null,
       worktreePath: null,
-      designArtifacts: [],
-      designPendingOptions: null,
-      turnDiffSummaries: [],
       activities: [],
-    });
+    };
+    const dispatchSessionSlice: ThreadSessionSlice = {
+      session: previousSession,
+      latestTurn: previousLatestTurn,
+      error: null,
+    };
+    const localDispatch = createLocalDispatchSnapshot(dispatchThread, dispatchSessionSlice);
 
     expect(
       hasServerAcknowledgedLocalDispatch({
@@ -594,7 +592,7 @@ describe("hasServerAcknowledgedLocalDispatch", () => {
   });
 
   it("clears local dispatch when the session changes without an observed running phase", () => {
-    const localDispatch = createLocalDispatchSnapshot({
+    const dispatchThread: Thread = {
       id: ThreadId.makeUnsafe("thread-1"),
       codexThreadId: null,
       projectId,
@@ -603,22 +601,21 @@ describe("hasServerAcknowledgedLocalDispatch", () => {
       modelSelection: { provider: "codex", model: "gpt-5.4" },
       runtimeMode: "full-access",
       interactionMode: "default",
-      session: previousSession,
       messages: [],
-      proposedPlans: [],
-      error: null,
       createdAt: "2026-03-29T00:00:00.000Z",
       pinnedAt: null,
       archivedAt: null,
       updatedAt: "2026-03-29T00:00:10.000Z",
-      latestTurn: previousLatestTurn,
       branch: null,
       worktreePath: null,
-      designArtifacts: [],
-      designPendingOptions: null,
-      turnDiffSummaries: [],
       activities: [],
-    });
+    };
+    const dispatchSessionSlice: ThreadSessionSlice = {
+      session: previousSession,
+      latestTurn: previousLatestTurn,
+      error: null,
+    };
+    const localDispatch = createLocalDispatchSnapshot(dispatchThread, dispatchSessionSlice);
 
     expect(
       hasServerAcknowledgedLocalDispatch({

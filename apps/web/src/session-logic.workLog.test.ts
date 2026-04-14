@@ -1499,12 +1499,13 @@ describe("deriveWorkLogEntries", () => {
       undefined,
     );
 
+    // The wait entry inherits the target agent's model (factual metadata) but NOT
+    // the prompt text as description — prompt is internal metadata, not display text.
     expect(entries).toEqual(
       expect.arrayContaining([
         expect.objectContaining({
           id: "wait-started-with-target",
           toolName: "wait",
-          agentDescription: "Audit the parser",
           agentModel: "gpt-5.4-mini",
         }),
       ]),
@@ -2126,9 +2127,9 @@ describe("deriveWorkLogEntries", () => {
       isBackgroundCommand: true,
       backgroundLifecycleRole: "launch",
       itemStatus: "inProgress",
-      backgroundTaskStatus: "completed",
-      backgroundCompletedAt: "2026-04-10T12:00:20.000Z",
     });
+    expect(entries[0]).not.toHaveProperty("backgroundTaskStatus");
+    expect(entries[0]).not.toHaveProperty("backgroundCompletedAt");
     expect(entries[1]).toMatchObject({
       id: "codex-background-complete",
       activityKind: "tool.completed",
@@ -2851,10 +2852,18 @@ describe("deriveWorkLogEntries", () => {
       undefined,
     );
 
+    // Launch entry stays immutable — completion data goes exclusively to a
+    // separate completion entry, so the tray no longer shows the launch.
     const runningState = deriveBackgroundTrayState(workEntries, "2026-04-10T12:00:10.000Z");
-    expect(runningState.commandEntries[0]).toMatchObject({
+    expect(runningState.commandEntries).toEqual([]);
+
+    // Completion data goes exclusively to the separate completion entry.
+    const completionEntry = workEntries.find(
+      (entry) => entry.id === "claude-background-command:background-task-completed",
+    );
+    expect(completionEntry).toMatchObject({
       backgroundTaskStatus: "completed",
-      backgroundCompletedAt: "2026-04-10T12:00:20.000Z",
+      backgroundLifecycleRole: "completion",
     });
 
     const visibleImmediatelyAfterCompletion = filterTrayOwnedWorkEntries(
@@ -3170,36 +3179,39 @@ describe("deriveWorkLogEntries", () => {
       undefined,
     );
 
+    // Launch entry stays immutable — no backgroundTaskStatus or backgroundCompletedAt.
+    const launchEntry = workEntries.find((entry) => entry.id === "claude-bash-launch-completed");
+    expect(launchEntry).toMatchObject({
+      id: "claude-bash-launch-completed",
+      activityKind: "tool.completed",
+      toolCallId: "runtime-bash-row-1",
+      itemType: "command_execution",
+      isBackgroundCommand: true,
+      backgroundTaskId: "b5fuznvy7",
+      backgroundLifecycleRole: "launch",
+      itemStatus: "inProgress",
+    });
+    expect(launchEntry).not.toHaveProperty("backgroundTaskStatus");
+    expect(launchEntry).not.toHaveProperty("backgroundCompletedAt");
+
+    // Completion data goes exclusively to a separate completion entry.
     expect(workEntries).toEqual(
       expect.arrayContaining([
-        expect.objectContaining({
-          id: "claude-bash-launch-completed",
-          activityKind: "tool.completed",
-          toolCallId: "runtime-bash-row-1",
-          itemType: "command_execution",
-          isBackgroundCommand: true,
-          backgroundTaskId: "b5fuznvy7",
-          backgroundTaskStatus: "completed",
-          backgroundCompletedAt: "2026-04-10T12:00:20.000Z",
-        }),
         expect.objectContaining({
           id: "claude-bash-launch-completed:background-task-completed",
           activityKind: "task.completed",
           toolCallId: "runtime-bash-row-1",
           itemType: "command_execution",
           isBackgroundCommand: true,
+          backgroundLifecycleRole: "completion",
           backgroundTaskStatus: "completed",
-          backgroundCompletedAt: "2026-04-10T12:00:20.000Z",
         }),
       ]),
     );
 
+    // Launch is superseded by the completion entry — tray is empty.
     const runningTrayState = deriveBackgroundTrayState(workEntries, "2026-04-10T12:00:20.500Z");
-    expect(runningTrayState.commandEntries).toHaveLength(1);
-    expect(runningTrayState.commandEntries[0]).toMatchObject({
-      id: "claude-bash-launch-completed",
-      backgroundTaskStatus: "completed",
-    });
+    expect(runningTrayState.commandEntries).toEqual([]);
 
     const visibleEntries = filterTrayOwnedWorkEntries(workEntries, runningTrayState);
     expect(visibleEntries.map((entry) => entry.id)).toEqual([
@@ -3306,32 +3318,34 @@ describe("deriveWorkLogEntries", () => {
       undefined,
     );
 
+    // Launch entry stays immutable — no backgroundTaskStatus or backgroundCompletedAt.
+    const launchEntry = workEntries.find((entry) => entry.id === "claude-bash-launch-completed");
+    expect(launchEntry).toMatchObject({
+      id: "claude-bash-launch-completed",
+      activityKind: "tool.completed",
+      backgroundTaskId: "bazncp4aq",
+      backgroundLifecycleRole: "launch",
+      itemStatus: "inProgress",
+    });
+    expect(launchEntry).not.toHaveProperty("backgroundTaskStatus");
+    expect(launchEntry).not.toHaveProperty("backgroundCompletedAt");
+
+    // Completion data goes exclusively to the separate completion entry.
     expect(workEntries).toEqual(
       expect.arrayContaining([
-        expect.objectContaining({
-          id: "claude-bash-launch-completed",
-          activityKind: "tool.completed",
-          backgroundTaskId: "bazncp4aq",
-          backgroundTaskStatus: "completed",
-          backgroundCompletedAt: "2026-04-10T12:00:20.000Z",
-        }),
         expect.objectContaining({
           id: "claude-bash-launch-completed:background-task-completed",
           activityKind: "task.completed",
           backgroundTaskId: "bazncp4aq",
+          backgroundLifecycleRole: "completion",
           backgroundTaskStatus: "completed",
-          backgroundCompletedAt: "2026-04-10T12:00:20.000Z",
         }),
       ]),
     );
 
+    // Launch is superseded by the completion entry — tray is empty.
     const trayState = deriveBackgroundTrayState(workEntries, "2026-04-10T12:00:20.500Z");
-    expect(trayState.commandEntries).toEqual([
-      expect.objectContaining({
-        id: "claude-bash-launch-completed",
-        backgroundTaskStatus: "completed",
-      }),
-    ]);
+    expect(trayState.commandEntries).toEqual([]);
   });
 
   it("moves a Claude background agent from running to completed on task notification", () => {
@@ -4611,25 +4625,34 @@ describe("deriveWorkLogEntries", () => {
       undefined,
     );
 
+    // Launch entry stays immutable — no backgroundTaskStatus or backgroundCompletedAt.
+    const launchEntry = workEntries.find((entry) => entry.id === "claude-bash-launch-completed");
+    expect(launchEntry).toMatchObject({
+      id: "claude-bash-launch-completed",
+      activityKind: "tool.completed",
+      backgroundTaskId: "bgxyz",
+      backgroundLifecycleRole: "launch",
+      itemStatus: "inProgress",
+    });
+    expect(launchEntry).not.toHaveProperty("backgroundTaskStatus");
+    expect(launchEntry).not.toHaveProperty("backgroundCompletedAt");
+
+    // Completion data goes exclusively to the separate completion entry.
     expect(workEntries).toEqual(
       expect.arrayContaining([
         expect.objectContaining({
-          id: "claude-bash-launch-completed",
-          activityKind: "tool.completed",
+          id: "claude-bash-launch-completed:background-task-completed",
+          activityKind: "task.completed",
           backgroundTaskId: "bgxyz",
+          backgroundLifecycleRole: "completion",
           backgroundTaskStatus: "completed",
-          backgroundCompletedAt: "2026-04-10T12:00:20.000Z",
         }),
       ]),
     );
 
+    // Launch is superseded by the completion entry — tray is empty.
     const trayState = deriveBackgroundTrayState(workEntries, "2026-04-10T12:00:20.500Z");
-    expect(trayState.commandEntries).toEqual([
-      expect.objectContaining({
-        id: "claude-bash-launch-completed",
-        backgroundTaskStatus: "completed",
-      }),
-    ]);
+    expect(trayState.commandEntries).toEqual([]);
   });
 });
 

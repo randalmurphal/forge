@@ -13,6 +13,7 @@ import type { ThreadId, WorkflowPhase } from "@forgetools/contracts";
 import { buildToneBadgeStyle, buildToneSurfaceStyle } from "../lib/appearance";
 import { cn } from "../lib/utils";
 import { useProjectById, useThreadById, useThreadsByIds } from "../storeSelectors";
+import { useStore } from "../store";
 import { useWorkflow, useWorkflowStore } from "../stores/workflowStore";
 import { getWsRpcClient } from "../wsRpcClient";
 import { GateApproval } from "./GateApproval";
@@ -155,6 +156,7 @@ export function WorkflowTimeline({ threadId }: { threadId: ThreadId }) {
     }),
   });
 
+  const sessionSliceById = useStore((store) => store.threadSessionById);
   const childSessionsByPhaseRunId = useMemo(() => {
     const mapped: Record<string, WorkflowTimelineChildSession[]> = {};
 
@@ -164,13 +166,14 @@ export function WorkflowTimeline({ threadId }: { threadId: ThreadId }) {
       }
 
       const phaseRunId = childThread.phaseRunId;
+      const childSessionSlice = sessionSliceById[childThread.id];
       const childSessionsForPhaseRun = mapped[phaseRunId] ?? [];
       childSessionsForPhaseRun.push({
         threadId: childThread.id,
         title: childThread.title,
         role: childThread.role ?? null,
-        provider: childThread.session?.provider ?? null,
-        status: childThread.session?.status ?? null,
+        provider: childSessionSlice?.session?.provider ?? null,
+        status: childSessionSlice?.session?.status ?? null,
         updatedAt: childThread.updatedAt,
         messages: childThread.messages,
       });
@@ -178,7 +181,7 @@ export function WorkflowTimeline({ threadId }: { threadId: ThreadId }) {
     }
 
     return mapped;
-  }, [childThreads]);
+  }, [childThreads, sessionSliceById]);
 
   const phaseOutputsByPhaseRunId = useMemo(() => {
     const mapped: Record<string, WorkflowTimelinePhaseOutputRecord | null> = {};

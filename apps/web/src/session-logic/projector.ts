@@ -283,21 +283,10 @@ function ingestActivity(
       existingLaunch &&
       shouldSplitBackgroundCompletion(state, existingLaunch, entry)
     ) {
-      const completedAt = entry.completedAt ?? entry.createdAt;
-      patchEntry(state, existingLaunch.id, {
-        isBackgroundCommand: true,
-        backgroundLifecycleRole: "launch",
-        backgroundTaskStatus: deriveBackgroundCommandStatus(entry),
-        ...(entry.backgroundTaskId ? { backgroundTaskId: entry.backgroundTaskId } : {}),
-        backgroundCompletedAt: completedAt,
-        ...(entry.sequence !== undefined ? { backgroundCompletedSequence: entry.sequence } : {}),
-        itemStatus: "inProgress",
-        completedAt: undefined,
-      });
-      const patchedLaunch = findEntryById(state, existingLaunch.id);
-      if (patchedLaunch) {
-        upsertBackgroundCompletionEntry(state, patchedLaunch, entry);
-      }
+      // The launch entry stays frozen as "backgrounded, in-progress". Completion
+      // data goes exclusively to a separate completion entry that renders at the
+      // actual completion time — the historical launch entry is immutable.
+      upsertBackgroundCompletionEntry(state, existingLaunch, entry);
       return;
     }
     entry.isBackgroundCommand = true;
@@ -687,23 +676,20 @@ function ingestParentThreadTaskSignal(
   if (!entry || !isProviderOwnedBackgroundCommandLaunch(state, entry)) {
     return true;
   }
-  patchEntry(state, entry.id, {
-    isBackgroundCommand: true,
-    backgroundLifecycleRole: "launch",
-    backgroundTaskStatus: signal.status,
-    ...(signal.taskId ? { backgroundTaskId: signal.taskId } : {}),
-    ...(signal.completedAt ? { backgroundCompletedAt: signal.completedAt } : {}),
-    ...(signal.completedSequence !== undefined
-      ? { backgroundCompletedSequence: signal.completedSequence }
-      : {}),
-    itemStatus: "inProgress",
-    completedAt: undefined,
-  });
+  // Only patch the launch entry with the task ID binding (for matching) and
+  // initial background state. Do NOT propagate completion status — the launch
+  // entry is immutable once backgrounded.
+  if (!entry.backgroundTaskId && signal.taskId) {
+    patchEntry(state, entry.id, {
+      isBackgroundCommand: true,
+      backgroundLifecycleRole: "launch",
+      backgroundTaskId: signal.taskId,
+      itemStatus: "inProgress",
+      completedAt: undefined,
+    });
+  }
   if (signal.status !== "running") {
-    const launchEntry = findEntryById(state, entry.id);
-    if (launchEntry) {
-      upsertBackgroundCompletionEntry(state, launchEntry, undefined, signal);
-    }
+    upsertBackgroundCompletionEntry(state, entry, undefined, signal);
   }
   return true;
 }
@@ -923,7 +909,7 @@ function captureChildThreadMetadata(
   for (const childThreadId of entry.receiverThreadIds ?? []) {
     const current = state.childThreadMetadataById.get(childThreadId) ?? {};
     const nextMetadata: ChildThreadMetadata = {
-      label: current.label ?? entry.agentDescription ?? entry.agentPrompt ?? entry.detail,
+      label: current.label ?? entry.agentDescription ?? entry.detail,
       description: current.description ?? entry.agentDescription,
       prompt: current.prompt ?? entry.agentPrompt,
       agentType: current.agentType ?? entry.agentType,
@@ -1025,6 +1011,8 @@ function applyStoredBackgroundSignals(state: WorkLogProjectionState, toolCallId:
   if (!providerTaskSignal) {
     return;
   }
+  // Only bind the task ID to the launch entry for matching purposes.
+  // Completion status goes to a separate completion entry, not the launch.
   const patch: Partial<WorkLogEntry> = {
     isBackgroundCommand: true,
     backgroundLifecycleRole: "launch",
@@ -1033,15 +1021,6 @@ function applyStoredBackgroundSignals(state: WorkLogProjectionState, toolCallId:
   };
   if (providerTaskSignal?.taskId) {
     patch.backgroundTaskId = providerTaskSignal.taskId;
-  }
-  if (providerTaskSignal?.status) {
-    patch.backgroundTaskStatus = providerTaskSignal.status;
-  }
-  if (providerTaskSignal?.completedAt) {
-    patch.backgroundCompletedAt = providerTaskSignal.completedAt;
-  }
-  if (providerTaskSignal?.completedSequence !== undefined) {
-    patch.backgroundCompletedSequence = providerTaskSignal.completedSequence;
   }
   patchEntry(state, launchEntry.id, patch);
 }

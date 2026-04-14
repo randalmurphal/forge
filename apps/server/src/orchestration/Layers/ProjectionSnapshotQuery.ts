@@ -77,6 +77,7 @@ const ProjectionThreadMessageDbRowSchema = ProjectionThreadMessage.mapFields(
     isStreaming: Schema.Number,
     attachments: Schema.NullOr(Schema.fromJsonString(Schema.Array(ChatAttachment))),
     attribution: Schema.NullOr(Schema.fromJsonString(OrchestrationMessageAttribution)),
+    sequence: Schema.NullOr(NonNegativeInt),
   }),
 );
 const ProjectionThreadProposedPlanDbRowSchema = ProjectionThreadProposedPlan;
@@ -328,11 +329,17 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
           text,
           attachments_json AS "attachments",
           attribution_json AS "attribution",
+          sequence,
           is_streaming AS "isStreaming",
           created_at AS "createdAt",
           updated_at AS "updatedAt"
         FROM projection_thread_messages
-        ORDER BY thread_id ASC, created_at ASC, message_id ASC
+        ORDER BY
+          thread_id ASC,
+          CASE WHEN sequence IS NULL THEN 0 ELSE 1 END ASC,
+          sequence ASC,
+          created_at ASC,
+          message_id ASC
       `,
   });
 
@@ -838,6 +845,7 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
               ...(row.attachments !== null ? { attachments: row.attachments } : {}),
               ...(row.attribution !== null ? { attribution: row.attribution } : {}),
               turnId: row.turnId,
+              ...(row.sequence !== null ? { sequence: row.sequence } : {}),
               streaming: row.isStreaming === 1,
               createdAt: row.createdAt,
               updatedAt: row.updatedAt,
