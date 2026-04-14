@@ -164,4 +164,27 @@ describe("ProviderRuntimeEvent", () => {
     expect(parsed.payload.usage.maxTokens).toBe(200000);
     expect(parsed.payload.usage.usedTokens).toBe(31251);
   });
+
+  it("decodes structured MCP startup status updates", () => {
+    const parsed = decodeRuntimeEvent({
+      type: "mcp.status.updated",
+      eventId: "event-mcp-status-1",
+      provider: "codex",
+      createdAt: "2026-02-28T00:00:05.000Z",
+      threadId: "thread-1",
+      payload: {
+        name: "demo",
+        status: "failed",
+        error: "startup failed",
+      },
+    });
+
+    expect(parsed.type).toBe("mcp.status.updated");
+    if (parsed.type !== "mcp.status.updated") {
+      throw new Error("expected mcp.status.updated");
+    }
+    expect(parsed.payload.name).toBe("demo");
+    expect(parsed.payload.status).toBe("failed");
+    expect(parsed.payload.error).toBe("startup failed");
+  });
 });

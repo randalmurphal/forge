@@ -10,7 +10,7 @@ import {
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import { afterAll, it, vi } from "@effect/vitest";
 
-import { Effect, Fiber, Layer, Option, Stream } from "effect";
+import { Deferred, Effect, Fiber, Layer, Option, Stream } from "effect";
 
 import {
   asEventId,
@@ -31,6 +31,7 @@ import { ProviderAdapterValidationError } from "../Errors.ts";
 import { CodexAdapter } from "../Services/CodexAdapter.ts";
 import { ProviderSessionDirectory } from "../Services/ProviderSessionDirectory.ts";
 import { makeCodexAdapterLive } from "./CodexAdapter.ts";
+import type { EventNdjsonLogger } from "./EventNdjsonLogger.ts";
 
 class FakeCodexManager extends CodexAppServerManager {
   public startSessionImpl = vi.fn(
@@ -359,6 +360,76 @@ const lifecycleLayer = it.layer(
 );
 
 lifecycleLayer("CodexAdapterLive lifecycle", (it) => {
+  it.effect("serializes Codex provider events before mapping runtime events", () =>
+    Effect.gen(function* () {
+      const orderingManager = new FakeCodexManager();
+      const firstWriteStarted = yield* Deferred.make<void>();
+      const releaseFirstWrite = yield* Deferred.make<void>();
+      const nativeEventLogger: EventNdjsonLogger = {
+        filePath: "/tmp/codex-adapter-ordering.log",
+        write: (event) =>
+          Effect.gen(function* () {
+            if (
+              typeof event === "object" &&
+              event !== null &&
+              "id" in event &&
+              event.id === "evt-ordered-1"
+            ) {
+              yield* Deferred.succeed(firstWriteStarted, undefined).pipe(Effect.orDie);
+              yield* Deferred.await(releaseFirstWrite);
+            }
+          }),
+        close: () => Effect.void,
+      };
+      const layer = makeCodexAdapterLive({
+        manager: orderingManager,
+        nativeEventLogger,
+      }).pipe(
+        Layer.provideMerge(ServerConfig.layerTest(process.cwd(), process.cwd())),
+        Layer.provideMerge(ServerSettingsService.layerTest()),
+        Layer.provideMerge(providerSessionDirectoryTestLayer),
+        Layer.provideMerge(NodeServices.layer),
+      );
+
+      const events = yield* Effect.gen(function* () {
+        const adapter = yield* CodexAdapter;
+        const eventsFiber = yield* Stream.runCollect(Stream.take(adapter.streamEvents, 2)).pipe(
+          Effect.forkChild,
+        );
+
+        orderingManager.emit("event", {
+          id: asEventId("evt-ordered-1"),
+          kind: "session",
+          provider: "codex",
+          threadId: asThreadId("thread-1"),
+          createdAt: "2026-04-14T00:00:00.000Z",
+          method: "session/ready",
+          message: "ready",
+        } satisfies ProviderEvent);
+        yield* Deferred.await(firstWriteStarted);
+
+        orderingManager.emit("event", {
+          id: asEventId("evt-ordered-2"),
+          kind: "session",
+          provider: "codex",
+          threadId: asThreadId("thread-1"),
+          createdAt: "2026-04-14T00:00:01.000Z",
+          method: "session/closed",
+          message: "closed",
+        } satisfies ProviderEvent);
+
+        yield* Deferred.succeed(releaseFirstWrite, undefined).pipe(Effect.orDie);
+        return Array.from(yield* Fiber.join(eventsFiber));
+      }).pipe(Effect.provide(layer));
+
+      assert.equal(events[0]?.type, "session.state.changed");
+      if (events[0]?.type === "session.state.changed") {
+        assert.equal(events[0].payload.state, "ready");
+      }
+      assert.equal(events[1]?.type, "session.exited");
+    }),
+  );
+
   it.effect("maps completed agent message items to canonical item.completed events", () =>
     Effect.gen(function* () {
       const adapter = yield* CodexAdapter;

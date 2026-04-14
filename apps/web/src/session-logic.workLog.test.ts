@@ -2569,6 +2569,58 @@ describe("deriveWorkLogEntries", () => {
     expect(entry?.outputSource).toBe("stream");
   });
 
+  it("keeps terminal MCP startup failures inline while hiding non-terminal startup updates", () => {
+    const entries = deriveWorkLogEntries(
+      [
+        makeActivity({
+          id: "mcp-starting",
+          createdAt: "2026-04-10T12:00:00.000Z",
+          kind: "mcp.status.updated",
+          summary: "MCP server demo is starting",
+          payload: {
+            name: "demo",
+            status: "starting",
+          },
+        }),
+        makeActivity({
+          id: "mcp-failed",
+          createdAt: "2026-04-10T12:00:01.000Z",
+          kind: "mcp.status.updated",
+          summary: "MCP server demo failed to start",
+          tone: "error",
+          payload: {
+            name: "demo",
+            status: "failed",
+            error: "spawn failed",
+          },
+        }),
+        makeActivity({
+          id: "mcp-ready",
+          createdAt: "2026-04-10T12:00:02.000Z",
+          kind: "mcp.status.updated",
+          summary: "MCP server demo started",
+          payload: {
+            name: "demo",
+            status: "ready",
+          },
+        }),
+        makeActivity({
+          id: "mcp-cancelled",
+          createdAt: "2026-04-10T12:00:03.000Z",
+          kind: "mcp.status.updated",
+          summary: "MCP server aux startup cancelled",
+          payload: {
+            name: "aux",
+            status: "cancelled",
+          },
+        }),
+      ],
+      undefined,
+    );
+
+    expect(entries.map((entry) => entry.id)).toEqual(["mcp-failed"]);
+  });
+
   it("derives transient background tray visibility for running and recently completed background commands", () => {
     const workEntries = deriveWorkLogEntries(
       [

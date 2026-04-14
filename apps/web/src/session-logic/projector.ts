@@ -1,6 +1,7 @@
 import type { OrchestrationThreadActivity, TurnId } from "@forgetools/contracts";
 import { EventId } from "@forgetools/contracts";
 import { asArray, asRecord, asTrimmedString } from "@forgetools/shared/narrowing";
+import { classifyOrchestrationActivityPresentation } from "@forgetools/shared/orchestrationActivityPresentation";
 
 import type {
   ChildThreadMetadata,
@@ -201,20 +202,27 @@ function ingestActivity(
 
   const payload = asRecord(activity.payload);
   trackChildTaskState(state, activity, payload);
+  const presentation = classifyOrchestrationActivityPresentation(activity);
 
-  if (activity.kind === "tool.output.delta") {
-    ingestCommandOutputDelta(state, payload);
+  if (presentation.visibility === "ignore") {
     return;
   }
 
-  if (activity.kind === "tool.terminal.interaction") {
-    ingestTerminalInteraction(state, payload);
-    return;
+  if (presentation.visibility === "state-only") {
+    if (activity.kind === "tool.output.delta") {
+      ingestCommandOutputDelta(state, payload);
+      return;
+    }
+
+    if (activity.kind === "tool.terminal.interaction") {
+      ingestTerminalInteraction(state, payload);
+      return;
+    }
   }
 
   const activityItemType = extractWorkLogItemType(payload);
 
-  if (activity.kind !== "tool.output.delta" && activity.kind !== "tool.terminal.interaction") {
+  if (presentation.visibility === "row") {
     const currentToolCallId =
       activityItemType === "command_execution" ? extractToolCallId(payload) : undefined;
     markCodexBackgroundCandidatesForTurnAdvance(

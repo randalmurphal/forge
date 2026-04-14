@@ -29,6 +29,10 @@ import {
   resolveThreadWorkspaceCwd,
 } from "../../checkpointing/Utils.ts";
 import { isGitRepository } from "../../git/Utils.ts";
+import {
+  classifyOrchestrationActivityPresentation,
+  shouldPersistOrchestrationActivity,
+} from "@forgetools/shared/orchestrationActivityPresentation";
 import { OrchestrationEngineService } from "../Services/OrchestrationEngine.ts";
 import {
   ProviderRuntimeIngestionService,
@@ -47,7 +51,6 @@ import { DEBUG_BACKGROUND_TASKS } from "../../provider/adapterUtils.ts";
 
 import {
   extractActivityInlineDiff,
-  isAssistantTextBoundary,
   runtimeEventToActivities,
   upgradeActivitiesFromExactTurnDiff,
 } from "./runtimeIngestion/activityMapping.ts";
@@ -1886,14 +1889,20 @@ const make = Effect.fn("make")(function* () {
       }
     }
 
-    if (isAssistantTextBoundary(event)) {
+    const persistedActivities = activities.filter(shouldPersistOrchestrationActivity);
+
+    if (
+      persistedActivities.some(
+        (activity) => classifyOrchestrationActivityPresentation(activity).assistantBoundary,
+      )
+    ) {
       yield* flushBufferedAssistantChunkAtBoundary();
     }
 
     yield* upsertThreadActivities({
       event,
       threadId: thread.id,
-      activities,
+      activities: persistedActivities,
     });
   });
 

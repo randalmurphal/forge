@@ -11,7 +11,8 @@ import {
   type ProviderRuntimeEvent,
   ProviderSendTurnInput,
 } from "@forgetools/contracts";
-import { Effect, FileSystem, Layer, Queue, Stream } from "effect";
+import { Cause, Effect, FileSystem, Layer, Queue, Stream } from "effect";
+import { makeDrainableWorker } from "@forgetools/shared/DrainableWorker";
 
 import {
   ProviderAdapterProcessError,
@@ -321,9 +322,8 @@ const makeCodexAdapter = Effect.fn("makeCodexAdapter")(function* (
     yield* nativeEventLogger.write(event, event.threadId);
   });
 
-  const registerListener = Effect.fn("registerListener")(function* () {
-    const services = yield* Effect.services<never>();
-    const listenerEffect = Effect.fn("listener")(function* (event: ProviderEvent) {
+  const ingressWorker = yield* makeDrainableWorker((event: ProviderEvent) =>
+    Effect.gen(function* () {
       yield* writeNativeEvent(event);
       const runtimeEvents = mapToRuntimeEvents(event, event.threadId);
       if (runtimeEvents.length === 0) {
@@ -336,19 +336,39 @@ const makeCodexAdapter = Effect.fn("makeCodexAdapter")(function* (
         return;
       }
       yield* Queue.offerAll(runtimeEventQueue, runtimeEvents);
-    });
-    const listener = (event: ProviderEvent) =>
-      listenerEffect(event).pipe(Effect.runPromiseWith(services));
+    }),
+  );
+
+  const registerListener = Effect.fn("registerListener")(function* () {
+    const services = yield* Effect.services<never>();
+    const listener = (event: ProviderEvent) => {
+      void ingressWorker.enqueue(event).pipe(
+        Effect.catchCause((cause) => {
+          if (Cause.hasInterruptsOnly(cause)) {
+            return Effect.void;
+          }
+          return Effect.logWarning("failed to enqueue Codex provider event", {
+            method: event.method,
+            threadId: event.threadId,
+            turnId: event.turnId,
+            itemId: event.itemId,
+            cause: Cause.pretty(cause),
+          });
+        }),
+        Effect.runPromiseWith(services),
+      );
+    };
     manager.on("event", listener);
     return listener;
   });
 
   const unregisterListener = Effect.fn("unregisterListener")(function* (
-    listener: (event: ProviderEvent) => Promise<void>,
+    listener: (event: ProviderEvent) => void,
   ) {
     yield* Effect.sync(() => {
       manager.off("event", listener);
     });
+    yield* ingressWorker.drain;
     yield* Queue.shutdown(runtimeEventQueue);
   });
 

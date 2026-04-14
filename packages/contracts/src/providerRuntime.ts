@@ -598,8 +598,13 @@ const AccountRateLimitsUpdatedPayload = Schema.Struct({
 });
 export type AccountRateLimitsUpdatedPayload = typeof AccountRateLimitsUpdatedPayload.Type;
 
+const McpServerStartupState = Schema.Literals(["starting", "ready", "failed", "cancelled"]);
+export type McpServerStartupState = typeof McpServerStartupState.Type;
+
 const McpStatusUpdatedPayload = Schema.Struct({
-  status: Schema.Unknown,
+  name: TrimmedNonEmptyString,
+  status: McpServerStartupState,
+  error: Schema.optional(TrimmedNonEmptyString),
 });
 export type McpStatusUpdatedPayload = typeof McpStatusUpdatedPayload.Type;
 

@@ -2637,7 +2637,7 @@ describe("ProviderRuntimeIngestion", () => {
     expect(assistantMessages[0]?.text).toBe("text before error");
   });
 
-  it("flushes buffered assistant text when command output arrives", async () => {
+  it("keeps buffered assistant text intact when hidden command output arrives", async () => {
     const harness = await createHarness();
     const now = new Date().toISOString();
 
@@ -2665,7 +2665,7 @@ describe("ProviderRuntimeIngestion", () => {
       itemId: asItemId("item-cmd-output-text"),
       payload: {
         streamKind: "assistant_text",
-        delta: "running command",
+        delta: "running ",
       },
     });
     harness.emit({
@@ -2678,7 +2678,33 @@ describe("ProviderRuntimeIngestion", () => {
       itemId: asItemId("item-cmd-output-cmd"),
       payload: {
         streamKind: "command_output",
-        delta: "$ echo hello",
+        delta: "$ echo hello\n",
+      },
+    });
+    harness.emit({
+      type: "content.delta",
+      eventId: asEventId("evt-delta-after-cmd-output"),
+      provider: "codex",
+      createdAt: now,
+      threadId: asThreadId("thread-1"),
+      turnId: asTurnId("turn-cmd-output"),
+      itemId: asItemId("item-cmd-output-text"),
+      payload: {
+        streamKind: "assistant_text",
+        delta: "command",
+      },
+    });
+    harness.emit({
+      type: "item.completed",
+      eventId: asEventId("evt-cmd-output-text-complete"),
+      provider: "codex",
+      createdAt: now,
+      threadId: asThreadId("thread-1"),
+      turnId: asTurnId("turn-cmd-output"),
+      itemId: asItemId("item-cmd-output-text"),
+      payload: {
+        itemType: "assistant_message",
+        status: "completed",
       },
     });
 
@@ -2693,6 +2719,11 @@ describe("ProviderRuntimeIngestion", () => {
     );
     expect(assistantMessages).toHaveLength(1);
     expect(assistantMessages[0]?.text).toBe("running command");
+
+    const commandOutputActivity = thread.activities.find(
+      (activity: ProviderRuntimeTestActivity) => activity.id === "evt-cmd-output-delta",
+    );
+    expect(commandOutputActivity?.kind).toBe("tool.output.delta");
   });
 
   it("treats unknown Codex item types as dynamic_tool_call and flushes buffer", async () => {

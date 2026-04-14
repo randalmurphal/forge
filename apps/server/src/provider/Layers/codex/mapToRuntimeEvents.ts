@@ -40,6 +40,20 @@ import {
   toUserInputQuestions,
 } from "./eventHelpers.ts";
 
+function normalizeMcpStartupStatus(
+  value: unknown,
+): "starting" | "ready" | "failed" | "cancelled" | undefined {
+  switch (value) {
+    case "starting":
+    case "ready":
+    case "failed":
+    case "cancelled":
+      return value;
+    default:
+      return undefined;
+  }
+}
+
 // ---------------------------------------------------------------------------
 // Category mapper return type
 // ---------------------------------------------------------------------------
@@ -910,12 +924,34 @@ function mapTelemetryEvent(event: ProviderEvent, canonicalThreadId: ThreadId): M
   }
 
   if (event.method === "mcpServer/startupStatus/updated") {
+    const payload = asRecord(event.payload);
+    const name = asString(payload?.name);
+    const status = normalizeMcpStartupStatus(payload?.status);
+    const rawError = payload?.error;
+    const error =
+      rawError == null ? undefined : typeof rawError === "string" ? rawError : undefined;
+
+    if (!name || !status || (rawError != null && error === undefined)) {
+      return [
+        {
+          type: "runtime.warning",
+          ...runtimeEventBase(event, canonicalThreadId),
+          payload: {
+            message: "Received invalid MCP startup status update",
+            detail: event.payload,
+          },
+        },
+      ];
+    }
+
     return [
       {
         type: "mcp.status.updated",
         ...runtimeEventBase(event, canonicalThreadId),
         payload: {
-          status: event.payload ?? {},
+          name,
+          status,
+          ...(error ? { error } : {}),
         },
       },
     ];
