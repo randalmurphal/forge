@@ -244,7 +244,7 @@ describe("orchestration projector", () => {
     expect(unpinned.threads[0]?.updatedAt).toBe(createdAt);
   });
 
-  it("rebinds agent diffs when the assistant message arrives after the diff upsert", async () => {
+  it("does not rewrite historical agent diff entries when the assistant message arrives later", async () => {
     const createdAt = "2026-04-08T12:00:00.000Z";
     const events = [
       makeEvent({
@@ -313,7 +313,87 @@ describe("orchestration projector", () => {
       Promise.resolve(createEmptyReadModel(createdAt)),
     );
 
-    expect(finalState.threads[0]?.agentDiffs?.[0]?.assistantMessageId).toBe("assistant-1");
+    expect(finalState.threads[0]?.agentDiffs?.[0]?.assistantMessageId).toBeNull();
+    expect(finalState.threads[0]?.messages.at(-1)?.id).toBe("assistant-1");
+  });
+
+  it("preserves append-only proposed plan history for the same logical plan id", async () => {
+    const createdAt = "2026-04-08T12:10:00.000Z";
+    const events = [
+      makeEvent({
+        sequence: 1,
+        type: "thread.created",
+        aggregateKind: "thread",
+        aggregateId: "thread-1",
+        occurredAt: createdAt,
+        commandId: "cmd-thread-create",
+        payload: {
+          threadId: "thread-1",
+          projectId: "project-1",
+          title: "demo",
+          modelSelection: {
+            provider: "codex",
+            model: "gpt-5-codex",
+          },
+          runtimeMode: "full-access",
+          branch: null,
+          worktreePath: null,
+          createdAt,
+          updatedAt: createdAt,
+        },
+      }),
+      makeEvent({
+        sequence: 2,
+        type: "thread.proposed-plan-upserted",
+        aggregateKind: "thread",
+        aggregateId: "thread-1",
+        occurredAt: "2026-04-08T12:10:01.000Z",
+        commandId: "cmd-plan-1",
+        payload: {
+          threadId: "thread-1",
+          proposedPlan: {
+            id: "plan-1",
+            turnId: "turn-1",
+            planMarkdown: "# First",
+            implementedAt: null,
+            implementationThreadId: null,
+            createdAt: "2026-04-08T12:10:01.000Z",
+            updatedAt: "2026-04-08T12:10:01.000Z",
+          },
+        },
+      }),
+      makeEvent({
+        sequence: 3,
+        type: "thread.proposed-plan-upserted",
+        aggregateKind: "thread",
+        aggregateId: "thread-1",
+        occurredAt: "2026-04-08T12:10:02.000Z",
+        commandId: "cmd-plan-2",
+        payload: {
+          threadId: "thread-1",
+          proposedPlan: {
+            id: "plan-1",
+            turnId: "turn-1",
+            planMarkdown: "# Second",
+            implementedAt: null,
+            implementationThreadId: null,
+            createdAt: "2026-04-08T12:10:01.000Z",
+            updatedAt: "2026-04-08T12:10:02.000Z",
+          },
+        },
+      }),
+    ];
+
+    const finalState = await events.reduce<Promise<OrchestrationReadModel>>(
+      (statePromise, event) =>
+        statePromise.then((current) => Effect.runPromise(projectEvent(current, event))),
+      Promise.resolve(createEmptyReadModel(createdAt)),
+    );
+
+    expect(finalState.threads[0]?.proposedPlans.map((plan) => plan.planMarkdown)).toEqual([
+      "# First",
+      "# Second",
+    ]);
   });
 
   it("fails when event payload cannot be decoded by runtime schema", async () => {

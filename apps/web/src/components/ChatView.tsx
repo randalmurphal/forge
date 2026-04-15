@@ -99,7 +99,6 @@ import {
   type Thread,
   type ThreadPlansSlice,
   type ThreadSessionSlice,
-  type TurnDiffSummary,
 } from "../types";
 import type { AppState } from "../store";
 
@@ -214,8 +213,9 @@ import {
   cloneComposerImageForRetry,
   collectUserMessageBlobPreviewUrls,
   createLocalDispatchSnapshot,
+  deriveAssistantMessageIdByTurnId,
   deriveComposerSendState,
-  deriveInlineTurnDiffSummaryByAssistantMessageId,
+  deriveSettledTurnDiffSummaryByAssistantMessageId,
   hasServerAcknowledgedLocalDispatch,
   LAST_INVOKED_SCRIPT_BY_PROJECT_KEY,
   LastInvokedScriptByProjectSchema,
@@ -1531,34 +1531,28 @@ export default function ChatView({ threadId }: ChatViewProps) {
         timelineMessages,
         threadPlansSlice?.proposedPlans ?? [],
         visibleWorkLogEntries,
+        threadDiffsSlice?.agentDiffSummaries ?? [],
       ),
-    [threadPlansSlice?.proposedPlans, timelineMessages, visibleWorkLogEntries],
+    [
+      threadDiffsSlice?.agentDiffSummaries,
+      threadPlansSlice?.proposedPlans,
+      timelineMessages,
+      visibleWorkLogEntries,
+    ],
   );
   const { turnDiffSummaries, inferredCheckpointTurnCountByTurnId } =
     useTurnDiffSummaries(threadDiffsSlice);
-  const checkpointTurnDiffSummaryByAssistantMessageId = useMemo(() => {
-    const byMessageId = new Map<MessageId, TurnDiffSummary>();
-    const assistantMessageIdByTurnId = new Map<TurnId, MessageId>();
-    for (const message of timelineMessages) {
-      if (message.role !== "assistant" || !message.turnId) continue;
-      assistantMessageIdByTurnId.set(message.turnId, message.id);
-    }
-    for (const summary of turnDiffSummaries) {
-      const assistantMessageId =
-        summary.assistantMessageId ?? assistantMessageIdByTurnId.get(summary.turnId);
-      if (!assistantMessageId) continue;
-      byMessageId.set(assistantMessageId, summary);
-    }
-    return byMessageId;
-  }, [timelineMessages, turnDiffSummaries]);
-  const turnDiffSummaryByAssistantMessageId = useMemo(
+  const assistantMessageIdByTurnId = useMemo(
+    () => deriveAssistantMessageIdByTurnId(timelineMessages),
+    [timelineMessages],
+  );
+  const checkpointTurnDiffSummaryByAssistantMessageId = useMemo(
     () =>
-      deriveInlineTurnDiffSummaryByAssistantMessageId({
-        agentDiffSummaries: threadDiffsSlice?.agentDiffSummaries,
-        latestTurnId: activeLatestTurn?.turnId ?? null,
-        latestTurnSettled,
+      deriveSettledTurnDiffSummaryByAssistantMessageId({
+        turnDiffSummaries,
+        assistantMessageIdByTurnId,
       }),
-    [activeLatestTurn?.turnId, threadDiffsSlice?.agentDiffSummaries, latestTurnSettled],
+    [assistantMessageIdByTurnId, turnDiffSummaries],
   );
   const revertTurnCountByUserMessageId = useMemo(() => {
     const byUserMessageId = new Map<MessageId, number>();
@@ -4557,7 +4551,6 @@ export default function ChatView({ threadId }: ChatViewProps) {
                 timelineEntries={timelineEntries}
                 completionDividerBeforeEntryId={completionDividerBeforeEntryId}
                 completionSummary={completionSummary}
-                turnDiffSummaryByAssistantMessageId={turnDiffSummaryByAssistantMessageId}
                 expandedWorkGroups={expandedWorkGroups}
                 onToggleWorkGroup={onToggleWorkGroup}
                 onOpenTurnDiff={onOpenTurnDiff}

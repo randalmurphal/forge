@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { deriveMessagesTimelineRows } from "./MessagesTimeline.logic";
+import { buildMessagesTimelineRowId, deriveMessagesTimelineRows } from "./MessagesTimeline.logic";
 import { type TimelineEntry } from "../../session-logic";
 
 describe("deriveMessagesTimelineRows", () => {
@@ -28,6 +28,9 @@ describe("deriveMessagesTimelineRows", () => {
     expect(rows).toHaveLength(1);
     expect(rows[0]?.kind).toBe("work-group");
     if (rows[0]?.kind === "work-group") {
+      expect(rows[0].id).toBe(
+        buildMessagesTimelineRowId({ kind: "work-group", sourceId: "read-1" }),
+      );
       expect(rows[0].groupedEntries.map((entry) => entry.id)).toEqual(["read-1", "search-1"]);
     }
   });
@@ -54,6 +57,10 @@ describe("deriveMessagesTimelineRows", () => {
     });
 
     expect(rows.map((row) => row.kind)).toEqual(["work-entry", "work-entry"]);
+    expect(rows.map((row) => row.id)).toEqual([
+      buildMessagesTimelineRowId({ kind: "work-entry", sourceId: "command-1" }),
+      buildMessagesTimelineRowId({ kind: "work-entry", sourceId: "edit-1" }),
+    ]);
   });
 
   it("does not group operations across standalone command or edit rows", () => {

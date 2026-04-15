@@ -28,29 +28,29 @@ export const LAST_INVOKED_SCRIPT_BY_PROJECT_KEY = "forge:last-invoked-script-by-
 export const MAX_HIDDEN_MOUNTED_TERMINAL_THREADS = 10;
 
 export const LastInvokedScriptByProjectSchema = Schema.Record(ProjectId, Schema.String);
-export function deriveInlineTurnDiffSummaryByAssistantMessageId(input: {
-  agentDiffSummaries: ReadonlyArray<TurnDiffSummary> | undefined;
-  latestTurnId: TurnId | null | undefined;
-  latestTurnSettled: boolean;
+
+export function deriveAssistantMessageIdByTurnId(
+  messages: ReadonlyArray<Pick<ChatMessage, "id" | "role" | "turnId">>,
+): Map<TurnId, MessageId> {
+  const byTurnId = new Map<TurnId, MessageId>();
+  for (const message of messages) {
+    if (message.role !== "assistant" || !message.turnId) continue;
+    byTurnId.set(message.turnId, message.id);
+  }
+  return byTurnId;
+}
+
+export function deriveSettledTurnDiffSummaryByAssistantMessageId(input: {
+  turnDiffSummaries: ReadonlyArray<TurnDiffSummary>;
+  assistantMessageIdByTurnId: ReadonlyMap<TurnId, MessageId>;
 }): Map<MessageId, TurnDiffSummary> {
   const byMessageId = new Map<MessageId, TurnDiffSummary>();
-
-  for (const summary of input.agentDiffSummaries ?? []) {
-    if (!summary.assistantMessageId) {
-      continue;
-    }
-    if (summary.files.length === 0 || summary.provenance === "workspace") {
-      continue;
-    }
-    if (summary.coverage === "unavailable") {
-      continue;
-    }
-    if (input.latestTurnId && summary.turnId === input.latestTurnId && !input.latestTurnSettled) {
-      continue;
-    }
-    byMessageId.set(summary.assistantMessageId, summary);
+  for (const summary of input.turnDiffSummaries) {
+    const assistantMessageId =
+      input.assistantMessageIdByTurnId.get(summary.turnId) ?? summary.assistantMessageId;
+    if (!assistantMessageId) continue;
+    byMessageId.set(assistantMessageId, summary);
   }
-
   return byMessageId;
 }
 

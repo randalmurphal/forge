@@ -13,6 +13,7 @@ import { toPersistenceSqlError, type ProjectionRepositoryError } from "../../per
 import { OrchestrationEventStore } from "../../persistence/Services/OrchestrationEventStore.ts";
 import { ProjectionAgentDiffRepository } from "../../persistence/Services/ProjectionAgentDiffs.ts";
 import { ProjectionPendingApprovalRepository } from "../../persistence/Services/ProjectionPendingApprovals.ts";
+import { ProjectionCheckpointRepository } from "../../persistence/Services/ProjectionCheckpoints.ts";
 import { ProjectionChannelMessageRepository } from "../../persistence/Services/ProjectionChannelMessages.ts";
 import { ProjectionChannelReadRepository } from "../../persistence/Services/ProjectionChannelReads.ts";
 import { ProjectionChannelRepository } from "../../persistence/Services/ProjectionChannels.ts";
@@ -38,6 +39,7 @@ import {
 } from "../../persistence/Services/ProjectionTurns.ts";
 import { ProjectionThreadRepository } from "../../persistence/Services/ProjectionThreads.ts";
 import { ProjectionAgentDiffRepositoryLive } from "../../persistence/Layers/ProjectionAgentDiffs.ts";
+import { ProjectionCheckpointRepositoryLive } from "../../persistence/Layers/ProjectionCheckpoints.ts";
 import { ProjectionPendingApprovalRepositoryLive } from "../../persistence/Layers/ProjectionPendingApprovals.ts";
 import { ProjectionChannelMessageRepositoryLive } from "../../persistence/Layers/ProjectionChannelMessages.ts";
 import { ProjectionChannelReadRepositoryLive } from "../../persistence/Layers/ProjectionChannelReads.ts";
@@ -435,6 +437,7 @@ const makeOrchestrationProjectionPipeline = Effect.fn("makeOrchestrationProjecti
     const projectionThreadActivityRepository = yield* ProjectionThreadActivityRepository;
     const projectionThreadSessionRepository = yield* ProjectionThreadSessionRepository;
     const projectionTurnRepository = yield* ProjectionTurnRepository;
+    const projectionCheckpointRepository = yield* ProjectionCheckpointRepository;
     const projectionAgentDiffRepository = yield* ProjectionAgentDiffRepository;
     const projectionPendingApprovalRepository = yield* ProjectionPendingApprovalRepository;
     const projectionInteractiveRequestRepository = yield* ProjectionInteractiveRequestRepository;
@@ -1625,7 +1628,7 @@ const makeOrchestrationProjectionPipeline = Effect.fn("makeOrchestrationProjecti
     )(function* (event, _attachmentSideEffects) {
       switch (event.type) {
         case "thread.proposed-plan-upserted":
-          yield* projectionThreadProposedPlanRepository.upsert({
+          yield* projectionThreadProposedPlanRepository.append({
             planId: event.payload.proposedPlan.id,
             threadId: event.payload.threadId,
             turnId: event.payload.proposedPlan.turnId,
@@ -1660,7 +1663,7 @@ const makeOrchestrationProjectionPipeline = Effect.fn("makeOrchestrationProjecti
           yield* projectionThreadProposedPlanRepository.deleteByThreadId({
             threadId: event.payload.threadId,
           });
-          yield* Effect.forEach(keptRows, projectionThreadProposedPlanRepository.upsert, {
+          yield* Effect.forEach(keptRows, projectionThreadProposedPlanRepository.append, {
             concurrency: 1,
           }).pipe(Effect.asVoid);
           return;
@@ -2164,47 +2167,77 @@ const makeOrchestrationProjectionPipeline = Effect.fn("makeOrchestrationProjecti
       }
     });
 
-    const applyCheckpointsProjection: ProjectorDefinition["apply"] = () => Effect.void;
+    const applyCheckpointsProjection: ProjectorDefinition["apply"] = Effect.fn(
+      "applyCheckpointsProjection",
+    )(function* (event, _attachmentSideEffects) {
+      switch (event.type) {
+        case "thread.turn-diff-completed": {
+          yield* projectionCheckpointRepository.append({
+            threadId: event.payload.threadId,
+            turnId: event.payload.turnId,
+            checkpointTurnCount: event.payload.checkpointTurnCount,
+            checkpointRef: event.payload.checkpointRef,
+            status: event.payload.status,
+            files: event.payload.files,
+            assistantMessageId: event.payload.assistantMessageId,
+            completedAt: event.payload.completedAt,
+          });
+          return;
+        }
+
+        case "thread.reverted": {
+          const existingTurns = yield* projectionTurnRepository.listByThreadId({
+            threadId: event.payload.threadId,
+          });
+          const retainedTurnIds = new Set(
+            existingTurns
+              .filter(
+                (turn) =>
+                  turn.turnId !== null &&
+                  turn.checkpointTurnCount !== null &&
+                  turn.checkpointTurnCount <= event.payload.turnCount,
+              )
+              .flatMap((turn) => (turn.turnId === null ? [] : [turn.turnId])),
+          );
+          const existingRows = yield* projectionCheckpointRepository.listByThreadId({
+            threadId: event.payload.threadId,
+          });
+          yield* projectionCheckpointRepository.deleteByThreadId({
+            threadId: event.payload.threadId,
+          });
+          yield* Effect.forEach(
+            existingRows.filter((row) => retainedTurnIds.has(row.turnId)),
+            (row) => projectionCheckpointRepository.append(row),
+            { concurrency: 1 },
+          ).pipe(Effect.asVoid);
+          return;
+        }
+
+        case "thread.deleted":
+          yield* projectionCheckpointRepository.deleteByThreadId({
+            threadId: event.payload.threadId,
+          });
+          return;
+
+        default:
+          return;
+      }
+    });
 
     const applyAgentDiffsProjection: ProjectorDefinition["apply"] = Effect.fn(
       "applyAgentDiffsProjection",
     )(function* (event, _attachmentSideEffects) {
       switch (event.type) {
         case "thread.agent-diff-upserted": {
-          const existingAgentDiff = yield* projectionAgentDiffRepository.getByTurnId({
-            threadId: event.payload.threadId,
-            turnId: event.payload.turnId,
-          });
-          yield* projectionAgentDiffRepository.upsert({
+          yield* projectionAgentDiffRepository.append({
             threadId: event.payload.threadId,
             turnId: event.payload.turnId,
             diff: event.payload.diff,
             files: event.payload.files,
             source: event.payload.source,
             coverage: event.payload.coverage,
-            assistantMessageId:
-              event.payload.assistantMessageId ??
-              Option.getOrUndefined(existingAgentDiff)?.assistantMessageId ??
-              null,
+            assistantMessageId: event.payload.assistantMessageId ?? null,
             completedAt: event.payload.completedAt,
-          });
-          return;
-        }
-
-        case "thread.message-sent": {
-          if (event.payload.role !== "assistant" || event.payload.turnId === null) {
-            return;
-          }
-          const existingAgentDiff = yield* projectionAgentDiffRepository.getByTurnId({
-            threadId: event.payload.threadId,
-            turnId: event.payload.turnId,
-          });
-          if (Option.isNone(existingAgentDiff)) {
-            return;
-          }
-          yield* projectionAgentDiffRepository.upsert({
-            ...existingAgentDiff.value,
-            assistantMessageId: event.payload.messageId,
           });
           return;
         }
@@ -2231,7 +2264,7 @@ const makeOrchestrationProjectionPipeline = Effect.fn("makeOrchestrationProjecti
           });
           yield* Effect.forEach(
             existingRows.filter((row) => retainedTurnIds.has(row.turnId)),
-            (row) => projectionAgentDiffRepository.upsert(row),
+            (row) => projectionAgentDiffRepository.append(row),
             { concurrency: 1 },
           ).pipe(Effect.asVoid);
           return;
@@ -2521,6 +2554,7 @@ export const OrchestrationProjectionPipelineLive = Layer.effect(
   Layer.provideMerge(ProjectionThreadActivityRepositoryLive),
   Layer.provideMerge(ProjectionThreadSessionRepositoryLive),
   Layer.provideMerge(ProjectionTurnRepositoryLive),
+  Layer.provideMerge(ProjectionCheckpointRepositoryLive),
   Layer.provideMerge(ProjectionAgentDiffRepositoryLive),
   Layer.provideMerge(ProjectionPendingApprovalRepositoryLive),
   Layer.provideMerge(ProjectionInteractiveRequestRepositoryLive),

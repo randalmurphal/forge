@@ -54,23 +54,21 @@ export type DeleteByThreadIdInput = typeof DeleteByThreadIdInput.Type;
  */
 export interface ProjectionCheckpointRepositoryShape {
   /**
-   * Insert or replace a projected checkpoint row.
-   *
-   * Upserts by composite key `(threadId, checkpointTurnCount)`.
+   * Append a projected checkpoint history row.
    */
-  readonly upsert: (row: ProjectionCheckpoint) => Effect.Effect<void, ProjectionRepositoryError>;
+  readonly append: (row: ProjectionCheckpoint) => Effect.Effect<void, ProjectionRepositoryError>;
 
   /**
    * List projected checkpoints for a thread.
    *
-   * Returned in ascending checkpoint turn-count order.
+   * Returned in append-only history order.
    */
   readonly listByThreadId: (
     input: ListByThreadIdInput,
   ) => Effect.Effect<ReadonlyArray<ProjectionCheckpoint>, ProjectionRepositoryError>;
 
   /**
-   * Read a projected checkpoint by thread and turn-count key.
+   * Read the latest projected checkpoint revision by thread and turn-count key.
    */
   readonly getByThreadAndTurnCount: (
     input: GetByThreadAndTurnCountInput,

@@ -330,6 +330,7 @@ export const OrchestrationThread = Schema.Struct({
   proposedPlans: Schema.Array(OrchestrationProposedPlan).pipe(Schema.withDecodingDefault(() => [])),
   activities: Schema.Array(OrchestrationThreadActivity),
   checkpoints: Schema.Array(OrchestrationCheckpointSummary),
+  checkpointHistory: Schema.optional(Schema.Array(OrchestrationCheckpointSummary)),
   agentDiffs: Schema.optional(Schema.Array(OrchestrationAgentDiffSummary)),
   session: Schema.NullOr(OrchestrationSession),
 });

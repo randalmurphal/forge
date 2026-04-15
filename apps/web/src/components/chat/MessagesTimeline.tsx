@@ -104,7 +104,7 @@ interface MessagesTimelineProps {
   timelineEntries: ReturnType<typeof deriveTimelineEntries>;
   completionDividerBeforeEntryId: string | null;
   completionSummary: string | null;
-  turnDiffSummaryByAssistantMessageId: Map<MessageId, TurnDiffSummary>;
+  turnDiffSummaryByAssistantMessageId?: Map<MessageId, TurnDiffSummary>;
   expandedWorkGroups: Record<string, boolean>;
   onToggleWorkGroup: (groupId: string) => void;
   onOpenTurnDiff: (turnId: TurnId, filePath?: string) => void;
@@ -140,7 +140,6 @@ export const MessagesTimeline = memo(function MessagesTimeline({
   timelineEntries,
   completionDividerBeforeEntryId,
   completionSummary,
-  turnDiffSummaryByAssistantMessageId,
   expandedWorkGroups,
   onToggleWorkGroup,
   onOpenTurnDiff,
@@ -289,7 +288,6 @@ export const MessagesTimeline = memo(function MessagesTimeline({
         expandedCommandOutputIds,
         expandedAgentEntryIds,
         timelineWidthPx,
-        turnDiffSummaryByAssistantMessageId,
       });
     },
     measureElement: measureVirtualElement,
@@ -306,7 +304,6 @@ export const MessagesTimeline = memo(function MessagesTimeline({
     expandedWorkGroups,
     rowVirtualizer,
     timelineWidthPx,
-    turnDiffSummaryByAssistantMessageId,
   ]);
   useEffect(() => {
     rowVirtualizer.shouldAdjustScrollPositionOnItemSizeChange = (item, _delta, instance) => {
@@ -562,25 +559,22 @@ export const MessagesTimeline = memo(function MessagesTimeline({
                     )}
                   </p>
                 </div>
-                {(() => {
-                  const turnSummary = turnDiffSummaryByAssistantMessageId.get(row.message.id);
-                  if (!turnSummary) return null;
-                  const checkpointFiles = turnSummary.files;
-                  if (checkpointFiles.length === 0) return null;
-                  return (
-                    <InlineTurnDiffBlock
-                      threadId={threadId}
-                      turnSummary={turnSummary}
-                      expandedInlineDiff={expandedInlineDiff}
-                      onToggleInlineDiff={onToggleInlineDiff}
-                      onOpenTurnDiff={onOpenTurnDiff}
-                    />
-                  );
-                })()}
               </div>
             </>
           );
         })()}
+
+      {row.kind === "turn-diff" && (
+        <div className="min-w-0 px-1 py-0.5">
+          <InlineTurnDiffBlock
+            threadId={threadId}
+            turnSummary={row.turnDiffSummary}
+            expandedInlineDiff={expandedInlineDiff}
+            onToggleInlineDiff={onToggleInlineDiff}
+            onOpenTurnDiff={onOpenTurnDiff}
+          />
+        </div>
+      )}
 
       {row.kind === "proposed-plan" && (
         <div className="min-w-0 px-1 py-0.5">

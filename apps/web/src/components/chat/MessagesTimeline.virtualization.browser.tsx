@@ -11,6 +11,7 @@ import { deriveTimelineEntries, type WorkLogEntry } from "../../session-logic";
 import { type ChatMessage, type ProposedPlan, type TurnDiffSummary } from "../../types";
 import { MessagesTimeline } from "./MessagesTimeline";
 import {
+  buildMessagesTimelineRowId,
   deriveMessagesTimelineRows,
   estimateMessagesTimelineRowHeight,
 } from "./MessagesTimeline.logic";
@@ -254,7 +255,7 @@ function createChangedFilesScenario(input: {
 
   return {
     name: input.name,
-    targetRowId: changedFilesMessage.id,
+    targetRowId: buildMessagesTimelineRowId({ kind: "message", sourceId: changedFilesMessage.id }),
     props: createBaseTimelineProps({
       messages: [...beforeMessages, changedFilesMessage, ...afterMessages],
       turnDiffSummaryByAssistantMessageId: createChangedFilesSummary(
@@ -291,7 +292,7 @@ function createAssistantMessageScenario(input: {
 
   return {
     name: input.name,
-    targetRowId: assistantMessage.id,
+    targetRowId: buildMessagesTimelineRowId({ kind: "message", sourceId: assistantMessage.id }),
     props: createBaseTimelineProps({
       messages: [...beforeMessages, assistantMessage, ...afterMessages],
     }),
@@ -340,7 +341,7 @@ function buildStaticScenarios(): VirtualizationScenario[] {
   return [
     {
       name: "long user message",
-      targetRowId: longUserMessage.id,
+      targetRowId: buildMessagesTimelineRowId({ kind: "message", sourceId: longUserMessage.id }),
       props: createBaseTimelineProps({
         messages: [...beforeMessages, longUserMessage, ...afterMessages],
       }),
@@ -348,7 +349,7 @@ function buildStaticScenarios(): VirtualizationScenario[] {
     },
     {
       name: "grouped work log row",
-      targetRowId: workEntries[0]!.id,
+      targetRowId: buildMessagesTimelineRowId({ kind: "work-group", sourceId: workEntries[0]!.id }),
       props: createBaseTimelineProps({
         messages: [...beforeMessages, ...afterMessages],
         workEntries,
@@ -357,7 +358,10 @@ function buildStaticScenarios(): VirtualizationScenario[] {
     },
     {
       name: "expanded grouped work log row with show more enabled",
-      targetRowId: "target-work-expanded-0",
+      targetRowId: buildMessagesTimelineRowId({
+        kind: "work-group",
+        sourceId: "target-work-expanded-0",
+      }),
       props: createBaseTimelineProps({
         messages: [...beforeMessages, ...afterMessages],
         workEntries: Array.from({ length: 10 }, (_, index) =>
@@ -368,14 +372,17 @@ function buildStaticScenarios(): VirtualizationScenario[] {
           }),
         ),
         expandedWorkGroups: {
-          "target-work-expanded-0": true,
+          [buildMessagesTimelineRowId({
+            kind: "work-group",
+            sourceId: "target-work-expanded-0",
+          })]: true,
         },
       }),
       maxEstimateDeltaPx: 72,
     },
     {
       name: "proposed plan row",
-      targetRowId: moderatePlan.id,
+      targetRowId: buildMessagesTimelineRowId({ kind: "proposed-plan", sourceId: moderatePlan.id }),
       props: createBaseTimelineProps({
         messages: [...beforeMessages, ...afterMessages],
         proposedPlans: [moderatePlan],
@@ -552,7 +559,6 @@ async function measureTimelineRow(input: {
     estimatedHeightPx: estimateMessagesTimelineRowHeight(targetRow!, {
       expandedWorkGroups: input.props.expandedWorkGroups,
       timelineWidthPx,
-      turnDiffSummaryByAssistantMessageId: input.props.turnDiffSummaryByAssistantMessageId,
     }),
     timelineWidthPx,
     virtualizerSizePx,
@@ -726,7 +732,7 @@ describe("MessagesTimeline virtualization harness", () => {
       const measurement = await measureTimelineRow({
         host: mounted.host,
         props,
-        targetRowId: targetMessage.id,
+        targetRowId: buildMessagesTimelineRowId({ kind: "message", sourceId: targetMessage.id }),
       });
       expect(
         Math.abs(measurement.actualHeightPx - measurement.virtualizerSizePx),
@@ -764,10 +770,17 @@ describe("MessagesTimeline virtualization harness", () => {
       const beforeExpand = await measureTimelineRow({
         host: mounted.host,
         props,
-        targetRowId: workEntries[0]!.id,
+        targetRowId: buildMessagesTimelineRowId({
+          kind: "work-group",
+          sourceId: workEntries[0]!.id,
+        }),
+      });
+      const targetWorkGroupRowId = buildMessagesTimelineRowId({
+        kind: "work-group",
+        sourceId: workEntries[0]!.id,
       });
       const targetRowElement = mounted.host.querySelector<HTMLElement>(
-        `[data-timeline-row-id="${workEntries[0]!.id}"]`,
+        `[data-timeline-row-id="${targetWorkGroupRowId}"]`,
       );
       expect(targetRowElement, "Unable to locate target work-log row.").toBeTruthy();
 
@@ -784,7 +797,7 @@ describe("MessagesTimeline virtualization harness", () => {
           const afterExpand = await measureTimelineRow({
             host: mounted.host,
             props,
-            targetRowId: workEntries[0]!.id,
+            targetRowId: targetWorkGroupRowId,
           });
           expect(afterExpand.actualHeightPx).toBeGreaterThan(beforeExpand.actualHeightPx + 72);
         },
@@ -794,7 +807,7 @@ describe("MessagesTimeline virtualization harness", () => {
       const afterExpand = await measureTimelineRow({
         host: mounted.host,
         props,
-        targetRowId: workEntries[0]!.id,
+        targetRowId: targetWorkGroupRowId,
       });
       expect(
         Math.abs(afterExpand.actualHeightPx - afterExpand.virtualizerSizePx),
@@ -875,7 +888,7 @@ describe("MessagesTimeline virtualization harness", () => {
     try {
       const initiallyRenderedHeight = await measureRenderedRowActualHeight({
         host: mounted.host,
-        targetRowId: targetMessage.id,
+        targetRowId: buildMessagesTimelineRowId({ kind: "message", sourceId: targetMessage.id }),
       });
 
       const appendedProps = createBaseTimelineProps({
@@ -889,7 +902,11 @@ describe("MessagesTimeline virtualization harness", () => {
             pairCount: 8,
           }),
         ],
-        turnDiffSummaryByAssistantMessageId: initialProps.turnDiffSummaryByAssistantMessageId,
+        ...(initialProps.turnDiffSummaryByAssistantMessageId
+          ? {
+              turnDiffSummaryByAssistantMessageId: initialProps.turnDiffSummaryByAssistantMessageId,
+            }
+          : {}),
         onVirtualizerSnapshot: initialProps.onVirtualizerSnapshot,
       });
       await mounted.rerender(appendedProps);
@@ -908,7 +925,9 @@ describe("MessagesTimeline virtualization harness", () => {
       await vi.waitFor(
         () => {
           const measurement = latestSnapshot?.measurements.find(
-            (entry) => entry.id === targetMessage.id,
+            (entry) =>
+              entry.id ===
+              buildMessagesTimelineRowId({ kind: "message", sourceId: targetMessage.id }),
           );
           expect(
             measurement,
@@ -969,7 +988,7 @@ describe("MessagesTimeline virtualization harness", () => {
       await vi.waitFor(
         () => {
           const image = mounted.host.querySelector<HTMLImageElement>(
-            `[data-timeline-row-id="${targetMessage.id}"] img`,
+            `[data-timeline-row-id="${buildMessagesTimelineRowId({ kind: "message", sourceId: targetMessage.id })}"] img`,
           );
           expect(image?.naturalHeight ?? 0).toBeGreaterThan(0);
         },
@@ -978,7 +997,7 @@ describe("MessagesTimeline virtualization harness", () => {
 
       const initiallyRenderedHeight = await measureRenderedRowActualHeight({
         host: mounted.host,
-        targetRowId: targetMessage.id,
+        targetRowId: buildMessagesTimelineRowId({ kind: "message", sourceId: targetMessage.id }),
       });
       const appendedProps = createBaseTimelineProps({
         messages: [
@@ -1009,7 +1028,9 @@ describe("MessagesTimeline virtualization harness", () => {
       await vi.waitFor(
         () => {
           const measurement = latestSnapshot?.measurements.find(
-            (entry) => entry.id === targetMessage.id,
+            (entry) =>
+              entry.id ===
+              buildMessagesTimelineRowId({ kind: "message", sourceId: targetMessage.id }),
           );
           expect(
             measurement,

@@ -1,4 +1,3 @@
-import { type MessageId } from "@forgetools/contracts";
 import {
   type ExpandedInlineDiffState,
   type TimelineEntry,
@@ -45,11 +44,24 @@ export type MessagesTimelineRow =
       proposedPlan: ProposedPlan;
     }
   | {
+      kind: "turn-diff";
+      id: string;
+      createdAt: string;
+      turnDiffSummary: TurnDiffSummary;
+    }
+  | {
       kind: "working";
       id: string;
       createdAt: string | null;
       participantLabels: ReadonlyArray<{ label: string; role: string }>;
     };
+
+export function buildMessagesTimelineRowId(input: {
+  kind: Exclude<MessagesTimelineRow["kind"], "working">;
+  sourceId: string;
+}): string {
+  return `${input.kind}:${input.sourceId}`;
+}
 
 export function computeMessageDurationStart(
   messages: ReadonlyArray<TimelineDurationMessage>,
@@ -115,7 +127,7 @@ export function deriveMessagesTimelineRows(input: {
         if (shouldRenderStandaloneWorkEntry(entry)) {
           nextRows.push({
             kind: "work-entry",
-            id: entry.id,
+            id: buildMessagesTimelineRowId({ kind: "work-entry", sourceId: entry.id }),
             createdAt: entry.createdAt,
             entry,
           });
@@ -133,7 +145,7 @@ export function deriveMessagesTimelineRows(input: {
         }
         nextRows.push({
           kind: "work-group",
-          id: entry.id,
+          id: buildMessagesTimelineRowId({ kind: "work-group", sourceId: entry.id }),
           createdAt: entry.createdAt,
           groupedEntries,
         });
@@ -147,16 +159,26 @@ export function deriveMessagesTimelineRows(input: {
     if (timelineEntry.kind === "proposed-plan") {
       nextRows.push({
         kind: "proposed-plan",
-        id: timelineEntry.id,
+        id: buildMessagesTimelineRowId({ kind: "proposed-plan", sourceId: timelineEntry.id }),
         createdAt: timelineEntry.createdAt,
         proposedPlan: timelineEntry.proposedPlan,
       });
       continue;
     }
 
+    if (timelineEntry.kind === "turn-diff") {
+      nextRows.push({
+        kind: "turn-diff",
+        id: buildMessagesTimelineRowId({ kind: "turn-diff", sourceId: timelineEntry.id }),
+        createdAt: timelineEntry.createdAt,
+        turnDiffSummary: timelineEntry.turnDiffSummary,
+      });
+      continue;
+    }
+
     nextRows.push({
       kind: "message",
-      id: timelineEntry.id,
+      id: buildMessagesTimelineRowId({ kind: "message", sourceId: timelineEntry.id }),
       createdAt: timelineEntry.createdAt,
       message: timelineEntry.message,
       durationStart:
@@ -188,7 +210,6 @@ export function estimateMessagesTimelineRowHeight(
     expandedInlineDiff?: ExpandedInlineDiffState;
     expandedCommandOutputIds?: Readonly<Record<string, boolean>>;
     expandedAgentEntryIds?: Readonly<Record<string, boolean>>;
-    turnDiffSummaryByAssistantMessageId?: ReadonlyMap<MessageId, TurnDiffSummary>;
   },
 ): number {
   switch (row.kind) {
@@ -198,23 +219,29 @@ export function estimateMessagesTimelineRowHeight(
       return estimateStandaloneWorkRowHeight(row, input);
     case "proposed-plan":
       return estimateTimelineProposedPlanHeight(row.proposedPlan);
+    case "turn-diff":
+      return estimateTimelineTurnDiffHeight(row, input);
     case "working":
       return 40 + Math.max(0, row.participantLabels.length - 1) * 18;
     case "message": {
       let estimate = estimateTimelineMessageHeight(row.message, {
         timelineWidthPx: input.timelineWidthPx,
       });
-      const turnDiffSummary = input.turnDiffSummaryByAssistantMessageId?.get(row.message.id);
-      if (turnDiffSummary && turnDiffSummary.files.length > 0) {
-        estimate +=
-          input.expandedInlineDiff?.scope === "turn" &&
-          input.expandedInlineDiff.id === turnDiffSummary.turnId
-            ? 520
-            : estimateCollapsedDiffCardHeight();
-      }
       return estimate;
     }
   }
+}
+
+function estimateTimelineTurnDiffHeight(
+  row: Extract<MessagesTimelineRow, { kind: "turn-diff" }>,
+  input: {
+    expandedInlineDiff?: ExpandedInlineDiffState;
+  },
+): number {
+  const expanded =
+    input.expandedInlineDiff?.scope === "turn" &&
+    input.expandedInlineDiff.id === row.turnDiffSummary.turnId;
+  return 64 + (expanded ? 520 : estimateCollapsedDiffCardHeight());
 }
 
 function estimateWorkGroupRowHeight(

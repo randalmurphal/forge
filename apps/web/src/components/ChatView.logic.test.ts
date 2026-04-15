@@ -9,7 +9,8 @@ import {
   buildExpiredTerminalContextToastCopy,
   buildTemporaryWorktreeBranchName,
   createLocalDispatchSnapshot,
-  deriveInlineTurnDiffSummaryByAssistantMessageId,
+  deriveAssistantMessageIdByTurnId,
+  deriveSettledTurnDiffSummaryByAssistantMessageId,
   deriveComposerSendState,
   hasServerAcknowledgedLocalDispatch,
   prepareWorktree,
@@ -217,89 +218,51 @@ describe("reconcileMountedTerminalThreadIds", () => {
   });
 });
 
-describe("deriveInlineTurnDiffSummaryByAssistantMessageId", () => {
-  it("includes only explicitly bound settled agent summaries", () => {
-    const assistantMessageId = MessageId.makeUnsafe("assistant-final");
-    const map = deriveInlineTurnDiffSummaryByAssistantMessageId({
-      agentDiffSummaries: [
-        {
-          turnId: TurnId.makeUnsafe("turn-1"),
-          completedAt: "2026-04-09T00:00:02.000Z",
-          provenance: "agent",
-          coverage: "complete",
-          source: "native_turn_diff",
-          assistantMessageId,
-          files: [{ path: "src/app.ts", additions: 1, deletions: 0 }],
-        },
-        {
-          turnId: TurnId.makeUnsafe("turn-2"),
-          completedAt: "2026-04-09T00:00:03.000Z",
-          provenance: "agent",
-          coverage: "unavailable",
-          source: "native_turn_diff",
-          assistantMessageId: MessageId.makeUnsafe("assistant-unavailable"),
-          files: [{ path: "src/ignored.ts", additions: 1, deletions: 0 }],
-        },
-        {
-          turnId: TurnId.makeUnsafe("turn-3"),
-          completedAt: "2026-04-09T00:00:04.000Z",
-          provenance: "workspace",
-          assistantMessageId: MessageId.makeUnsafe("assistant-workspace"),
-          files: [{ path: "src/workspace.ts", additions: 1, deletions: 0 }],
-        },
-        {
-          turnId: TurnId.makeUnsafe("turn-4"),
-          completedAt: "2026-04-09T00:00:05.000Z",
-          provenance: "agent",
-          coverage: "complete",
-          source: "native_turn_diff",
-          files: [{ path: "src/unbound.ts", additions: 1, deletions: 0 }],
-        },
-      ],
-      latestTurnId: TurnId.makeUnsafe("turn-9"),
-      latestTurnSettled: true,
-    });
+describe("deriveAssistantMessageIdByTurnId", () => {
+  it("tracks the latest assistant message id for each turn", () => {
+    const turnId = TurnId.makeUnsafe("turn-1");
+    const byTurnId = deriveAssistantMessageIdByTurnId([
+      {
+        id: MessageId.makeUnsafe("assistant-early"),
+        role: "assistant",
+        turnId,
+      },
+      {
+        id: MessageId.makeUnsafe("user-1"),
+        role: "user",
+        turnId: null,
+      },
+      {
+        id: MessageId.makeUnsafe("assistant-late"),
+        role: "assistant",
+        turnId,
+      },
+    ]);
 
-    expect([...map.keys()]).toEqual([assistantMessageId]);
+    expect(byTurnId.get(turnId)).toBe(MessageId.makeUnsafe("assistant-late"));
   });
+});
 
-  it("hides inline summaries for the active turn until it settles", () => {
-    const assistantMessageId = MessageId.makeUnsafe("assistant-active");
-    const turnId = TurnId.makeUnsafe("turn-active");
-
-    const hidden = deriveInlineTurnDiffSummaryByAssistantMessageId({
-      agentDiffSummaries: [
+describe("deriveSettledTurnDiffSummaryByAssistantMessageId", () => {
+  it("prefers the authoritative assistant message id for each turn", () => {
+    const turnId = TurnId.makeUnsafe("turn-1");
+    const authoritativeMessageId = MessageId.makeUnsafe("assistant-real");
+    const byMessageId = deriveSettledTurnDiffSummaryByAssistantMessageId({
+      turnDiffSummaries: [
         {
           turnId,
           completedAt: "2026-04-09T00:00:02.000Z",
-          provenance: "agent",
-          coverage: "complete",
-          source: "native_turn_diff",
-          assistantMessageId,
+          status: "ready",
+          checkpointTurnCount: 1,
+          checkpointRef: "checkpoint-1" as never,
+          assistantMessageId: MessageId.makeUnsafe("assistant-stale"),
           files: [{ path: "src/app.ts", additions: 1, deletions: 0 }],
         },
       ],
-      latestTurnId: turnId,
-      latestTurnSettled: false,
+      assistantMessageIdByTurnId: new Map([[turnId, authoritativeMessageId]]),
     });
-    expect(hidden.size).toBe(0);
 
-    const visible = deriveInlineTurnDiffSummaryByAssistantMessageId({
-      agentDiffSummaries: [
-        {
-          turnId,
-          completedAt: "2026-04-09T00:00:02.000Z",
-          provenance: "agent",
-          coverage: "complete",
-          source: "native_turn_diff",
-          assistantMessageId,
-          files: [{ path: "src/app.ts", additions: 1, deletions: 0 }],
-        },
-      ],
-      latestTurnId: turnId,
-      latestTurnSettled: true,
-    });
-    expect([...visible.keys()]).toEqual([assistantMessageId]);
+    expect([...byMessageId.keys()]).toEqual([authoritativeMessageId]);
   });
 });
 

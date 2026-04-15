@@ -680,9 +680,8 @@ function ingestParentThreadTaskSignal(
   // initial background state. Do NOT propagate completion status — the launch
   // entry is immutable once backgrounded.
   if (!entry.backgroundTaskId && signal.taskId) {
-    patchEntry(state, entry.id, {
+    patchBackgroundCommandLaunchEntry(state, entry.id, {
       isBackgroundCommand: true,
-      backgroundLifecycleRole: "launch",
       backgroundTaskId: signal.taskId,
       itemStatus: "inProgress",
       completedAt: undefined,
@@ -758,9 +757,8 @@ function ingestOwnedParentThreadTaskProgress(
         ) ?? activity.createdAt,
     });
   }
-  patchEntry(state, entry.id, {
+  patchBackgroundCommandLaunchEntry(state, entry.id, {
     isBackgroundCommand: true,
-    backgroundLifecycleRole: "launch",
     ...(taskId ? { backgroundTaskId: taskId } : {}),
     backgroundTaskStatus: "running",
     itemStatus: "inProgress",
@@ -791,7 +789,7 @@ function upsertDerivedEntry(state: WorkLogProjectionState, entry: DerivedWorkLog
       shouldCollapseToolLifecycleEntries(activeEntry as DerivedWorkLogEntry, entry)
     ) {
       const mergedEntry = mergeDerivedWorkLogEntries(activeEntry as DerivedWorkLogEntry, entry);
-      replaceEntryWithPreviousId(state, activeEntry.id, mergedEntry);
+      replaceEntryAtExistingPosition(state, activeEntry.id, mergedEntry);
       if (lifecycleKey !== undefined) {
         if (isLifecycleEntryCompleted(mergedEntry)) {
           state.activeLifecycleEntryIdByKey.delete(lifecycleKey);
@@ -828,7 +826,7 @@ function removeEntryById(state: WorkLogProjectionState, entryId: string): void {
   state.entries.splice(index, 1);
 }
 
-function replaceEntry(state: WorkLogProjectionState, entry: WorkLogEntry): void {
+function upsertEntryPreservingPosition(state: WorkLogProjectionState, entry: WorkLogEntry): void {
   const index = state.entries.findIndex((candidate) => candidate.id === entry.id);
   if (index === -1) {
     state.entries.push(entry);
@@ -837,29 +835,37 @@ function replaceEntry(state: WorkLogProjectionState, entry: WorkLogEntry): void 
   state.entries[index] = entry;
 }
 
-function replaceEntryWithPreviousId(
+function replaceEntryAtExistingPosition(
   state: WorkLogProjectionState,
   previousEntryId: string,
   nextEntry: WorkLogEntry,
 ): void {
   const index = state.entries.findIndex((candidate) => candidate.id === previousEntryId);
   if (index === -1) {
-    replaceEntry(state, nextEntry);
+    upsertEntryPreservingPosition(state, nextEntry);
     return;
   }
   state.entries[index] = nextEntry;
 }
 
-function patchEntry(
+function patchBackgroundCommandLaunchEntry(
   state: WorkLogProjectionState,
   entryId: string,
   patch: Partial<WorkLogEntry>,
 ): void {
   const entry = findEntryById(state, entryId);
-  if (!entry) {
+  if (
+    !entry ||
+    entry.itemType !== "command_execution" ||
+    entry.backgroundLifecycleRole === "completion"
+  ) {
     return;
   }
-  replaceEntry(state, { ...entry, ...patch });
+  upsertEntryPreservingPosition(state, {
+    ...entry,
+    ...patch,
+    backgroundLifecycleRole: "launch",
+  });
 }
 
 function applyChildThreadMetadataToEntry(
@@ -982,7 +988,7 @@ function applyStoredCommandOutput(state: WorkLogProjectionState, toolCallId: str
   if (!hasStreamedOutput) {
     return;
   }
-  replaceEntry(state, {
+  upsertEntryPreservingPosition(state, {
     ...launchEntry,
     hasOutput: true,
     outputSource: "stream",
@@ -1022,7 +1028,7 @@ function applyStoredBackgroundSignals(state: WorkLogProjectionState, toolCallId:
   if (providerTaskSignal?.taskId) {
     patch.backgroundTaskId = providerTaskSignal.taskId;
   }
-  patchEntry(state, launchEntry.id, patch);
+  patchBackgroundCommandLaunchEntry(state, launchEntry.id, patch);
 }
 
 function trackCodexBackgroundCandidate(
@@ -1146,9 +1152,8 @@ function markCodexBackgroundCandidate(
   if (!entry) {
     return;
   }
-  patchEntry(state, entry.id, {
+  patchBackgroundCommandLaunchEntry(state, entry.id, {
     isBackgroundCommand: true,
-    backgroundLifecycleRole: "launch",
     itemStatus: "inProgress",
     completedAt: undefined,
   });
@@ -1270,7 +1275,7 @@ function upsertBackgroundCompletionEntry(
     launchEntry.toolCallId ?? completionId,
     completionId,
   );
-  replaceEntry(state, nextEntry);
+  upsertEntryPreservingPosition(state, nextEntry);
 }
 
 function normalizeProviderBackgroundTaskStatus(

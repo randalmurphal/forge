@@ -14,7 +14,7 @@ import {
 const makeProjectionThreadProposedPlanRepository = Effect.gen(function* () {
   const sql = yield* SqlClient.SqlClient;
 
-  const upsertProjectionThreadProposedPlanRow = SqlSchema.void({
+  const appendProjectionThreadProposedPlanRow = SqlSchema.void({
     Request: ProjectionThreadProposedPlan,
     execute: (row) => sql`
       INSERT INTO projection_thread_proposed_plans (
@@ -37,15 +37,6 @@ const makeProjectionThreadProposedPlanRepository = Effect.gen(function* () {
         ${row.createdAt},
         ${row.updatedAt}
       )
-      ON CONFLICT (plan_id)
-      DO UPDATE SET
-        thread_id = excluded.thread_id,
-        turn_id = excluded.turn_id,
-        plan_markdown = excluded.plan_markdown,
-        implemented_at = excluded.implemented_at,
-        implementation_thread_id = excluded.implementation_thread_id,
-        created_at = excluded.created_at,
-        updated_at = excluded.updated_at
     `,
   });
 
@@ -64,7 +55,7 @@ const makeProjectionThreadProposedPlanRepository = Effect.gen(function* () {
         updated_at AS "updatedAt"
       FROM projection_thread_proposed_plans
       WHERE thread_id = ${threadId}
-      ORDER BY created_at ASC, plan_id ASC
+      ORDER BY updated_at ASC, created_at ASC, plan_id ASC, row_id ASC
     `,
   });
 
@@ -76,9 +67,9 @@ const makeProjectionThreadProposedPlanRepository = Effect.gen(function* () {
     `,
   });
 
-  const upsert: ProjectionThreadProposedPlanRepositoryShape["upsert"] = (row) =>
-    upsertProjectionThreadProposedPlanRow(row).pipe(
-      Effect.mapError(toPersistenceSqlError("ProjectionThreadProposedPlanRepository.upsert:query")),
+  const append: ProjectionThreadProposedPlanRepositoryShape["append"] = (row) =>
+    appendProjectionThreadProposedPlanRow(row).pipe(
+      Effect.mapError(toPersistenceSqlError("ProjectionThreadProposedPlanRepository.append:query")),
     );
 
   const listByThreadId: ProjectionThreadProposedPlanRepositoryShape["listByThreadId"] = (input) =>
@@ -98,7 +89,7 @@ const makeProjectionThreadProposedPlanRepository = Effect.gen(function* () {
     );
 
   return {
-    upsert,
+    append,
     listByThreadId,
     deleteByThreadId,
   } satisfies ProjectionThreadProposedPlanRepositoryShape;

@@ -358,7 +358,7 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
           created_at AS "createdAt",
           updated_at AS "updatedAt"
         FROM projection_thread_proposed_plans
-        ORDER BY thread_id ASC, created_at ASC, plan_id ASC
+        ORDER BY thread_id ASC, updated_at ASC, created_at ASC, plan_id ASC, row_id ASC
       `,
   });
 
@@ -427,6 +427,25 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
       `,
   });
 
+  const listCheckpointHistoryRows = SqlSchema.findAll({
+    Request: Schema.Void,
+    Result: ProjectionCheckpointDbRowSchema,
+    execute: () =>
+      sql`
+        SELECT
+          thread_id AS "threadId",
+          turn_id AS "turnId",
+          checkpoint_turn_count AS "checkpointTurnCount",
+          checkpoint_ref AS "checkpointRef",
+          checkpoint_status AS "status",
+          checkpoint_files_json AS "files",
+          assistant_message_id AS "assistantMessageId",
+          completed_at AS "completedAt"
+        FROM projection_checkpoints
+        ORDER BY thread_id ASC, completed_at ASC, checkpoint_turn_count ASC, row_id ASC
+      `,
+  });
+
   const listAgentDiffRows = SqlSchema.findAll({
     Request: Schema.Void,
     Result: ProjectionAgentDiffDbRowSchema,
@@ -442,7 +461,7 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
           assistant_message_id AS "assistantMessageId",
           completed_at AS "completedAt"
         FROM projection_agent_diffs
-        ORDER BY thread_id ASC, completed_at ASC, turn_id ASC
+        ORDER BY thread_id ASC, completed_at ASC, turn_id ASC, row_id ASC
       `,
   });
 
@@ -690,6 +709,7 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
             activityRows,
             sessionRows,
             checkpointRows,
+            checkpointHistoryRows,
             agentDiffRows,
             latestTurnRows,
             workflowRows,
@@ -751,6 +771,14 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
                 toPersistenceSqlOrDecodeError(
                   "ProjectionSnapshotQuery.getSnapshot:listCheckpoints:query",
                   "ProjectionSnapshotQuery.getSnapshot:listCheckpoints:decodeRows",
+                ),
+              ),
+            ),
+            listCheckpointHistoryRows(undefined).pipe(
+              Effect.mapError(
+                toPersistenceSqlOrDecodeError(
+                  "ProjectionSnapshotQuery.getSnapshot:listCheckpointHistory:query",
+                  "ProjectionSnapshotQuery.getSnapshot:listCheckpointHistory:decodeRows",
                 ),
               ),
             ),
@@ -816,6 +844,10 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
           const proposedPlansByThread = new Map<string, Array<OrchestrationProposedPlan>>();
           const activitiesByThread = new Map<string, Array<OrchestrationThreadActivity>>();
           const checkpointsByThread = new Map<string, Array<OrchestrationCheckpointSummary>>();
+          const checkpointHistoryByThread = new Map<
+            string,
+            Array<OrchestrationCheckpointSummary>
+          >();
           const agentDiffsByThread = new Map<string, Array<OrchestrationAgentDiffSummary>>();
           const sessionsByThread = new Map<string, OrchestrationSession>();
           const latestTurnByThread = new Map<string, OrchestrationLatestTurn>();
@@ -897,6 +929,21 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
               completedAt: row.completedAt,
             });
             checkpointsByThread.set(row.threadId, threadCheckpoints);
+          }
+
+          for (const row of checkpointHistoryRows) {
+            updatedAt = maxIso(updatedAt, row.completedAt);
+            const threadCheckpointHistory = checkpointHistoryByThread.get(row.threadId) ?? [];
+            threadCheckpointHistory.push({
+              turnId: row.turnId,
+              checkpointTurnCount: row.checkpointTurnCount,
+              checkpointRef: row.checkpointRef,
+              status: row.status,
+              files: row.files,
+              assistantMessageId: row.assistantMessageId,
+              completedAt: row.completedAt,
+            });
+            checkpointHistoryByThread.set(row.threadId, threadCheckpointHistory);
           }
 
           for (const row of agentDiffRows) {
@@ -1032,6 +1079,7 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
             proposedPlans: proposedPlansByThread.get(row.threadId) ?? [],
             activities: activitiesByThread.get(row.threadId) ?? [],
             checkpoints: checkpointsByThread.get(row.threadId) ?? [],
+            checkpointHistory: checkpointHistoryByThread.get(row.threadId) ?? [],
             agentDiffs: agentDiffsByThread.get(row.threadId) ?? [],
             session: sessionsByThread.get(row.threadId) ?? null,
           }));

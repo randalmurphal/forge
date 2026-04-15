@@ -848,9 +848,8 @@ describe("MessagesTimeline", () => {
     expect(markup).not.toContain("FAIL should reconnect after session drop");
   });
 
-  it("renders collapsed tool and turn diff blocks inline in chat history", async () => {
+  it("renders collapsed tool and turn diff blocks as immutable timeline rows", async () => {
     const { MessagesTimeline } = await import("./MessagesTimeline");
-    const assistantMessageId = MessageId.makeUnsafe("assistant-1");
     const markup = renderTimeline(
       <MessagesTimeline
         threadId={null}
@@ -887,7 +886,7 @@ describe("MessagesTimeline", () => {
             kind: "message",
             createdAt: "2026-03-17T19:12:29.000Z",
             message: {
-              id: assistantMessageId,
+              id: MessageId.makeUnsafe("assistant-1"),
               role: "assistant",
               text: "Updated the file.",
               turnId: "turn-1" as never,
@@ -896,25 +895,23 @@ describe("MessagesTimeline", () => {
               streaming: false,
             },
           },
+          {
+            id: "turn-diff-entry",
+            kind: "turn-diff",
+            createdAt: "2026-03-17T19:12:30.000Z",
+            turnDiffSummary: {
+              turnId: "turn-1" as never,
+              completedAt: "2026-03-17T19:12:30.000Z",
+              provenance: "agent",
+              coverage: "complete",
+              source: "native_turn_diff",
+              files: [{ path: "src/app.ts", additions: 2, deletions: 1 }],
+            },
+          },
         ]}
         completionDividerBeforeEntryId={null}
         completionSummary={null}
-        turnDiffSummaryByAssistantMessageId={
-          new Map([
-            [
-              assistantMessageId,
-              {
-                turnId: "turn-1" as never,
-                completedAt: "2026-03-17T19:12:30.000Z",
-                provenance: "agent",
-                coverage: "complete",
-                source: "native_turn_diff",
-                assistantMessageId,
-                files: [{ path: "src/app.ts", additions: 2, deletions: 1 }],
-              },
-            ],
-          ])
-        }
+        turnDiffSummaryByAssistantMessageId={new Map()}
         expandedWorkGroups={{}}
         onToggleWorkGroup={() => {}}
         onOpenTurnDiff={() => {}}

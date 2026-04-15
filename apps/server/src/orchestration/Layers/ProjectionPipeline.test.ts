@@ -3211,6 +3211,192 @@ it.layer(BaseTestLayer)("OrchestrationProjectionPipeline", (it) => {
       ]);
     }),
   );
+
+  it.effect(
+    "persists append-only checkpoint history and trims it by retained turns on revert",
+    () =>
+      Effect.gen(function* () {
+        const projectionPipeline = yield* OrchestrationProjectionPipeline;
+        const eventStore = yield* OrchestrationEventStore;
+        const sql = yield* SqlClient.SqlClient;
+        const appendAndProject = (event: Parameters<typeof eventStore.append>[0]) =>
+          eventStore
+            .append(event)
+            .pipe(Effect.flatMap((savedEvent) => projectionPipeline.projectEvent(savedEvent)));
+
+        yield* appendAndProject({
+          type: "project.created",
+          eventId: EventId.makeUnsafe("evt-checkpoint-history-1"),
+          aggregateKind: "project",
+          aggregateId: ProjectId.makeUnsafe("project-checkpoint-history"),
+          occurredAt: "2026-04-14T00:00:00.000Z",
+          commandId: CommandId.makeUnsafe("cmd-checkpoint-history-1"),
+          causationEventId: null,
+          correlationId: CorrelationId.makeUnsafe("cmd-checkpoint-history-1"),
+          metadata: {},
+          payload: {
+            projectId: ProjectId.makeUnsafe("project-checkpoint-history"),
+            title: "Project Checkpoint History",
+            workspaceRoot: "/tmp/project-checkpoint-history",
+            defaultModelSelection: null,
+            scripts: [],
+            createdAt: "2026-04-14T00:00:00.000Z",
+            updatedAt: "2026-04-14T00:00:00.000Z",
+          },
+        });
+
+        yield* appendAndProject({
+          type: "thread.created",
+          eventId: EventId.makeUnsafe("evt-checkpoint-history-2"),
+          aggregateKind: "thread",
+          aggregateId: ThreadId.makeUnsafe("thread-checkpoint-history"),
+          occurredAt: "2026-04-14T00:00:01.000Z",
+          commandId: CommandId.makeUnsafe("cmd-checkpoint-history-2"),
+          causationEventId: null,
+          correlationId: CorrelationId.makeUnsafe("cmd-checkpoint-history-2"),
+          metadata: {},
+          payload: {
+            threadId: ThreadId.makeUnsafe("thread-checkpoint-history"),
+            projectId: ProjectId.makeUnsafe("project-checkpoint-history"),
+            title: "Thread Checkpoint History",
+            modelSelection: {
+              provider: "codex",
+              model: "gpt-5-codex",
+            },
+            runtimeMode: "full-access",
+            branch: null,
+            worktreePath: null,
+            createdAt: "2026-04-14T00:00:01.000Z",
+            updatedAt: "2026-04-14T00:00:01.000Z",
+          },
+        });
+
+        yield* appendAndProject({
+          type: "thread.turn-diff-completed",
+          eventId: EventId.makeUnsafe("evt-checkpoint-history-3"),
+          aggregateKind: "thread",
+          aggregateId: ThreadId.makeUnsafe("thread-checkpoint-history"),
+          occurredAt: "2026-04-14T00:00:02.000Z",
+          commandId: CommandId.makeUnsafe("cmd-checkpoint-history-3"),
+          causationEventId: null,
+          correlationId: CorrelationId.makeUnsafe("cmd-checkpoint-history-3"),
+          metadata: {},
+          payload: {
+            threadId: ThreadId.makeUnsafe("thread-checkpoint-history"),
+            turnId: TurnId.makeUnsafe("turn-1"),
+            checkpointTurnCount: 1,
+            checkpointRef: CheckpointRef.makeUnsafe(
+              "refs/forge/checkpoints/thread-checkpoint-history/turn/1",
+            ),
+            status: "missing",
+            files: [],
+            assistantMessageId: null,
+            completedAt: "2026-04-14T00:00:02.000Z",
+          },
+        });
+
+        yield* appendAndProject({
+          type: "thread.turn-diff-completed",
+          eventId: EventId.makeUnsafe("evt-checkpoint-history-4"),
+          aggregateKind: "thread",
+          aggregateId: ThreadId.makeUnsafe("thread-checkpoint-history"),
+          occurredAt: "2026-04-14T00:00:03.000Z",
+          commandId: CommandId.makeUnsafe("cmd-checkpoint-history-4"),
+          causationEventId: null,
+          correlationId: CorrelationId.makeUnsafe("cmd-checkpoint-history-4"),
+          metadata: {},
+          payload: {
+            threadId: ThreadId.makeUnsafe("thread-checkpoint-history"),
+            turnId: TurnId.makeUnsafe("turn-1"),
+            checkpointTurnCount: 1,
+            checkpointRef: CheckpointRef.makeUnsafe(
+              "refs/forge/checkpoints/thread-checkpoint-history/turn/1",
+            ),
+            status: "ready",
+            files: [{ path: "README.md", kind: "modified", additions: 1, deletions: 0 }],
+            assistantMessageId: null,
+            completedAt: "2026-04-14T00:00:03.000Z",
+          },
+        });
+
+        yield* appendAndProject({
+          type: "thread.turn-diff-completed",
+          eventId: EventId.makeUnsafe("evt-checkpoint-history-5"),
+          aggregateKind: "thread",
+          aggregateId: ThreadId.makeUnsafe("thread-checkpoint-history"),
+          occurredAt: "2026-04-14T00:00:04.000Z",
+          commandId: CommandId.makeUnsafe("cmd-checkpoint-history-5"),
+          causationEventId: null,
+          correlationId: CorrelationId.makeUnsafe("cmd-checkpoint-history-5"),
+          metadata: {},
+          payload: {
+            threadId: ThreadId.makeUnsafe("thread-checkpoint-history"),
+            turnId: TurnId.makeUnsafe("turn-2"),
+            checkpointTurnCount: 2,
+            checkpointRef: CheckpointRef.makeUnsafe(
+              "refs/forge/checkpoints/thread-checkpoint-history/turn/2",
+            ),
+            status: "ready",
+            files: [],
+            assistantMessageId: null,
+            completedAt: "2026-04-14T00:00:04.000Z",
+          },
+        });
+
+        const beforeRevertRows = yield* sql<{
+          readonly checkpointTurnCount: number;
+          readonly status: string;
+          readonly completedAt: string;
+        }>`
+        SELECT
+          checkpoint_turn_count AS "checkpointTurnCount",
+          checkpoint_status AS "status",
+          completed_at AS "completedAt"
+        FROM projection_checkpoints
+        WHERE thread_id = 'thread-checkpoint-history'
+        ORDER BY completed_at ASC, checkpoint_turn_count ASC, row_id ASC
+      `;
+        assert.deepEqual(beforeRevertRows, [
+          { checkpointTurnCount: 1, status: "missing", completedAt: "2026-04-14T00:00:02.000Z" },
+          { checkpointTurnCount: 1, status: "ready", completedAt: "2026-04-14T00:00:03.000Z" },
+          { checkpointTurnCount: 2, status: "ready", completedAt: "2026-04-14T00:00:04.000Z" },
+        ]);
+
+        yield* appendAndProject({
+          type: "thread.reverted",
+          eventId: EventId.makeUnsafe("evt-checkpoint-history-6"),
+          aggregateKind: "thread",
+          aggregateId: ThreadId.makeUnsafe("thread-checkpoint-history"),
+          occurredAt: "2026-04-14T00:00:05.000Z",
+          commandId: CommandId.makeUnsafe("cmd-checkpoint-history-6"),
+          causationEventId: null,
+          correlationId: CorrelationId.makeUnsafe("cmd-checkpoint-history-6"),
+          metadata: {},
+          payload: {
+            threadId: ThreadId.makeUnsafe("thread-checkpoint-history"),
+            turnCount: 1,
+          },
+        });
+
+        const afterRevertRows = yield* sql<{
+          readonly checkpointTurnCount: number;
+          readonly status: string;
+          readonly completedAt: string;
+        }>`
+        SELECT
+          checkpoint_turn_count AS "checkpointTurnCount",
+          checkpoint_status AS "status",
+          completed_at AS "completedAt"
+        FROM projection_checkpoints
+        WHERE thread_id = 'thread-checkpoint-history'
+        ORDER BY completed_at ASC, checkpoint_turn_count ASC, row_id ASC
+      `;
+        assert.deepEqual(afterRevertRows, [
+          { checkpointTurnCount: 1, status: "missing", completedAt: "2026-04-14T00:00:02.000Z" },
+          { checkpointTurnCount: 1, status: "ready", completedAt: "2026-04-14T00:00:03.000Z" },
+        ]);
+      }),
+  );
 });
 
 it.effect("restores pending turn-start metadata across projection pipeline restart", () =>

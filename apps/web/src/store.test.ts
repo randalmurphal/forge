@@ -1228,7 +1228,47 @@ describe("incremental orchestration updates", () => {
     );
   });
 
-  it("rebinds live turn diffs to the authoritative assistant message when it arrives later", () => {
+  it("appends checkpoint history revisions instead of replacing earlier entries", () => {
+    const threadId = ThreadId.makeUnsafe("thread-1");
+    const turnId = TurnId.makeUnsafe("turn-1");
+    const state = makeState(makeThread({ id: threadId }));
+
+    const first = applyOrchestrationEvent(
+      state,
+      makeEvent("thread.turn-diff-completed", {
+        threadId,
+        turnId,
+        checkpointTurnCount: 1,
+        checkpointRef: CheckpointRef.makeUnsafe("checkpoint-1"),
+        status: "missing",
+        files: [],
+        assistantMessageId: null,
+        completedAt: "2026-02-27T00:00:02.000Z",
+      }),
+    );
+    const second = applyOrchestrationEvent(
+      first,
+      makeEvent("thread.turn-diff-completed", {
+        threadId,
+        turnId,
+        checkpointTurnCount: 1,
+        checkpointRef: CheckpointRef.makeUnsafe("checkpoint-1"),
+        status: "ready",
+        files: [{ path: "src/app.ts", kind: "modified", additions: 1, deletions: 0 }],
+        assistantMessageId: MessageId.makeUnsafe("assistant-1"),
+        completedAt: "2026-02-27T00:00:03.000Z",
+      }),
+    );
+
+    expect(second.threadDiffsById[threadId]?.turnDiffSummaries).toHaveLength(2);
+    expect(
+      second.threadDiffsById[threadId]?.turnDiffSummaries.map(
+        (summary) => `${summary.status}:${summary.completedAt}`,
+      ),
+    ).toEqual(["missing:2026-02-27T00:00:02.000Z", "ready:2026-02-27T00:00:03.000Z"]);
+  });
+
+  it("keeps stored turn diff summaries append-only when the assistant message arrives later", () => {
     const turnId = TurnId.makeUnsafe("turn-1");
     const state = makeState(makeThread(), {
       session: {
@@ -1272,14 +1312,14 @@ describe("incremental orchestration updates", () => {
 
     const threadId = ThreadId.makeUnsafe("thread-1");
     expect(next.threadDiffsById[threadId]?.turnDiffSummaries[0]?.assistantMessageId).toBe(
-      MessageId.makeUnsafe("assistant-real"),
+      MessageId.makeUnsafe("assistant:turn-1"),
     );
     expect(next.threadSessionById[threadId]?.latestTurn?.assistantMessageId).toBe(
       MessageId.makeUnsafe("assistant-real"),
     );
   });
 
-  it("rebinds agent diffs to the authoritative assistant message when it arrives later", () => {
+  it("keeps stored agent diff summaries append-only when the assistant message arrives later", () => {
     const turnId = TurnId.makeUnsafe("turn-1");
     const state = makeState(makeThread(), {
       session: {
@@ -1324,7 +1364,87 @@ describe("incremental orchestration updates", () => {
     expect(
       next.threadDiffsById[ThreadId.makeUnsafe("thread-1")]?.agentDiffSummaries?.[0]
         ?.assistantMessageId,
-    ).toBe(MessageId.makeUnsafe("assistant-real"));
+    ).toBe(MessageId.makeUnsafe("assistant:turn-1"));
+  });
+
+  it("appends agent diff revisions instead of replacing earlier history", () => {
+    const threadId = ThreadId.makeUnsafe("thread-1");
+    const turnId = TurnId.makeUnsafe("turn-1");
+    const state = makeState(makeThread({ id: threadId }));
+
+    const first = applyOrchestrationEvent(
+      state,
+      makeEvent("thread.agent-diff-upserted", {
+        threadId,
+        turnId,
+        diff: "diff --git a/src/app.ts b/src/app.ts\n",
+        files: [{ kind: "modified", path: "src/app.ts", additions: 1, deletions: 0 }],
+        source: "native_turn_diff",
+        coverage: "partial",
+        assistantMessageId: null,
+        completedAt: "2026-02-27T00:00:02.000Z",
+      }),
+    );
+    const second = applyOrchestrationEvent(
+      first,
+      makeEvent("thread.agent-diff-upserted", {
+        threadId,
+        turnId,
+        diff: "diff --git a/src/app.ts b/src/app.ts\n@@ -1 +1 @@\n",
+        files: [{ kind: "modified", path: "src/app.ts", additions: 2, deletions: 1 }],
+        source: "native_turn_diff",
+        coverage: "complete",
+        assistantMessageId: MessageId.makeUnsafe("assistant-1"),
+        completedAt: "2026-02-27T00:00:03.000Z",
+      }),
+    );
+
+    expect(second.threadDiffsById[threadId]?.agentDiffSummaries).toHaveLength(2);
+    expect(
+      second.threadDiffsById[threadId]?.agentDiffSummaries?.map((summary) => summary.completedAt),
+    ).toEqual(["2026-02-27T00:00:02.000Z", "2026-02-27T00:00:03.000Z"]);
+  });
+
+  it("appends proposed plan revisions instead of replacing earlier history", () => {
+    const threadId = ThreadId.makeUnsafe("thread-1");
+    const state = makeState(makeThread({ id: threadId }));
+
+    const first = applyOrchestrationEvent(
+      state,
+      makeEvent("thread.proposed-plan-upserted", {
+        threadId,
+        proposedPlan: {
+          id: "plan-1" as never,
+          turnId: TurnId.makeUnsafe("turn-1"),
+          planMarkdown: "initial plan",
+          implementedAt: null,
+          implementationThreadId: null,
+          createdAt: "2026-02-27T00:00:01.000Z",
+          updatedAt: "2026-02-27T00:00:01.000Z",
+        },
+      }),
+    );
+    const second = applyOrchestrationEvent(
+      first,
+      makeEvent("thread.proposed-plan-upserted", {
+        threadId,
+        proposedPlan: {
+          id: "plan-1" as never,
+          turnId: TurnId.makeUnsafe("turn-1"),
+          planMarkdown: "refined plan",
+          implementedAt: null,
+          implementationThreadId: null,
+          createdAt: "2026-02-27T00:00:01.000Z",
+          updatedAt: "2026-02-27T00:00:04.000Z",
+        },
+      }),
+    );
+
+    expect(second.threadPlansById[threadId]?.proposedPlans).toHaveLength(2);
+    expect(second.threadPlansById[threadId]?.proposedPlans.map((plan) => plan.updatedAt)).toEqual([
+      "2026-02-27T00:00:01.000Z",
+      "2026-02-27T00:00:04.000Z",
+    ]);
   });
 
   it("applies live activity inline diff upserts to the thread and work log state", () => {

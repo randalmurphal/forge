@@ -42,11 +42,11 @@ export type ProjectionAgentDiffDeleteByThreadInput =
   typeof ProjectionAgentDiffDeleteByThreadInput.Type;
 
 export interface ProjectionAgentDiffRepositoryShape {
-  readonly upsert: (row: ProjectionAgentDiff) => Effect.Effect<void, ProjectionRepositoryError>;
+  readonly append: (row: ProjectionAgentDiff) => Effect.Effect<void, ProjectionRepositoryError>;
   readonly listByThreadId: (
     input: ProjectionAgentDiffListByThreadInput,
   ) => Effect.Effect<ReadonlyArray<ProjectionAgentDiff>, ProjectionRepositoryError>;
-  readonly getByTurnId: (
+  readonly getLatestByTurnId: (
     input: ProjectionAgentDiffByTurnInput,
   ) => Effect.Effect<Option.Option<ProjectionAgentDiff>, ProjectionRepositoryError>;
   readonly deleteByThreadId: (

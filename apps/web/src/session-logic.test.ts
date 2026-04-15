@@ -327,6 +327,40 @@ describe("deriveTimelineEntries", () => {
     });
   });
 
+  it("surfaces agent turn diffs as standalone timeline entries at completion time", () => {
+    const entries = deriveTimelineEntries(
+      [
+        {
+          id: MessageId.makeUnsafe("message-1"),
+          role: "assistant",
+          text: "done",
+          createdAt: "2026-02-23T00:00:01.000Z",
+          streaming: false,
+        },
+      ],
+      [],
+      [],
+      [
+        {
+          turnId: TurnId.makeUnsafe("turn-1"),
+          completedAt: "2026-02-23T00:00:02.000Z",
+          provenance: "agent",
+          coverage: "complete",
+          source: "native_turn_diff",
+          files: [{ path: "src/app.ts", additions: 2, deletions: 1 }],
+        },
+      ],
+    );
+
+    expect(entries.map((entry) => entry.kind)).toEqual(["message", "turn-diff"]);
+    expect(entries[1]).toMatchObject({
+      kind: "turn-diff",
+      turnDiffSummary: {
+        turnId: TurnId.makeUnsafe("turn-1"),
+      },
+    });
+  });
+
   it("surfaces completed subagents at completion time instead of child activity start time", () => {
     const entries = deriveTimelineEntries(
       [

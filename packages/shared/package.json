@@ -67,6 +67,10 @@
     "./orchestrationActivityPresentation": {
       "types": "./src/orchestrationActivityPresentation.ts",
       "import": "./src/orchestrationActivityPresentation.ts"
+    },
+    "./threadHistory": {
+      "types": "./src/threadHistory.ts",
+      "import": "./src/threadHistory.ts"
     }
   },
   "scripts": {

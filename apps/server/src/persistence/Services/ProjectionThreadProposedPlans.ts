@@ -35,7 +35,7 @@ export type DeleteProjectionThreadProposedPlansInput =
   typeof DeleteProjectionThreadProposedPlansInput.Type;
 
 export interface ProjectionThreadProposedPlanRepositoryShape {
-  readonly upsert: (
+  readonly append: (
     proposedPlan: ProjectionThreadProposedPlan,
   ) => Effect.Effect<void, ProjectionRepositoryError>;
   readonly listByThreadId: (

@@ -40,6 +40,7 @@ import { useStore } from "../store";
 import { useThreadDiffs } from "../storeSelectors";
 import { useSettings } from "../hooks/useSettings";
 import { formatShortTimestamp } from "../timestampFormat";
+import { deriveLatestAgentDiffSummariesByTurn } from "../threadHistory";
 import { DiffPanelShell, type DiffPanelMode } from "./DiffPanelShell";
 import { ToggleGroup, Toggle } from "./ui/toggle-group";
 import { Button } from "./ui/button";
@@ -98,16 +99,18 @@ export default function DiffPanel({ mode = "inline" }: DiffPanelProps) {
   const { inferredCheckpointTurnCountByTurnId } = useTurnDiffSummaries(threadDiffsSlice);
   const orderedAgentDiffSummaries = useMemo(
     () =>
-      [...(threadDiffsSlice?.agentDiffSummaries ?? [])].toSorted((left, right) => {
-        const leftTurnCount =
-          left.checkpointTurnCount ?? inferredCheckpointTurnCountByTurnId[left.turnId] ?? 0;
-        const rightTurnCount =
-          right.checkpointTurnCount ?? inferredCheckpointTurnCountByTurnId[right.turnId] ?? 0;
-        if (leftTurnCount !== rightTurnCount) {
-          return rightTurnCount - leftTurnCount;
-        }
-        return right.completedAt.localeCompare(left.completedAt);
-      }),
+      deriveLatestAgentDiffSummariesByTurn(threadDiffsSlice?.agentDiffSummaries ?? []).toSorted(
+        (left, right) => {
+          const leftTurnCount =
+            left.checkpointTurnCount ?? inferredCheckpointTurnCountByTurnId[left.turnId] ?? 0;
+          const rightTurnCount =
+            right.checkpointTurnCount ?? inferredCheckpointTurnCountByTurnId[right.turnId] ?? 0;
+          if (leftTurnCount !== rightTurnCount) {
+            return rightTurnCount - leftTurnCount;
+          }
+          return right.completedAt.localeCompare(left.completedAt);
+        },
+      ),
     [threadDiffsSlice?.agentDiffSummaries, inferredCheckpointTurnCountByTurnId],
   );
 

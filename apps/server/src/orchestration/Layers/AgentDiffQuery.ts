@@ -30,7 +30,7 @@ const make = Effect.gen(function* () {
 
   const getTurnAgentDiff: AgentDiffQueryShape["getTurnAgentDiff"] = Effect.fn("getTurnAgentDiff")(
     function* (input) {
-      const row = yield* projectionAgentDiffRepository.getByTurnId(input);
+      const row = yield* projectionAgentDiffRepository.getLatestByTurnId(input);
       if (Option.isNone(row)) {
         return {
           threadId: input.threadId,

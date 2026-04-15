@@ -17,6 +17,7 @@ import {
 } from "@forgetools/contracts";
 import { Cache, Cause, Effect, Layer, Option, Stream } from "effect";
 import { makeDrainableWorker } from "@forgetools/shared/DrainableWorker";
+import { findLatestProposedPlanById } from "@forgetools/shared/threadHistory";
 import {
   asArray,
   asRecord,
@@ -810,7 +811,7 @@ const make = Effect.fn("make")(function* () {
       const currentToolPaths = currentRepoFiles.map((file) => file.path);
 
       const existingDiffOption = yield* projectionAgentDiffRepository
-        .getByTurnId({
+        .getLatestByTurnId({
           threadId: input.thread.id,
           turnId,
         })
@@ -928,7 +929,7 @@ const make = Effect.fn("make")(function* () {
     readonly turnId: TurnId;
   }) {
     const existingDiffOption = yield* projectionAgentDiffRepository
-      .getByTurnId({
+      .getLatestByTurnId({
         threadId: input.threadId,
         turnId: input.turnId,
       })
@@ -1178,6 +1179,7 @@ const make = Effect.fn("make")(function* () {
     threadProposedPlans: ReadonlyArray<{
       id: string;
       createdAt: string;
+      updatedAt: string;
       implementedAt: string | null;
       implementationThreadId: ThreadId | null;
     }>;
@@ -1192,7 +1194,7 @@ const make = Effect.fn("make")(function* () {
       return;
     }
 
-    const existingPlan = input.threadProposedPlans.find((entry) => entry.id === input.planId);
+    const existingPlan = findLatestProposedPlanById(input.threadProposedPlans, input.planId);
     yield* orchestrationEngine.dispatch({
       type: "thread.proposed-plan.upsert",
       commandId: providerCommandId(input.event, "proposed-plan-upsert"),
@@ -1216,6 +1218,7 @@ const make = Effect.fn("make")(function* () {
     threadProposedPlans: ReadonlyArray<{
       id: string;
       createdAt: string;
+      updatedAt: string;
       implementedAt: string | null;
       implementationThreadId: ThreadId | null;
     }>;
@@ -1337,7 +1340,9 @@ const make = Effect.fn("make")(function* () {
     ) {
       const readModel = yield* orchestrationEngine.getReadModel();
       const sourceThread = readModel.threads.find((entry) => entry.id === sourceThreadId);
-      const sourcePlan = sourceThread?.proposedPlans.find((entry) => entry.id === sourcePlanId);
+      const sourcePlan = sourceThread
+        ? findLatestProposedPlanById(sourceThread.proposedPlans, sourcePlanId)
+        : undefined;
       if (!sourceThread || !sourcePlan || sourcePlan.implementedAt !== null) {
         return;
       }
@@ -1712,7 +1717,7 @@ const make = Effect.fn("make")(function* () {
       const turnId = toTurnId(event.turnId);
       if (turnId) {
         const existingAgentDiff = yield* projectionAgentDiffRepository
-          .getByTurnId({
+          .getLatestByTurnId({
             threadId: thread.id,
             turnId,
           })

@@ -29,7 +29,7 @@ function toPersistenceSqlOrDecodeError(sqlOperation: string, decodeOperation: st
 const makeProjectionAgentDiffRepository = Effect.gen(function* () {
   const sql = yield* SqlClient.SqlClient;
 
-  const upsertProjectionAgentDiffRow = SqlSchema.void({
+  const appendProjectionAgentDiffRow = SqlSchema.void({
     Request: ProjectionAgentDiffDbRowSchema,
     execute: (row) =>
       sql`
@@ -53,14 +53,6 @@ const makeProjectionAgentDiffRepository = Effect.gen(function* () {
           ${row.assistantMessageId},
           ${row.completedAt}
         )
-        ON CONFLICT (thread_id, turn_id)
-        DO UPDATE SET
-          diff = excluded.diff,
-          files_json = excluded.files_json,
-          source = excluded.source,
-          coverage = excluded.coverage,
-          assistant_message_id = excluded.assistant_message_id,
-          completed_at = excluded.completed_at
       `,
   });
 
@@ -80,11 +72,11 @@ const makeProjectionAgentDiffRepository = Effect.gen(function* () {
           completed_at AS "completedAt"
         FROM projection_agent_diffs
         WHERE thread_id = ${threadId}
-        ORDER BY completed_at ASC, turn_id ASC
+        ORDER BY completed_at ASC, turn_id ASC, row_id ASC
       `,
   });
 
-  const getProjectionAgentDiffRow = SqlSchema.findOneOption({
+  const getLatestProjectionAgentDiffRow = SqlSchema.findOneOption({
     Request: ProjectionAgentDiffByTurnInput,
     Result: ProjectionAgentDiffDbRowSchema,
     execute: ({ threadId, turnId }) =>
@@ -101,6 +93,8 @@ const makeProjectionAgentDiffRepository = Effect.gen(function* () {
         FROM projection_agent_diffs
         WHERE thread_id = ${threadId}
           AND turn_id = ${turnId}
+        ORDER BY completed_at DESC, row_id DESC
+        LIMIT 1
       `,
   });
 
@@ -113,12 +107,12 @@ const makeProjectionAgentDiffRepository = Effect.gen(function* () {
       `,
   });
 
-  const upsert: ProjectionAgentDiffRepositoryShape["upsert"] = (row) =>
-    upsertProjectionAgentDiffRow(row).pipe(
+  const append: ProjectionAgentDiffRepositoryShape["append"] = (row) =>
+    appendProjectionAgentDiffRow(row).pipe(
       Effect.mapError(
         toPersistenceSqlOrDecodeError(
-          "ProjectionAgentDiffRepository.upsert:query",
-          "ProjectionAgentDiffRepository.upsert:encodeRequest",
+          "ProjectionAgentDiffRepository.append:query",
+          "ProjectionAgentDiffRepository.append:encodeRequest",
         ),
       ),
     );
@@ -134,12 +128,12 @@ const makeProjectionAgentDiffRepository = Effect.gen(function* () {
       Effect.map((rows) => rows as ReadonlyArray<Schema.Schema.Type<typeof ProjectionAgentDiff>>),
     );
 
-  const getByTurnId: ProjectionAgentDiffRepositoryShape["getByTurnId"] = (input) =>
-    getProjectionAgentDiffRow(input).pipe(
+  const getLatestByTurnId: ProjectionAgentDiffRepositoryShape["getLatestByTurnId"] = (input) =>
+    getLatestProjectionAgentDiffRow(input).pipe(
       Effect.mapError(
         toPersistenceSqlOrDecodeError(
-          "ProjectionAgentDiffRepository.getByTurnId:query",
-          "ProjectionAgentDiffRepository.getByTurnId:decodeRow",
+          "ProjectionAgentDiffRepository.getLatestByTurnId:query",
+          "ProjectionAgentDiffRepository.getLatestByTurnId:decodeRow",
         ),
       ),
       Effect.flatMap((rowOption) =>
@@ -159,9 +153,9 @@ const makeProjectionAgentDiffRepository = Effect.gen(function* () {
     );
 
   return {
-    upsert,
+    append,
     listByThreadId,
-    getByTurnId,
+    getLatestByTurnId,
     deleteByThreadId,
   } satisfies ProjectionAgentDiffRepositoryShape;
 });

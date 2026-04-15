@@ -93,6 +93,159 @@ projectionSnapshotLayer("ProjectionSnapshotQuery", (it) => {
     }),
   );
 
+  it.effect("rehydrates append-only proposed plan and agent diff history revisions", () =>
+    Effect.gen(function* () {
+      const snapshotQuery = yield* ProjectionSnapshotQuery;
+      const sql = yield* SqlClient.SqlClient;
+
+      yield* sql`DELETE FROM projection_agent_diffs`;
+      yield* sql`DELETE FROM projection_thread_proposed_plans`;
+      yield* sql`DELETE FROM projection_checkpoints`;
+      yield* sql`DELETE FROM projection_turns`;
+      yield* sql`DELETE FROM projection_threads`;
+      yield* sql`DELETE FROM projection_projects`;
+      yield* sql`DELETE FROM projection_state`;
+
+      yield* sql`
+        INSERT INTO projection_projects (
+          project_id,
+          title,
+          workspace_root,
+          default_model_selection_json,
+          scripts_json,
+          created_at,
+          updated_at,
+          deleted_at
+        )
+        VALUES (
+          'project-history',
+          'History Project',
+          '/tmp/project-history',
+          '{"provider":"codex","model":"gpt-5-codex"}',
+          '[]',
+          '2026-04-14T00:00:00.000Z',
+          '2026-04-14T00:00:00.000Z',
+          NULL
+        )
+      `;
+
+      yield* sql`
+        INSERT INTO projection_threads (
+          thread_id,
+          project_id,
+          title,
+          model_selection_json,
+          branch,
+          worktree_path,
+          latest_turn_id,
+          created_at,
+          updated_at,
+          deleted_at
+        )
+        VALUES (
+          'thread-history',
+          'project-history',
+          'History Thread',
+          '{"provider":"codex","model":"gpt-5-codex"}',
+          NULL,
+          NULL,
+          NULL,
+          '2026-04-14T00:00:00.000Z',
+          '2026-04-14T00:00:00.000Z',
+          NULL
+        )
+      `;
+
+      yield* sql`
+        INSERT INTO projection_thread_proposed_plans (
+          plan_id,
+          thread_id,
+          turn_id,
+          plan_markdown,
+          implemented_at,
+          implementation_thread_id,
+          created_at,
+          updated_at
+        )
+        VALUES
+          (
+            'plan-1',
+            'thread-history',
+            'turn-1',
+            '# First',
+            NULL,
+            NULL,
+            '2026-04-14T00:00:01.000Z',
+            '2026-04-14T00:00:01.000Z'
+          ),
+          (
+            'plan-1',
+            'thread-history',
+            'turn-1',
+            '# Second',
+            NULL,
+            NULL,
+            '2026-04-14T00:00:01.000Z',
+            '2026-04-14T00:00:02.000Z'
+          )
+      `;
+
+      yield* sql`
+        INSERT INTO projection_agent_diffs (
+          thread_id,
+          turn_id,
+          diff,
+          files_json,
+          source,
+          coverage,
+          assistant_message_id,
+          completed_at
+        )
+        VALUES
+          (
+            'thread-history',
+            'turn-1',
+            'diff --git a/src/app.ts b/src/app.ts\n+first\n',
+            '[{"path":"src/app.ts","kind":"modified","additions":1,"deletions":0}]',
+            'derived_tool_results',
+            'partial',
+            NULL,
+            '2026-04-14T00:00:03.000Z'
+          ),
+          (
+            'thread-history',
+            'turn-1',
+            'diff --git a/src/app.ts b/src/app.ts\n+second\n',
+            '[{"path":"src/app.ts","kind":"modified","additions":2,"deletions":0}]',
+            'native_turn_diff',
+            'complete',
+            NULL,
+            '2026-04-14T00:00:04.000Z'
+          )
+      `;
+
+      const snapshot = yield* snapshotQuery.getSnapshot();
+      const thread = snapshot.threads.find(
+        (entry) => entry.id === ThreadId.makeUnsafe("thread-history"),
+      );
+
+      assert.isDefined(thread);
+      assert.deepStrictEqual(
+        thread?.proposedPlans.map((plan) => `${plan.id}:${plan.updatedAt}:${plan.planMarkdown}`),
+        ["plan-1:2026-04-14T00:00:01.000Z:# First", "plan-1:2026-04-14T00:00:02.000Z:# Second"],
+      );
+      assert.deepStrictEqual(
+        thread?.agentDiffs?.map((diff) => `${diff.turnId}:${diff.completedAt}:${diff.coverage}`),
+        ["turn-1:2026-04-14T00:00:03.000Z:partial", "turn-1:2026-04-14T00:00:04.000Z:complete"],
+      );
+
+      yield* sql`DELETE FROM projection_agent_diffs WHERE thread_id = 'thread-history'`;
+      yield* sql`DELETE FROM projection_thread_proposed_plans WHERE thread_id = 'thread-history'`;
+      yield* sql`DELETE FROM projection_threads WHERE thread_id = 'thread-history'`;
+      yield* sql`DELETE FROM projection_projects WHERE project_id = 'project-history'`;
+    }),
+  );
+
   it.effect("loads recorded subagent activities on demand by correlating child command rows", () =>
     Effect.gen(function* () {
       const snapshotQuery = yield* ProjectionSnapshotQuery;
@@ -223,6 +376,7 @@ projectionSnapshotLayer("ProjectionSnapshotQuery", (it) => {
       yield* sql`DELETE FROM projection_projects`;
       yield* sql`DELETE FROM projection_state`;
       yield* sql`DELETE FROM projection_thread_proposed_plans`;
+      yield* sql`DELETE FROM projection_checkpoints`;
       yield* sql`DELETE FROM projection_turns`;
 
       yield* sql`
@@ -404,6 +558,29 @@ projectionSnapshotLayer("ProjectionSnapshotQuery", (it) => {
         )
       `;
 
+      yield* sql`
+        INSERT INTO projection_checkpoints (
+          thread_id,
+          turn_id,
+          checkpoint_turn_count,
+          checkpoint_ref,
+          checkpoint_status,
+          checkpoint_files_json,
+          assistant_message_id,
+          completed_at
+        )
+        VALUES (
+          'thread-1',
+          'turn-1',
+          1,
+          'checkpoint-1',
+          'ready',
+          '[{"path":"README.md","kind":"modified","additions":2,"deletions":1}]',
+          'message-1',
+          '2026-02-24T00:00:08.000Z'
+        )
+      `;
+
       let sequence = 5;
       for (const projector of Object.values(ORCHESTRATION_PROJECTOR_NAMES)) {
         yield* sql`
@@ -534,6 +711,17 @@ projectionSnapshotLayer("ProjectionSnapshotQuery", (it) => {
               completedAt: "2026-02-24T00:00:08.000Z",
             },
           ],
+          checkpointHistory: [
+            {
+              turnId: asTurnId("turn-1"),
+              checkpointTurnCount: 1,
+              checkpointRef: asCheckpointRef("checkpoint-1"),
+              status: "ready",
+              files: [{ path: "README.md", kind: "modified", additions: 2, deletions: 1 }],
+              assistantMessageId: asMessageId("message-1"),
+              completedAt: "2026-02-24T00:00:08.000Z",
+            },
+          ],
           agentDiffs: [],
           session: {
             threadId: ThreadId.makeUnsafe("thread-1"),
@@ -564,6 +752,7 @@ projectionSnapshotLayer("ProjectionSnapshotQuery", (it) => {
         yield* sql`DELETE FROM projection_thread_activities`;
         yield* sql`DELETE FROM projection_thread_messages`;
         yield* sql`DELETE FROM projection_thread_proposed_plans`;
+        yield* sql`DELETE FROM projection_checkpoints`;
         yield* sql`DELETE FROM projection_turns`;
         yield* sql`DELETE FROM projection_threads`;
         yield* sql`DELETE FROM projection_projects`;
@@ -865,6 +1054,7 @@ projectionSnapshotLayer("ProjectionSnapshotQuery", (it) => {
 
       yield* sql`DELETE FROM projection_projects`;
       yield* sql`DELETE FROM projection_threads`;
+      yield* sql`DELETE FROM projection_checkpoints`;
       yield* sql`DELETE FROM projection_turns`;
       yield* sql`DELETE FROM projection_state`;
 
@@ -991,6 +1181,7 @@ projectionSnapshotLayer("ProjectionSnapshotQuery", (it) => {
 
         yield* sql`DELETE FROM projection_projects`;
         yield* sql`DELETE FROM projection_threads`;
+        yield* sql`DELETE FROM projection_checkpoints`;
         yield* sql`DELETE FROM projection_turns`;
 
         yield* sql`
@@ -1123,6 +1314,7 @@ projectionSnapshotLayer("ProjectionSnapshotQuery", (it) => {
 
       yield* sql`DELETE FROM projection_projects`;
       yield* sql`DELETE FROM projection_threads`;
+      yield* sql`DELETE FROM projection_checkpoints`;
       yield* sql`DELETE FROM projection_turns`;
 
       yield* sql`

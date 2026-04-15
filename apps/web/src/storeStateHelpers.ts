@@ -5,14 +5,7 @@ import type {
   ThreadId,
   TurnId,
 } from "@forgetools/contracts";
-import type {
-  ChatMessage,
-  ProposedPlan,
-  Project,
-  Thread,
-  ThreadSession,
-  TurnDiffSummary,
-} from "./types";
+import type { ChatMessage, ProposedPlan, Project, Thread, ThreadSession } from "./types";
 import type { AppState } from "./store";
 
 // ── Constants ────────────────────────────────────────────────────────
@@ -178,46 +171,6 @@ export function patchSessionSlice(
     return null;
   }
   return { ...session, ...patch };
-}
-
-// ── Diff rebinding ───────────────────────────────────────────────────
-
-export function rebindTurnDiffSummariesForAssistantMessage(
-  turnDiffSummaries: ReadonlyArray<TurnDiffSummary>,
-  turnId: TurnId,
-  assistantMessageId: MessageId | null,
-): TurnDiffSummary[] {
-  let changed = false;
-  const nextSummaries = turnDiffSummaries.map((summary) => {
-    if (summary.turnId !== turnId || summary.assistantMessageId === assistantMessageId) {
-      return summary;
-    }
-    changed = true;
-    return {
-      ...summary,
-      assistantMessageId: assistantMessageId ?? undefined,
-    };
-  });
-  return changed ? nextSummaries : [...turnDiffSummaries];
-}
-
-export function rebindAgentDiffSummariesForAssistantMessage(
-  agentDiffSummaries: ReadonlyArray<TurnDiffSummary>,
-  turnId: TurnId,
-  assistantMessageId: MessageId | null,
-): TurnDiffSummary[] {
-  let changed = false;
-  const nextSummaries = agentDiffSummaries.map((summary) => {
-    if (summary.turnId !== turnId || summary.assistantMessageId === assistantMessageId) {
-      return summary;
-    }
-    changed = true;
-    return {
-      ...summary,
-      assistantMessageId: assistantMessageId ?? undefined,
-    };
-  });
-  return changed ? nextSummaries : [...agentDiffSummaries];
 }
 
 // ── Revert helpers ───────────────────────────────────────────────────

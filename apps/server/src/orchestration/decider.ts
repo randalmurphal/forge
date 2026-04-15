@@ -9,6 +9,7 @@ import {
   type OrchestrationCommand,
   type OrchestrationReadModel,
 } from "@forgetools/contracts";
+import { findLatestProposedPlanById } from "@forgetools/shared/threadHistory";
 import { Effect } from "effect";
 
 import { OrchestrationCommandInvariantError } from "./Errors.ts";
@@ -569,7 +570,8 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
         : null;
       const sourcePlan =
         sourceProposedPlan && sourceThread
-          ? sourceThread.proposedPlans.find((entry) => entry.id === sourceProposedPlan.planId)
+          ? (findLatestProposedPlanById(sourceThread.proposedPlans, sourceProposedPlan.planId) ??
+            null)
           : null;
       if (sourceProposedPlan && !sourcePlan) {
         return yield* new OrchestrationCommandInvariantError({

@@ -26,6 +26,12 @@ import {
   PhaseRunId,
   WorkflowPhaseId,
 } from "@forgetools/contracts";
+import {
+  buildProposedPlanHistoryKey,
+  buildTurnDiffHistoryKey,
+  compareProposedPlanHistoryEntries,
+  compareTurnDiffHistoryEntries,
+} from "@forgetools/shared/threadHistory";
 import { resolveThreadSpawnMode } from "@forgetools/shared/threadWorkspace";
 import { Effect, Schema } from "effect";
 
@@ -329,6 +335,38 @@ function retainThreadProposedPlansAfterRevert(
 ): ReadonlyArray<OrchestrationThread["proposedPlans"][number]> {
   return proposedPlans.filter(
     (proposedPlan) => proposedPlan.turnId === null || retainedTurnIds.has(proposedPlan.turnId),
+  );
+}
+
+function appendDistinctProposedPlanHistory(
+  proposedPlans: ReadonlyArray<OrchestrationThread["proposedPlans"][number]>,
+  proposedPlan: OrchestrationThread["proposedPlans"][number],
+): ReadonlyArray<OrchestrationThread["proposedPlans"][number]> {
+  const historyKey = buildProposedPlanHistoryKey(proposedPlan);
+  if (proposedPlans.some((entry) => buildProposedPlanHistoryKey(entry) === historyKey)) {
+    return proposedPlans;
+  }
+  return [...proposedPlans, proposedPlan].toSorted(compareProposedPlanHistoryEntries).slice(-200);
+}
+
+function appendDistinctAgentDiffHistory(
+  agentDiffs: ReadonlyArray<OrchestrationAgentDiffSummary>,
+  agentDiff: OrchestrationAgentDiffSummary,
+): ReadonlyArray<OrchestrationAgentDiffSummary> {
+  const toHistoryKey = (entry: OrchestrationAgentDiffSummary) =>
+    buildTurnDiffHistoryKey({
+      ...entry,
+      provenance: "agent",
+    });
+  const historyKey = toHistoryKey(agentDiff);
+  if (agentDiffs.some((entry) => toHistoryKey(entry) === historyKey)) {
+    return agentDiffs;
+  }
+  return [...agentDiffs, agentDiff].toSorted((left, right) =>
+    compareTurnDiffHistoryEntries(
+      { ...left, provenance: "agent" },
+      { ...right, provenance: "agent" },
+    ),
   );
 }
 
@@ -716,20 +754,6 @@ export function projectEvent(
             )
           : [...thread.messages, message];
         const cappedMessages = messages.slice(-MAX_THREAD_MESSAGES);
-        const reboundAgentDiffs =
-          payload.role === "assistant" && payload.turnId !== null
-            ? (thread.agentDiffs ?? []).map((entry) => {
-                if (
-                  entry.turnId !== payload.turnId ||
-                  entry.assistantMessageId === payload.messageId
-                ) {
-                  return entry;
-                }
-                return Object.assign({}, entry, {
-                  assistantMessageId: payload.messageId,
-                });
-              })
-            : thread.agentDiffs;
         const nextLatestTurn =
           payload.role === "assistant" &&
           payload.turnId !== null &&
@@ -744,7 +768,6 @@ export function projectEvent(
           ...nextBase,
           threads: updateThread(nextBase.threads, payload.threadId, {
             messages: cappedMessages,
-            ...(reboundAgentDiffs ? { agentDiffs: reboundAgentDiffs } : {}),
             ...(nextLatestTurn ? { latestTurn: nextLatestTurn } : {}),
             updatedAt: event.occurredAt,
           }),
@@ -913,15 +936,10 @@ export function projectEvent(
           return nextBase;
         }
 
-        const proposedPlans = [
-          ...thread.proposedPlans.filter((entry) => entry.id !== payload.proposedPlan.id),
+        const proposedPlans = appendDistinctProposedPlanHistory(
+          thread.proposedPlans,
           payload.proposedPlan,
-        ]
-          .toSorted(
-            (left, right) =>
-              left.createdAt.localeCompare(right.createdAt) || left.id.localeCompare(right.id),
-          )
-          .slice(-200);
+        );
 
         return {
           ...nextBase,
@@ -1020,25 +1038,14 @@ export function projectEvent(
             files: payload.files,
             source: payload.source,
             coverage: payload.coverage,
-            assistantMessageId:
-              payload.assistantMessageId ??
-              thread.agentDiffs?.find((entry) => entry.turnId === payload.turnId)
-                ?.assistantMessageId ??
-              null,
+            assistantMessageId: payload.assistantMessageId ?? null,
             completedAt: payload.completedAt,
           },
           event.type,
           "agentDiff",
         );
 
-        const agentDiffs = [
-          ...(thread.agentDiffs ?? []).filter((entry) => entry.turnId !== agentDiff.turnId),
-          agentDiff,
-        ].toSorted(
-          (left, right) =>
-            left.completedAt.localeCompare(right.completedAt) ||
-            left.turnId.localeCompare(right.turnId),
-        );
+        const agentDiffs = appendDistinctAgentDiffHistory(thread.agentDiffs ?? [], agentDiff);
 
         return {
           ...nextBase,

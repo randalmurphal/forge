@@ -362,7 +362,7 @@ export function mapThreadAndSlices(
   };
 
   const diffsSlice: ThreadDiffsSlice = {
-    turnDiffSummaries: source.checkpoints.map(mapTurnDiffSummary),
+    turnDiffSummaries: (source.checkpointHistory ?? source.checkpoints).map(mapTurnDiffSummary),
     agentDiffSummaries: (source.agentDiffs ?? []).map(mapAgentDiffSummary),
   };
 

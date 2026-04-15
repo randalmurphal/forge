@@ -197,6 +197,13 @@ export type TimelineEntry =
     }
   | {
       id: string;
+      kind: "turn-diff";
+      createdAt: string;
+      sequence?: number | undefined;
+      turnDiffSummary: TurnDiffSummary;
+    }
+  | {
+      id: string;
       kind: "work";
       createdAt: string;
       sequence?: number | undefined;

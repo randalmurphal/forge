@@ -56,8 +56,6 @@ import {
   MAX_THREAD_MESSAGES,
   MAX_THREAD_PROPOSED_PLANS,
   patchSessionSlice,
-  rebindAgentDiffSummariesForAssistantMessage,
-  rebindTurnDiffSummariesForAssistantMessage,
   removeThreadIdByProjectId,
   retainThreadActivitiesAfterRevert,
   retainThreadMessagesAfterRevert,
@@ -65,6 +63,7 @@ import {
   updateProject,
   updateThreadState,
 } from "./storeStateHelpers";
+import { buildProposedPlanHistoryKey, buildTurnDiffHistoryKey } from "./threadHistory";
 import type {
   ChatMessage,
   DesignArtifact,
@@ -922,38 +921,6 @@ function handleMessageEvent(state: AppState, event: ForgeEvent): AppState | unde
         };
       });
 
-      // Rebind diff summaries on assistant message completion
-      if (event.payload.role === "assistant" && event.payload.turnId !== null) {
-        nextState = updateDiffsSlice(nextState, threadId, (diffsSlice) => {
-          const turnDiffSummaries = rebindTurnDiffSummariesForAssistantMessage(
-            diffsSlice.turnDiffSummaries,
-            event.payload.turnId!,
-            event.payload.messageId,
-          );
-          const agentDiffSummaries =
-            diffsSlice.agentDiffSummaries !== undefined
-              ? rebindAgentDiffSummariesForAssistantMessage(
-                  diffsSlice.agentDiffSummaries,
-                  event.payload.turnId!,
-                  event.payload.messageId,
-                )
-              : diffsSlice.agentDiffSummaries;
-
-          if (
-            turnDiffSummaries === diffsSlice.turnDiffSummaries &&
-            agentDiffSummaries === diffsSlice.agentDiffSummaries
-          ) {
-            return diffsSlice;
-          }
-
-          return {
-            ...diffsSlice,
-            turnDiffSummaries,
-            ...(agentDiffSummaries !== undefined ? { agentDiffSummaries } : {}),
-          };
-        });
-      }
-
       // Clear the streaming buffer for this thread
       const { [threadId]: _cleared, ...remainingStreaming } = nextState.streamingMessageByThreadId;
       const stateWithClearedBuffer =
@@ -1196,20 +1163,28 @@ function handleDiffEvent(state: AppState, event: ForgeEvent): AppState | undefin
           assistantMessageId: event.payload.assistantMessageId,
           completedAt: event.payload.completedAt,
         });
-        const existing = diffsSlice.turnDiffSummaries.find(
-          (entry) => entry.turnId === checkpoint.turnId,
+        const existingReadyCheckpoint = diffsSlice.turnDiffSummaries.find(
+          (entry) =>
+            entry.turnId === checkpoint.turnId &&
+            entry.provenance === "workspace" &&
+            entry.status !== "missing",
         );
-        if (existing && existing.status !== "missing" && checkpoint.status === "missing") {
+        if (existingReadyCheckpoint && checkpoint.status === "missing") {
           return diffsSlice;
         }
-        const turnDiffSummaries = [
-          ...diffsSlice.turnDiffSummaries.filter((entry) => entry.turnId !== checkpoint.turnId),
-          checkpoint,
-        ]
+        const historyKey = buildTurnDiffHistoryKey(checkpoint);
+        if (
+          diffsSlice.turnDiffSummaries.some(
+            (entry) => buildTurnDiffHistoryKey(entry) === historyKey,
+          )
+        ) {
+          return diffsSlice;
+        }
+        const turnDiffSummaries = [...diffsSlice.turnDiffSummaries, checkpoint]
           .toSorted(
             (left, right) =>
-              (left.checkpointTurnCount ?? Number.MAX_SAFE_INTEGER) -
-              (right.checkpointTurnCount ?? Number.MAX_SAFE_INTEGER),
+              left.completedAt.localeCompare(right.completedAt) ||
+              buildTurnDiffHistoryKey(left).localeCompare(buildTurnDiffHistoryKey(right)),
           )
           .slice(-MAX_THREAD_CHECKPOINTS);
         return { ...diffsSlice, turnDiffSummaries };
@@ -1240,27 +1215,23 @@ function handleDiffEvent(state: AppState, event: ForgeEvent): AppState | undefin
 
     case "thread.agent-diff-upserted": {
       return updateDiffsSlice(state, event.payload.threadId, (diffsSlice) => {
-        const existingSummary = (diffsSlice.agentDiffSummaries ?? []).find(
-          (entry) => entry.turnId === event.payload.turnId,
-        );
         const agentDiffSummary = mapAgentDiffSummary({
           turnId: event.payload.turnId,
           files: event.payload.files,
           source: event.payload.source,
           coverage: event.payload.coverage,
-          assistantMessageId:
-            event.payload.assistantMessageId ?? existingSummary?.assistantMessageId ?? null,
+          assistantMessageId: event.payload.assistantMessageId ?? null,
           completedAt: event.payload.completedAt,
         });
-        const agentDiffSummaries = [
-          ...(diffsSlice.agentDiffSummaries ?? []).filter(
-            (entry) => entry.turnId !== agentDiffSummary.turnId,
-          ),
-          agentDiffSummary,
-        ].toSorted(
+        const existingSummaries = diffsSlice.agentDiffSummaries ?? [];
+        const historyKey = buildTurnDiffHistoryKey(agentDiffSummary);
+        if (existingSummaries.some((entry) => buildTurnDiffHistoryKey(entry) === historyKey)) {
+          return diffsSlice;
+        }
+        const agentDiffSummaries = [...existingSummaries, agentDiffSummary].toSorted(
           (left, right) =>
             left.completedAt.localeCompare(right.completedAt) ||
-            left.turnId.localeCompare(right.turnId),
+            buildTurnDiffHistoryKey(left).localeCompare(buildTurnDiffHistoryKey(right)),
         );
         return { ...diffsSlice, agentDiffSummaries };
       });
@@ -1269,13 +1240,19 @@ function handleDiffEvent(state: AppState, event: ForgeEvent): AppState | undefin
     case "thread.proposed-plan-upserted": {
       return updatePlansSlice(state, event.payload.threadId, (plansSlice) => {
         const proposedPlan = mapProposedPlan(event.payload.proposedPlan);
-        const proposedPlans = [
-          ...plansSlice.proposedPlans.filter((entry) => entry.id !== proposedPlan.id),
-          proposedPlan,
-        ]
+        const historyKey = buildProposedPlanHistoryKey(proposedPlan);
+        if (
+          plansSlice.proposedPlans.some(
+            (entry) => buildProposedPlanHistoryKey(entry) === historyKey,
+          )
+        ) {
+          return plansSlice;
+        }
+        const proposedPlans = [...plansSlice.proposedPlans, proposedPlan]
           .toSorted(
             (left, right) =>
-              left.createdAt.localeCompare(right.createdAt) || left.id.localeCompare(right.id),
+              left.updatedAt.localeCompare(right.updatedAt) ||
+              buildProposedPlanHistoryKey(left).localeCompare(buildProposedPlanHistoryKey(right)),
           )
           .slice(-MAX_THREAD_PROPOSED_PLANS);
         return { ...plansSlice, proposedPlans };

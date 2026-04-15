@@ -4,6 +4,7 @@ import {
   type TurnId,
   type ThreadId,
 } from "@forgetools/contracts";
+import { findLatestProposedPlanById } from "@forgetools/shared/threadHistory";
 
 import type { ActivePlanState, LatestProposedPlanState, PendingApproval } from "./types";
 import type { ProposedPlan } from "../types";
@@ -141,9 +142,11 @@ export function findSidebarProposedPlan(input: {
   if (!input.latestTurnSettled) {
     const sourceProposedPlan = input.latestTurn?.sourceProposedPlan;
     if (sourceProposedPlan) {
-      const sourcePlan = input.plansByThreadId
-        .find((entry) => entry.id === sourceProposedPlan.threadId)
-        ?.proposedPlans.find((plan) => plan.id === sourceProposedPlan.planId);
+      const sourcePlan = findLatestProposedPlanById(
+        input.plansByThreadId.find((entry) => entry.id === sourceProposedPlan.threadId)
+          ?.proposedPlans ?? [],
+        sourceProposedPlan.planId,
+      );
       if (sourcePlan) {
         return toLatestProposedPlanState(sourcePlan);
       }

@@ -1,9 +1,14 @@
 import type { OrchestrationLatestTurn, TurnId } from "@forgetools/contracts";
 
 import { debugLog, isWebDebugEnabled } from "../debug";
+import {
+  buildProposedPlanHistoryKey,
+  buildTurnDiffHistoryKey,
+  isRenderableAgentTurnDiffSummary,
+} from "../threadHistory";
 
 import type { BackgroundTrayState, TimelineEntry, WorkLogEntry } from "./types";
-import type { ChatMessage, ProposedPlan } from "../types";
+import type { ChatMessage, ProposedPlan, TurnDiffSummary } from "../types";
 import { enrichParentEntriesWithSubagentGroupMetadata } from "./subagentGrouping";
 import {
   deriveBackgroundCommandStatus,
@@ -26,6 +31,7 @@ export function deriveTimelineEntries(
   messages: ChatMessage[],
   proposedPlans: ProposedPlan[],
   workEntries: WorkLogEntry[],
+  agentDiffSummaries: ReadonlyArray<TurnDiffSummary> = [],
 ): TimelineEntry[] {
   const enrichedEntries = enrichParentEntriesWithSubagentGroupMetadata(workEntries);
   const messageRows: TimelineEntry[] = messages.map((message) => ({
@@ -36,11 +42,19 @@ export function deriveTimelineEntries(
     message,
   }));
   const proposedPlanRows: TimelineEntry[] = proposedPlans.map((proposedPlan) => ({
-    id: proposedPlan.id,
+    id: buildProposedPlanHistoryKey(proposedPlan),
     kind: "proposed-plan",
-    createdAt: proposedPlan.createdAt,
+    createdAt: proposedPlan.updatedAt,
     proposedPlan,
   }));
+  const turnDiffRows: TimelineEntry[] = agentDiffSummaries
+    .filter(isRenderableAgentTurnDiffSummary)
+    .map((turnDiffSummary) => ({
+      id: buildTurnDiffHistoryKey(turnDiffSummary),
+      kind: "turn-diff" as const,
+      createdAt: turnDiffSummary.completedAt,
+      turnDiffSummary,
+    }));
   const workRows: TimelineEntry[] = enrichedEntries.map((entry) => {
     const workRow: TimelineEntry = {
       id: entry.id,
@@ -53,7 +67,9 @@ export function deriveTimelineEntries(
     }
     return workRow;
   });
-  return [...messageRows, ...proposedPlanRows, ...workRows].toSorted(compareTimelineEntries);
+  return [...messageRows, ...proposedPlanRows, ...turnDiffRows, ...workRows].toSorted(
+    compareTimelineEntries,
+  );
 }
 
 function compareTimelineEntries(left: TimelineEntry, right: TimelineEntry): number {
