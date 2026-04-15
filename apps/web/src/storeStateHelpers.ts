@@ -17,6 +17,22 @@ export const MAX_THREAD_ACTIVITIES = 500;
 export const EMPTY_THREAD_IDS: ThreadId[] = [];
 export const EMPTY_THREADS: Thread[] = [];
 
+export function buildProjectsById(projects: ReadonlyArray<Project>): Record<string, Project> {
+  const projectsById: Record<string, Project> = {};
+  for (const project of projects) {
+    projectsById[project.id] = project;
+  }
+  return projectsById;
+}
+
+export function buildThreadsById(threads: ReadonlyArray<Thread>): Record<string, Thread> {
+  const threadsById: Record<string, Thread> = {};
+  for (const thread of threads) {
+    threadsById[thread.id] = thread;
+  }
+  return threadsById;
+}
+
 // ── Array update primitives ──────────────────────────────────────────
 
 export function updateThread(
@@ -101,8 +117,12 @@ export function buildThreadIdsByProjectId(
 ): Record<string, ThreadId[]> {
   const threadIdsByProjectId: Record<string, ThreadId[]> = {};
   for (const thread of threads) {
-    const existingThreadIds = threadIdsByProjectId[thread.projectId] ?? EMPTY_THREAD_IDS;
-    threadIdsByProjectId[thread.projectId] = [...existingThreadIds, thread.id];
+    const threadIds = threadIdsByProjectId[thread.projectId];
+    if (threadIds) {
+      threadIds.push(thread.id);
+      continue;
+    }
+    threadIdsByProjectId[thread.projectId] = [thread.id];
   }
   return threadIdsByProjectId;
 }
@@ -283,7 +303,14 @@ export function updateThreadState(
     return state;
   }
 
-  return { ...state, threads };
+  return {
+    ...state,
+    threads,
+    threadsById: {
+      ...state.threadsById,
+      [threadId]: updatedThread,
+    },
+  };
 }
 
 export function findThreadIdByDesignRequestId(state: AppState, requestId: string): ThreadId | null {

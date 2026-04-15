@@ -100,29 +100,39 @@ function toLatestProposedPlanState(proposedPlan: ProposedPlan): LatestProposedPl
   };
 }
 
+function compareProposedPlanRecency(left: ProposedPlan, right: ProposedPlan): number {
+  return (
+    left.updatedAt.localeCompare(right.updatedAt) ||
+    left.createdAt.localeCompare(right.createdAt) ||
+    left.id.localeCompare(right.id)
+  );
+}
+
 export function findLatestProposedPlan(
   proposedPlans: ReadonlyArray<ProposedPlan>,
   latestTurnId: TurnId | string | null | undefined,
 ): LatestProposedPlanState | null {
-  if (latestTurnId) {
-    const matchingTurnPlan = [...proposedPlans]
-      .filter((proposedPlan) => proposedPlan.turnId === latestTurnId)
-      .toSorted(
-        (left, right) =>
-          left.updatedAt.localeCompare(right.updatedAt) || left.id.localeCompare(right.id),
-      )
-      .at(-1);
-    if (matchingTurnPlan) {
-      return toLatestProposedPlanState(matchingTurnPlan);
+  let latestPlan: ProposedPlan | null = null;
+  let latestMatchingTurnPlan: ProposedPlan | null = null;
+
+  for (const proposedPlan of proposedPlans) {
+    if (latestPlan === null || compareProposedPlanRecency(proposedPlan, latestPlan) > 0) {
+      latestPlan = proposedPlan;
+    }
+    if (
+      latestTurnId &&
+      proposedPlan.turnId === latestTurnId &&
+      (latestMatchingTurnPlan === null ||
+        compareProposedPlanRecency(proposedPlan, latestMatchingTurnPlan) > 0)
+    ) {
+      latestMatchingTurnPlan = proposedPlan;
     }
   }
 
-  const latestPlan = [...proposedPlans]
-    .toSorted(
-      (left, right) =>
-        left.updatedAt.localeCompare(right.updatedAt) || left.id.localeCompare(right.id),
-    )
-    .at(-1);
+  if (latestMatchingTurnPlan) {
+    return toLatestProposedPlanState(latestMatchingTurnPlan);
+  }
+
   if (!latestPlan) {
     return null;
   }

@@ -289,7 +289,7 @@ export async function waitForServerThreadMatch(
 ): Promise<boolean> {
   const getState = () => useStore.getState();
   const check = (state: ReturnType<typeof getState>) => {
-    const thread = state.threads.find((t) => t.id === threadId);
+    const thread = state.threadsById[threadId];
     if (!thread) return false;
     return matches(thread, state.threadSessionById[threadId]);
   };

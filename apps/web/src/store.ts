@@ -30,7 +30,9 @@ import type { WorkLogProjectionState } from "./session-logic";
 
 export interface AppState {
   projects: Project[];
+  projectsById: Record<string, Project>;
   threads: Thread[];
+  threadsById: Record<string, Thread>;
   sidebarThreadsById: Record<string, SidebarThreadSummary>;
   threadIdsByProjectId: Record<string, ThreadId[]>;
   threadWorkLogById?: Record<string, WorkLogProjectionState>;
@@ -50,7 +52,9 @@ export interface AppState {
 
 const initialState: AppState = {
   projects: [],
+  projectsById: {},
   threads: [],
+  threadsById: {},
   sidebarThreadsById: {},
   threadIdsByProjectId: {},
   threadWorkLogById: {},
@@ -73,12 +77,12 @@ export { applyOrchestrationEvent, applyOrchestrationEvents, syncServerReadModel 
 export const selectProjectById =
   (projectId: Project["id"] | null | undefined) =>
   (state: AppState): Project | undefined =>
-    projectId ? state.projects.find((project) => project.id === projectId) : undefined;
+    projectId ? state.projectsById[projectId] : undefined;
 
 export const selectThreadById =
   (threadId: ThreadId | null | undefined) =>
   (state: AppState): Thread | undefined =>
-    threadId ? state.threads.find((thread) => thread.id === threadId) : undefined;
+    threadId ? state.threadsById[threadId] : undefined;
 
 export const selectSidebarThreadSummaryById =
   (threadId: ThreadId | null | undefined) =>
@@ -120,21 +124,28 @@ export const selectStreamingMessageByThreadId =
   (state: AppState): ChatMessage | undefined =>
     threadId ? state.streamingMessageByThreadId[threadId] : undefined;
 
-export const selectThreadsByIds =
-  (threadIds: readonly ThreadId[] | null | undefined) =>
-  (state: AppState): Thread[] => {
+export const selectThreadsByIds = (threadIds: readonly ThreadId[] | null | undefined) => {
+  let lastThreadsById: AppState["threadsById"] | null = null;
+  let lastOrderedThreads: Thread[] = EMPTY_THREADS;
+
+  return (state: AppState): Thread[] => {
     if (!threadIds || threadIds.length === 0) {
       return EMPTY_THREADS;
     }
+    if (state.threadsById === lastThreadsById) {
+      return lastOrderedThreads;
+    }
 
-    const threadsById = new Map(state.threads.map((thread) => [thread.id, thread] as const));
     const orderedThreads = threadIds.flatMap((threadId) => {
-      const thread = threadsById.get(threadId);
+      const thread = state.threadsById[threadId];
       return thread ? [thread] : [];
     });
 
-    return orderedThreads.length > 0 ? orderedThreads : EMPTY_THREADS;
+    lastThreadsById = state.threadsById;
+    lastOrderedThreads = orderedThreads.length > 0 ? orderedThreads : EMPTY_THREADS;
+    return lastOrderedThreads;
   };
+};
 
 // ── State mutators ───────────────────────────────────────────────────
 
@@ -162,16 +173,14 @@ export function setThreadBranch(
   branch: string | null,
   worktreePath: string | null,
 ): AppState {
+  const previousThread = state.threadsById[threadId];
   let next = updateThreadState(state, threadId, (t) => {
     if (t.branch === branch && t.worktreePath === worktreePath) return t;
     return { ...t, branch, worktreePath };
   });
   // If the working directory changed, clear the session.
-  const thread = next.threads.find((t) => t.id === threadId);
-  if (
-    thread &&
-    thread.worktreePath !== state.threads.find((t) => t.id === threadId)?.worktreePath
-  ) {
+  const thread = next.threadsById[threadId];
+  if (thread && thread.worktreePath !== previousThread?.worktreePath) {
     const prev = next.threadSessionById[threadId];
     if (prev?.session !== null) {
       next = {

@@ -47,7 +47,9 @@ import {
 import {
   appendThreadIdByProjectId,
   buildLatestTurn,
+  buildProjectsById,
   buildThreadIdsByProjectId,
+  buildThreadsById,
   checkpointStatusToLatestTurnState,
   compareActivities,
   findThreadIdByDesignRequestId,
@@ -151,7 +153,7 @@ function updateDesignSlice(
 
 /** Rebuild the sidebar summary for a single thread from its slices. */
 function rebuildSidebarForThread(state: AppState, threadId: string): AppState {
-  const thread = state.threads.find((t) => t.id === threadId);
+  const thread = state.threadsById[threadId];
   if (!thread) return state;
   const computedSummary = buildSidebarThreadSummary(
     thread,
@@ -300,7 +302,7 @@ function deleteThreadWorkLogState(state: AppState, threadId: Thread["id"]): AppS
 }
 
 function rebuildThreadWorkLogState(state: AppState, threadId: Thread["id"]): AppState {
-  const thread = state.threads.find((entry) => entry.id === threadId);
+  const thread = state.threadsById[threadId];
   if (!thread) {
     return state;
   }
@@ -340,7 +342,11 @@ function handleProjectEvent(state: AppState, event: ForgeEvent): AppState | unde
               index === existingIndex ? nextProject : project,
             )
           : [...state.projects, nextProject];
-      return { ...state, projects };
+      return {
+        ...state,
+        projects,
+        projectsById: buildProjectsById(projects),
+      };
     }
 
     case "project.meta-updated": {
@@ -360,12 +366,24 @@ function handleProjectEvent(state: AppState, event: ForgeEvent): AppState | unde
           : {}),
         updatedAt: event.payload.updatedAt,
       }));
-      return projects === state.projects ? state : { ...state, projects };
+      return projects === state.projects
+        ? state
+        : {
+            ...state,
+            projects,
+            projectsById: buildProjectsById(projects),
+          };
     }
 
     case "project.deleted": {
       const projects = state.projects.filter((project) => project.id !== event.payload.projectId);
-      return projects.length === state.projects.length ? state : { ...state, projects };
+      return projects.length === state.projects.length
+        ? state
+        : {
+            ...state,
+            projects,
+            projectsById: buildProjectsById(projects),
+          };
     }
   }
 
@@ -381,7 +399,7 @@ function handleThreadLifecycleEvent(state: AppState, event: ForgeEvent): AppStat
         return state;
       }
       const payload = event.payload;
-      const existing = state.threads.find((thread) => thread.id === event.payload.threadId);
+      const existing = state.threadsById[event.payload.threadId];
       const stagedThreadPayload = event.payload as Partial<
         Pick<
           OrchestrationThread,
@@ -477,6 +495,7 @@ function handleThreadLifecycleEvent(state: AppState, event: ForgeEvent): AppStat
       };
 
       let updatedSidebarThreadsById = state.sidebarThreadsById;
+      let threadsById = state.threadsById;
 
       // If this child thread has a parent, add it to the parent's childThreadIds.
       if (parentThreadId !== null) {
@@ -485,7 +504,8 @@ function handleThreadLifecycleEvent(state: AppState, event: ForgeEvent): AppStat
             ? { ...thread, childThreadIds: [...(thread.childThreadIds ?? []), nextThread.id] }
             : thread,
         );
-        const updatedParent = threads.find((t) => t.id === parentThreadId);
+        threadsById = buildThreadsById(threads);
+        const updatedParent = threadsById[parentThreadId];
         if (updatedParent) {
           const parentSummary = buildSidebarThreadSummary(
             updatedParent,
@@ -498,6 +518,9 @@ function handleThreadLifecycleEvent(state: AppState, event: ForgeEvent): AppStat
             [parentThreadId]: parentSummary,
           };
         }
+      }
+      if (threadsById === state.threadsById) {
+        threadsById = buildThreadsById(threads);
       }
 
       const nextSummary = buildSidebarThreadSummary(
@@ -525,6 +548,7 @@ function handleThreadLifecycleEvent(state: AppState, event: ForgeEvent): AppStat
       const nextState = {
         ...state,
         threads,
+        threadsById,
         sidebarThreadsById,
         threadIdsByProjectId,
         threadSessionById,
@@ -551,7 +575,7 @@ function handleThreadLifecycleEvent(state: AppState, event: ForgeEvent): AppStat
       if (threads.length === state.threads.length) {
         return state;
       }
-      const deletedThread = state.threads.find((thread) => thread.id === event.payload.threadId);
+      const deletedThread = state.threadsById[event.payload.threadId];
       const sidebarThreadsById = { ...state.sidebarThreadsById };
       delete sidebarThreadsById[event.payload.threadId];
       const threadIdsByProjectId = deletedThread
@@ -578,6 +602,7 @@ function handleThreadLifecycleEvent(state: AppState, event: ForgeEvent): AppStat
         {
           ...state,
           threads,
+          threadsById: buildThreadsById(threads),
           sidebarThreadsById,
           threadIdsByProjectId,
           threadSessionById,
@@ -659,8 +684,8 @@ function handleThreadLifecycleEvent(state: AppState, event: ForgeEvent): AppStat
         return state;
       }
       const { threadId: forkThreadId, sourceThreadId } = event.payload;
-      const sourceThread = state.threads.find((t) => t.id === sourceThreadId);
-      const forkThread = state.threads.find((t) => t.id === forkThreadId);
+      const sourceThread = state.threadsById[sourceThreadId];
+      const forkThread = state.threadsById[forkThreadId];
       if (!sourceThread || !forkThread) {
         return state;
       }
@@ -685,7 +710,12 @@ function handleThreadLifecycleEvent(state: AppState, event: ForgeEvent): AppStat
       const sidebarThreadsById = sidebarThreadSummariesEqual(previousSummary, nextSummary)
         ? state.sidebarThreadsById
         : { ...state.sidebarThreadsById, [forkThreadId]: nextSummary };
-      return { ...state, threads, sidebarThreadsById };
+      return {
+        ...state,
+        threads,
+        threadsById: buildThreadsById(threads),
+        sidebarThreadsById,
+      };
     }
 
     case "thread.bootstrap-started":
@@ -1020,7 +1050,7 @@ function handleMessageEvent(state: AppState, event: ForgeEvent): AppState | unde
           : nextState;
 
       // Update work log projection
-      const nextThread = stateWithClearedBuffer.threads.find((t) => t.id === threadId);
+      const nextThread = stateWithClearedBuffer.threadsById[threadId];
       if (!nextThread) return stateWithClearedBuffer;
       const workLogState = stateWithClearedBuffer.threadWorkLogById?.[threadId];
       if (!workLogState) return stateWithClearedBuffer;
@@ -1595,7 +1625,7 @@ export function applyThreadDetailSnapshot(
   snapshot: OrchestrationThreadDetailSnapshot,
 ): AppState {
   const threadId = snapshot.thread.id;
-  const existingThread = state.threads.find((thread) => thread.id === threadId);
+  const existingThread = state.threadsById[threadId];
   if (!existingThread) {
     return state;
   }
@@ -1615,6 +1645,10 @@ export function applyThreadDetailSnapshot(
   const nextState: AppState = {
     ...state,
     threads: state.threads.map((thread) => (thread.id === threadId ? mergedThread : thread)),
+    threadsById: {
+      ...state.threadsById,
+      [threadId]: mergedThread,
+    },
     threadSessionById: {
       ...state.threadSessionById,
       [threadId]: mapped.sessionSlice,
@@ -1698,9 +1732,8 @@ export function syncServerReadModel(
           },
     );
 
-  const existingThreadsById = new Map(state.threads.map((thread) => [thread.id, thread] as const));
   const threads = mappedResults.map(({ source, mapped }) => {
-    const existingThread = existingThreadsById.get(mapped.thread.id);
+    const existingThread = state.threadsById[mapped.thread.id];
     const detailLoaded = state.threadDetailLoadedById[mapped.thread.id] === true;
     if (source === null || !existingThread || !detailLoaded) {
       return mapped.thread;
@@ -1778,7 +1811,9 @@ export function syncServerReadModel(
   return {
     ...state,
     projects,
+    projectsById: buildProjectsById(projects),
     threads,
+    threadsById: buildThreadsById(threads),
     sidebarThreadsById,
     threadIdsByProjectId,
     threadWorkLogById,

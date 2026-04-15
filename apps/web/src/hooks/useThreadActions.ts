@@ -36,7 +36,7 @@ export function useThreadActions() {
       const api = readNativeApi();
       if (!api) return;
       const storeState = useStore.getState();
-      const thread = storeState.threads.find((entry) => entry.id === threadId);
+      const thread = storeState.threadsById[threadId];
       if (!thread) return;
       const sessionSlice = storeState.threadSessionById[threadId];
       if (
@@ -93,10 +93,10 @@ export function useThreadActions() {
     async (threadId: ThreadId, opts: { deletedThreadIds?: ReadonlySet<ThreadId> } = {}) => {
       const api = readNativeApi();
       if (!api) return;
-      const { projects, threads } = useStore.getState();
-      const thread = threads.find((entry) => entry.id === threadId);
+      const { projectsById, threads, threadsById } = useStore.getState();
+      const thread = threadsById[threadId];
       if (!thread) return;
-      const threadProject = projects.find((project) => project.id === thread.projectId);
+      const threadProject = projectsById[thread.projectId];
       const deletedIds = opts.deletedThreadIds;
       const childIds = new Set(thread.childThreadIds ?? []);
       const survivingThreads =
@@ -218,7 +218,7 @@ export function useThreadActions() {
     async (sourceThreadId: ThreadId) => {
       const api = readNativeApi();
       if (!api) return;
-      const sourceThread = useStore.getState().threads.find((t) => t.id === sourceThreadId);
+      const sourceThread = useStore.getState().threadsById[sourceThreadId];
       if (!sourceThread) return;
 
       const forkId = newThreadId();
@@ -241,7 +241,7 @@ export function useThreadActions() {
     async (threadId: ThreadId) => {
       const api = readNativeApi();
       if (!api) return;
-      const thread = useStore.getState().threads.find((entry) => entry.id === threadId);
+      const thread = useStore.getState().threadsById[threadId];
       if (!thread) return;
 
       if (appSettings.confirmThreadDelete) {

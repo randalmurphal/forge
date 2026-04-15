@@ -229,7 +229,9 @@ export function WorkflowEditor(props: { workflowId: WorkflowId | null }) {
       : null) ?? null;
   const providers = serverConfig?.providers ?? [];
   const resolvedProjectId = resolveWorkflowScopeProjectId(scope, projectId);
-  const currentProject = projects.find((project) => project.id === resolvedProjectId) ?? null;
+  const currentProject = useStore((store) =>
+    resolvedProjectId ? (store.projectsById[resolvedProjectId] ?? null) : null,
+  );
   const fallbackModelSelection =
     currentProject?.defaultModelSelection ?? resolveAppModelSelectionState(settings, providers);
   const availableSummaries = workflowListQuery.data ?? cachedWorkflowSummaries;

@@ -197,8 +197,12 @@ export function deriveChannelDeliberationState(
       type: ChannelParticipantSummary["type"];
     }
   >();
+  let turnCount = 0;
 
   for (const message of messages) {
+    if (message.fromType !== "system") {
+      turnCount += 1;
+    }
     const key = `${message.fromType}:${message.fromId}`;
     if (!participants.has(key)) {
       participants.set(key, {
@@ -210,7 +214,7 @@ export function deriveChannelDeliberationState(
   }
 
   return {
-    turnCount: messages.filter((message) => message.fromType !== "system").length,
+    turnCount,
     participants: [...participants.values()],
   };
 }

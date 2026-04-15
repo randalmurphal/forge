@@ -185,14 +185,15 @@ export function DiscussionEditor(props: {
     () => sortProjectsForEditor(projects, projectOrder),
     [projectOrder, projects],
   );
+  const projectsById = useStore((store) => store.projectsById);
   const routeProject =
     orderedProjects.find((project) => project.id === props.projectId) ??
-    projects.find((project) => project.id === props.projectId) ??
+    (props.projectId ? projectsById[props.projectId] : undefined) ??
     null;
   const filterProjectId = managedProjectFilter === ALL_PROJECTS_VALUE ? null : managedProjectFilter;
   const filterProject =
     orderedProjects.find((project) => project.id === filterProjectId) ??
-    projects.find((project) => project.id === filterProjectId) ??
+    (filterProjectId ? projectsById[filterProjectId] : undefined) ??
     null;
   const targetProject =
     props.discussionScope === "project" && routeProject

@@ -35,6 +35,7 @@ import {
   type ThreadPlansSlice,
   type ThreadSessionSlice,
 } from "./types";
+import { buildProjectsById, buildThreadsById } from "./storeStateHelpers";
 
 function makeThread(overrides: Partial<Thread> = {}): Thread {
   return {
@@ -123,23 +124,27 @@ const EMPTY_SLICES = {
 } as const;
 
 function makeState(thread: Thread, sliceOverrides: SliceOverrides = {}): AppState {
+  const projects: AppState["projects"] = [
+    {
+      id: ProjectId.makeUnsafe("project-1"),
+      name: "Project",
+      cwd: "/tmp/project",
+      defaultModelSelection: {
+        provider: "codex",
+        model: "gpt-5-codex",
+      },
+      scripts: [],
+    },
+  ];
+  const threads: AppState["threads"] = [thread];
   const threadIdsByProjectId: AppState["threadIdsByProjectId"] = {
     [thread.projectId]: [thread.id],
   };
   return {
-    projects: [
-      {
-        id: ProjectId.makeUnsafe("project-1"),
-        name: "Project",
-        cwd: "/tmp/project",
-        defaultModelSelection: {
-          provider: "codex",
-          model: "gpt-5-codex",
-        },
-        scripts: [],
-      },
-    ],
-    threads: [thread],
+    projects,
+    projectsById: buildProjectsById(projects),
+    threads,
+    threadsById: buildThreadsById(threads),
     sidebarThreadsById: {},
     threadIdsByProjectId,
     bootstrapComplete: true,
@@ -520,30 +525,33 @@ describe("store read model sync", () => {
     const project1 = ProjectId.makeUnsafe("project-1");
     const project2 = ProjectId.makeUnsafe("project-2");
     const project3 = ProjectId.makeUnsafe("project-3");
+    const projects: AppState["projects"] = [
+      {
+        id: project2,
+        name: "Project 2",
+        cwd: "/tmp/project-2",
+        defaultModelSelection: {
+          provider: "codex",
+          model: DEFAULT_MODEL_BY_PROVIDER.codex,
+        },
+        scripts: [],
+      },
+      {
+        id: project1,
+        name: "Project 1",
+        cwd: "/tmp/project-1",
+        defaultModelSelection: {
+          provider: "codex",
+          model: DEFAULT_MODEL_BY_PROVIDER.codex,
+        },
+        scripts: [],
+      },
+    ];
     const initialState: AppState = {
-      projects: [
-        {
-          id: project2,
-          name: "Project 2",
-          cwd: "/tmp/project-2",
-          defaultModelSelection: {
-            provider: "codex",
-            model: DEFAULT_MODEL_BY_PROVIDER.codex,
-          },
-          scripts: [],
-        },
-        {
-          id: project1,
-          name: "Project 1",
-          cwd: "/tmp/project-1",
-          defaultModelSelection: {
-            provider: "codex",
-            model: DEFAULT_MODEL_BY_PROVIDER.codex,
-          },
-          scripts: [],
-        },
-      ],
+      projects,
+      projectsById: buildProjectsById(projects),
       threads: [],
+      threadsById: {},
       sidebarThreadsById: {},
       threadIdsByProjectId: {},
       bootstrapComplete: true,
@@ -1267,7 +1275,20 @@ describe("incremental orchestration updates", () => {
           scripts: [],
         },
       ],
+      projectsById: buildProjectsById([
+        {
+          id: originalProjectId,
+          name: "Project",
+          cwd: "/tmp/project",
+          defaultModelSelection: {
+            provider: "codex",
+            model: DEFAULT_MODEL_BY_PROVIDER.codex,
+          },
+          scripts: [],
+        },
+      ]),
       threads: [],
+      threadsById: {},
       sidebarThreadsById: {},
       threadIdsByProjectId: {},
       bootstrapComplete: true,
@@ -1304,30 +1325,33 @@ describe("incremental orchestration updates", () => {
       id: threadId,
       projectId: originalProjectId,
     });
+    const projects: AppState["projects"] = [
+      {
+        id: originalProjectId,
+        name: "Project 1",
+        cwd: "/tmp/project-1",
+        defaultModelSelection: {
+          provider: "codex",
+          model: DEFAULT_MODEL_BY_PROVIDER.codex,
+        },
+        scripts: [],
+      },
+      {
+        id: recreatedProjectId,
+        name: "Project 2",
+        cwd: "/tmp/project-2",
+        defaultModelSelection: {
+          provider: "codex",
+          model: DEFAULT_MODEL_BY_PROVIDER.codex,
+        },
+        scripts: [],
+      },
+    ];
     const state: AppState = {
-      projects: [
-        {
-          id: originalProjectId,
-          name: "Project 1",
-          cwd: "/tmp/project-1",
-          defaultModelSelection: {
-            provider: "codex",
-            model: DEFAULT_MODEL_BY_PROVIDER.codex,
-          },
-          scripts: [],
-        },
-        {
-          id: recreatedProjectId,
-          name: "Project 2",
-          cwd: "/tmp/project-2",
-          defaultModelSelection: {
-            provider: "codex",
-            model: DEFAULT_MODEL_BY_PROVIDER.codex,
-          },
-          scripts: [],
-        },
-      ],
+      projects,
+      projectsById: buildProjectsById(projects),
       threads: [thread],
+      threadsById: buildThreadsById([thread]),
       sidebarThreadsById: {},
       threadIdsByProjectId: {
         [originalProjectId]: [threadId],
@@ -1374,6 +1398,7 @@ describe("incremental orchestration updates", () => {
     const state: AppState = {
       ...makeState(thread1),
       threads: [thread1, thread2],
+      threadsById: buildThreadsById([thread1, thread2]),
     };
 
     // First streaming delta creates the buffer entry
@@ -2070,6 +2095,18 @@ describe("store selectors", () => {
           title: "Child thread",
         }),
       ],
+      threadsById: buildThreadsById([
+        makeThread({
+          id: parentThreadId,
+          childThreadIds: [childThreadId],
+        }),
+        makeThread({
+          id: childThreadId,
+          projectId: ProjectId.makeUnsafe("project-1"),
+          parentThreadId,
+          title: "Child thread",
+        }),
+      ]),
     };
 
     const selected = selectThreadsByIds([

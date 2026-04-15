@@ -102,15 +102,20 @@ export function buildSidebarThreadSummary(
   designSlice: ThreadDesignSlice | undefined,
 ): SidebarThreadSummary {
   const pendingRequests = sessionSlice?.pendingRequests ?? [];
-  const pendingApprovals = pendingRequests.some(
-    (request) => request.type === "approval" && request.status === "pending",
-  );
-  const pendingUserInputs = pendingRequests.some(
-    (request) =>
-      request.status === "pending" &&
-      request.type !== "approval" &&
-      request.type !== "design-option",
-  );
+  let pendingApprovals = false;
+  let pendingUserInputs = false;
+  for (const request of pendingRequests) {
+    if (request.status !== "pending") {
+      continue;
+    }
+    if (request.type === "approval") {
+      pendingApprovals = true;
+      continue;
+    }
+    if (request.type !== "design-option") {
+      pendingUserInputs = true;
+    }
+  }
   const designChoice = hasPendingDesignChoice(designSlice);
   const latestTurn = sessionSlice?.latestTurn ?? null;
   const proposedPlan = hasActionableProposedPlan(

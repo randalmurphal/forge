@@ -251,7 +251,8 @@ function ChatThreadRouteView() {
     select: (params) => ThreadId.makeUnsafe(params.threadId),
   });
   const search = Route.useSearch();
-  const threadExists = useStore((store) => store.threads.some((thread) => thread.id === threadId));
+  const thread = useThreadById(threadId);
+  const threadExists = thread !== undefined;
   const draftThreadExists = useComposerDraftStore((store) =>
     Object.hasOwn(store.draftThreadsByThreadId, threadId),
   );
@@ -262,7 +263,6 @@ function ChatThreadRouteView() {
   const shouldUseDiffSheet = useMediaQuery(DIFF_INLINE_LAYOUT_MEDIA_QUERY);
 
   // Read thread to determine interaction mode and design artifact availability
-  const thread = useThreadById(threadId);
   const threadDesignSlice = useThreadDesign(threadId);
   const isDesignMode = thread?.interactionMode === "design";
   const hasDesignArtifacts =
