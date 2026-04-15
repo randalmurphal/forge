@@ -148,6 +148,8 @@ describe("OrchestrationEngine", () => {
       Layer.provide(
         Layer.succeed(ProjectionSnapshotQuery, {
           getSnapshot: () => Effect.succeed(projectionSnapshot),
+          getClientSnapshot: () => Effect.die("unexpected getClientSnapshot"),
+          getThreadDetail: () => Effect.succeed(Option.none()),
           getCommandOutput: () => Effect.succeed(Option.none()),
           getSubagentActivityFeed: () => Effect.die("unexpected getSubagentActivityFeed"),
           getCounts: () => Effect.succeed({ projectCount: 1, threadCount: 1 }),

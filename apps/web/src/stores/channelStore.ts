@@ -403,7 +403,7 @@ export function threadChannelQueryOptions(input: {
         throw new Error("Thread channel is unavailable.");
       }
 
-      const snapshot = await getWsRpcClient().orchestration.getSnapshot();
+      const snapshot = await getWsRpcClient().orchestration.getClientSnapshot();
       return findThreadChannel(snapshot, {
         threadId: input.threadId,
         ...(input.phaseRunId === undefined ? {} : { phaseRunId: input.phaseRunId }),

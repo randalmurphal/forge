@@ -22,6 +22,8 @@ export const ForgeSessionType = Schema.Literals(["agent", "workflow", "chat"]);
 
 export const ORCHESTRATION_WS_METHODS = {
   getSnapshot: "orchestration.getSnapshot",
+  getClientSnapshot: "orchestration.getClientSnapshot",
+  getThreadDetail: "orchestration.getThreadDetail",
   dispatchCommand: "orchestration.dispatchCommand",
   getTurnDiff: "orchestration.getTurnDiff",
   getFullThreadDiff: "orchestration.getFullThreadDiff",
@@ -335,6 +337,50 @@ export const OrchestrationThread = Schema.Struct({
   session: Schema.NullOr(OrchestrationSession),
 });
 export type OrchestrationThread = typeof OrchestrationThread.Type;
+
+export const OrchestrationThreadSummary = Schema.Struct({
+  id: ThreadId,
+  projectId: ProjectId,
+  title: TrimmedNonEmptyString,
+  modelSelection: ModelSelection,
+  runtimeMode: RuntimeMode,
+  interactionMode: ProviderInteractionMode.pipe(
+    Schema.withDecodingDefault(() => DEFAULT_PROVIDER_INTERACTION_MODE),
+  ),
+  branch: Schema.NullOr(TrimmedNonEmptyString),
+  worktreePath: Schema.NullOr(TrimmedNonEmptyString),
+  spawnMode: Schema.optional(ThreadSpawnMode),
+  spawnBranch: Schema.optional(Schema.NullOr(TrimmedNonEmptyString)),
+  spawnWorktreePath: Schema.optional(Schema.NullOr(TrimmedNonEmptyString)),
+  latestTurn: Schema.NullOr(OrchestrationLatestTurn),
+  createdAt: IsoDateTime,
+  updatedAt: IsoDateTime,
+  pinnedAt: Schema.NullOr(IsoDateTime).pipe(Schema.withDecodingDefault(() => null)),
+  archivedAt: Schema.NullOr(IsoDateTime).pipe(Schema.withDecodingDefault(() => null)),
+  deletedAt: Schema.NullOr(IsoDateTime),
+  parentThreadId: Schema.NullOr(ThreadId).pipe(Schema.withDecodingDefault(() => null)),
+  phaseRunId: Schema.NullOr(PhaseRunId).pipe(Schema.withDecodingDefault(() => null)),
+  workflowId: Schema.NullOr(WorkflowId).pipe(Schema.withDecodingDefault(() => null)),
+  currentPhaseId: Schema.NullOr(WorkflowPhaseId).pipe(Schema.withDecodingDefault(() => null)),
+  discussionId: Schema.NullOr(TrimmedNonEmptyString).pipe(Schema.withDecodingDefault(() => null)),
+  role: Schema.NullOr(TrimmedNonEmptyString).pipe(Schema.withDecodingDefault(() => null)),
+  forkedFromThreadId: Schema.NullOr(ThreadId).pipe(Schema.withDecodingDefault(() => null)),
+  childThreadIds: Schema.Array(ThreadId).pipe(Schema.withDecodingDefault(() => [])),
+  bootstrapStatus: Schema.NullOr(TrimmedNonEmptyString).pipe(
+    Schema.withDecodingDefault(() => null),
+  ),
+  session: Schema.NullOr(OrchestrationSession),
+  latestUserMessageAt: Schema.NullOr(IsoDateTime),
+  lastSortableActivityAt: Schema.NullOr(IsoDateTime),
+  hasPendingApprovals: Schema.Boolean,
+  hasPendingUserInput: Schema.Boolean,
+  hasPendingDesignChoice: Schema.Boolean,
+  hasActionableProposedPlan: Schema.Boolean,
+});
+export type OrchestrationThreadSummary = typeof OrchestrationThreadSummary.Type;
+
+export const OrchestrationThreadDetail = OrchestrationThread;
+export type OrchestrationThreadDetail = typeof OrchestrationThreadDetail.Type;
 
 export const OrchestrationReadModelPhaseRun = Schema.Struct({
   phaseRunId: PhaseRunId,

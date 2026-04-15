@@ -3,12 +3,14 @@ import {
   type InteractiveRequest,
   type OrchestrationAgentDiffSummary,
   type OrchestrationCheckpointSummary,
+  type OrchestrationClientSnapshot,
   type OrchestrationMessage,
   type OrchestrationProposedPlan,
-  type OrchestrationReadModel,
+  type OrchestrationProject,
   type OrchestrationSession,
   type OrchestrationSessionStatus,
   type OrchestrationThread,
+  type OrchestrationThreadSummary,
   type ProviderKind,
 } from "@forgetools/contracts";
 import { resolveModelSlugForProvider } from "@forgetools/shared/model";
@@ -17,6 +19,7 @@ import type {
   ChatMessage,
   DesignPendingOptions,
   Project,
+  SidebarThreadSummary,
   Thread,
   ThreadDesignSlice,
   ThreadDiffsSlice,
@@ -266,17 +269,12 @@ export function toDesignPendingOptions(input: {
 }
 
 export function resolvePendingDesignOptions(
-  threadId: Thread["id"],
   pendingRequests: ReadonlyArray<InteractiveRequest>,
 ): DesignPendingOptions | null {
   let latestPendingRequest: InteractiveRequest | null = null;
 
   for (const request of pendingRequests) {
-    if (
-      request.threadId !== threadId ||
-      request.type !== "design-option" ||
-      request.status !== "pending"
-    ) {
+    if (request.type !== "design-option" || request.status !== "pending") {
       continue;
     }
     if (latestPendingRequest === null || request.createdAt > latestPendingRequest.createdAt) {
@@ -314,6 +312,106 @@ export interface MappedThreadAndSlices {
   designSlice: ThreadDesignSlice;
 }
 
+export function mapThreadSummaryAndSlices(
+  source: OrchestrationThreadSummary,
+  pendingRequests: ReadonlyArray<InteractiveRequest>,
+): MappedThreadAndSlices {
+  const spawnWorkspace = resolveThreadSpawnWorkspace(source);
+  const session = source.session ? mapSession(source.session) : null;
+  const filteredPendingRequests = pendingRequests
+    .filter((request) => request.status === "pending")
+    .map((request) => Object.assign({}, request));
+
+  const thread: Thread = {
+    id: source.id,
+    codexThreadId: null,
+    projectId: source.projectId,
+    parentThreadId: source.parentThreadId ?? null,
+    forkedFromThreadId: source.forkedFromThreadId ?? null,
+    phaseRunId: source.phaseRunId ?? null,
+    title: source.title,
+    modelSelection: normalizeModelSelection(source.modelSelection),
+    runtimeMode: source.runtimeMode,
+    interactionMode: source.interactionMode,
+    workflowId: source.workflowId ?? null,
+    currentPhaseId: source.currentPhaseId ?? null,
+    discussionId: source.discussionId ?? null,
+    role: source.role ?? null,
+    childThreadIds: [...(source.childThreadIds ?? [])],
+    messages: [],
+    createdAt: source.createdAt,
+    pinnedAt: source.pinnedAt,
+    archivedAt: source.archivedAt,
+    updatedAt: source.updatedAt,
+    branch: source.branch,
+    worktreePath: source.worktreePath,
+    spawnBranch: spawnWorkspace.branch,
+    spawnWorktreePath: spawnWorkspace.worktreePath,
+    activities: [],
+    ...(source.spawnMode !== undefined ? { spawnMode: source.spawnMode } : {}),
+  };
+
+  const sessionSlice: ThreadSessionSlice = {
+    session,
+    latestTurn: source.latestTurn,
+    pendingSourceProposedPlan: source.latestTurn?.sourceProposedPlan,
+    error: source.session?.lastError ?? null,
+    pendingRequests: filteredPendingRequests,
+  };
+
+  const diffsSlice: ThreadDiffsSlice = {
+    turnDiffSummaries: [],
+    agentDiffSummaries: [],
+  };
+
+  const plansSlice: ThreadPlansSlice = {
+    proposedPlans: [],
+  };
+
+  const designSlice: ThreadDesignSlice = {
+    designArtifacts: [],
+    designPendingOptions: resolvePendingDesignOptions(pendingRequests),
+  };
+
+  return { thread, sessionSlice, diffsSlice, plansSlice, designSlice };
+}
+
+export function mapSidebarThreadSummaryFromContract(
+  source: OrchestrationThreadSummary,
+  sessionSlice: ThreadSessionSlice,
+): SidebarThreadSummary {
+  return {
+    id: source.id,
+    projectId: source.projectId,
+    parentThreadId: source.parentThreadId ?? null,
+    phaseRunId: source.phaseRunId ?? null,
+    title: source.title,
+    interactionMode: source.interactionMode,
+    workflowId: source.workflowId ?? null,
+    currentPhaseId: source.currentPhaseId ?? null,
+    discussionId: source.discussionId ?? null,
+    role: source.role ?? null,
+    childThreadIds: [...(source.childThreadIds ?? [])],
+    session: sessionSlice.session,
+    createdAt: source.createdAt,
+    pinnedAt: source.pinnedAt,
+    archivedAt: source.archivedAt,
+    updatedAt: source.updatedAt,
+    latestTurn: source.latestTurn,
+    branch: source.branch,
+    worktreePath: source.worktreePath,
+    spawnBranch: source.spawnBranch ?? null,
+    spawnWorktreePath: source.spawnWorktreePath ?? null,
+    latestUserMessageAt: source.latestUserMessageAt,
+    lastSortableActivityAt: source.lastSortableActivityAt,
+    hasPendingApprovals: source.hasPendingApprovals,
+    hasPendingUserInput: source.hasPendingUserInput,
+    hasPendingDesignChoice: source.hasPendingDesignChoice,
+    hasActionableProposedPlan: source.hasActionableProposedPlan,
+    ...(source.spawnMode !== undefined ? { spawnMode: source.spawnMode } : {}),
+  };
+}
+
 export function mapThreadAndSlices(
   source: OrchestrationThread,
   pendingRequests: ReadonlyArray<InteractiveRequest>,
@@ -321,7 +419,7 @@ export function mapThreadAndSlices(
   const spawnWorkspace = resolveThreadSpawnWorkspace(source);
   const session = source.session ? mapSession(source.session) : null;
   const filteredPendingRequests = pendingRequests
-    .filter((request) => request.threadId === source.id && request.status === "pending")
+    .filter((request) => request.status === "pending")
     .map((request) => Object.assign({}, request));
 
   const thread: Thread = {
@@ -372,13 +470,15 @@ export function mapThreadAndSlices(
 
   const designSlice: ThreadDesignSlice = {
     designArtifacts: [],
-    designPendingOptions: resolvePendingDesignOptions(source.id, pendingRequests),
+    designPendingOptions: resolvePendingDesignOptions(pendingRequests),
   };
 
   return { thread, sessionSlice, diffsSlice, plansSlice, designSlice };
 }
 
-export function mapProject(project: OrchestrationReadModel["projects"][number]): Project {
+export function mapProject(
+  project: OrchestrationProject | OrchestrationClientSnapshot["projects"][number],
+): Project {
   return {
     id: project.id,
     name: project.title,

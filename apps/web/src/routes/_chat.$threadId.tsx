@@ -19,6 +19,7 @@ import {
 import { useMediaQuery } from "../hooks/useMediaQuery";
 import { useStore } from "../store";
 import { useThreadById, useThreadDesign } from "../storeSelectors";
+import { getWsRpcClient } from "../wsRpcClient";
 import { Sheet, SheetPopup } from "../components/ui/sheet";
 import { Sidebar, SidebarInset, SidebarProvider, SidebarRail } from "~/components/ui/sidebar";
 
@@ -255,6 +256,8 @@ function ChatThreadRouteView() {
     Object.hasOwn(store.draftThreadsByThreadId, threadId),
   );
   const routeThreadExists = threadExists || draftThreadExists;
+  const detailLoaded = useStore((store) => store.threadDetailLoadedById[threadId] === true);
+  const applyThreadDetailSnapshot = useStore((store) => store.applyThreadDetailSnapshot);
   const diffOpen = search.diff === "1";
   const shouldUseDiffSheet = useMediaQuery(DIFF_INLINE_LAYOUT_MEDIA_QUERY);
 
@@ -333,6 +336,24 @@ function ChatThreadRouteView() {
       return;
     }
   }, [bootstrapComplete, navigate, routeThreadExists, threadId]);
+
+  useEffect(() => {
+    if (!bootstrapComplete || !threadExists || detailLoaded) {
+      return;
+    }
+    let cancelled = false;
+    getWsRpcClient()
+      .orchestration.getThreadDetail({ threadId })
+      .then((snapshot) => {
+        if (!cancelled) {
+          applyThreadDetailSnapshot(snapshot);
+        }
+      })
+      .catch(() => undefined);
+    return () => {
+      cancelled = true;
+    };
+  }, [applyThreadDetailSnapshot, bootstrapComplete, detailLoaded, threadExists, threadId]);
 
   if (!bootstrapComplete || !routeThreadExists) {
     return null;

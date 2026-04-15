@@ -1,7 +1,14 @@
-import { type ForgeEvent, type ProjectId, type ThreadId } from "@forgetools/contracts";
-import type { OrchestrationReadModel } from "@forgetools/contracts";
+import type {
+  ForgeEvent,
+  OrchestrationClientSnapshot,
+  OrchestrationReadModel,
+  OrchestrationThreadDetailSnapshot,
+  ProjectId,
+  ThreadId,
+} from "@forgetools/contracts";
 import { create } from "zustand";
 import {
+  applyThreadDetailSnapshot,
   applyOrchestrationEvent,
   applyOrchestrationEvents,
   syncServerReadModel,
@@ -38,6 +45,7 @@ export interface AppState {
   threadPlansById: Record<string, ThreadPlansSlice>;
   threadDesignById: Record<string, ThreadDesignSlice>;
   streamingMessageByThreadId: Record<string, ChatMessage>;
+  threadDetailLoadedById: Record<string, boolean>;
 }
 
 const initialState: AppState = {
@@ -52,6 +60,7 @@ const initialState: AppState = {
   threadPlansById: {},
   threadDesignById: {},
   streamingMessageByThreadId: {},
+  threadDetailLoadedById: {},
 };
 
 // ── Re-exports ───────────────────────────────────────────────────────
@@ -180,7 +189,8 @@ export function setThreadBranch(
 // ── Zustand store ────────────────────────────────────────────────────
 
 interface AppStore extends AppState {
-  syncServerReadModel: (readModel: OrchestrationReadModel) => void;
+  syncServerReadModel: (readModel: OrchestrationClientSnapshot | OrchestrationReadModel) => void;
+  applyThreadDetailSnapshot: (snapshot: OrchestrationThreadDetailSnapshot) => void;
   applyOrchestrationEvent: (event: ForgeEvent) => void;
   applyOrchestrationEvents: (events: ReadonlyArray<ForgeEvent>) => void;
   setError: (threadId: ThreadId, error: string | null) => void;
@@ -191,6 +201,8 @@ interface AppStore extends AppState {
 export const useStore = create<AppStore>((set) => ({
   ...initialState,
   syncServerReadModel: (readModel) => set((state) => syncServerReadModel(state, readModel)),
+  applyThreadDetailSnapshot: (snapshot) =>
+    set((state) => applyThreadDetailSnapshot(state, snapshot)),
   applyOrchestrationEvent: (event) => set((state) => applyOrchestrationEvent(state, event)),
   applyOrchestrationEvents: (events) => set((state) => applyOrchestrationEvents(state, events)),
   setError: (threadId, error) => set((state) => setError(state, threadId, error)),

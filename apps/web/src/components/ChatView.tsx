@@ -3391,7 +3391,7 @@ export default function ChatView({ threadId }: ChatViewProps) {
             )
           : await waitForServerThreadMatch(threadIdForSend, () => true, 3_000);
         if (!materialized) {
-          const snapshot = await api.orchestration.getSnapshot().catch(() => null);
+          const snapshot = await api.orchestration.getClientSnapshot().catch(() => null);
           if (snapshot) {
             syncServerReadModel(snapshot);
             clearPromotedDraftThread(threadIdForSend);

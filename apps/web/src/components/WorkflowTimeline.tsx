@@ -43,6 +43,7 @@ const PHASE_STATUS_COLORS = {
   running: "var(--feature-phase-running)",
   skipped: "var(--feature-phase-skipped)",
 } as const;
+const EMPTY_THREAD_IDS: ThreadId[] = [];
 
 function workflowPhaseRunsQueryOptions(threadId: ThreadId) {
   return queryOptions({
@@ -106,6 +107,8 @@ export function WorkflowTimeline({ threadId }: { threadId: ThreadId }) {
   const [expandedPhaseRunIds, setExpandedPhaseRunIds] = useState<Set<string>>(() => new Set());
   const navigate = useNavigate();
   const thread = useThreadById(threadId);
+  const applyThreadDetailSnapshot = useStore((store) => store.applyThreadDetailSnapshot);
+  const threadDetailLoadedById = useStore((store) => store.threadDetailLoadedById);
   const project = useProjectById(thread?.projectId ?? null);
   const workflowRuntime = useWorkflowStore((state) => state.runtimeByThreadId[threadId] ?? null);
   const childThreads = useThreadsByIds(thread?.childThreadIds);
@@ -117,11 +120,52 @@ export function WorkflowTimeline({ threadId }: { threadId: ThreadId }) {
     ...workflowPhaseRunsQueryOptions(threadId),
     enabled: thread?.workflowId != null,
   });
+  const childThreadIds = thread?.childThreadIds ?? EMPTY_THREAD_IDS;
+  const childThreadDetailStateKey = useMemo(
+    () =>
+      childThreadIds
+        .map((childThreadId) => `${childThreadId}:${threadDetailLoadedById[childThreadId] ? 1 : 0}`)
+        .join("|"),
+    [childThreadIds, threadDetailLoadedById],
+  );
+  const missingChildThreadIds = useMemo(() => {
+    if (childThreadDetailStateKey.length === 0) {
+      return [];
+    }
+    return childThreadDetailStateKey.split("|").flatMap((entry) => {
+      const separatorIndex = entry.lastIndexOf(":");
+      const childThreadId = entry.slice(0, separatorIndex) as ThreadId;
+      const loadedFlag = entry.slice(separatorIndex + 1);
+      return loadedFlag === "1" ? [] : [childThreadId];
+    });
+  }, [childThreadDetailStateKey]);
 
   const phasesById = useMemo(
     () => new Map((workflowQuery.data?.phases ?? []).map((phase) => [phase.id, phase] as const)),
     [workflowQuery.data],
   );
+
+  useEffect(() => {
+    if (missingChildThreadIds.length === 0) {
+      return;
+    }
+    let cancelled = false;
+    void Promise.all(
+      missingChildThreadIds.map((childThreadId) =>
+        getWsRpcClient()
+          .orchestration.getThreadDetail({ threadId: childThreadId })
+          .then((snapshot) => {
+            if (!cancelled) {
+              applyThreadDetailSnapshot(snapshot);
+            }
+          })
+          .catch(() => undefined),
+      ),
+    );
+    return () => {
+      cancelled = true;
+    };
+  }, [applyThreadDetailSnapshot, missingChildThreadIds]);
 
   const phaseOutputQueries = useQueries({
     queries: (phaseRunsQuery.data ?? []).map((phaseRun) => {

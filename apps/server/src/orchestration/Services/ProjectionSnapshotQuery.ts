@@ -7,6 +7,7 @@
  * @module ProjectionSnapshotQuery
  */
 import type {
+  OrchestrationClientSnapshot,
   OrchestrationGetCommandOutputInput,
   OrchestrationGetCommandOutputResult,
   OrchestrationGetSubagentActivityFeedInput,
@@ -14,6 +15,7 @@ import type {
   OrchestrationCheckpointSummary,
   OrchestrationProject,
   OrchestrationReadModel,
+  OrchestrationThreadDetailSnapshot,
   ProjectId,
   ThreadId,
 } from "@forgetools/contracts";
@@ -47,6 +49,21 @@ export interface ProjectionSnapshotQueryShape {
    * projector cursor state.
    */
   readonly getSnapshot: () => Effect.Effect<OrchestrationReadModel, ProjectionRepositoryError>;
+
+  /**
+   * Read the lightweight client bootstrap snapshot without hydrating full thread history.
+   */
+  readonly getClientSnapshot: () => Effect.Effect<
+    OrchestrationClientSnapshot,
+    ProjectionRepositoryError
+  >;
+
+  /**
+   * Read the full detail payload for a single thread on demand.
+   */
+  readonly getThreadDetail: (
+    threadId: ThreadId,
+  ) => Effect.Effect<Option.Option<OrchestrationThreadDetailSnapshot>, ProjectionRepositoryError>;
 
   /**
    * Resolve the full command output for one command activity on demand.

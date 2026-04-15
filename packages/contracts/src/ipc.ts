@@ -39,18 +39,21 @@ import type {
   TerminalSessionSnapshot,
   TerminalWriteInput,
 } from "./terminal";
+import type { ThreadId } from "./baseSchemas";
 import type { ServerUpsertKeybindingInput } from "./server";
 import type {
   ClientOrchestrationCommand,
   OrchestrationGetCommandOutputInput,
   OrchestrationGetCommandOutputResult,
   ForgeEvent,
+  OrchestrationClientSnapshot,
   OrchestrationGetSubagentActivityFeedInput,
   OrchestrationGetSubagentActivityFeedResult,
   OrchestrationGetFullThreadDiffInput,
   OrchestrationGetFullThreadDiffResult,
   OrchestrationGetFullThreadAgentDiffInput,
   OrchestrationGetFullThreadAgentDiffResult,
+  OrchestrationThreadDetailSnapshot,
   OrchestrationGetTurnAgentDiffInput,
   OrchestrationGetTurnAgentDiffResult,
   OrchestrationGetTurnDiffInput,
@@ -223,6 +226,8 @@ export interface NativeApi {
   };
   orchestration: {
     getSnapshot: () => Promise<OrchestrationReadModel>;
+    getClientSnapshot: () => Promise<OrchestrationClientSnapshot>;
+    getThreadDetail: (input: { threadId: ThreadId }) => Promise<OrchestrationThreadDetailSnapshot>;
     dispatchCommand: (command: ClientOrchestrationCommand) => Promise<{ sequence: number }>;
     getTurnDiff: (input: OrchestrationGetTurnDiffInput) => Promise<OrchestrationGetTurnDiffResult>;
     getFullThreadDiff: (

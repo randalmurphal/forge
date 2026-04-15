@@ -966,6 +966,44 @@ const WsRpcLayer = WsRpcGroup.toLayer(
           ),
           { "rpc.aggregate": "orchestration" },
         ),
+      [ORCHESTRATION_WS_METHODS.getClientSnapshot]: (_input) =>
+        observeRpcEffect(
+          ORCHESTRATION_WS_METHODS.getClientSnapshot,
+          projectionSnapshotQuery.getClientSnapshot().pipe(
+            Effect.mapError(
+              (cause) =>
+                new OrchestrationGetSnapshotError({
+                  message: "Failed to load orchestration client snapshot",
+                  cause,
+                }),
+            ),
+          ),
+          { "rpc.aggregate": "orchestration" },
+        ),
+      [ORCHESTRATION_WS_METHODS.getThreadDetail]: ({ threadId }) =>
+        observeRpcEffect(
+          ORCHESTRATION_WS_METHODS.getThreadDetail,
+          projectionSnapshotQuery.getThreadDetail(threadId).pipe(
+            Effect.flatMap((threadOption) =>
+              Option.isNone(threadOption)
+                ? Effect.fail(
+                    new OrchestrationGetSnapshotError({
+                      message: `Failed to load thread detail for '${threadId}'.`,
+                    }),
+                  )
+                : Effect.succeed(threadOption.value),
+            ),
+            Effect.mapError((cause) =>
+              Schema.is(OrchestrationGetSnapshotError)(cause)
+                ? cause
+                : new OrchestrationGetSnapshotError({
+                    message: "Failed to load thread detail",
+                    cause,
+                  }),
+            ),
+          ),
+          { "rpc.aggregate": "orchestration" },
+        ),
       [ORCHESTRATION_WS_METHODS.getCommandOutput]: (input) =>
         observeRpcEffect(
           ORCHESTRATION_WS_METHODS.getCommandOutput,

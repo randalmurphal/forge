@@ -13,7 +13,11 @@ import {
 import { ProviderApprovalDecision } from "../providerSchemas";
 import { ClientOrchestrationCommand } from "./commands";
 import { ForgeEvent } from "./events";
-import { OrchestrationReadModel } from "./readModels";
+import {
+  OrchestrationClientSnapshot,
+  OrchestrationReadModel,
+  OrchestrationThreadDetailSnapshot,
+} from "./readModels";
 import {
   OrchestrationAgentDiffCoverage,
   OrchestrationAgentDiffSource,
@@ -90,6 +94,18 @@ export const OrchestrationGetSnapshotInput = Schema.Struct({});
 export type OrchestrationGetSnapshotInput = typeof OrchestrationGetSnapshotInput.Type;
 const OrchestrationGetSnapshotResult = OrchestrationReadModel;
 export type OrchestrationGetSnapshotResult = typeof OrchestrationGetSnapshotResult.Type;
+
+export const OrchestrationGetClientSnapshotInput = Schema.Struct({});
+export type OrchestrationGetClientSnapshotInput = typeof OrchestrationGetClientSnapshotInput.Type;
+const OrchestrationGetClientSnapshotResult = OrchestrationClientSnapshot;
+export type OrchestrationGetClientSnapshotResult = typeof OrchestrationGetClientSnapshotResult.Type;
+
+export const OrchestrationGetThreadDetailInput = Schema.Struct({
+  threadId: ThreadId,
+});
+export type OrchestrationGetThreadDetailInput = typeof OrchestrationGetThreadDetailInput.Type;
+const OrchestrationGetThreadDetailResult = OrchestrationThreadDetailSnapshot;
+export type OrchestrationGetThreadDetailResult = typeof OrchestrationGetThreadDetailResult.Type;
 
 export const OrchestrationGetTurnDiffInput = TurnCountRange.mapFields(
   Struct.assign({ threadId: ThreadId }),
@@ -189,6 +205,14 @@ export const OrchestrationRpcSchemas = {
   getSnapshot: {
     input: OrchestrationGetSnapshotInput,
     output: OrchestrationGetSnapshotResult,
+  },
+  getClientSnapshot: {
+    input: OrchestrationGetClientSnapshotInput,
+    output: OrchestrationGetClientSnapshotResult,
+  },
+  getThreadDetail: {
+    input: OrchestrationGetThreadDetailInput,
+    output: OrchestrationGetThreadDetailResult,
   },
   dispatchCommand: {
     input: ClientOrchestrationCommand,

@@ -5,6 +5,7 @@ import {
   type ForgeEvent,
   InteractiveRequestId,
   MessageId,
+  type OrchestrationClientSnapshot,
   ProjectId,
   ThreadId,
   TurnId,
@@ -118,6 +119,7 @@ const EMPTY_SLICES = {
   threadPlansById: {},
   threadDesignById: {},
   streamingMessageByThreadId: {},
+  threadDetailLoadedById: {},
 } as const;
 
 function makeState(thread: Thread, sliceOverrides: SliceOverrides = {}): AppState {
@@ -142,6 +144,7 @@ function makeState(thread: Thread, sliceOverrides: SliceOverrides = {}): AppStat
     threadIdsByProjectId,
     bootstrapComplete: true,
     streamingMessageByThreadId: {},
+    threadDetailLoadedById: {},
     ...makeSlices(thread.id, sliceOverrides),
   };
 }
@@ -238,6 +241,76 @@ function makeReadModelThread(overrides: Partial<OrchestrationReadModel["threads"
 }
 
 function makeReadModel(thread: OrchestrationReadModel["threads"][number]): OrchestrationReadModel {
+  return {
+    snapshotSequence: 1,
+    updatedAt: "2026-02-27T00:00:00.000Z",
+    projects: [
+      {
+        id: ProjectId.makeUnsafe("project-1"),
+        title: "Project",
+        workspaceRoot: "/tmp/project",
+        defaultModelSelection: {
+          provider: "codex",
+          model: "gpt-5.3-codex",
+        },
+        createdAt: "2026-02-27T00:00:00.000Z",
+        updatedAt: "2026-02-27T00:00:00.000Z",
+        deletedAt: null,
+        scripts: [],
+      },
+    ],
+    threads: [thread],
+    phaseRuns: [],
+    channels: [],
+    pendingRequests: [],
+    workflows: [],
+  };
+}
+
+function makeClientSnapshotThread(
+  overrides: Partial<OrchestrationClientSnapshot["threads"][number]>,
+): OrchestrationClientSnapshot["threads"][number] {
+  return {
+    id: ThreadId.makeUnsafe("thread-1"),
+    projectId: ProjectId.makeUnsafe("project-1"),
+    title: "Thread",
+    modelSelection: {
+      provider: "codex",
+      model: "gpt-5.3-codex",
+    },
+    runtimeMode: DEFAULT_RUNTIME_MODE,
+    interactionMode: DEFAULT_INTERACTION_MODE,
+    branch: null,
+    worktreePath: null,
+    latestTurn: null,
+    createdAt: "2026-02-27T00:00:00.000Z",
+    updatedAt: "2026-02-27T00:00:00.000Z",
+    archivedAt: null,
+    deletedAt: null,
+    parentThreadId: null,
+    phaseRunId: null,
+    workflowId: null,
+    currentPhaseId: null,
+    discussionId: null,
+    role: null,
+    childThreadIds: [],
+    bootstrapStatus: null,
+    forkedFromThreadId: null,
+    session: null,
+    latestUserMessageAt: null,
+    lastSortableActivityAt: "2026-02-27T00:00:00.000Z",
+    hasPendingApprovals: false,
+    hasPendingUserInput: false,
+    hasPendingDesignChoice: false,
+    hasActionableProposedPlan: false,
+    ...overrides,
+    pinnedAt: overrides.pinnedAt ?? null,
+  } satisfies OrchestrationClientSnapshot["threads"][number];
+}
+
+function makeClientSnapshot(
+  thread: OrchestrationClientSnapshot["threads"][number],
+): OrchestrationClientSnapshot {
   return {
     snapshotSequence: 1,
     updatedAt: "2026-02-27T00:00:00.000Z",
@@ -506,6 +579,230 @@ describe("store read model sync", () => {
     const next = syncServerReadModel(initialState, readModel);
 
     expect(next.projects.map((project) => project.id)).toEqual([project1, project2, project3]);
+  });
+
+  it("preserves hydrated detail when syncing a client snapshot summary", () => {
+    const threadId = ThreadId.makeUnsafe("thread-1");
+    const hydratedThread = makeThread({
+      id: threadId,
+      title: "Hydrated title",
+      messages: [
+        {
+          id: MessageId.makeUnsafe("message-hydrated"),
+          role: "assistant",
+          text: "hydrated message",
+          turnId: null,
+          createdAt: "2026-02-27T00:01:00.000Z",
+          completedAt: "2026-02-27T00:01:00.000Z",
+          streaming: false,
+        },
+      ],
+      activities: [
+        {
+          id: EventId.makeUnsafe("activity-hydrated"),
+          tone: "info",
+          kind: "note",
+          summary: "hydrated activity",
+          payload: {},
+          turnId: null,
+          createdAt: "2026-02-27T00:02:00.000Z",
+        },
+      ],
+    });
+    const hydratedWorkLog = bootstrapWorkLogProjectionState(hydratedThread.activities, {
+      messages: hydratedThread.messages,
+      latestTurn: null,
+    });
+    const initialState: AppState = {
+      ...makeState(hydratedThread, {
+        diffs: {
+          turnDiffSummaries: [
+            {
+              turnId: TurnId.makeUnsafe("turn-hydrated"),
+              completedAt: "2026-02-27T00:03:00.000Z",
+              provenance: "workspace",
+              status: "ready",
+              files: [],
+            },
+          ],
+        },
+        plans: {
+          proposedPlans: [
+            {
+              id: "plan-hydrated",
+              turnId: null,
+              planMarkdown: "hydrated plan",
+              implementedAt: null,
+              implementationThreadId: null,
+              createdAt: "2026-02-27T00:04:00.000Z",
+              updatedAt: "2026-02-27T00:04:00.000Z",
+            },
+          ],
+        },
+      }),
+      threadWorkLogById: {
+        [threadId]: hydratedWorkLog,
+      },
+      threadDetailLoadedById: {
+        [threadId]: true,
+      },
+    };
+
+    const next = syncServerReadModel(
+      initialState,
+      makeClientSnapshot(
+        makeClientSnapshotThread({
+          id: threadId,
+          title: "Server summary title",
+          updatedAt: "2026-02-27T00:05:00.000Z",
+        }),
+      ),
+    );
+
+    expect(next.threads[0]?.title).toBe("Server summary title");
+    expect(next.threads[0]?.messages).toEqual(hydratedThread.messages);
+    expect(next.threads[0]?.activities).toEqual(hydratedThread.activities);
+    expect(next.threadPlansById[threadId]).toBe(initialState.threadPlansById[threadId]);
+    expect(next.threadDiffsById[threadId]).toBe(initialState.threadDiffsById[threadId]);
+    expect(next.threadWorkLogById?.[threadId]).toBe(hydratedWorkLog);
+    expect(next.threadDetailLoadedById[threadId]).toBe(true);
+  });
+
+  it("replaces stale hydrated detail when syncing a full snapshot", () => {
+    const threadId = ThreadId.makeUnsafe("thread-1");
+    const staleThread = makeThread({
+      id: threadId,
+      title: "Stale title",
+      messages: [
+        {
+          id: MessageId.makeUnsafe("message-stale"),
+          role: "assistant",
+          text: "stale message",
+          turnId: null,
+          createdAt: "2026-02-27T00:01:00.000Z",
+          completedAt: "2026-02-27T00:01:00.000Z",
+          streaming: false,
+        },
+      ],
+      activities: [
+        {
+          id: EventId.makeUnsafe("activity-stale"),
+          tone: "info",
+          kind: "note",
+          summary: "stale activity",
+          payload: {},
+          turnId: null,
+          createdAt: "2026-02-27T00:02:00.000Z",
+        },
+      ],
+    });
+    const staleWorkLog = bootstrapWorkLogProjectionState(staleThread.activities, {
+      messages: staleThread.messages,
+      latestTurn: null,
+    });
+    const initialState: AppState = {
+      ...makeState(staleThread, {
+        diffs: {
+          turnDiffSummaries: [
+            {
+              turnId: TurnId.makeUnsafe("turn-stale"),
+              completedAt: "2026-02-27T00:03:00.000Z",
+              provenance: "workspace",
+              status: "ready",
+              files: [],
+            },
+          ],
+        },
+        plans: {
+          proposedPlans: [
+            {
+              id: "plan-stale",
+              turnId: null,
+              planMarkdown: "stale plan",
+              implementedAt: null,
+              implementationThreadId: null,
+              createdAt: "2026-02-27T00:04:00.000Z",
+              updatedAt: "2026-02-27T00:04:00.000Z",
+            },
+          ],
+        },
+      }),
+      threadWorkLogById: {
+        [threadId]: staleWorkLog,
+      },
+      threadDetailLoadedById: {
+        [threadId]: true,
+      },
+    };
+
+    const next = syncServerReadModel(
+      initialState,
+      makeReadModel(
+        makeReadModelThread({
+          id: threadId,
+          title: "Fresh server title",
+          updatedAt: "2026-02-27T00:06:00.000Z",
+          messages: [
+            {
+              id: MessageId.makeUnsafe("message-fresh"),
+              role: "assistant",
+              text: "fresh message",
+              turnId: null,
+              streaming: false,
+              createdAt: "2026-02-27T00:05:00.000Z",
+              updatedAt: "2026-02-27T00:05:00.000Z",
+            },
+          ],
+          activities: [
+            {
+              id: EventId.makeUnsafe("activity-fresh"),
+              tone: "tool",
+              kind: "command",
+              summary: "fresh activity",
+              payload: {},
+              turnId: null,
+              createdAt: "2026-02-27T00:05:30.000Z",
+            },
+          ],
+          proposedPlans: [
+            {
+              id: "plan-fresh",
+              turnId: null,
+              planMarkdown: "fresh plan",
+              implementedAt: null,
+              implementationThreadId: null,
+              createdAt: "2026-02-27T00:05:45.000Z",
+              updatedAt: "2026-02-27T00:05:45.000Z",
+            },
+          ],
+          checkpoints: [
+            {
+              turnId: TurnId.makeUnsafe("turn-fresh"),
+              checkpointTurnCount: 1,
+              checkpointRef: CheckpointRef.makeUnsafe("checkpoint-fresh"),
+              status: "ready",
+              files: [],
+              assistantMessageId: null,
+              completedAt: "2026-02-27T00:05:50.000Z",
+            },
+          ],
+        }),
+      ),
+    );
+
+    expect(next.threads[0]?.title).toBe("Fresh server title");
+    expect(next.threads[0]?.messages.map((message) => message.text)).toEqual(["fresh message"]);
+    expect(next.threads[0]?.activities.map((activity) => activity.summary)).toEqual([
+      "fresh activity",
+    ]);
+    expect(next.threadPlansById[threadId]?.proposedPlans.map((plan) => plan.planMarkdown)).toEqual([
+      "fresh plan",
+    ]);
+    expect(next.threadDiffsById[threadId]?.turnDiffSummaries.map((diff) => diff.turnId)).toEqual([
+      TurnId.makeUnsafe("turn-fresh"),
+    ]);
+    expect(next.threadWorkLogById?.[threadId]).not.toBe(staleWorkLog);
+    expect(next.threadDetailLoadedById[threadId]).toBe(true);
   });
 });
 

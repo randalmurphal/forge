@@ -83,6 +83,8 @@ describe("CheckpointDiffQueryLive", () => {
         Layer.succeed(ProjectionSnapshotQuery, {
           getSnapshot: () =>
             Effect.die("CheckpointDiffQuery should not request the full orchestration snapshot"),
+          getClientSnapshot: () => Effect.die("unexpected getClientSnapshot"),
+          getThreadDetail: () => Effect.succeed(Option.none()),
           getCommandOutput: () => Effect.succeed(Option.none()),
           getSubagentActivityFeed: () => Effect.die("unexpected getSubagentActivityFeed"),
           getCounts: () => Effect.succeed({ projectCount: 0, threadCount: 0 }),
@@ -140,6 +142,8 @@ describe("CheckpointDiffQueryLive", () => {
         Layer.succeed(ProjectionSnapshotQuery, {
           getSnapshot: () =>
             Effect.die("CheckpointDiffQuery should not request the full orchestration snapshot"),
+          getClientSnapshot: () => Effect.die("unexpected getClientSnapshot"),
+          getThreadDetail: () => Effect.succeed(Option.none()),
           getCommandOutput: () => Effect.succeed(Option.none()),
           getSubagentActivityFeed: () => Effect.die("unexpected getSubagentActivityFeed"),
           getCounts: () => Effect.succeed({ projectCount: 0, threadCount: 0 }),

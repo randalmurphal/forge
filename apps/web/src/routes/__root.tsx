@@ -575,7 +575,7 @@ function EventRouter() {
       }
 
       try {
-        const snapshot = await api.orchestration.getSnapshot();
+        const snapshot = await api.orchestration.getClientSnapshot();
         if (!disposed) {
           syncServerReadModel(snapshot);
           reconcileSnapshotDerivedState();

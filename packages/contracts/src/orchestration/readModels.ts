@@ -20,6 +20,8 @@ import {
   OrchestrationProject,
   OrchestrationReadModelPhaseRun,
   OrchestrationReadModelWorkflow,
+  OrchestrationThreadDetail,
+  OrchestrationThreadSummary,
   OrchestrationThread,
   ProjectScript,
   RuntimeMode,
@@ -197,3 +199,26 @@ export const ForgeClientSnapshot = Schema.Struct({
   updatedAt: IsoDateTime,
 });
 export type ForgeClientSnapshot = typeof ForgeClientSnapshot.Type;
+
+export const OrchestrationClientSnapshot = Schema.Struct({
+  snapshotSequence: NonNegativeInt,
+  projects: Schema.Array(OrchestrationProject),
+  threads: Schema.Array(OrchestrationThreadSummary),
+  phaseRuns: Schema.Array(OrchestrationReadModelPhaseRun).pipe(
+    Schema.withDecodingDefault(() => []),
+  ),
+  channels: Schema.Array(Channel).pipe(Schema.withDecodingDefault(() => [])),
+  pendingRequests: Schema.Array(InteractiveRequest).pipe(Schema.withDecodingDefault(() => [])),
+  workflows: Schema.Array(OrchestrationReadModelWorkflow).pipe(
+    Schema.withDecodingDefault(() => []),
+  ),
+  updatedAt: IsoDateTime,
+});
+export type OrchestrationClientSnapshot = typeof OrchestrationClientSnapshot.Type;
+
+export const OrchestrationThreadDetailSnapshot = Schema.Struct({
+  snapshotSequence: NonNegativeInt,
+  thread: OrchestrationThreadDetail,
+  updatedAt: IsoDateTime,
+});
+export type OrchestrationThreadDetailSnapshot = typeof OrchestrationThreadDetailSnapshot.Type;

@@ -64,15 +64,20 @@ export function bootstrapWorkLogProjectionState(
   activities: ReadonlyArray<OrchestrationThreadActivity>,
   options?: Pick<DeriveWorkLogEntriesOptions, "messages" | "latestTurn">,
 ): WorkLogProjectionState {
-  let state = createEmptyWorkLogProjectionState(options?.latestTurn ?? null);
+  const state = createEmptyWorkLogProjectionState(options?.latestTurn ?? null);
   const orderedActivities = [...activities].toSorted(compareActivitiesByOrder);
   for (const activity of orderedActivities) {
-    state = applyActivityToWorkLogProjectionState(state, activity);
+    const synthesizedActivities = synthesizeLifecycleActivities(state, activity);
+    ingestActivity(state, activity);
+    for (const synthesizedActivity of synthesizedActivities) {
+      ingestActivity(state, synthesizedActivity);
+    }
   }
   for (const message of options?.messages ?? []) {
-    state = applyMessageToWorkLogProjectionState(state, message);
+    ingestMessage(state, message);
   }
-  return applyLatestTurnToWorkLogProjectionState(state, options?.latestTurn ?? null);
+  ingestLatestTurn(state, options?.latestTurn ?? null);
+  return state;
 }
 
 export function deriveProjectedWorkLogEntries(
@@ -105,16 +110,7 @@ export function applyMessageToWorkLogProjectionState(
     return previousState;
   }
   const state = cloneProjectionState(previousState);
-  for (const candidate of state.codexCandidatesByToolCallId.values()) {
-    if (
-      candidate.backgrounded ||
-      candidate.turnId !== message.turnId ||
-      !isIsoWithinCandidateLifetime(message.createdAt, candidate)
-    ) {
-      continue;
-    }
-    markCodexBackgroundCandidate(state, candidate.toolCallId, "assistant message");
-  }
+  ingestMessage(state, message);
   return state;
 }
 
@@ -123,28 +119,7 @@ export function applyLatestTurnToWorkLogProjectionState(
   latestTurn: LatestTurnTiming | null,
 ): WorkLogProjectionState {
   const state = cloneProjectionState(previousState);
-  state.latestTurn = latestTurn;
-  if (!latestTurn?.turnId || !latestTurn.startedAt) {
-    return state;
-  }
-
-  for (const candidate of state.codexCandidatesByToolCallId.values()) {
-    if (candidate.backgrounded || !candidate.turnId) {
-      continue;
-    }
-    if (candidate.turnId === latestTurn.turnId) {
-      if (
-        latestTurn.completedAt &&
-        isIsoWithinCandidateLifetime(latestTurn.completedAt, candidate)
-      ) {
-        markCodexBackgroundCandidate(state, candidate.toolCallId, "turn completed");
-      }
-      continue;
-    }
-    if (isIsoWithinCandidateLifetime(latestTurn.startedAt, candidate)) {
-      markCodexBackgroundCandidate(state, candidate.toolCallId, "later turn started");
-    }
-  }
+  ingestLatestTurn(state, latestTurn);
   return state;
 }
 
@@ -190,6 +165,50 @@ function scopeProjectedEntries(
       scope === "latest-turn" && latestTurnId ? entry.turnId === latestTurnId : true,
     )
     .toSorted(compareProjectedEntries);
+}
+
+function ingestMessage(state: WorkLogProjectionState, message: ChatMessage): void {
+  if (message.role !== "assistant" || !message.turnId) {
+    return;
+  }
+  for (const candidate of state.codexCandidatesByToolCallId.values()) {
+    if (
+      candidate.backgrounded ||
+      candidate.turnId !== message.turnId ||
+      !isIsoWithinCandidateLifetime(message.createdAt, candidate)
+    ) {
+      continue;
+    }
+    markCodexBackgroundCandidate(state, candidate.toolCallId, "assistant message");
+  }
+}
+
+function ingestLatestTurn(
+  state: WorkLogProjectionState,
+  latestTurn: LatestTurnTiming | null,
+): void {
+  state.latestTurn = latestTurn;
+  if (!latestTurn?.turnId || !latestTurn.startedAt) {
+    return;
+  }
+
+  for (const candidate of state.codexCandidatesByToolCallId.values()) {
+    if (candidate.backgrounded || !candidate.turnId) {
+      continue;
+    }
+    if (candidate.turnId === latestTurn.turnId) {
+      if (
+        latestTurn.completedAt &&
+        isIsoWithinCandidateLifetime(latestTurn.completedAt, candidate)
+      ) {
+        markCodexBackgroundCandidate(state, candidate.toolCallId, "turn completed");
+      }
+      continue;
+    }
+    if (isIsoWithinCandidateLifetime(latestTurn.startedAt, candidate)) {
+      markCodexBackgroundCandidate(state, candidate.toolCallId, "later turn started");
+    }
+  }
 }
 
 function ingestActivity(

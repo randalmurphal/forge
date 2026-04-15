@@ -98,6 +98,8 @@ describe("AgentDiffQueryLive", () => {
 
     const projectionSnapshotQuery: ProjectionSnapshotQueryShape = {
       getSnapshot: () => Effect.die("unused"),
+      getClientSnapshot: () => Effect.die("unused"),
+      getThreadDetail: () => Effect.succeed(Option.none()),
       getCommandOutput: () => Effect.succeed(Option.none()),
       getSubagentActivityFeed: () => Effect.die("unexpected getSubagentActivityFeed"),
       getCounts: () => Effect.succeed({ projectCount: 0, threadCount: 0 }),
@@ -223,6 +225,8 @@ describe("AgentDiffQueryLive", () => {
 
     const projectionSnapshotQuery: ProjectionSnapshotQueryShape = {
       getSnapshot: () => Effect.die("unused"),
+      getClientSnapshot: () => Effect.die("unused"),
+      getThreadDetail: () => Effect.succeed(Option.none()),
       getCommandOutput: () => Effect.succeed(Option.none()),
       getSubagentActivityFeed: () => Effect.die("unexpected getSubagentActivityFeed"),
       getCounts: () => Effect.succeed({ projectCount: 0, threadCount: 0 }),

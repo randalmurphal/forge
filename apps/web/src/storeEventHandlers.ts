@@ -1,6 +1,8 @@
 import {
   type ForgeEvent,
+  type OrchestrationClientSnapshot,
   type OrchestrationReadModel,
+  type OrchestrationThreadDetailSnapshot,
   type OrchestrationThread,
   SessionArchivedPayload,
   SessionCancelledPayload,
@@ -25,6 +27,8 @@ import {
   mapProposedPlan,
   mapSession,
   mapThreadAndSlices,
+  mapThreadSummaryAndSlices,
+  mapSidebarThreadSummaryFromContract,
   mapTurnDiffSummary,
   normalizeModelSelection,
   mapProjectScripts,
@@ -32,11 +36,7 @@ import {
   toLegacySessionStatus,
   toOrchestrationSessionStatusFromForgeStatus,
 } from "./storeMappers";
-import {
-  buildSidebarThreadSummary,
-  buildSidebarThreadsById,
-  sidebarThreadSummariesEqual,
-} from "./storeSidebar";
+import { buildSidebarThreadSummary, sidebarThreadSummariesEqual } from "./storeSidebar";
 import {
   applyActivityToWorkLogProjectionState,
   applyLatestTurnToWorkLogProjectionState,
@@ -153,13 +153,32 @@ function updateDesignSlice(
 function rebuildSidebarForThread(state: AppState, threadId: string): AppState {
   const thread = state.threads.find((t) => t.id === threadId);
   if (!thread) return state;
-  const nextSummary = buildSidebarThreadSummary(
+  const computedSummary = buildSidebarThreadSummary(
     thread,
     state.threadSessionById[threadId],
     state.threadPlansById[threadId],
     state.threadDesignById[threadId],
   );
   const previousSummary = state.sidebarThreadsById[threadId];
+  const detailLoaded = state.threadDetailLoadedById[threadId] === true;
+  const hasClientMessages = thread.messages.length > 0;
+  const hasClientPlans = (state.threadPlansById[threadId]?.proposedPlans.length ?? 0) > 0;
+  const nextSummary =
+    !detailLoaded && previousSummary
+      ? {
+          ...computedSummary,
+          latestUserMessageAt: hasClientMessages
+            ? computedSummary.latestUserMessageAt
+            : previousSummary.latestUserMessageAt,
+          lastSortableActivityAt:
+            hasClientMessages || hasClientPlans
+              ? computedSummary.lastSortableActivityAt
+              : previousSummary.lastSortableActivityAt,
+          hasActionableProposedPlan: hasClientPlans
+            ? computedSummary.hasActionableProposedPlan
+            : previousSummary.hasActionableProposedPlan,
+        }
+      : computedSummary;
   if (sidebarThreadSummariesEqual(previousSummary, nextSummary)) {
     return state;
   }
@@ -167,6 +186,71 @@ function rebuildSidebarForThread(state: AppState, threadId: string): AppState {
     ...state,
     sidebarThreadsById: { ...state.sidebarThreadsById, [threadId]: nextSummary },
   };
+}
+
+function compareMessages(left: ChatMessage, right: ChatMessage): number {
+  if (left.sequence !== undefined && right.sequence !== undefined) {
+    if (left.sequence !== right.sequence) {
+      return left.sequence - right.sequence;
+    }
+  } else if (left.sequence !== undefined) {
+    return 1;
+  } else if (right.sequence !== undefined) {
+    return -1;
+  }
+  return left.createdAt.localeCompare(right.createdAt) || left.id.localeCompare(right.id);
+}
+
+function mergeMessages(
+  existing: ReadonlyArray<ChatMessage>,
+  incoming: ReadonlyArray<ChatMessage>,
+): ChatMessage[] {
+  const byId = new Map(existing.map((message) => [message.id, message] as const));
+  for (const message of incoming) {
+    byId.set(message.id, message);
+  }
+  return [...byId.values()].toSorted(compareMessages);
+}
+
+function mergePlans(
+  existing: ReadonlyArray<ThreadPlansSlice["proposedPlans"][number]>,
+  incoming: ReadonlyArray<ThreadPlansSlice["proposedPlans"][number]>,
+): ThreadPlansSlice["proposedPlans"] {
+  const byKey = new Map(existing.map((plan) => [buildProposedPlanHistoryKey(plan), plan] as const));
+  for (const plan of incoming) {
+    byKey.set(buildProposedPlanHistoryKey(plan), plan);
+  }
+  return [...byKey.values()].toSorted(
+    (left, right) =>
+      left.updatedAt.localeCompare(right.updatedAt) || left.id.localeCompare(right.id),
+  );
+}
+
+function mergeTurnDiffSummaries(
+  existing: ReadonlyArray<ThreadDiffsSlice["turnDiffSummaries"][number]>,
+  incoming: ReadonlyArray<ThreadDiffsSlice["turnDiffSummaries"][number]>,
+): ThreadDiffsSlice["turnDiffSummaries"] {
+  const byKey = new Map(
+    existing.map((summary) => [buildTurnDiffHistoryKey(summary), summary] as const),
+  );
+  for (const summary of incoming) {
+    byKey.set(buildTurnDiffHistoryKey(summary), summary);
+  }
+  return [...byKey.values()].toSorted(
+    (left, right) =>
+      left.completedAt.localeCompare(right.completedAt) || left.turnId.localeCompare(right.turnId),
+  );
+}
+
+function mergeActivities(
+  existing: ReadonlyArray<Thread["activities"][number]>,
+  incoming: ReadonlyArray<Thread["activities"][number]>,
+): Thread["activities"] {
+  const byId = new Map(existing.map((activity) => [activity.id, activity] as const));
+  for (const activity of incoming) {
+    byId.set(activity.id, activity);
+  }
+  return [...byId.values()].toSorted(compareActivities);
 }
 
 // ── Schema validators ────────────────────────────────────────────────
@@ -447,6 +531,10 @@ function handleThreadLifecycleEvent(state: AppState, event: ForgeEvent): AppStat
         threadDiffsById,
         threadPlansById,
         threadDesignById,
+        threadDetailLoadedById: {
+          ...state.threadDetailLoadedById,
+          [nextThread.id]: true,
+        },
       };
       return setThreadWorkLogState(
         nextState,
@@ -478,11 +566,13 @@ function handleThreadLifecycleEvent(state: AppState, event: ForgeEvent): AppStat
       const threadDiffsById = { ...state.threadDiffsById };
       const threadPlansById = { ...state.threadPlansById };
       const threadDesignById = { ...state.threadDesignById };
+      const threadDetailLoadedById = { ...state.threadDetailLoadedById };
       const streamingMessageByThreadId = { ...state.streamingMessageByThreadId };
       delete threadSessionById[event.payload.threadId];
       delete threadDiffsById[event.payload.threadId];
       delete threadPlansById[event.payload.threadId];
       delete threadDesignById[event.payload.threadId];
+      delete threadDetailLoadedById[event.payload.threadId];
       delete streamingMessageByThreadId[event.payload.threadId];
       return deleteThreadWorkLogState(
         {
@@ -494,6 +584,7 @@ function handleThreadLifecycleEvent(state: AppState, event: ForgeEvent): AppStat
           threadDiffsById,
           threadPlansById,
           threadDesignById,
+          threadDetailLoadedById,
           streamingMessageByThreadId,
         },
         event.payload.threadId,
@@ -1499,45 +1590,189 @@ function handleNoopEvent(_state: AppState, event: ForgeEvent): AppState | undefi
 
 // ── Sync from server read model ──────────────────────────────────────
 
-export function syncServerReadModel(state: AppState, readModel: OrchestrationReadModel): AppState {
+export function applyThreadDetailSnapshot(
+  state: AppState,
+  snapshot: OrchestrationThreadDetailSnapshot,
+): AppState {
+  const threadId = snapshot.thread.id;
+  const existingThread = state.threads.find((thread) => thread.id === threadId);
+  if (!existingThread) {
+    return state;
+  }
+
+  const pendingRequests = state.threadSessionById[threadId]?.pendingRequests ?? [];
+  const mapped = mapThreadAndSlices(snapshot.thread, pendingRequests);
+  const mergedThread: Thread = {
+    ...mapped.thread,
+    childThreadIds:
+      mapped.thread.childThreadIds && mapped.thread.childThreadIds.length > 0
+        ? mapped.thread.childThreadIds
+        : (existingThread.childThreadIds ?? []),
+    messages: mergeMessages(existingThread.messages, mapped.thread.messages),
+    activities: mergeActivities(existingThread.activities, mapped.thread.activities),
+  };
+
+  const nextState: AppState = {
+    ...state,
+    threads: state.threads.map((thread) => (thread.id === threadId ? mergedThread : thread)),
+    threadSessionById: {
+      ...state.threadSessionById,
+      [threadId]: mapped.sessionSlice,
+    },
+    threadDiffsById: {
+      ...state.threadDiffsById,
+      [threadId]: {
+        turnDiffSummaries: mergeTurnDiffSummaries(
+          state.threadDiffsById[threadId]?.turnDiffSummaries ?? [],
+          mapped.diffsSlice.turnDiffSummaries,
+        ),
+        agentDiffSummaries: mergeTurnDiffSummaries(
+          state.threadDiffsById[threadId]?.agentDiffSummaries ?? [],
+          mapped.diffsSlice.agentDiffSummaries ?? [],
+        ),
+      },
+    },
+    threadPlansById: {
+      ...state.threadPlansById,
+      [threadId]: {
+        proposedPlans: mergePlans(
+          state.threadPlansById[threadId]?.proposedPlans ?? [],
+          mapped.plansSlice.proposedPlans,
+        ),
+      },
+    },
+    threadDesignById: {
+      ...state.threadDesignById,
+      [threadId]: {
+        designArtifacts: state.threadDesignById[threadId]?.designArtifacts ?? [],
+        designPendingOptions: mapped.designSlice.designPendingOptions,
+      },
+    },
+    threadWorkLogById: {
+      ...state.threadWorkLogById,
+      [threadId]: bootstrapWorkLogProjectionState(mergedThread.activities, {
+        messages: mergedThread.messages,
+        latestTurn: mapped.sessionSlice.latestTurn,
+      }),
+    },
+    threadDetailLoadedById: {
+      ...state.threadDetailLoadedById,
+      [threadId]: true,
+    },
+  };
+
+  return rebuildSidebarForThread(nextState, threadId);
+}
+
+export function syncServerReadModel(
+  state: AppState,
+  readModel: OrchestrationClientSnapshot | OrchestrationReadModel,
+): AppState {
   const projects = readModel.projects
     .filter((project) => project.deletedAt === null)
     .map(mapProject);
+  const pendingRequestsByThreadId = new Map<
+    string,
+    Array<(typeof readModel.pendingRequests)[number]>
+  >();
+  for (const pendingRequest of readModel.pendingRequests) {
+    const requestsForThread = pendingRequestsByThreadId.get(pendingRequest.threadId) ?? [];
+    requestsForThread.push(pendingRequest);
+    pendingRequestsByThreadId.set(pendingRequest.threadId, requestsForThread);
+  }
 
   const mappedResults = readModel.threads
     .filter((thread) => thread.deletedAt === null)
-    .map((thread) => mapThreadAndSlices(thread, readModel.pendingRequests));
+    .map((thread) =>
+      "messages" in thread
+        ? {
+            source: null,
+            mapped: mapThreadAndSlices(thread, pendingRequestsByThreadId.get(thread.id) ?? []),
+          }
+        : {
+            source: thread,
+            mapped: mapThreadSummaryAndSlices(
+              thread,
+              pendingRequestsByThreadId.get(thread.id) ?? [],
+            ),
+          },
+    );
 
-  const threads = mappedResults.map((r) => r.thread);
+  const existingThreadsById = new Map(state.threads.map((thread) => [thread.id, thread] as const));
+  const threads = mappedResults.map(({ source, mapped }) => {
+    const existingThread = existingThreadsById.get(mapped.thread.id);
+    const detailLoaded = state.threadDetailLoadedById[mapped.thread.id] === true;
+    if (source === null || !existingThread || !detailLoaded) {
+      return mapped.thread;
+    }
+    return {
+      ...mapped.thread,
+      messages: existingThread.messages,
+      activities: existingThread.activities,
+      childThreadIds:
+        existingThread.childThreadIds && existingThread.childThreadIds.length > 0
+          ? existingThread.childThreadIds
+          : (mapped.thread.childThreadIds ?? []),
+    };
+  });
+  const threadsById = new Map(threads.map((thread) => [thread.id, thread] as const));
 
   const threadSessionById: Record<string, ThreadSessionSlice> = {};
   const threadDiffsById: Record<string, ThreadDiffsSlice> = {};
   const threadPlansById: Record<string, ThreadPlansSlice> = {};
   const threadDesignById: Record<string, ThreadDesignSlice> = {};
 
-  for (const result of mappedResults) {
-    threadSessionById[result.thread.id] = result.sessionSlice;
-    threadDiffsById[result.thread.id] = result.diffsSlice;
-    threadPlansById[result.thread.id] = result.plansSlice;
-    threadDesignById[result.thread.id] = result.designSlice;
+  const threadWorkLogById: Record<string, WorkLogProjectionState> = {};
+  const sidebarThreadsById: Record<string, ReturnType<typeof buildSidebarThreadSummary>> = {};
+  const nextThreadDetailLoadedById: Record<string, boolean> = {};
+
+  for (const { source, mapped } of mappedResults) {
+    const threadId = mapped.thread.id;
+    const isFullSnapshot = source === null;
+    const detailLoaded = isFullSnapshot || state.threadDetailLoadedById[threadId] === true;
+    threadSessionById[threadId] = mapped.sessionSlice;
+    threadDiffsById[threadId] = isFullSnapshot
+      ? mapped.diffsSlice
+      : detailLoaded
+        ? (state.threadDiffsById[threadId] ?? mapped.diffsSlice)
+        : mapped.diffsSlice;
+    threadPlansById[threadId] = isFullSnapshot
+      ? mapped.plansSlice
+      : detailLoaded
+        ? (state.threadPlansById[threadId] ?? mapped.plansSlice)
+        : mapped.plansSlice;
+    threadDesignById[threadId] = isFullSnapshot
+      ? {
+          designArtifacts: state.threadDesignById[threadId]?.designArtifacts ?? [],
+          designPendingOptions: mapped.designSlice.designPendingOptions,
+        }
+      : detailLoaded
+        ? {
+            designArtifacts: state.threadDesignById[threadId]?.designArtifacts ?? [],
+            designPendingOptions: mapped.designSlice.designPendingOptions,
+          }
+        : mapped.designSlice;
+    const resolvedThread = threadsById.get(threadId) ?? mapped.thread;
+    if (isFullSnapshot || detailLoaded) {
+      const bootstrappedWorkLog = bootstrapWorkLogProjectionState(resolvedThread.activities, {
+        messages: resolvedThread.messages,
+        latestTurn: mapped.sessionSlice.latestTurn,
+      });
+      threadWorkLogById[threadId] = isFullSnapshot
+        ? bootstrappedWorkLog
+        : (state.threadWorkLogById?.[threadId] ?? bootstrappedWorkLog);
+    }
+    nextThreadDetailLoadedById[threadId] = detailLoaded;
+    sidebarThreadsById[threadId] = isFullSnapshot
+      ? buildSidebarThreadSummary(
+          resolvedThread,
+          mapped.sessionSlice,
+          threadPlansById[threadId],
+          threadDesignById[threadId],
+        )
+      : mapSidebarThreadSummaryFromContract(source, mapped.sessionSlice);
   }
 
-  const threadWorkLogById = Object.fromEntries(
-    mappedResults.map((result) => [
-      result.thread.id,
-      bootstrapWorkLogProjectionState(result.thread.activities, {
-        messages: result.thread.messages,
-        latestTurn: result.sessionSlice.latestTurn,
-      }),
-    ]),
-  );
-
-  const sidebarThreadsById = buildSidebarThreadsById(
-    threads,
-    threadSessionById,
-    threadPlansById,
-    threadDesignById,
-  );
   const threadIdsByProjectId = buildThreadIdsByProjectId(threads);
 
   return {
@@ -1552,6 +1787,7 @@ export function syncServerReadModel(state: AppState, readModel: OrchestrationRea
     threadPlansById,
     threadDesignById,
     streamingMessageByThreadId: {},
+    threadDetailLoadedById: nextThreadDetailLoadedById,
     bootstrapComplete: true,
   };
 }
