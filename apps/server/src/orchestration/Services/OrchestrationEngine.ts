@@ -20,15 +20,22 @@ import type { Effect, Stream } from "effect";
 
 import type { OrchestrationDispatchError } from "../Errors.ts";
 import type { OrchestrationEventStoreError } from "../../persistence/Errors.ts";
+import type { OrchestrationRuntimeReadModel } from "../runtimeModel.ts";
 
 /**
  * OrchestrationEngineShape - Service API for orchestration command and event flow.
  */
 export interface OrchestrationEngineShape {
   /**
-   * Read the current in-memory orchestration read model.
+   * Read the current in-memory runtime model used for orchestration command
+   * validation and low-latency runtime coordination.
+   */
+  readonly getRuntimeReadModel: () => Effect.Effect<OrchestrationRuntimeReadModel, never, never>;
+
+  /**
+   * Read the latest full orchestration read model.
    *
-   * @returns Effect containing the latest read model.
+   * This is query-backed and may rebuild rich thread detail from persistence.
    */
   readonly getReadModel: () => Effect.Effect<OrchestrationReadModel, never, never>;
 

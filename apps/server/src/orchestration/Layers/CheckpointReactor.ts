@@ -122,7 +122,7 @@ const make = Effect.gen(function* () {
   const resolveSessionRuntimeForThread = Effect.fn("resolveSessionRuntimeForThread")(function* (
     threadId: ThreadId,
   ): Effect.fn.Return<Option.Option<{ readonly threadId: ThreadId; readonly cwd: string }>> {
-    const readModel = yield* orchestrationEngine.getReadModel();
+    const readModel = yield* orchestrationEngine.getRuntimeReadModel();
     const thread = readModel.threads.find((entry) => entry.id === threadId);
 
     const sessions = yield* providerService.listSessions();
@@ -328,7 +328,7 @@ const make = Effect.gen(function* () {
         return;
       }
 
-      const readModel = yield* orchestrationEngine.getReadModel();
+      const readModel = yield* orchestrationEngine.getRuntimeReadModel();
       const thread = readModel.threads.find((entry) => entry.id === event.threadId);
       if (!thread) {
         return;
@@ -404,7 +404,7 @@ const make = Effect.gen(function* () {
       return;
     }
 
-    const readModel = yield* orchestrationEngine.getReadModel();
+    const readModel = yield* orchestrationEngine.getRuntimeReadModel();
     const thread = readModel.threads.find((entry) => entry.id === threadId);
     if (!thread) {
       yield* Effect.logWarning("checkpoint capture from placeholder skipped: thread not found", {
@@ -455,7 +455,7 @@ const make = Effect.gen(function* () {
         return;
       }
 
-      const readModel = yield* orchestrationEngine.getReadModel();
+      const readModel = yield* orchestrationEngine.getRuntimeReadModel();
       const thread = readModel.threads.find((entry) => entry.id === event.threadId);
       if (!thread) {
         return;
@@ -517,7 +517,7 @@ const make = Effect.gen(function* () {
     }
 
     const threadId = event.payload.threadId;
-    const readModel = yield* orchestrationEngine.getReadModel();
+    const readModel = yield* orchestrationEngine.getRuntimeReadModel();
     const thread = readModel.threads.find((entry) => entry.id === threadId);
     if (!thread) {
       return;
@@ -564,7 +564,7 @@ const make = Effect.gen(function* () {
   ) {
     const now = new Date().toISOString();
 
-    const readModel = yield* orchestrationEngine.getReadModel();
+    const readModel = yield* orchestrationEngine.getRuntimeReadModel();
     const thread = readModel.threads.find((entry) => entry.id === event.payload.threadId);
     if (!thread) {
       yield* appendRevertFailureActivity({

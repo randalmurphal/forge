@@ -52,7 +52,7 @@ export const makeChannelReactor = Effect.gen(function* () {
   const resolveChannel = Effect.fn("ChannelReactor.resolveChannel")(function* (
     channelId: ChannelId,
   ) {
-    const readModel = yield* orchestrationEngine.getReadModel();
+    const readModel = yield* orchestrationEngine.getRuntimeReadModel();
     const channel = readModel.channels.find((entry) => entry.id === channelId);
     return channel === undefined ? Option.none<Channel>() : Option.some(channel);
   });
@@ -123,7 +123,7 @@ export const makeChannelReactor = Effect.gen(function* () {
   const resolveParentThread = Effect.fn("ChannelReactor.resolveParentThread")(function* (
     channel: Channel,
   ) {
-    const readModel = yield* orchestrationEngine.getReadModel();
+    const readModel = yield* orchestrationEngine.getRuntimeReadModel();
     return readModel.threads.find((t) => t.id === channel.threadId) ?? null;
   });
 

@@ -2,7 +2,6 @@ import type {
   Channel,
   ForgeEvent,
   GateResult,
-  OrchestrationReadModel,
   PhaseOutputEntry,
   PhaseRunStatus,
   PhaseType,
@@ -17,25 +16,28 @@ import {
   ChannelMessageId,
   LinkId,
   MessageId,
-  OrchestrationAgentDiffSummary,
   OrchestrationCheckpointSummary,
   OrchestrationMessage,
   OrchestrationSession,
   OrchestrationThread,
-  OrchestrationToolInlineDiff,
   PhaseRunId,
   WorkflowPhaseId,
 } from "@forgetools/contracts";
 import {
   buildProposedPlanHistoryKey,
-  buildTurnDiffHistoryKey,
   compareProposedPlanHistoryEntries,
-  compareTurnDiffHistoryEntries,
 } from "@forgetools/shared/threadHistory";
 import { resolveThreadSpawnMode } from "@forgetools/shared/threadWorkspace";
 import { Effect, Schema } from "effect";
 
 import { toProjectorDecodeError, type OrchestrationProjectorDecodeError } from "./Errors.ts";
+import {
+  toRuntimeReadModel,
+  toRuntimeThread,
+  type OrchestrationRuntimePhaseRun,
+  type OrchestrationRuntimeReadModel,
+  type OrchestrationRuntimeThread,
+} from "./runtimeModel.ts";
 import {
   MessageSentPayloadSchema,
   ProjectCreatedPayload,
@@ -50,8 +52,6 @@ import {
   SessionTurnRequestedPayload,
   SessionTurnRestartedPayload,
   SessionTurnStartedPayload,
-  ThreadActivityAppendedPayload,
-  ThreadActivityInlineDiffUpsertedPayload,
   ThreadArchivedPayload,
   ThreadBootstrapCompletedPayload,
   ThreadBootstrapFailedPayload,
@@ -85,7 +85,6 @@ import {
   ThreadPhaseSkippedPayload,
   ThreadPhaseStartedPayload,
   ThreadProposedPlanUpsertedPayload,
-  ThreadAgentDiffUpsertedPayload,
   ThreadPromotedPayload,
   ThreadPinnedPayload,
   ThreadQualityCheckCompletedPayload,
@@ -99,7 +98,7 @@ import {
   ThreadTurnDiffCompletedPayload,
 } from "./Schemas.ts";
 
-type ProjectedPhaseRun = {
+type ProjectedPhaseRun = OrchestrationRuntimePhaseRun & {
   readonly phaseRunId: PhaseRunId;
   readonly threadId: ThreadId;
   readonly phaseId: WorkflowPhaseId;
@@ -149,7 +148,7 @@ type ProjectedSynthesis = {
   readonly completedAt: string;
 };
 
-type ProjectedThread = OrchestrationThread & {
+type ProjectedThread = OrchestrationRuntimeThread & {
   readonly parentThreadId: ThreadId | null;
   readonly phaseRunId: PhaseRunId | null;
   readonly workflowId: WorkflowId | null;
@@ -160,7 +159,7 @@ type ProjectedThread = OrchestrationThread & {
   readonly bootstrapStatus: string | null;
 };
 
-type ProjectedReadModel = OrchestrationReadModel & {
+type ProjectedReadModel = OrchestrationRuntimeReadModel & {
   readonly threads: ReadonlyArray<ProjectedThread>;
   readonly phaseRuns: ReadonlyArray<ProjectedPhaseRun>;
   readonly workflows: ReadonlyArray<{
@@ -182,7 +181,7 @@ const MAX_THREAD_CHECKPOINTS = 500;
 function toProjectedThread(thread: OrchestrationThread): ProjectedThread {
   const projected = thread as Partial<ProjectedThread>;
   return {
-    ...thread,
+    ...toRuntimeThread(thread),
     parentThreadId: projected.parentThreadId ?? null,
     phaseRunId: projected.phaseRunId ?? null,
     workflowId: projected.workflowId ?? null,
@@ -194,10 +193,10 @@ function toProjectedThread(thread: OrchestrationThread): ProjectedThread {
   };
 }
 
-function toProjectedReadModel(model: OrchestrationReadModel): ProjectedReadModel {
+function toProjectedReadModel(model: OrchestrationRuntimeReadModel): ProjectedReadModel {
   const projected = model as Partial<ProjectedReadModel>;
   return {
-    ...model,
+    ...toRuntimeReadModel(model),
     threads: model.threads.map(toProjectedThread),
     phaseRuns: (projected.phaseRuns as ReadonlyArray<ProjectedPhaseRun> | undefined) ?? [],
     workflows: projected.workflows ?? [],
@@ -220,29 +219,6 @@ function updateThread(
   patch: ThreadPatch,
 ): ProjectedThread[] {
   return threads.map((thread) => (thread.id === threadId ? { ...thread, ...patch } : thread));
-}
-
-function upsertActivityInlineDiffPayload(
-  activities: ReadonlyArray<ProjectedThread["activities"][number]>,
-  activityId: string,
-  inlineDiff: OrchestrationToolInlineDiff,
-) {
-  return activities.map((activity) => {
-    if (activity.id !== activityId) {
-      return activity;
-    }
-
-    const payload =
-      typeof activity.payload === "object" && activity.payload !== null ? activity.payload : {};
-
-    return {
-      ...activity,
-      payload: {
-        ...payload,
-        inlineDiff,
-      },
-    };
-  });
 }
 
 function decodeForEvent<A>(
@@ -320,15 +296,6 @@ function retainThreadMessagesAfterRevert(
   return messages.filter((message) => retainedMessageIds.has(message.id));
 }
 
-function retainThreadActivitiesAfterRevert(
-  activities: ReadonlyArray<OrchestrationThread["activities"][number]>,
-  retainedTurnIds: ReadonlySet<string>,
-): ReadonlyArray<OrchestrationThread["activities"][number]> {
-  return activities.filter(
-    (activity) => activity.turnId === null || retainedTurnIds.has(activity.turnId),
-  );
-}
-
 function retainThreadProposedPlansAfterRevert(
   proposedPlans: ReadonlyArray<OrchestrationThread["proposedPlans"][number]>,
   retainedTurnIds: ReadonlySet<string>,
@@ -347,44 +314,6 @@ function appendDistinctProposedPlanHistory(
     return proposedPlans;
   }
   return [...proposedPlans, proposedPlan].toSorted(compareProposedPlanHistoryEntries).slice(-200);
-}
-
-function appendDistinctAgentDiffHistory(
-  agentDiffs: ReadonlyArray<OrchestrationAgentDiffSummary>,
-  agentDiff: OrchestrationAgentDiffSummary,
-): ReadonlyArray<OrchestrationAgentDiffSummary> {
-  const toHistoryKey = (entry: OrchestrationAgentDiffSummary) =>
-    buildTurnDiffHistoryKey({
-      ...entry,
-      provenance: "agent",
-    });
-  const historyKey = toHistoryKey(agentDiff);
-  if (agentDiffs.some((entry) => toHistoryKey(entry) === historyKey)) {
-    return agentDiffs;
-  }
-  return [...agentDiffs, agentDiff].toSorted((left, right) =>
-    compareTurnDiffHistoryEntries(
-      { ...left, provenance: "agent" },
-      { ...right, provenance: "agent" },
-    ),
-  );
-}
-
-function compareThreadActivities(
-  left: OrchestrationThread["activities"][number],
-  right: OrchestrationThread["activities"][number],
-): number {
-  if (left.sequence !== undefined && right.sequence !== undefined) {
-    if (left.sequence !== right.sequence) {
-      return left.sequence - right.sequence;
-    }
-  } else if (left.sequence !== undefined) {
-    return 1;
-  } else if (right.sequence !== undefined) {
-    return -1;
-  }
-
-  return left.createdAt.localeCompare(right.createdAt) || left.id.localeCompare(right.id);
 }
 
 function upsertPhaseRun(
@@ -422,7 +351,7 @@ function upsertChannel(channels: ReadonlyArray<Channel>, channel: Channel): Read
   );
 }
 
-export function createEmptyReadModel(nowIso: string): OrchestrationReadModel {
+export function createEmptyReadModel(nowIso: string): OrchestrationRuntimeReadModel {
   return {
     snapshotSequence: 0,
     projects: [],
@@ -431,18 +360,14 @@ export function createEmptyReadModel(nowIso: string): OrchestrationReadModel {
     channels: [],
     pendingRequests: [],
     workflows: [],
-    threadLinks: [],
-    threadDependencies: [],
-    corrections: [],
-    synthesis: [],
     updatedAt: nowIso,
-  } as OrchestrationReadModel;
+  } as OrchestrationRuntimeReadModel;
 }
 
 export function projectEvent(
-  model: OrchestrationReadModel,
+  model: OrchestrationRuntimeReadModel,
   event: ForgeEvent,
-): Effect.Effect<OrchestrationReadModel, OrchestrationProjectorDecodeError> {
+): Effect.Effect<OrchestrationRuntimeReadModel, OrchestrationProjectorDecodeError> {
   const nextBase: ProjectedReadModel = {
     ...toProjectedReadModel(model),
     snapshotSequence: event.sequence,
@@ -572,7 +497,6 @@ export function projectEvent(
             proposedPlans: [],
             activities: [],
             checkpoints: [],
-            agentDiffs: [],
             session: null,
           },
           event.type,
@@ -1018,44 +942,6 @@ export function projectEvent(
         };
       });
 
-    case "thread.agent-diff-upserted":
-      return Effect.gen(function* () {
-        const payload = yield* decodeForEvent(
-          ThreadAgentDiffUpsertedPayload,
-          event.payload,
-          event.type,
-          "payload",
-        );
-        const thread = nextBase.threads.find((entry) => entry.id === payload.threadId);
-        if (!thread) {
-          return nextBase;
-        }
-
-        const agentDiff = yield* decodeForEvent(
-          OrchestrationAgentDiffSummary,
-          {
-            turnId: payload.turnId,
-            files: payload.files,
-            source: payload.source,
-            coverage: payload.coverage,
-            assistantMessageId: payload.assistantMessageId ?? null,
-            completedAt: payload.completedAt,
-          },
-          event.type,
-          "agentDiff",
-        );
-
-        const agentDiffs = appendDistinctAgentDiffHistory(thread.agentDiffs ?? [], agentDiff);
-
-        return {
-          ...nextBase,
-          threads: updateThread(nextBase.threads, payload.threadId, {
-            agentDiffs,
-            updatedAt: event.occurredAt,
-          }),
-        };
-      });
-
     case "thread.reverted":
       return decodeForEvent(ThreadRevertedPayload, event.payload, event.type, "payload").pipe(
         Effect.map((payload) => {
@@ -1080,15 +966,6 @@ export function projectEvent(
             thread.proposedPlans,
             retainedTurnIds,
           ).slice(-200);
-          const activities = retainThreadActivitiesAfterRevert(thread.activities, retainedTurnIds);
-          const agentDiffs = (thread.agentDiffs ?? [])
-            .filter((entry) => retainedTurnIds.has(entry.turnId))
-            .toSorted(
-              (left, right) =>
-                left.completedAt.localeCompare(right.completedAt) ||
-                left.turnId.localeCompare(right.turnId),
-            );
-
           const latestCheckpoint = checkpoints.at(-1) ?? null;
           const latestTurn =
             latestCheckpoint === null
@@ -1108,8 +985,6 @@ export function projectEvent(
               checkpoints,
               messages,
               proposedPlans,
-              activities,
-              agentDiffs,
               latestTurn,
               updatedAt: event.occurredAt,
             }),
@@ -1218,8 +1093,6 @@ export function projectEvent(
             thread.proposedPlans,
             retainedTurnIds,
           ).slice(-200);
-          const activities = retainThreadActivitiesAfterRevert(thread.activities, retainedTurnIds);
-
           const latestCheckpoint = checkpoints.at(-1) ?? null;
           const latestTurn =
             latestCheckpoint === null
@@ -1239,7 +1112,6 @@ export function projectEvent(
               checkpoints,
               messages,
               proposedPlans,
-              activities,
               latestTurn,
               updatedAt: payload.revertedAt,
             }),
@@ -1247,77 +1119,10 @@ export function projectEvent(
         }),
       );
 
+    case "thread.agent-diff-upserted":
     case "thread.activity-appended":
-      return decodeForEvent(
-        ThreadActivityAppendedPayload,
-        event.payload,
-        event.type,
-        "payload",
-      ).pipe(
-        Effect.map((payload) => {
-          const thread = nextBase.threads.find((entry) => entry.id === payload.threadId) as
-            | ProjectedThread
-            | undefined;
-          if (!thread) {
-            return nextBase;
-          }
-          const activity = {
-            ...payload.activity,
-            sequence: event.sequence,
-          };
-
-          const activities = [
-            ...thread.activities.filter((entry) => entry.id !== activity.id),
-            activity,
-          ]
-            .toSorted(compareThreadActivities)
-            .slice(-500);
-
-          return {
-            ...nextBase,
-            threads: updateThread(nextBase.threads, payload.threadId, {
-              activities,
-              updatedAt: event.occurredAt,
-            }),
-          };
-        }),
-      );
-
     case "thread.activity-inline-diff-upserted":
-      return decodeForEvent(
-        ThreadActivityInlineDiffUpsertedPayload,
-        event.payload,
-        event.type,
-        "payload",
-      ).pipe(
-        Effect.map((payload) => {
-          const thread = nextBase.threads.find((entry) => entry.id === payload.threadId) as
-            | ProjectedThread
-            | undefined;
-          if (!thread) {
-            return nextBase;
-          }
-
-          const matchingActivityExists = thread.activities.some(
-            (activity) => activity.id === payload.activityId,
-          );
-          if (!matchingActivityExists) {
-            return nextBase;
-          }
-
-          return {
-            ...nextBase,
-            threads: updateThread(nextBase.threads, payload.threadId, {
-              activities: upsertActivityInlineDiffPayload(
-                thread.activities,
-                payload.activityId,
-                payload.inlineDiff,
-              ),
-              updatedAt: payload.updatedAt,
-            }),
-          };
-        }),
-      );
+      return Effect.succeed(nextBase);
 
     case "thread.forked":
       return decodeForEvent(ThreadForkedPayload, event.payload, event.type, "payload").pipe(
@@ -1892,7 +1697,7 @@ export function projectEvent(
         "payload",
       ).pipe(
         Effect.map((payload) => {
-          const pendingRequest: OrchestrationReadModel["pendingRequests"][number] = {
+          const pendingRequest: OrchestrationRuntimeReadModel["pendingRequests"][number] = {
             id: payload.requestId,
             threadId: payload.threadId,
             ...(payload.childThreadId === null ? {} : { childThreadId: payload.childThreadId }),

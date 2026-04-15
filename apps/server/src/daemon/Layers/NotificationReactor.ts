@@ -2,13 +2,15 @@ import {
   type Channel,
   type ForgeEvent,
   type InteractiveRequestPayload,
-  type OrchestrationReadModel,
-  type OrchestrationThread,
 } from "@forgetools/contracts";
 import { makeDrainableWorker } from "@forgetools/shared/DrainableWorker";
 import { Cause, Effect, Layer, Stream } from "effect";
 
 import { OrchestrationEngineService } from "../../orchestration/Services/OrchestrationEngine.ts";
+import type {
+  OrchestrationRuntimeReadModel,
+  OrchestrationRuntimeThread,
+} from "../../orchestration/runtimeModel.ts";
 import { NotificationDispatch } from "../Services/NotificationDispatch.ts";
 import {
   NotificationReactor,
@@ -23,20 +25,23 @@ type NotificationReactorEvent = Extract<
 >;
 
 const findThread = (
-  readModel: OrchestrationReadModel,
+  readModel: OrchestrationRuntimeReadModel,
   threadId: string,
-): OrchestrationThread | undefined => readModel.threads.find((thread) => thread.id === threadId);
+): OrchestrationRuntimeThread | undefined =>
+  readModel.threads.find((thread) => thread.id === threadId);
 
 const findTopLevelThread = (
-  readModel: OrchestrationReadModel,
+  readModel: OrchestrationRuntimeReadModel,
   threadId: string,
-): OrchestrationThread | undefined => {
+): OrchestrationRuntimeThread | undefined => {
   const thread = findThread(readModel, threadId);
   return thread?.parentThreadId === null ? thread : undefined;
 };
 
-const findChannel = (readModel: OrchestrationReadModel, channelId: string): Channel | undefined =>
-  readModel.channels.find((channel) => channel.id === channelId);
+const findChannel = (
+  readModel: OrchestrationRuntimeReadModel,
+  channelId: string,
+): Channel | undefined => readModel.channels.find((channel) => channel.id === channelId);
 
 function attentionBody(payload: InteractiveRequestPayload): string {
   switch (payload.type) {
@@ -75,7 +80,7 @@ export const makeNotificationReactor = Effect.gen(function* () {
   const processRequestOpened = Effect.fn("NotificationReactor.processRequestOpened")(function* (
     event: Extract<NotificationReactorEvent, { type: "request.opened" }>,
   ) {
-    const readModel = yield* orchestrationEngine.getReadModel();
+    const readModel = yield* orchestrationEngine.getRuntimeReadModel();
     const thread = findTopLevelThread(readModel, event.payload.threadId);
     if (thread === undefined) {
       return;
@@ -92,7 +97,7 @@ export const makeNotificationReactor = Effect.gen(function* () {
   const processThreadCompleted = Effect.fn("NotificationReactor.processThreadCompleted")(function* (
     event: Extract<NotificationReactorEvent, { type: "thread.completed" }>,
   ) {
-    const readModel = yield* orchestrationEngine.getReadModel();
+    const readModel = yield* orchestrationEngine.getRuntimeReadModel();
     const thread = findTopLevelThread(readModel, event.payload.threadId);
     if (thread === undefined) {
       return;
@@ -108,7 +113,7 @@ export const makeNotificationReactor = Effect.gen(function* () {
 
   const processChannelConcluded = Effect.fn("NotificationReactor.processChannelConcluded")(
     function* (event: Extract<NotificationReactorEvent, { type: "channel.concluded" }>) {
-      const readModel = yield* orchestrationEngine.getReadModel();
+      const readModel = yield* orchestrationEngine.getRuntimeReadModel();
       const channel = findChannel(readModel, event.payload.channelId);
       if (
         channel === undefined ||

@@ -243,6 +243,7 @@ async function createHarness() {
   };
 
   const orchestrationService = {
+    getRuntimeReadModel: () => Effect.succeed(readModel as never),
     getReadModel: () => Effect.succeed(readModel),
     readEvents: () => Stream.empty,
     streamEventsFromSequence: () => Stream.empty,

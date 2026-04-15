@@ -215,7 +215,7 @@ export const makeBootstrapReactor = Effect.gen(function* () {
   const resolveThreadContext = Effect.fn("BootstrapReactor.resolveThreadContext")(function* (
     threadId: ThreadId,
   ) {
-    const readModel = yield* orchestrationEngine.getReadModel();
+    const readModel = yield* orchestrationEngine.getRuntimeReadModel();
     const thread = readModel.threads.find((entry) => entry.id === threadId);
     if (!thread) {
       return Option.none<{

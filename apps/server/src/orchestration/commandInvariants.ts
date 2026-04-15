@@ -4,8 +4,6 @@ import type {
   InteractiveRequest,
   InteractiveRequestResolution,
   OrchestrationProject,
-  OrchestrationReadModel,
-  OrchestrationThread,
   PhaseRunId,
   ProjectId,
   ThreadId,
@@ -13,6 +11,7 @@ import type {
 import { Effect } from "effect";
 
 import { OrchestrationCommandInvariantError } from "./Errors.ts";
+import type { OrchestrationRuntimeReadModel, OrchestrationRuntimeThread } from "./runtimeModel.ts";
 
 function invariantError(commandType: string, detail: string): OrchestrationCommandInvariantError {
   return new OrchestrationCommandInvariantError({
@@ -22,35 +21,35 @@ function invariantError(commandType: string, detail: string): OrchestrationComma
 }
 
 export function findThreadById(
-  readModel: OrchestrationReadModel,
+  readModel: OrchestrationRuntimeReadModel,
   threadId: ThreadId,
-): OrchestrationThread | undefined {
+): OrchestrationRuntimeThread | undefined {
   return readModel.threads.find((thread) => thread.id === threadId);
 }
 
 export function findProjectById(
-  readModel: OrchestrationReadModel,
+  readModel: OrchestrationRuntimeReadModel,
   projectId: ProjectId,
 ): OrchestrationProject | undefined {
   return readModel.projects.find((project) => project.id === projectId);
 }
 
 export function listThreadsByProjectId(
-  readModel: OrchestrationReadModel,
+  readModel: OrchestrationRuntimeReadModel,
   projectId: ProjectId,
-): ReadonlyArray<OrchestrationThread> {
+): ReadonlyArray<OrchestrationRuntimeThread> {
   return readModel.threads.filter((thread) => thread.projectId === projectId);
 }
 
 export function findChannelById(
-  readModel: OrchestrationReadModel,
+  readModel: OrchestrationRuntimeReadModel,
   channelId: OrchestrationChannel["id"],
 ): OrchestrationChannel | undefined {
   return readModel.channels.find((channel) => channel.id === channelId);
 }
 
 export function findChannelByThreadIdAndType(
-  readModel: OrchestrationReadModel,
+  readModel: OrchestrationRuntimeReadModel,
   threadId: ThreadId,
   type: OrchestrationChannel["type"],
 ): OrchestrationChannel | undefined {
@@ -60,7 +59,7 @@ export function findChannelByThreadIdAndType(
 }
 
 export function findPendingRequestById(
-  readModel: OrchestrationReadModel,
+  readModel: OrchestrationRuntimeReadModel,
   requestId: InteractiveRequest["id"],
 ): InteractiveRequest | undefined {
   return readModel.pendingRequests.find((request) => request.id === requestId);
@@ -71,14 +70,14 @@ type PhaseRunOutputLike = {
   readonly content: string;
 };
 
-type ProjectedPhaseRunLike = OrchestrationReadModel["phaseRuns"][number] & {
+type ProjectedPhaseRunLike = OrchestrationRuntimeReadModel["phaseRuns"][number] & {
   readonly outputs?: ReadonlyArray<PhaseRunOutputLike>;
 };
 
 type ProjectedPhaseRunStatus = ProjectedPhaseRunLike["status"];
 
 export function findPhaseRunById(
-  readModel: OrchestrationReadModel,
+  readModel: OrchestrationRuntimeReadModel,
   phaseRunId: PhaseRunId,
 ): ProjectedPhaseRunLike | undefined {
   return readModel.phaseRuns.find(
@@ -87,7 +86,7 @@ export function findPhaseRunById(
 }
 
 export function requireProject(input: {
-  readonly readModel: OrchestrationReadModel;
+  readonly readModel: OrchestrationRuntimeReadModel;
   readonly command: ForgeCommand;
   readonly projectId: ProjectId;
 }): Effect.Effect<OrchestrationProject, OrchestrationCommandInvariantError> {
@@ -104,7 +103,7 @@ export function requireProject(input: {
 }
 
 export function requireProjectAbsent(input: {
-  readonly readModel: OrchestrationReadModel;
+  readonly readModel: OrchestrationRuntimeReadModel;
   readonly command: ForgeCommand;
   readonly projectId: ProjectId;
 }): Effect.Effect<void, OrchestrationCommandInvariantError> {
@@ -120,10 +119,10 @@ export function requireProjectAbsent(input: {
 }
 
 export function requireThread(input: {
-  readonly readModel: OrchestrationReadModel;
+  readonly readModel: OrchestrationRuntimeReadModel;
   readonly command: ForgeCommand;
   readonly threadId: ThreadId;
-}): Effect.Effect<OrchestrationThread, OrchestrationCommandInvariantError> {
+}): Effect.Effect<OrchestrationRuntimeThread, OrchestrationCommandInvariantError> {
   const thread = findThreadById(input.readModel, input.threadId);
   if (thread) {
     return Effect.succeed(thread);
@@ -137,10 +136,10 @@ export function requireThread(input: {
 }
 
 export function requireThreadArchived(input: {
-  readonly readModel: OrchestrationReadModel;
+  readonly readModel: OrchestrationRuntimeReadModel;
   readonly command: ForgeCommand;
   readonly threadId: ThreadId;
-}): Effect.Effect<OrchestrationThread, OrchestrationCommandInvariantError> {
+}): Effect.Effect<OrchestrationRuntimeThread, OrchestrationCommandInvariantError> {
   return requireThread(input).pipe(
     Effect.flatMap((thread) =>
       thread.archivedAt !== null
@@ -156,10 +155,10 @@ export function requireThreadArchived(input: {
 }
 
 export function requireThreadNotArchived(input: {
-  readonly readModel: OrchestrationReadModel;
+  readonly readModel: OrchestrationRuntimeReadModel;
   readonly command: ForgeCommand;
   readonly threadId: ThreadId;
-}): Effect.Effect<OrchestrationThread, OrchestrationCommandInvariantError> {
+}): Effect.Effect<OrchestrationRuntimeThread, OrchestrationCommandInvariantError> {
   return requireThread(input).pipe(
     Effect.flatMap((thread) =>
       thread.archivedAt === null
@@ -175,10 +174,10 @@ export function requireThreadNotArchived(input: {
 }
 
 export function requireThreadWithoutActivePhase(input: {
-  readonly readModel: OrchestrationReadModel;
+  readonly readModel: OrchestrationRuntimeReadModel;
   readonly command: ForgeCommand;
   readonly threadId: ThreadId;
-}): Effect.Effect<OrchestrationThread, OrchestrationCommandInvariantError> {
+}): Effect.Effect<OrchestrationRuntimeThread, OrchestrationCommandInvariantError> {
   return requireThread(input).pipe(
     Effect.flatMap((thread) =>
       thread.phaseRunId === null
@@ -194,10 +193,10 @@ export function requireThreadWithoutActivePhase(input: {
 }
 
 export function requireThreadNotDeleted(input: {
-  readonly readModel: OrchestrationReadModel;
+  readonly readModel: OrchestrationRuntimeReadModel;
   readonly command: ForgeCommand;
   readonly threadId: ThreadId;
-}): Effect.Effect<OrchestrationThread, OrchestrationCommandInvariantError> {
+}): Effect.Effect<OrchestrationRuntimeThread, OrchestrationCommandInvariantError> {
   return requireThread(input).pipe(
     Effect.flatMap((thread) =>
       thread.deletedAt === null
@@ -213,10 +212,10 @@ export function requireThreadNotDeleted(input: {
 }
 
 export function requireRootThread(input: {
-  readonly readModel: OrchestrationReadModel;
+  readonly readModel: OrchestrationRuntimeReadModel;
   readonly command: ForgeCommand;
   readonly threadId: ThreadId;
-}): Effect.Effect<OrchestrationThread, OrchestrationCommandInvariantError> {
+}): Effect.Effect<OrchestrationRuntimeThread, OrchestrationCommandInvariantError> {
   return requireThread(input).pipe(
     Effect.flatMap((thread) =>
       thread.parentThreadId === null
@@ -232,10 +231,10 @@ export function requireRootThread(input: {
 }
 
 export function requireThreadHasMessages(input: {
-  readonly readModel: OrchestrationReadModel;
+  readonly readModel: OrchestrationRuntimeReadModel;
   readonly command: ForgeCommand;
   readonly threadId: ThreadId;
-}): Effect.Effect<OrchestrationThread, OrchestrationCommandInvariantError> {
+}): Effect.Effect<OrchestrationRuntimeThread, OrchestrationCommandInvariantError> {
   return requireThread(input).pipe(
     Effect.flatMap((thread) =>
       thread.messages.length > 0
@@ -251,7 +250,7 @@ export function requireThreadHasMessages(input: {
 }
 
 export function requireThreadAbsent(input: {
-  readonly readModel: OrchestrationReadModel;
+  readonly readModel: OrchestrationRuntimeReadModel;
   readonly command: ForgeCommand;
   readonly threadId: ThreadId;
 }): Effect.Effect<void, OrchestrationCommandInvariantError> {
@@ -267,7 +266,7 @@ export function requireThreadAbsent(input: {
 }
 
 export function requireChannel(input: {
-  readonly readModel: OrchestrationReadModel;
+  readonly readModel: OrchestrationRuntimeReadModel;
   readonly command: ForgeCommand;
   readonly channelId: OrchestrationChannel["id"];
 }): Effect.Effect<OrchestrationChannel, OrchestrationCommandInvariantError> {
@@ -284,7 +283,7 @@ export function requireChannel(input: {
 }
 
 export function requireChannelAbsent(input: {
-  readonly readModel: OrchestrationReadModel;
+  readonly readModel: OrchestrationRuntimeReadModel;
   readonly command: ForgeCommand;
   readonly channelId: OrchestrationChannel["id"];
 }): Effect.Effect<void, OrchestrationCommandInvariantError> {
@@ -300,7 +299,7 @@ export function requireChannelAbsent(input: {
 }
 
 export function requireChannelOpen(input: {
-  readonly readModel: OrchestrationReadModel;
+  readonly readModel: OrchestrationRuntimeReadModel;
   readonly command: ForgeCommand;
   readonly channelId: OrchestrationChannel["id"];
 }): Effect.Effect<OrchestrationChannel, OrchestrationCommandInvariantError> {
@@ -319,7 +318,7 @@ export function requireChannelOpen(input: {
 }
 
 export function requirePendingRequest(input: {
-  readonly readModel: OrchestrationReadModel;
+  readonly readModel: OrchestrationRuntimeReadModel;
   readonly command: ForgeCommand;
   readonly requestId: InteractiveRequest["id"];
 }): Effect.Effect<InteractiveRequest, OrchestrationCommandInvariantError> {
@@ -336,7 +335,7 @@ export function requirePendingRequest(input: {
 }
 
 export function requirePendingRequestAbsent(input: {
-  readonly readModel: OrchestrationReadModel;
+  readonly readModel: OrchestrationRuntimeReadModel;
   readonly command: ForgeCommand;
   readonly requestId: InteractiveRequest["id"];
 }): Effect.Effect<void, OrchestrationCommandInvariantError> {
@@ -366,7 +365,7 @@ export function requireInteractiveRequestPayloadMatchesType(input: {
 }
 
 export function requireInteractiveRequestPhaseRunForThread(input: {
-  readonly readModel: OrchestrationReadModel;
+  readonly readModel: OrchestrationRuntimeReadModel;
   readonly command: Extract<ForgeCommand, { type: "request.open" }>;
 }): Effect.Effect<void, OrchestrationCommandInvariantError> {
   if (input.command.phaseRunId === undefined) {
@@ -463,7 +462,7 @@ export function requirePendingRequestResolutionMatchesType(input: {
 }
 
 export function requirePhaseRunForThread(input: {
-  readonly readModel: OrchestrationReadModel;
+  readonly readModel: OrchestrationRuntimeReadModel;
   readonly command: ForgeCommand;
   readonly phaseRunId: PhaseRunId;
   readonly threadId: ThreadId;
@@ -547,9 +546,9 @@ export function requireDistinctThreadIds(input: {
 export function requireThreadsInSameProject(input: {
   readonly command: ForgeCommand;
   readonly leftLabel: string;
-  readonly leftThread: OrchestrationThread;
+  readonly leftThread: OrchestrationRuntimeThread;
   readonly rightLabel: string;
-  readonly rightThread: OrchestrationThread;
+  readonly rightThread: OrchestrationRuntimeThread;
 }): Effect.Effect<void, OrchestrationCommandInvariantError> {
   if (input.leftThread.projectId === input.rightThread.projectId) {
     return Effect.void;

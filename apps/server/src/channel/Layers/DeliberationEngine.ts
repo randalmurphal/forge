@@ -2,13 +2,13 @@ import {
   createInitialDeliberationState,
   type Channel,
   type DeliberationState,
-  type OrchestrationThread,
   PhaseRunId,
   type ThreadId,
 } from "@forgetools/contracts";
 import { Effect, Layer, Option } from "effect";
 
 import { OrchestrationEngineService } from "../../orchestration/Services/OrchestrationEngine.ts";
+import type { OrchestrationRuntimeThread } from "../../orchestration/runtimeModel.ts";
 import { ProjectionPhaseRunRepository } from "../../persistence/Services/ProjectionPhaseRuns.ts";
 import { ProjectionThreadRepository } from "../../persistence/Services/ProjectionThreads.ts";
 import {
@@ -28,8 +28,8 @@ import {
 
 interface DeliberationContext {
   readonly channel: Channel;
-  readonly parentThread: OrchestrationThread;
-  readonly participants: ReadonlyArray<OrchestrationThread>;
+  readonly parentThread: OrchestrationRuntimeThread;
+  readonly participants: ReadonlyArray<OrchestrationRuntimeThread>;
   readonly persistedState: DeliberationState | null;
   readonly persistState: (
     state: DeliberationState,
@@ -42,7 +42,7 @@ function nowIso(): string {
 }
 
 function nextSpeaker(
-  participants: ReadonlyArray<OrchestrationThread>,
+  participants: ReadonlyArray<OrchestrationRuntimeThread>,
   participantThreadId: ThreadId,
 ): ThreadId | null {
   if (participants.length === 0) {
@@ -74,12 +74,12 @@ function isTimedOut(now: string, deadlineFrom: string, timeoutMs: number): boole
   return new Date(now).getTime() - new Date(deadlineFrom).getTime() > timeoutMs;
 }
 
-function nudgeDeliveryForParticipant(participant: OrchestrationThread): "queue" | "inject" {
+function nudgeDeliveryForParticipant(participant: OrchestrationRuntimeThread): "queue" | "inject" {
   return participant.modelSelection.provider === "codex" ? "inject" : "queue";
 }
 
 function formatStallNudge(input: {
-  readonly participant: OrchestrationThread;
+  readonly participant: OrchestrationRuntimeThread;
   readonly state: DeliberationState;
 }): string {
   const otherParticipantsAlreadyProposed = Object.keys(input.state.conclusionProposals).some(
@@ -135,7 +135,7 @@ export const makeDeliberationEngine = Effect.gen(function* () {
   const resolveContext = Effect.fn("DeliberationEngine.resolveContext")(function* (
     channelId: Channel["id"],
   ) {
-    const readModel = yield* orchestrationEngine.getReadModel();
+    const readModel = yield* orchestrationEngine.getRuntimeReadModel();
     const channel = readModel.channels.find((candidate) => candidate.id === channelId);
     if (!channel) {
       return yield* new DeliberationEngineChannelNotFoundError({

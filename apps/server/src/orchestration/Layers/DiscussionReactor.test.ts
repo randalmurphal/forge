@@ -17,6 +17,7 @@ import { DiscussionRegistry } from "../../discussion/Services/DiscussionRegistry
 import { getPendingMcpServer } from "../../provider/pendingMcpServers.ts";
 import { DiscussionReactor } from "../Services/DiscussionReactor.ts";
 import { OrchestrationEngineService } from "../Services/OrchestrationEngine.ts";
+import { ProjectionSnapshotQuery } from "../Services/ProjectionSnapshotQuery.ts";
 import { DiscussionReactorLive } from "./DiscussionReactor.ts";
 
 function extractSharedChatBridgeToken(threadId: ThreadId): string {
@@ -130,11 +131,38 @@ describe("DiscussionReactor", () => {
     const layer = DiscussionReactorLive.pipe(
       Layer.provideMerge(
         Layer.succeed(OrchestrationEngineService, {
+          getRuntimeReadModel: () => Effect.succeed(readModel as never),
           getReadModel: () => Effect.succeed(readModel as never),
           readEvents: () => Stream.empty,
           streamEventsFromSequence: () => Stream.empty,
           dispatch,
           streamDomainEvents: Stream.fromPubSub(domainEvents) as never,
+        }),
+      ),
+      Layer.provideMerge(
+        Layer.succeed(ProjectionSnapshotQuery, {
+          getSnapshot: () => Effect.succeed(readModel as never),
+          getClientSnapshot: () => Effect.die("unused"),
+          getThreadDetail: (threadId: string) => {
+            const thread = readModel.threads.find(
+              (candidate: (typeof readModel.threads)[number]) => candidate.id === threadId,
+            );
+            return Effect.succeed(
+              thread === undefined
+                ? Option.none()
+                : Option.some({
+                    snapshotSequence: readModel.snapshotSequence,
+                    thread,
+                    updatedAt: readModel.updatedAt,
+                  }),
+            );
+          },
+          getCommandOutput: () => Effect.die("unused"),
+          getSubagentActivityFeed: () => Effect.die("unused"),
+          getCounts: () => Effect.die("unused"),
+          getActiveProjectByWorkspaceRoot: () => Effect.die("unused"),
+          getFirstActiveThreadIdByProjectId: () => Effect.die("unused"),
+          getThreadCheckpointContext: () => Effect.die("unused"),
         }),
       ),
       Layer.provideMerge(

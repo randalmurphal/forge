@@ -5,6 +5,7 @@ import {
   ThreadId,
 } from "@forgetools/contracts";
 import { Effect, Stream } from "effect";
+import { findLatestProposedPlanById } from "@forgetools/shared/threadHistory";
 import { afterEach, describe, expect, it } from "vitest";
 
 import {
@@ -679,7 +680,7 @@ describe("ProviderRuntimeIngestion", () => {
       sourceThreadId,
     );
     expect(
-      sourceThreadAfterStart.proposedPlans.find((entry) => entry.id === sourcePlan.id),
+      findLatestProposedPlanById(sourceThreadAfterStart.proposedPlans, sourcePlan.id),
     ).toMatchObject({
       implementationThreadId: "thread-implement",
     });

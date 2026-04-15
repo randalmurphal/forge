@@ -86,6 +86,7 @@ const makeLayer = (input: {
   NotificationReactorLive.pipe(
     Layer.provideMerge(
       Layer.succeed(OrchestrationEngineService, {
+        getRuntimeReadModel: () => Effect.succeed(input.readModel as never),
         getReadModel: () => Effect.succeed(input.readModel),
         readEvents: () => Stream.empty,
         streamEventsFromSequence: (fromSequenceExclusive) =>

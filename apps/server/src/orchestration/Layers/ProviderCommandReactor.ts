@@ -31,6 +31,7 @@ import { TextGeneration } from "../../git/Services/TextGeneration.ts";
 import { ProviderService } from "../../provider/Services/ProviderService.ts";
 import { ProviderSessionDirectory } from "../../provider/Services/ProviderSessionDirectory.ts";
 import { OrchestrationEngineService } from "../Services/OrchestrationEngine.ts";
+import { ProjectionSnapshotQuery } from "../Services/ProjectionSnapshotQuery.ts";
 import { DesignModeReactor } from "../Services/DesignModeReactor.ts";
 import {
   ProviderCommandReactor,
@@ -199,6 +200,7 @@ function buildGeneratedWorktreeBranchName(
 
 const make = Effect.gen(function* () {
   const orchestrationEngine = yield* OrchestrationEngineService;
+  const projectionSnapshotQuery = yield* ProjectionSnapshotQuery;
   const providerService = yield* ProviderService;
   const providerSessionDirectory = yield* ProviderSessionDirectory;
   const git = yield* GitCore;
@@ -269,8 +271,18 @@ const make = Effect.gen(function* () {
     });
 
   const resolveThread = Effect.fn("resolveThread")(function* (threadId: ThreadId) {
-    const readModel = yield* orchestrationEngine.getReadModel();
+    const readModel = yield* orchestrationEngine.getRuntimeReadModel();
     return readModel.threads.find((entry) => entry.id === threadId);
+  });
+
+  const resolveThreadDetail = Effect.fn("resolveThreadDetail")(function* (threadId: ThreadId) {
+    const threadOption = yield* projectionSnapshotQuery
+      .getThreadDetail(threadId)
+      .pipe(Effect.catch(() => Effect.succeed(Option.none())));
+    return Option.match(threadOption, {
+      onNone: () => undefined,
+      onSome: (value) => value.thread,
+    });
   });
 
   const ensureSessionForThread = Effect.fn("ensureSessionForThread")(function* (
@@ -280,7 +292,7 @@ const make = Effect.gen(function* () {
       readonly modelSelection?: ModelSelection;
     },
   ) {
-    const readModel = yield* orchestrationEngine.getReadModel();
+    const readModel = yield* orchestrationEngine.getRuntimeReadModel();
     const thread = readModel.threads.find((entry) => entry.id === threadId);
     if (!thread) {
       return yield* Effect.die(new Error(`Thread '${threadId}' was not found in read model.`));
@@ -580,13 +592,17 @@ const make = Effect.gen(function* () {
     if (!thread) {
       return;
     }
+    const threadDetail = yield* resolveThreadDetail(event.payload.threadId);
+    if (!threadDetail) {
+      return;
+    }
 
     // Skip discussion container threads — DiscussionReactor handles these.
     if (thread.discussionId !== null && thread.parentThreadId === null) {
       return;
     }
 
-    const message = thread.messages.find((entry) => entry.id === event.payload.messageId);
+    const message = threadDetail.messages.find((entry) => entry.id === event.payload.messageId);
     if (!message || message.role !== "user") {
       yield* appendProviderFailureActivity({
         threadId: event.payload.threadId,
@@ -600,12 +616,12 @@ const make = Effect.gen(function* () {
     }
 
     const isFirstUserMessageTurn =
-      thread.messages.filter((entry) => entry.role === "user").length === 1;
+      threadDetail.messages.filter((entry) => entry.role === "user").length === 1;
     if (isFirstUserMessageTurn) {
       const generationCwd =
         resolveThreadWorkspaceCwd({
           thread,
-          projects: (yield* orchestrationEngine.getReadModel()).projects,
+          projects: (yield* orchestrationEngine.getRuntimeReadModel()).projects,
         }) ?? process.cwd();
       const generationInput = {
         messageText: message.text,
@@ -778,7 +794,7 @@ const make = Effect.gen(function* () {
     const sourceThreadId = event.payload.sourceThreadId;
     const newThreadId = event.payload.threadId;
 
-    const sourceThread = (yield* orchestrationEngine.getReadModel()).threads.find(
+    const sourceThread = (yield* orchestrationEngine.getRuntimeReadModel()).threads.find(
       (t) => t.id === sourceThreadId,
     );
     const sourceProvider = Schema.is(ProviderKind)(sourceThread?.session?.providerName)

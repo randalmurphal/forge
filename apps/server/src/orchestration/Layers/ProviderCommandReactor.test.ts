@@ -197,6 +197,9 @@ describe("ProviderCommandReactor", () => {
     );
     const layer = ProviderCommandReactorLive.pipe(
       Layer.provideMerge(orchestrationLayer),
+      Layer.provideMerge(
+        OrchestrationProjectionSnapshotQueryLive.pipe(Layer.provide(SqlitePersistenceMemory)),
+      ),
       Layer.provideMerge(Layer.succeed(ProviderService, service)),
       Layer.provideMerge(Layer.succeed(GitCore, { renameBranch } as unknown as GitCoreShape)),
       Layer.provideMerge(

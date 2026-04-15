@@ -69,7 +69,7 @@ export const makeChannelService = Effect.gen(function* () {
   const resolveChannel = Effect.fn("ChannelService.resolveChannel")(function* (
     channelId: ChannelId,
   ) {
-    const readModel = yield* orchestrationEngine.getReadModel();
+    const readModel = yield* orchestrationEngine.getRuntimeReadModel();
     const channel = readModel.channels.find((entry) => entry.id === channelId);
     if (!channel) {
       return yield* new ChannelServiceChannelNotFoundError({

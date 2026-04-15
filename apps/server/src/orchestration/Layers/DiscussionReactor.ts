@@ -27,6 +27,7 @@ import {
 } from "../../discussion/sharedChatMcpServer.ts";
 import { DiscussionRegistry } from "../../discussion/Services/DiscussionRegistry.ts";
 import { OrchestrationEngineService } from "../Services/OrchestrationEngine.ts";
+import { ProjectionSnapshotQuery } from "../Services/ProjectionSnapshotQuery.ts";
 import { DiscussionReactor, type DiscussionReactorShape } from "../Services/DiscussionReactor.ts";
 
 type DiscussionReactorEvent = Extract<
@@ -102,6 +103,7 @@ function buildRelayedChildPrompt(input: {
 
 export const makeDiscussionReactor = Effect.gen(function* () {
   const orchestrationEngine = yield* OrchestrationEngineService;
+  const projectionSnapshotQuery = yield* ProjectionSnapshotQuery;
   const discussionRegistry = yield* DiscussionRegistry;
   const serverConfig = yield* ServerConfig;
   const services = yield* Effect.services();
@@ -112,8 +114,20 @@ export const makeDiscussionReactor = Effect.gen(function* () {
   const resolveThread = Effect.fn("DiscussionReactor.resolveThread")(function* (
     threadId: ThreadId,
   ) {
-    const readModel = yield* orchestrationEngine.getReadModel();
+    const readModel = yield* orchestrationEngine.getRuntimeReadModel();
     return readModel.threads.find((entry) => entry.id === threadId);
+  });
+
+  const resolveThreadDetail = Effect.fn("DiscussionReactor.resolveThreadDetail")(function* (
+    threadId: ThreadId,
+  ) {
+    const threadOption = yield* projectionSnapshotQuery
+      .getThreadDetail(threadId)
+      .pipe(Effect.catch(() => Effect.succeed(Option.none())));
+    return Option.match(threadOption, {
+      onNone: () => undefined,
+      onSome: (value) => value.thread,
+    });
   });
 
   const resolveDiscussion = Effect.fn("DiscussionReactor.resolveDiscussion")(function* (
@@ -344,7 +358,7 @@ export const makeDiscussionReactor = Effect.gen(function* () {
   const resolveWorkspaceRoot = Effect.fn("DiscussionReactor.resolveWorkspaceRoot")(function* (
     projectId: string,
   ) {
-    const readModel = yield* orchestrationEngine.getReadModel();
+    const readModel = yield* orchestrationEngine.getRuntimeReadModel();
     const project = readModel.projects.find((p) => p.id === projectId);
     return project?.workspaceRoot;
   });
@@ -443,8 +457,12 @@ export const makeDiscussionReactor = Effect.gen(function* () {
       if (!thread || thread.discussionId === null || thread.parentThreadId !== null) {
         return;
       }
+      const threadDetail = yield* resolveThreadDetail(event.payload.threadId);
+      if (!threadDetail) {
+        return;
+      }
 
-      const message = thread.messages.find((entry) => entry.id === event.payload.messageId);
+      const message = threadDetail.messages.find((entry) => entry.id === event.payload.messageId);
       if (!message || message.role !== "user") {
         yield* Effect.logWarning("discussion reactor: user message not found", {
           threadId: event.payload.threadId,
@@ -478,6 +496,10 @@ export const makeDiscussionReactor = Effect.gen(function* () {
     if (!parentThread) {
       return;
     }
+    const parentThreadDetail = yield* resolveThreadDetail(event.payload.threadId);
+    if (!parentThreadDetail) {
+      return;
+    }
 
     const isDiscussionContainer =
       parentThread.discussionId !== null || parentThread.childThreadIds.length > 0;
@@ -485,7 +507,7 @@ export const makeDiscussionReactor = Effect.gen(function* () {
       return;
     }
 
-    const transcript = parentThread.messages
+    const transcript = parentThreadDetail.messages
       .map((msg) => {
         const label =
           msg.attribution !== undefined

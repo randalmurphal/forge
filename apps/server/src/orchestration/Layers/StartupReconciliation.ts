@@ -309,7 +309,7 @@ export const makeStartupReconciliation = Effect.gen(function* () {
   // ---------------------------------------------------------------------------
 
   const reconcileAll = Effect.fn("StartupReconciliation.reconcileAll")(function* () {
-    const readModel = yield* orchestrationEngine.getReadModel();
+    const readModel = yield* orchestrationEngine.getRuntimeReadModel();
     const result = emptyResult();
 
     const staleThreadIds = findStaleThreadIds(readModel);

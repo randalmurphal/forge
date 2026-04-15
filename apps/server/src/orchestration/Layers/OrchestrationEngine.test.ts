@@ -789,7 +789,7 @@ describe("OrchestrationEngine", () => {
     );
 
     expect(result.sequence).toBe(2);
-    expect((await runtime.runPromise(engine.getReadModel())).snapshotSequence).toBe(2);
+    expect((await runtime.runPromise(engine.getRuntimeReadModel())).snapshotSequence).toBe(2);
     await runtime.dispose();
   });
 
@@ -888,7 +888,7 @@ describe("OrchestrationEngine", () => {
       "project.created",
       "thread.created",
     ]);
-    expect((await runtime.runPromise(engine.getReadModel())).snapshotSequence).toBe(2);
+    expect((await runtime.runPromise(engine.getRuntimeReadModel())).snapshotSequence).toBe(2);
 
     const retryResult = await runtime.runPromise(engine.dispatch(turnStartCommand));
     expect(retryResult.sequence).toBe(4);
@@ -1013,7 +1013,7 @@ describe("OrchestrationEngine", () => {
       ),
     ).rejects.toThrow("projection failed");
 
-    const readModelAfterFailure = await runtime.runPromise(engine.getReadModel());
+    const readModelAfterFailure = await runtime.runPromise(engine.getRuntimeReadModel());
     const updatedThread = readModelAfterFailure.threads.find(
       (thread) => thread.id === "thread-sync",
     );

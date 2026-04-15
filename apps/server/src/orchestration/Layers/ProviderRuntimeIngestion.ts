@@ -41,6 +41,7 @@ import {
   shouldPersistOrchestrationActivity,
 } from "@forgetools/shared/orchestrationActivityPresentation";
 import { OrchestrationEngineService } from "../Services/OrchestrationEngine.ts";
+import { ProjectionSnapshotQuery } from "../Services/ProjectionSnapshotQuery.ts";
 import {
   ProviderRuntimeIngestionService,
   type ProviderRuntimeIngestionShape,
@@ -101,6 +102,26 @@ appendServerDebugRecord({
 
 const bufferedAssistantChunkKey = (event: ProviderRuntimeEvent): string =>
   String(event.itemId ?? event.turnId ?? event.eventId);
+
+function compareThreadActivities(
+  left: OrchestrationThreadActivity,
+  right: OrchestrationThreadActivity,
+): number {
+  if (
+    left.sequence !== undefined &&
+    right.sequence !== undefined &&
+    left.sequence !== right.sequence
+  ) {
+    return left.sequence - right.sequence;
+  }
+  if (left.sequence !== undefined && right.sequence === undefined) {
+    return 1;
+  }
+  if (left.sequence === undefined && right.sequence !== undefined) {
+    return -1;
+  }
+  return left.createdAt.localeCompare(right.createdAt) || left.id.localeCompare(right.id);
+}
 
 function interactiveRequestTypeFromRuntimeEvent(
   event: ProviderRuntimeEvent,
@@ -227,6 +248,7 @@ function toMcpElicitationQuestions(value: unknown):
 
 const make = Effect.fn("make")(function* () {
   const orchestrationEngine = yield* OrchestrationEngineService;
+  const projectionSnapshotQuery = yield* ProjectionSnapshotQuery;
   const providerService = yield* ProviderService;
   const checkpointStore = yield* CheckpointStore;
   const projectionAgentDiffRepository = yield* ProjectionAgentDiffRepository;
@@ -251,6 +273,10 @@ const make = Effect.fn("make")(function* () {
   });
 
   const pendingCommandInlineDiffs = new Map<string, PendingCommandInlineDiff>();
+  const threadActivitiesByThreadId = new Map<
+    ThreadId,
+    ReadonlyArray<OrchestrationThreadActivity>
+  >();
   type BufferedAssistantChunk = {
     readonly chunkKey: string;
     readonly createdAt: string;
@@ -260,6 +286,67 @@ const make = Effect.fn("make")(function* () {
     readonly updatedAt: string;
   };
   const bufferedAssistantChunkByThreadId = new Map<ThreadId, BufferedAssistantChunk>();
+
+  const upsertThreadActivitiesCache = (
+    threadId: ThreadId,
+    activities: ReadonlyArray<OrchestrationThreadActivity>,
+  ) => {
+    if (activities.length === 0) {
+      return;
+    }
+    const existing = threadActivitiesByThreadId.get(threadId) ?? [];
+    const next = [...existing];
+    for (const activity of activities) {
+      const existingIndex = next.findIndex((entry) => entry.id === activity.id);
+      if (existingIndex >= 0) {
+        next[existingIndex] = activity;
+      } else {
+        next.push(activity);
+      }
+    }
+    next.sort(compareThreadActivities);
+    threadActivitiesByThreadId.set(threadId, next);
+  };
+
+  const patchThreadActivityInlineDiffCache = (
+    threadId: ThreadId,
+    activityId: string,
+    inlineDiff: OrchestrationToolInlineDiff,
+  ) => {
+    const existing = threadActivitiesByThreadId.get(threadId);
+    if (!existing) {
+      return;
+    }
+    threadActivitiesByThreadId.set(
+      threadId,
+      existing.map((activity) => {
+        if (activity.id !== activityId) {
+          return activity;
+        }
+        const payload =
+          typeof activity.payload === "object" && activity.payload !== null ? activity.payload : {};
+        return Object.assign({}, activity, {
+          payload: Object.assign({}, payload, { inlineDiff }),
+        });
+      }),
+    );
+  };
+
+  const getThreadActivities = Effect.fn("getThreadActivities")(function* (threadId: ThreadId) {
+    const cached = threadActivitiesByThreadId.get(threadId);
+    if (cached) {
+      return cached;
+    }
+    const detailOption = yield* projectionSnapshotQuery
+      .getThreadDetail(threadId)
+      .pipe(Effect.catch(() => Effect.succeed(Option.none())));
+    const activities = Option.match(detailOption, {
+      onNone: () => [] as ReadonlyArray<OrchestrationThreadActivity>,
+      onSome: (detail) => detail.thread.activities,
+    });
+    threadActivitiesByThreadId.set(threadId, activities);
+    return activities;
+  });
   const dispatchForgeCommand = (command: unknown) =>
     orchestrationEngine.dispatch(command as Parameters<typeof orchestrationEngine.dispatch>[0]);
   const interactiveRequestIdFromRuntimeEvent = (
@@ -411,7 +498,7 @@ const make = Effect.fn("make")(function* () {
       return;
     }
 
-    const readModel = yield* orchestrationEngine.getReadModel();
+    const readModel = yield* orchestrationEngine.getRuntimeReadModel();
     const pendingRequest = readModel.pendingRequests.find((request) => request.id === requestId);
 
     if (event.type === "request.opened" || event.type === "user-input.requested") {
@@ -597,7 +684,7 @@ const make = Effect.fn("make")(function* () {
   };
 
   const isGitRepoForThread = Effect.fn("isGitRepoForThread")(function* (threadId: ThreadId) {
-    const readModel = yield* orchestrationEngine.getReadModel();
+    const readModel = yield* orchestrationEngine.getRuntimeReadModel();
     const thread = readModel.threads.find((entry) => entry.id === threadId);
     if (!thread) {
       return false;
@@ -616,7 +703,7 @@ const make = Effect.fn("make")(function* () {
     threadId: ThreadId,
   ) {
     const [readModel, sessions] = yield* Effect.all([
-      orchestrationEngine.getReadModel(),
+      orchestrationEngine.getRuntimeReadModel(),
       providerService.listSessions(),
     ]);
     const thread = readModel.threads.find((entry) => entry.id === threadId);
@@ -960,6 +1047,7 @@ const make = Effect.fn("make")(function* () {
         createdAt: activity.createdAt,
       }),
     ).pipe(Effect.asVoid);
+    upsertThreadActivitiesCache(input.threadId, input.activities);
   });
 
   const upsertThreadActivityInlineDiffs = Effect.fn("upsertThreadActivityInlineDiffs")(
@@ -975,14 +1063,22 @@ const make = Effect.fn("make")(function* () {
       yield* Effect.forEach(
         activityInlineDiffs,
         ({ activityId, inlineDiff }) =>
-          orchestrationEngine.dispatch({
-            type: "thread.activity.inline-diff.upsert",
-            commandId: providerCommandId(input.event, "thread-activity-inline-diff-upsert"),
-            threadId: input.threadId,
-            activityId,
-            inlineDiff,
-            createdAt: input.event.createdAt,
-          }),
+          orchestrationEngine
+            .dispatch({
+              type: "thread.activity.inline-diff.upsert",
+              commandId: providerCommandId(input.event, "thread-activity-inline-diff-upsert"),
+              threadId: input.threadId,
+              activityId,
+              inlineDiff,
+              createdAt: input.event.createdAt,
+            })
+            .pipe(
+              Effect.tap(() =>
+                Effect.sync(() =>
+                  patchThreadActivityInlineDiffCache(input.threadId, activityId, inlineDiff),
+                ),
+              ),
+            ),
         { discard: true },
       );
     },
@@ -1308,26 +1404,12 @@ const make = Effect.fn("make")(function* () {
     } as const;
   });
 
-  const getExpectedProviderTurnIdForThread = Effect.fn("getExpectedProviderTurnIdForThread")(
-    function* (threadId: ThreadId) {
-      const sessions = yield* providerService.listSessions();
-      const session = sessions.find((entry) => entry.threadId === threadId);
-      return session?.activeTurnId;
-    },
-  );
-
   const getSourceProposedPlanReferenceForAcceptedTurnStart = Effect.fn(
     "getSourceProposedPlanReferenceForAcceptedTurnStart",
   )(function* (threadId: ThreadId, eventTurnId: TurnId | undefined) {
     if (eventTurnId === undefined) {
       return null;
     }
-
-    const expectedTurnId = yield* getExpectedProviderTurnIdForThread(threadId);
-    if (!sameId(expectedTurnId, eventTurnId)) {
-      return null;
-    }
-
     return yield* getSourceProposedPlanReferenceForPendingTurnStart(threadId);
   });
 
@@ -1338,12 +1420,17 @@ const make = Effect.fn("make")(function* () {
       implementationThreadId: ThreadId,
       implementedAt: string,
     ) {
-      const readModel = yield* orchestrationEngine.getReadModel();
-      const sourceThread = readModel.threads.find((entry) => entry.id === sourceThreadId);
-      const sourcePlan = sourceThread
-        ? findLatestProposedPlanById(sourceThread.proposedPlans, sourcePlanId)
+      const sourceThreadOption = yield* projectionSnapshotQuery
+        .getThreadDetail(sourceThreadId)
+        .pipe(Effect.catch(() => Effect.succeed(Option.none())));
+      const sourceThreadDetail = Option.match(sourceThreadOption, {
+        onNone: () => undefined,
+        onSome: (value) => value.thread,
+      });
+      const sourcePlan = sourceThreadDetail
+        ? findLatestProposedPlanById(sourceThreadDetail.proposedPlans, sourcePlanId)
         : undefined;
-      if (!sourceThread || !sourcePlan || sourcePlan.implementedAt !== null) {
+      if (!sourceThreadDetail || !sourcePlan || sourcePlan.implementedAt !== null) {
         return;
       }
 
@@ -1352,7 +1439,7 @@ const make = Effect.fn("make")(function* () {
         commandId: CommandId.makeUnsafe(
           `provider:source-proposed-plan-implemented:${implementationThreadId}:${crypto.randomUUID()}`,
         ),
-        threadId: sourceThread.id,
+        threadId: sourceThreadDetail.id,
         proposedPlan: {
           ...sourcePlan,
           implementedAt,
@@ -1367,9 +1454,10 @@ const make = Effect.fn("make")(function* () {
   const processRuntimeEvent = Effect.fn("processRuntimeEvent")(function* (
     event: ProviderRuntimeEvent,
   ) {
-    const readModel = yield* orchestrationEngine.getReadModel();
+    const readModel = yield* orchestrationEngine.getRuntimeReadModel();
     const thread = readModel.threads.find((entry) => entry.id === event.threadId);
     if (!thread) return;
+    const existingActivities = yield* getThreadActivities(thread.id);
 
     if (
       event.type === "request.opened" ||
@@ -1676,6 +1764,7 @@ const make = Effect.fn("make")(function* () {
     if (event.type === "session.exited") {
       yield* flushBufferedAssistantChunkAtBoundary();
       yield* clearTurnStateForSession(thread.id);
+      threadActivitiesByThreadId.delete(thread.id);
     }
 
     if (event.type === "runtime.error") {
@@ -1866,7 +1955,7 @@ const make = Effect.fn("make")(function* () {
     ) {
       const childItemId = event.itemId ?? undefined;
       const childResponseAlreadyRecorded = childItemId
-        ? [...thread.activities, ...activities].some((activity) => {
+        ? [...existingActivities, ...activities].some((activity) => {
             if (activity.kind !== "task.progress") {
               return false;
             }
@@ -1907,7 +1996,7 @@ const make = Effect.fn("make")(function* () {
 
     if (event.provider === "codex") {
       const syntheticActivities = synthesizeCodexSubagentLifecycleActivities({
-        existingActivities: thread.activities,
+        existingActivities,
         currentActivities: activities,
       });
       if (syntheticActivities.length > 0) {
@@ -1929,7 +2018,7 @@ const make = Effect.fn("make")(function* () {
           if (exactTurnDiff) {
             activities = upgradeActivitiesFromExactTurnDiff({
               activitiesToUpgrade: activities,
-              activityContext: [...thread.activities, ...activities],
+              activityContext: [...existingActivities, ...activities],
               turnId,
               workspaceRoot: workspaceCwd,
               unifiedDiff: exactTurnDiff,
@@ -1939,12 +2028,12 @@ const make = Effect.fn("make")(function* () {
 
         if (event.type === "turn.diff.updated") {
           const upgradedExistingActivities = upgradeActivitiesFromExactTurnDiff({
-            activitiesToUpgrade: thread.activities,
-            activityContext: thread.activities,
+            activitiesToUpgrade: existingActivities,
+            activityContext: existingActivities,
             turnId,
             workspaceRoot: workspaceCwd,
             unifiedDiff: event.payload.unifiedDiff,
-          }).filter((activity, index) => activity !== thread.activities[index]);
+          }).filter((activity, index) => activity !== existingActivities[index]);
 
           if (upgradedExistingActivities.length > 0) {
             yield* upsertThreadActivityInlineDiffs({

@@ -5,7 +5,6 @@ import type {
   InteractiveRequestId,
   OrchestrationCommand,
   OrchestrationEvent,
-  OrchestrationReadModel,
   ProjectId,
   ThreadId,
 } from "@forgetools/contracts";
@@ -48,6 +47,7 @@ import {
   OrchestrationEngineService,
   type OrchestrationEngineShape,
 } from "../Services/OrchestrationEngine.ts";
+import { toRuntimeReadModel } from "../runtimeModel.ts";
 
 interface CommandEnvelope {
   command: OrchestrationCommand;
@@ -105,13 +105,13 @@ const makeOrchestrationEngine = Effect.gen(function* () {
   const projectionPipeline = yield* OrchestrationProjectionPipeline;
   const projectionSnapshotQuery = yield* ProjectionSnapshotQuery;
 
-  let readModel = createEmptyReadModel(new Date().toISOString());
+  let runtimeReadModel = createEmptyReadModel(new Date().toISOString());
 
   const commandQueue = yield* Queue.unbounded<CommandEnvelope>();
   const eventPubSub = yield* PubSub.unbounded<OrchestrationEvent>();
 
   const processEnvelope = (envelope: CommandEnvelope): Effect.Effect<void> => {
-    const dispatchStartSequence = readModel.snapshotSequence;
+    const dispatchStartSequence = runtimeReadModel.snapshotSequence;
     const processingStartedAtMs = Date.now();
     const aggregateRef = commandToAggregateRef(envelope.command);
     const baseMetricAttributes = {
@@ -126,11 +126,11 @@ const makeOrchestrationEngine = Effect.gen(function* () {
         return;
       }
 
-      let nextReadModel = readModel;
+      let nextReadModel = runtimeReadModel;
       for (const persistedEvent of persistedEvents) {
         nextReadModel = yield* projectEvent(nextReadModel, persistedEvent);
       }
-      readModel = nextReadModel;
+      runtimeReadModel = nextReadModel;
 
       for (const persistedEvent of persistedEvents) {
         yield* PubSub.publish(eventPubSub, persistedEvent as unknown as OrchestrationEvent);
@@ -163,14 +163,14 @@ const makeOrchestrationEngine = Effect.gen(function* () {
 
         const eventBase = yield* decideOrchestrationCommand({
           command: envelope.command,
-          readModel,
+          readModel: runtimeReadModel,
         });
         const eventBases = Array.isArray(eventBase) ? eventBase : [eventBase];
         const committedCommand = yield* sql
           .withTransaction(
             Effect.gen(function* () {
               const committedEvents: ForgeEvent[] = [];
-              let nextReadModel = readModel;
+              let nextReadModel = runtimeReadModel;
 
               for (const nextEvent of eventBases) {
                 const savedEvent = yield* eventStore.append(nextEvent);
@@ -186,14 +186,14 @@ const makeOrchestrationEngine = Effect.gen(function* () {
                   aggregateKind: aggregateRef.aggregateKind,
                   aggregateId: aggregateRef.aggregateId,
                   acceptedAt: new Date().toISOString(),
-                  resultSequence: readModel.snapshotSequence,
+                  resultSequence: runtimeReadModel.snapshotSequence,
                   status: "accepted",
                   error: null,
                 });
 
                 return {
                   committedEvents,
-                  lastSequence: readModel.snapshotSequence,
+                  lastSequence: runtimeReadModel.snapshotSequence,
                   nextReadModel,
                 } as const;
               }
@@ -223,7 +223,7 @@ const makeOrchestrationEngine = Effect.gen(function* () {
             ),
           );
 
-        readModel = committedCommand.nextReadModel;
+        runtimeReadModel = committedCommand.nextReadModel;
         for (const [index, event] of committedCommand.committedEvents.entries()) {
           yield* PubSub.publish(eventPubSub, event as unknown as OrchestrationEvent);
           if (index === 0) {
@@ -281,7 +281,7 @@ const makeOrchestrationEngine = Effect.gen(function* () {
                 ).pipe(
                   Effect.annotateLogs({
                     commandId: envelope.command.commandId,
-                    snapshotSequence: readModel.snapshotSequence,
+                    snapshotSequence: runtimeReadModel.snapshotSequence,
                   }),
                 ),
               ),
@@ -294,7 +294,7 @@ const makeOrchestrationEngine = Effect.gen(function* () {
                   aggregateKind: aggregateRef.aggregateKind,
                   aggregateId: aggregateRef.aggregateId,
                   acceptedAt: new Date().toISOString(),
-                  resultSequence: readModel.snapshotSequence,
+                  resultSequence: runtimeReadModel.snapshotSequence,
                   status: "rejected",
                   error: error.message,
                 })
@@ -309,16 +309,21 @@ const makeOrchestrationEngine = Effect.gen(function* () {
   };
 
   yield* projectionPipeline.bootstrap;
-  readModel = yield* projectionSnapshotQuery.getSnapshot();
+  runtimeReadModel = yield* projectionSnapshotQuery
+    .getSnapshot()
+    .pipe(Effect.map(toRuntimeReadModel));
 
   const worker = Effect.forever(Queue.take(commandQueue).pipe(Effect.flatMap(processEnvelope)));
   yield* Effect.forkScoped(worker);
   yield* Effect.logDebug("orchestration engine started").pipe(
-    Effect.annotateLogs({ sequence: readModel.snapshotSequence }),
+    Effect.annotateLogs({ sequence: runtimeReadModel.snapshotSequence }),
   );
 
+  const getRuntimeReadModel: OrchestrationEngineShape["getRuntimeReadModel"] = () =>
+    Effect.sync(() => runtimeReadModel);
+
   const getReadModel: OrchestrationEngineShape["getReadModel"] = () =>
-    Effect.sync((): OrchestrationReadModel => readModel);
+    projectionSnapshotQuery.getSnapshot().pipe(Effect.orDie);
 
   const readEvents: OrchestrationEngineShape["readEvents"] = (fromSequenceExclusive) =>
     eventStore.readFromSequence(fromSequenceExclusive) as unknown as ReturnType<
@@ -348,6 +353,7 @@ const makeOrchestrationEngine = Effect.gen(function* () {
 
   return {
     getReadModel,
+    getRuntimeReadModel,
     readEvents,
     streamEventsFromSequence,
     dispatch,

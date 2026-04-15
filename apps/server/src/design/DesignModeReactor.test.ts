@@ -67,6 +67,7 @@ describe("DesignModeReactor", () => {
     const layer = DesignModeReactorLive.pipe(
       Layer.provideMerge(
         Layer.succeed(OrchestrationEngineService, {
+          getRuntimeReadModel: () => Effect.succeed({ threads: [], projects: [] } as never),
           getReadModel: () => Effect.succeed({ threads: [], projects: [] } as never),
           readEvents: () => Stream.empty,
           streamEventsFromSequence: () => Stream.empty,

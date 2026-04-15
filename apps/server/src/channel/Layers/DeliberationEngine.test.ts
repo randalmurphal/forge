@@ -248,6 +248,7 @@ function buildProjectionThread(input: {
 
 async function createHarness(readModel: OrchestrationReadModel) {
   const orchestrationService: OrchestrationEngineShape = {
+    getRuntimeReadModel: () => Effect.succeed(readModel as never),
     getReadModel: () => Effect.succeed(readModel),
     readEvents: () => Stream.empty,
     streamEventsFromSequence: () => Stream.empty,

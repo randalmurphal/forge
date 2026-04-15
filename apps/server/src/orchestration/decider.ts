@@ -7,12 +7,12 @@ import {
   type ForgeCommand,
   type ForgeEvent,
   type OrchestrationCommand,
-  type OrchestrationReadModel,
 } from "@forgetools/contracts";
 import { findLatestProposedPlanById } from "@forgetools/shared/threadHistory";
 import { Effect } from "effect";
 
 import { OrchestrationCommandInvariantError } from "./Errors.ts";
+import type { OrchestrationRuntimeReadModel } from "./runtimeModel.ts";
 import {
   findChannelByThreadIdAndType,
   requireChannel,
@@ -142,7 +142,7 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
   readModel,
 }: {
   readonly command: DecidableOrchestrationCommand;
-  readonly readModel: OrchestrationReadModel;
+  readonly readModel: OrchestrationRuntimeReadModel;
 }): Effect.fn.Return<
   DecidedOrchestrationEvent | ReadonlyArray<DecidedOrchestrationEvent>,
   OrchestrationCommandInvariantError

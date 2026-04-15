@@ -66,7 +66,7 @@ export const makeChannelMcpToolHandlers = Effect.fn("makeChannelMcpToolHandlers"
   const postChannelMessage = channelService.postMessage;
 
   const getChannel = Effect.fn("McpChannelServer.getChannel")(function* () {
-    const readModel = yield* orchestrationEngine.getReadModel();
+    const readModel = yield* orchestrationEngine.getRuntimeReadModel();
     const channel = readModel.channels.find((candidate) => candidate.id === input.channelId);
     if (!channel) {
       return yield* new ChannelServiceChannelNotFoundError({

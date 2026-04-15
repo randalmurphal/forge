@@ -11,7 +11,6 @@ import {
   OrchestrationDispatchCommandError,
   type OrchestrationEvent,
   OrchestrationGetFullThreadAgentDiffError,
-  type OrchestrationReadModel,
   OrchestrationGetTurnAgentDiffError,
   OrchestrationGetFullThreadDiffError,
   OrchestrationGetSnapshotError,
@@ -51,6 +50,7 @@ import {
 } from "./orchestration/threadActivityTransport.ts";
 import { OrchestrationEngineService } from "./orchestration/Services/OrchestrationEngine";
 import { ProjectionSnapshotQuery } from "./orchestration/Services/ProjectionSnapshotQuery";
+import type { OrchestrationRuntimeReadModel } from "./orchestration/runtimeModel";
 import {
   observeRpcEffect,
   observeRpcStream,
@@ -184,7 +184,9 @@ function deriveSessionStatus(input: {
   }
 }
 
-function createWorkflowPushStreamState(snapshot: OrchestrationReadModel): WorkflowPushStreamState {
+function createWorkflowPushStreamState(
+  snapshot: OrchestrationRuntimeReadModel,
+): WorkflowPushStreamState {
   return {
     phaseRunInfoById: new Map(
       snapshot.phaseRuns.map((phaseRun) => [
@@ -204,7 +206,9 @@ function createWorkflowPushStreamState(snapshot: OrchestrationReadModel): Workfl
   };
 }
 
-function createChannelPushStreamState(snapshot: OrchestrationReadModel): ChannelPushStreamState {
+function createChannelPushStreamState(
+  snapshot: OrchestrationRuntimeReadModel,
+): ChannelPushStreamState {
   return {
     ownerThreadIdByChannelId: new Map(
       snapshot.channels.map((channel) => [channel.id, channel.threadId]),
@@ -748,7 +752,7 @@ const WsRpcLayer = WsRpcGroup.toLayer(
     });
 
     const makeWorkflowPushStream = Effect.fn("ws.makeWorkflowPushStream")(function* () {
-      const snapshot = yield* orchestrationEngine.getReadModel();
+      const snapshot = yield* orchestrationEngine.getRuntimeReadModel();
       const fromSequenceExclusive = snapshot.snapshotSequence;
       const orderedEvents = orchestrationEngine
         .streamEventsFromSequence(fromSequenceExclusive)
@@ -773,7 +777,7 @@ const WsRpcLayer = WsRpcGroup.toLayer(
     });
 
     const makeChannelPushStream = Effect.fn("ws.makeChannelPushStream")(function* () {
-      const snapshot = yield* orchestrationEngine.getReadModel();
+      const snapshot = yield* orchestrationEngine.getRuntimeReadModel();
       const fromSequenceExclusive = snapshot.snapshotSequence;
       const orderedEvents = orchestrationEngine
         .streamEventsFromSequence(fromSequenceExclusive)
@@ -917,7 +921,7 @@ const WsRpcLayer = WsRpcGroup.toLayer(
     });
 
     const loadChannel = Effect.fn("ws.loadChannel")(function* (channelId: Channel["id"]) {
-      const readModel = yield* orchestrationEngine.getReadModel();
+      const readModel = yield* orchestrationEngine.getRuntimeReadModel();
       const channel = readModel.channels.find((entry) => entry.id === channelId);
       if (!channel) {
         return yield* new OrchestrationGetSnapshotError({
@@ -1546,7 +1550,7 @@ const WsRpcLayer = WsRpcGroup.toLayer(
           Effect.gen(function* () {
             const fromSequenceExclusive =
               input.fromSequenceExclusive ??
-              (yield* orchestrationEngine.getReadModel()).snapshotSequence;
+              (yield* orchestrationEngine.getRuntimeReadModel()).snapshotSequence;
             return orchestrationEngine.streamEventsFromSequence(fromSequenceExclusive).pipe(
               Stream.map(sanitizeForgeEventForTransport),
               Stream.catch(() => Stream.empty),
